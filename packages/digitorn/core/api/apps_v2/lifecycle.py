@@ -236,6 +236,37 @@ async def list_apps(
     return AppResponse(success=True, data=apps)
 
 
+@router.get("/disabled", response_model=AppResponse)
+async def list_disabled(request: Request) -> AppResponse:
+    """List disabled apps visible to the caller.
+
+    The web and Flutter clients call this for the "disabled apps"
+    drawer (re-enable / purge UX). The list includes ``has_bundle``
+    per row so the UI can hide the Re-enable button when the install
+    dir on disk is gone.
+
+    Scoping: non-admin callers see only their own user-scoped disabled
+    apps + every system-scoped disabled app. Admins see everything.
+    """
+    manager = _get_manager(request)
+    perms = list(getattr(request.state, "permissions", []) or [])
+    is_admin = "*" in perms
+    caller_user_id = _caller_user_id(request) or None
+
+    try:
+        if is_admin:
+            disabled = await manager.list_disabled_apps()
+        else:
+            disabled = await manager.list_disabled_apps(
+                user_id=caller_user_id,
+            )
+    except Exception as exc:
+        logger.warning("list_disabled failed: %s", exc, exc_info=True)
+        disabled = []
+
+    return AppResponse(success=True, data=disabled)
+
+
 @router.get("/{app_id}/manifest", response_model=AppResponse)
 async def get_app_manifest(request: Request, app_id: str) -> AppResponse:
     """Return the deployed app's manifest (flat shape consumed by the
@@ -515,7 +546,6 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
                         source_uri=str(yaml_path),
                         version=compiled.meta.version or "0.0.0",
                         hash=_hash,
-                        install_dir="",  # no out-of-tree install dir for local YAML
                         manifest=_manifest,
                         installed_by=caller_user_id or "",
                         status="installed",
@@ -926,7 +956,7 @@ async def enable_app(
 
     Scope-aware: when ``?scope=user&user_id=<uid>`` is supplied the
     admin re-enables that user's install. Otherwise the system
-    install is targeted. Fails if the bundle was wiped.
+    install is targeted. Fails if the install dir was wiped.
     """
     _validate_id(app_id)
     perms = list(getattr(request.state, "permissions", []) or [])
@@ -1131,7 +1161,6 @@ async def delete_app(
                 "scope": target_scope,
                 "deleted": False,
                 "deployed": False,
-                "bundles_deleted": 0,
                 "disk_removed": False,
                 "secrets_deleted": 0,
                 "db_removed": False,
@@ -1152,15 +1181,13 @@ async def delete_app(
             "owner_user_id": result.get("owner_user_id", ""),
             "deleted": True,
             "deployed": result.get("deployed", False),
-            "bundles_deleted": result.get("bundles_deleted", 0),
             "disk_removed": result.get("disk_removed", False),
             "secrets_deleted": result.get("secrets_deleted", 0),
             "db_removed": result.get("db_removed", False),
             "history_preserved": result.get("history_preserved", False),
             "message": (
                 f"App '{app_id}' permanently deleted "
-                f"({result.get('bundles_deleted', 0)} bundle(s), "
-                f"{result.get('secrets_deleted', 0)} secret(s))" + msg_tail + "."
+                f"({result.get('secrets_deleted', 0)} secret(s))" + msg_tail + "."
             ),
         },
     )
@@ -1175,15 +1202,15 @@ async def reload_app(request: Request, app_id: str) -> AppResponse:
     changes without restarting the whole daemon.
 
     What it does:
-      - Re-reads the app's frozen bundle from disk
+      - Re-reads the app's YAML + assets from the install dir on disk
       - Re-reads the current secrets from the secret store
       - Stops the running in-memory instance (drops active sessions)
       - Rebuilds the app with the fresh secrets and puts it back in
         the pool of deployed apps
 
     What it does NOT do:
-      - Does not modify any DB row (Application, AppBundle, AppProfile)
-      - Does not change the bundle on disk
+      - Does not modify any DB row (Application, AppProfile)
+      - Does not change the install dir on disk
       - Does not bump the version
 
     Permission: ``apps:deploy`` (same as deploy, because reload is

@@ -1,0 +1,615 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "server_id": "github",
+      "display_name": "GitHub",
+      "description": "GitHub API (repos, issues, PRs, search, code)",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
+      "runtime": "npm",
+      "package": "@modelcontextprotocol/server-github",
+      "env_mapping": {
+        "token": "GITHUB_PERSONAL_ACCESS_TOKEN"
+      },
+      "key_descriptions": {
+        "token": "Personal access token (Settings \u2192 Developer settings \u2192 Tokens)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "notion",
+      "display_name": "Notion",
+      "description": "Notion workspace (pages, databases, search)",
+      "transport": "stdio",
+      "command": "mcp-notion",
+      "runtime": "pip",
+      "package": "mcp-notion",
+      "env_mapping": {
+        "token": "NOTION_API_KEY"
+      },
+      "key_descriptions": {
+        "token": "API key or OAuth token (Settings \u2192 Connections \u2192 Develop)"
+      },
+      "oauth_provider": "notion",
+      "oauth_env_token_var": "NOTION_API_KEY",
+      "oauth_style": "env_token",
+      "timeout": 30.0
+    },
+    {
+      "server_id": "slack",
+      "display_name": "Slack",
+      "description": "Slack workspace (channels, messages, users)",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-slack"
+      ],
+      "runtime": "npm",
+      "package": "@modelcontextprotocol/server-slack",
+      "env_mapping": {
+        "bot_token": "SLACK_BOT_TOKEN",
+        "token": "SLACK_BOT_TOKEN",
+        "team_id": "SLACK_TEAM_ID"
+      },
+      "key_descriptions": {
+        "bot_token": "Bot User OAuth Token (api.slack.com \u2192 OAuth & Permissions)",
+        "token": "Bot User OAuth Token (alias for bot_token)",
+        "team_id": "Workspace ID (visible in the URL or workspace settings)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "linear",
+      "display_name": "Linear",
+      "description": "Linear issue tracker (issues, projects, teams)",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-linear"
+      ],
+      "runtime": "npm",
+      "package": "mcp-linear",
+      "env_mapping": {
+        "api_key": "LINEAR_API_KEY"
+      },
+      "key_descriptions": {
+        "api_key": "Personal API key (Settings \u2192 API)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "clickup",
+      "display_name": "ClickUp",
+      "description": "ClickUp project management (tasks, lists, spaces)",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-clickup"
+      ],
+      "runtime": "npm",
+      "package": "mcp-clickup",
+      "env_mapping": {
+        "api_key": "CLICKUP_API_KEY"
+      },
+      "key_descriptions": {
+        "api_key": "Personal API token (Settings \u2192 Apps)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "atlassian",
+      "display_name": "Atlassian (Jira/Confluence)",
+      "description": "Jira issues and Confluence pages",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-atlassian"
+      ],
+      "runtime": "npm",
+      "package": "mcp-atlassian",
+      "env_mapping": {
+        "site_url": "ATLASSIAN_URL",
+        "email": "ATLASSIAN_EMAIL",
+        "api_token": "ATLASSIAN_API_TOKEN"
+      },
+      "key_descriptions": {
+        "site_url": "Your Atlassian site URL (e.g. https://myteam.atlassian.net)",
+        "email": "Account email address",
+        "api_token": "API token (id.atlassian.com \u2192 Security \u2192 API tokens)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "google_drive",
+      "display_name": "Google Drive",
+      "description": "Google Drive file access",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-gdrive"
+      ],
+      "runtime": "npm",
+      "package": "@modelcontextprotocol/server-gdrive",
+      "oauth_provider": "google",
+      "oauth_scopes": [
+        "https://www.googleapis.com/auth/drive.readonly"
+      ],
+      "oauth_style": "google_keyfile",
+      "oauth_keyfile_env": "GDRIVE_OAUTH_PATH",
+      "oauth_credentials_env": "GDRIVE_CREDENTIALS_PATH",
+      "oauth_credentials_filename": ".gdrive-server-credentials.json",
+      "timeout": 30.0
+    },
+    {
+      "server_id": "google_calendar",
+      "display_name": "Google Calendar",
+      "description": "Google Calendar events and scheduling",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-google-calendar"
+      ],
+      "runtime": "npm",
+      "package": "@modelcontextprotocol/server-google-calendar",
+      "oauth_provider": "google",
+      "oauth_scopes": [
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/calendar.events"
+      ],
+      "oauth_style": "google_keyfile",
+      "oauth_keyfile_env": "GDRIVE_OAUTH_PATH",
+      "oauth_credentials_env": "GDRIVE_CREDENTIALS_PATH",
+      "oauth_credentials_filename": ".gdrive-server-credentials.json",
+      "timeout": 30.0
+    },
+    {
+      "server_id": "gmail",
+      "display_name": "Gmail",
+      "description": "Gmail email access (read, send, search) with auto OAuth",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@gongrzhe/server-gmail-autoauth-mcp"
+      ],
+      "runtime": "npm",
+      "package": "@gongrzhe/server-gmail-autoauth-mcp",
+      "oauth_provider": "google",
+      "oauth_scopes": [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.send"
+      ],
+      "oauth_style": "google_keyfile",
+      "oauth_keyfile_env": "GMAIL_OAUTH_PATH",
+      "oauth_credentials_env": "GMAIL_CREDENTIALS_PATH",
+      "oauth_credentials_filename": "credentials.json",
+      "binary_name": "gmail-mcp",
+      "timeout": 30.0
+    },
+    {
+      "server_id": "google_maps",
+      "display_name": "Google Maps",
+      "description": "Google Maps geocoding, directions, places",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-google-maps"
+      ],
+      "runtime": "npm",
+      "package": "@modelcontextprotocol/server-google-maps",
+      "env_mapping": {
+        "api_key": "GOOGLE_MAPS_API_KEY"
+      },
+      "key_descriptions": {
+        "api_key": "Google Maps API key (console.cloud.google.com \u2192 Credentials)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "stripe",
+      "display_name": "Stripe",
+      "description": "Stripe payments (customers, invoices, subscriptions)",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@stripe/mcp-server-stripe"
+      ],
+      "runtime": "npm",
+      "package": "@stripe/mcp-server-stripe",
+      "env_mapping": {
+        "api_key": "STRIPE_API_KEY"
+      },
+      "key_descriptions": {
+        "api_key": "Secret API key (dashboard.stripe.com \u2192 Developers \u2192 API keys)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "shopify",
+      "display_name": "Shopify",
+      "description": "Shopify store management (products, orders)",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropic/mcp-server-shopify"
+      ],
+      "runtime": "npm",
+      "package": "@anthropic/mcp-server-shopify",
+      "env_mapping": {
+        "token": "SHOPIFY_ACCESS_TOKEN"
+      },
+      "key_descriptions": {
+        "token": "Admin API access token (Partners \u2192 Apps \u2192 API credentials)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "paypal",
+      "display_name": "PayPal",
+      "description": "PayPal payments and transactions",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@anthropic/mcp-server-paypal"
+      ],
+      "runtime": "npm",
+      "package": "@anthropic/mcp-server-paypal",
+      "env_mapping": {
+        "client_id": "PAYPAL_CLIENT_ID",
+        "client_secret": "PAYPAL_CLIENT_SECRET"
+      },
+      "key_descriptions": {
+        "client_id": "REST API app Client ID (developer.paypal.com \u2192 My Apps)",
+        "client_secret": "REST API app Secret (developer.paypal.com \u2192 My Apps)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "mailgun",
+      "display_name": "Mailgun",
+      "description": "Mailgun email sending and tracking",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-mailgun"
+      ],
+      "runtime": "npm",
+      "package": "mcp-mailgun",
+      "env_mapping": {
+        "api_key": "MAILGUN_API_KEY",
+        "domain": "MAILGUN_DOMAIN"
+      },
+      "key_descriptions": {
+        "api_key": "Private API key (app.mailgun.com \u2192 API Keys)",
+        "domain": "Sending domain (e.g. mg.example.com)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "brave_search",
+      "display_name": "Brave Search",
+      "description": "Web search via Brave Search API",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-brave-search"
+      ],
+      "runtime": "npm",
+      "package": "@modelcontextprotocol/server-brave-search",
+      "env_mapping": {
+        "api_key": "BRAVE_API_KEY"
+      },
+      "key_descriptions": {
+        "api_key": "Brave Search API key (brave.com/search/api \u2192 Get API Key)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "fetch",
+      "display_name": "Fetch",
+      "description": "Fetch and extract content from web URLs",
+      "transport": "stdio",
+      "command": "mcp-server-fetch",
+      "runtime": "pip",
+      "package": "mcp-server-fetch",
+      "timeout": 30.0
+    },
+    {
+      "server_id": "puppeteer",
+      "display_name": "Puppeteer",
+      "description": "Browser automation via Puppeteer",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-puppeteer"
+      ],
+      "runtime": "npm",
+      "package": "@modelcontextprotocol/server-puppeteer",
+      "timeout": 30.0
+    },
+    {
+      "server_id": "postgres",
+      "display_name": "PostgreSQL",
+      "description": "PostgreSQL database access",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres"
+      ],
+      "runtime": "npm",
+      "package": "@modelcontextprotocol/server-postgres",
+      "env_mapping": {
+        "connection_string": "__ARG_APPEND__"
+      },
+      "key_descriptions": {
+        "connection_string": "PostgreSQL connection URI (e.g. postgresql://user:pass@host:5432/db)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "sqlite",
+      "display_name": "SQLite",
+      "description": "SQLite database access",
+      "transport": "stdio",
+      "command": "mcp-server-sqlite",
+      "args": [
+        "--db-path"
+      ],
+      "runtime": "pip",
+      "package": "mcp-server-sqlite",
+      "env_mapping": {
+        "database": "__ARG_APPEND__"
+      },
+      "key_descriptions": {
+        "database": "Path to SQLite database file"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "qdrant",
+      "display_name": "Qdrant",
+      "description": "Qdrant vector database",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-qdrant"
+      ],
+      "runtime": "npm",
+      "package": "mcp-qdrant",
+      "env_mapping": {
+        "url": "QDRANT_URL",
+        "api_key": "QDRANT_API_KEY"
+      },
+      "key_descriptions": {
+        "url": "Qdrant server URL (e.g. http://localhost:6333)",
+        "api_key": "Qdrant API key (optional for local instances)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "filesystem",
+      "display_name": "Filesystem",
+      "description": "Local filesystem read/write access",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem"
+      ],
+      "runtime": "npm",
+      "package": "@modelcontextprotocol/server-filesystem",
+      "env_mapping": {
+        "path": "__ARG_APPEND__"
+      },
+      "key_descriptions": {
+        "path": "Directory path to expose (e.g. /home/user/project)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "memory",
+      "display_name": "Memory (Knowledge Graph)",
+      "description": "Persistent knowledge graph memory",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-memory"
+      ],
+      "runtime": "npm",
+      "package": "@modelcontextprotocol/server-memory",
+      "timeout": 30.0
+    },
+    {
+      "server_id": "git",
+      "display_name": "Git",
+      "description": "Git repository operations (log, diff, branch, commit)",
+      "transport": "stdio",
+      "command": "mcp-server-git",
+      "args": [
+        "--repository"
+      ],
+      "runtime": "pip",
+      "package": "mcp-server-git",
+      "env_mapping": {
+        "repository": "__ARG_APPEND__"
+      },
+      "key_descriptions": {
+        "repository": "Path to the git repository"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "docker",
+      "display_name": "Docker",
+      "description": "Docker container management",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-docker"
+      ],
+      "runtime": "npm",
+      "package": "mcp-docker",
+      "timeout": 30.0
+    },
+    {
+      "server_id": "sequential_thinking",
+      "display_name": "Sequential Thinking",
+      "description": "Step-by-step reasoning and problem decomposition",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ],
+      "runtime": "npm",
+      "package": "@modelcontextprotocol/server-sequential-thinking",
+      "timeout": 30.0
+    },
+    {
+      "server_id": "vercel",
+      "display_name": "Vercel",
+      "description": "Vercel deployments and project management",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-vercel"
+      ],
+      "runtime": "npm",
+      "package": "mcp-vercel",
+      "env_mapping": {
+        "token": "VERCEL_TOKEN"
+      },
+      "key_descriptions": {
+        "token": "Vercel access token (vercel.com \u2192 Settings \u2192 Tokens)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "cloudflare",
+      "display_name": "Cloudflare",
+      "description": "Cloudflare Workers, DNS, and CDN management",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-cloudflare"
+      ],
+      "runtime": "npm",
+      "package": "mcp-cloudflare",
+      "env_mapping": {
+        "api_token": "CLOUDFLARE_API_TOKEN"
+      },
+      "key_descriptions": {
+        "api_token": "API token (dash.cloudflare.com \u2192 My Profile \u2192 API Tokens)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "aws",
+      "display_name": "AWS",
+      "description": "AWS services (S3, Lambda, EC2, etc.)",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-aws"
+      ],
+      "runtime": "npm",
+      "package": "mcp-aws",
+      "env_mapping": {
+        "access_key_id": "AWS_ACCESS_KEY_ID",
+        "secret_access_key": "AWS_SECRET_ACCESS_KEY",
+        "region": "AWS_DEFAULT_REGION"
+      },
+      "key_descriptions": {
+        "access_key_id": "IAM access key ID",
+        "secret_access_key": "IAM secret access key",
+        "region": "AWS region (e.g. us-east-1, eu-west-1)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "kubernetes",
+      "display_name": "Kubernetes",
+      "description": "Kubernetes cluster management",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-kubernetes"
+      ],
+      "runtime": "npm",
+      "package": "mcp-kubernetes",
+      "env_mapping": {
+        "kubeconfig": "KUBECONFIG"
+      },
+      "key_descriptions": {
+        "kubeconfig": "Path to kubeconfig file (default: ~/.kube/config)"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "everart",
+      "display_name": "EverArt",
+      "description": "AI image generation via EverArt",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-everart"
+      ],
+      "runtime": "npm",
+      "package": "@modelcontextprotocol/server-everart",
+      "env_mapping": {
+        "api_key": "EVERART_API_KEY"
+      },
+      "key_descriptions": {
+        "api_key": "EverArt API key"
+      },
+      "timeout": 30.0
+    },
+    {
+      "server_id": "apify",
+      "display_name": "Apify",
+      "description": "Apify web scraping and automation actors",
+      "transport": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-apify"
+      ],
+      "runtime": "npm",
+      "package": "mcp-apify",
+      "env_mapping": {
+        "token": "APIFY_TOKEN"
+      },
+      "key_descriptions": {
+        "token": "Apify API token (console.apify.com \u2192 Settings \u2192 Integrations)"
+      },
+      "timeout": 30.0
+    }
+  ]
+}

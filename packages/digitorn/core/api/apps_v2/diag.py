@@ -499,27 +499,16 @@ async def get_app_icon(request: Request, app_id: str):
 
     bundle_dir: Path | None = None
     try:
-        bs = getattr(manager, "_bundle_store", None)
-        if bs is not None:
-            _d = bs.app_dir(app_id)
-            if _d:
-                bundle_dir = Path(_d).resolve()
+        from digitorn.core.packages.resolver import resolve_app_install_dir
+        _d = await resolve_app_install_dir(app_id)
+        if _d is not None:
+            bundle_dir = Path(_d).resolve()
     except Exception:
         bundle_dir = None
 
     if bundle_dir is None or not bundle_dir.is_dir():
-        pkg_registry = getattr(request.app.state, "package_registry", None)
-        if pkg_registry is not None:
-            try:
-                pkg = await pkg_registry.get(app_id)
-                if pkg and pkg.get("install_dir"):
-                    bundle_dir = Path(pkg["install_dir"]).resolve()
-            except Exception:
-                pass
-
-    if bundle_dir is None or not bundle_dir.is_dir():
         raise HTTPException(
-            status_code=404, detail="App bundle dir not found",
+            status_code=404, detail="App install dir not found",
         )
 
     icon_path = (bundle_dir / icon_rel).resolve()

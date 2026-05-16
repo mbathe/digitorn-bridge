@@ -13,6 +13,7 @@ from .routers import (
     auth, catalog, categories, health, packages, publishers,
     reports, reviews, stats,
 )
+from .routers import mcp_featured as mcp_featured_router
 from .routers import mcp_registry as mcp_registry_router
 from .settings import get_settings
 
@@ -111,6 +112,7 @@ def create_app() -> FastAPI:
     app.include_router(reports.router, prefix="/api/v1")
     app.include_router(stats.router, prefix="/api/v1")
     app.include_router(mcp_registry_router.router, prefix="/api/v1")
+    app.include_router(mcp_featured_router.router, prefix="/api/v1")
 
     @app.get("/")
     async def root() -> dict[str, str]:

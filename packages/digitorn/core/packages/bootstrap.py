@@ -49,9 +49,10 @@ from digitorn.core.packages.sources.builtin import BuiltinSource
 logger = logging.getLogger(__name__)
 
 
-# Installed packages live here. Override via the install_root
+# Installed packages live here, one deterministic dir per
+# (app_id, scope, owner_user_id). Override via the install_root
 # argument when running tests with a tmp dir.
-DEFAULT_INSTALL_ROOT = Path.home() / ".digitorn" / "packages"
+DEFAULT_INSTALL_ROOT = Path.home() / ".digitorn" / "apps"
 
 
 # Inside the wheel - the directory shipped with `pip install digitorn`
@@ -155,128 +156,140 @@ async def bootstrap_builtins(
     # as a fire-and-forget task so a slow install never delays the
     # uvicorn ``ready`` signal.
     _PER_PKG_TIMEOUT = 300.0
+    # Bound the parallel fan-out so we don't saturate Windows IO with
+    # antivirus scanning N concurrent copytrees, and keep the SQLite
+    # writer queue bounded. 4 is a sweet spot: 5-10 builtins finish
+    # in ~one-third the wall time, no IO storm.
+    _PARALLELISM = 4
 
-    for pkg in available:
-        try:
-            existing = await registry.get(
-                pkg.package_id, scope=Scope.SYSTEM,
-            )
+    sem = _asyncio.Semaphore(_PARALLELISM)
 
-            # Self-healing: if the registry says installed but the
-            # actual install dir is missing or empty, treat it as a
-            # fresh install. Without this, a half-deleted install
-            # leaves the daemon serving 404s forever and the hash-
-            # match path silently skips the repair.
-            install_dir_missing = False
-            if existing is not None:
-                _idir = existing.get("install_dir") or ""
-                if not _idir or not Path(_idir).is_dir() or not any(
-                    Path(_idir).iterdir()
-                ):
-                    install_dir_missing = True
-                    logger.warning(
-                        "bootstrap_builtins: %s registry says installed at "
-                        "%r but the dir is missing/empty - forcing reinstall",
-                        pkg.package_id, _idir,
-                    )
-
-            # Self-healing: a BROKEN row (left by a previous timeout or
-            # crash) must be retried on every boot, not skipped. Without
-            # this branch the bug self-reinforces: a transient 60s slow
-            # IO marks the package broken, and since the source hash is
-            # unchanged on next boot the hash-match path returns "skip",
-            # leaving the package permanently dead until someone hand-
-            # edits the registry. The retry path re-enters install or
-            # upgrade depending on whether the source hash advanced.
-            was_broken = (
-                existing is not None
-                and (existing.get("status") or "") == "broken"
-            )
-            if was_broken:
-                logger.warning(
-                    "bootstrap_builtins: %s is in BROKEN state "
-                    "(last_error=%r) - retrying install",
-                    pkg.package_id, existing.get("last_error"),
-                )
-
-            if existing is None or install_dir_missing or was_broken:
-                logger.info(
-                    "bootstrap_builtins: installing %s v%s",
-                    pkg.package_id, pkg.version,
-                )
-                await _asyncio.wait_for(
-                    _install_builtin(
-                        flow=flow, source=source, pkg=pkg, on_deploy=on_deploy,
-                    ),
-                    timeout=_PER_PKG_TIMEOUT,
-                )
-                summary["installed"].append(pkg.package_id)
-
-            elif existing["hash"] != pkg.hash:
-                logger.info(
-                    "bootstrap_builtins: upgrading %s from hash %s → %s",
-                    pkg.package_id,
-                    (existing["hash"] or "")[:12],
-                    pkg.hash[:12],
-                )
-                await _asyncio.wait_for(
-                    _upgrade_builtin(
-                        flow=flow, source=source, pkg=pkg,
-                        existing=existing, on_deploy=on_deploy,
-                    ),
-                    timeout=_PER_PKG_TIMEOUT,
-                )
-                summary["upgraded"].append(pkg.package_id)
-
-            else:
-                summary["skipped"].append(pkg.package_id)
-
-        except _asyncio.TimeoutError:
-            logger.error(
-                "bootstrap_builtins: %s timed out after %.0fs - marked broken, "
-                "daemon boot continues",
-                pkg.package_id, _PER_PKG_TIMEOUT,
-            )
-            summary["failed"].append({
-                "id": pkg.package_id,
-                "error": f"timeout after {_PER_PKG_TIMEOUT}s",
-            })
+    async def _process_pkg(pkg: Any) -> None:
+        async with sem:
             try:
-                sys_row = await registry.get(pkg.package_id, scope=Scope.SYSTEM)
-                if sys_row:
-                    await registry.update_status(
-                        pkg.package_id,
-                        status=Status.BROKEN,
-                        last_error=f"bootstrap timeout after {_PER_PKG_TIMEOUT}s",
-                        scope=Scope.SYSTEM,
-                    )
-            except Exception:
-                pass
-            continue
-
-        except Exception as exc:
-            logger.error(
-                "bootstrap_builtins: failed to install %s: %s",
-                pkg.package_id, exc, exc_info=True,
-            )
-            summary["failed"].append({
-                "id": pkg.package_id,
-                "error": str(exc),
-            })
-            # Mark broken in the registry so the UI surfaces it
-            try:
-                sys_row = await registry.get(
+                existing = await registry.get(
                     pkg.package_id, scope=Scope.SYSTEM,
                 )
-                if sys_row:
-                    await registry.update_status(
-                        pkg.package_id,
-                        status=Status.BROKEN,
-                        last_error=str(exc),
-                        scope=Scope.SYSTEM,
+
+                install_dir_missing = False
+                if existing is not None:
+                    _idir = existing.get("install_dir") or ""
+
+                    def _dir_is_missing_or_empty(p: str) -> bool:
+                        if not p:
+                            return True
+                        path = Path(p)
+                        if not path.is_dir():
+                            return True
+                        try:
+                            return not any(path.iterdir())
+                        except OSError:
+                            return True
+
+                    # Off-loop: stat + readdir of a freshly-deleted antivirus-
+                    # scanned dir on Windows can spike to tens of ms each.
+                    install_dir_missing = await _asyncio.to_thread(
+                        _dir_is_missing_or_empty, _idir,
                     )
-            except Exception:
-                pass
+                    if install_dir_missing:
+                        logger.warning(
+                            "bootstrap_builtins: %s registry says installed at "
+                            "%r but the dir is missing/empty - forcing reinstall",
+                            pkg.package_id, _idir,
+                        )
+
+                was_broken = (
+                    existing is not None
+                    and (existing.get("status") or "") == "broken"
+                )
+                if was_broken:
+                    logger.warning(
+                        "bootstrap_builtins: %s is in BROKEN state "
+                        "(last_error=%r) - retrying install",
+                        pkg.package_id, existing.get("last_error"),
+                    )
+
+                if existing is None or install_dir_missing or was_broken:
+                    logger.info(
+                        "bootstrap_builtins: installing %s v%s",
+                        pkg.package_id, pkg.version,
+                    )
+                    await _asyncio.wait_for(
+                        _install_builtin(
+                            flow=flow, source=source, pkg=pkg, on_deploy=on_deploy,
+                        ),
+                        timeout=_PER_PKG_TIMEOUT,
+                    )
+                    summary["installed"].append(pkg.package_id)
+
+                elif existing["hash"] != pkg.hash:
+                    logger.info(
+                        "bootstrap_builtins: upgrading %s from hash %s -> %s",
+                        pkg.package_id,
+                        (existing["hash"] or "")[:12],
+                        pkg.hash[:12],
+                    )
+                    await _asyncio.wait_for(
+                        _upgrade_builtin(
+                            flow=flow, source=source, pkg=pkg,
+                            existing=existing, on_deploy=on_deploy,
+                        ),
+                        timeout=_PER_PKG_TIMEOUT,
+                    )
+                    summary["upgraded"].append(pkg.package_id)
+
+                else:
+                    summary["skipped"].append(pkg.package_id)
+
+            except _asyncio.TimeoutError:
+                logger.error(
+                    "bootstrap_builtins: %s timed out after %.0fs - marked broken, "
+                    "daemon boot continues",
+                    pkg.package_id, _PER_PKG_TIMEOUT,
+                )
+                summary["failed"].append({
+                    "id": pkg.package_id,
+                    "error": f"timeout after {_PER_PKG_TIMEOUT}s",
+                })
+                try:
+                    sys_row = await registry.get(pkg.package_id, scope=Scope.SYSTEM)
+                    if sys_row:
+                        await registry.update_status(
+                            pkg.package_id,
+                            status=Status.BROKEN,
+                            last_error=f"bootstrap timeout after {_PER_PKG_TIMEOUT}s",
+                            scope=Scope.SYSTEM,
+                        )
+                except Exception:
+                    pass
+
+            except Exception as exc:
+                logger.error(
+                    "bootstrap_builtins: failed to install %s: %s",
+                    pkg.package_id, exc, exc_info=True,
+                )
+                summary["failed"].append({
+                    "id": pkg.package_id,
+                    "error": str(exc),
+                })
+                try:
+                    sys_row = await registry.get(
+                        pkg.package_id, scope=Scope.SYSTEM,
+                    )
+                    if sys_row:
+                        await registry.update_status(
+                            pkg.package_id,
+                            status=Status.BROKEN,
+                            last_error=str(exc),
+                            scope=Scope.SYSTEM,
+                        )
+                except Exception:
+                    pass
+
+    await _asyncio.gather(
+        *(_process_pkg(pkg) for pkg in available),
+        return_exceptions=False,
+    )
 
     if summary["installed"] or summary["upgraded"] or summary["failed"]:
         logger.info(

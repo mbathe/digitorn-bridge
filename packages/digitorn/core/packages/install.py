@@ -264,28 +264,27 @@ class InstallFlow:
         scope: str,
         owner_user_id: str | None,
     ) -> Path:
-        """Return the on-disk directory where a package should be
-        installed for the given scope.
+        """Return the on-disk directory where a package lives.
 
-        - System: ``<install_root>/<package_id>/``
-        - User:   ``<user_install_root>/<owner_user_id>/packages/<package_id>/``
+        Deterministic layout under ``~/.digitorn/apps/``:
+          - System: ``~/.digitorn/apps/<package_id>/``
+          - User:   ``~/.digitorn/apps/_@<uid>__<package_id>/``
         """
+        from digitorn.core.app.manager_v2._models import _scoped_slug
         from digitorn.core.packages.registry import Scope
 
         if scope == Scope.SYSTEM:
-            return self._install_root / package_id
-        if scope == Scope.USER:
+            slug = _scoped_slug(package_id, "system", "")
+        elif scope == Scope.USER:
             if not owner_user_id:
                 raise ValueError(
                     "scope='user' requires owner_user_id"
                 )
-            return (
-                self._user_install_root
-                / _safe_user_dir_name(owner_user_id)
-                / "packages"
-                / package_id
-            )
-        raise ValueError(f"unknown scope {scope!r}")
+            safe_owner = _safe_user_dir_name(owner_user_id)
+            slug = _scoped_slug(package_id, "user", safe_owner)
+        else:
+            raise ValueError(f"unknown scope {scope!r}")
+        return self._install_root / slug
 
     # ── Permissions probe ───────────────────────────────────────
 
@@ -366,14 +365,22 @@ class InstallFlow:
         # Compatibility check
         self._check_daemon_compat(manifest)
 
-        # Collision check - only within the same (scope, owner)
-        # tuple. A system 'digitorn-code' doesn't block Alice
-        # installing her own 'digitorn-code' at user scope.
+        # Collision check - within the same (scope, owner) tuple.
         existing = await self._registry.get(
             manifest.id, scope=scope, owner_user_id=owner_user_id,
         )
         if existing is not None:
             raise PackageIdCollision(manifest.id, existing)
+
+        # When installing user-scope, refuse if a system-scope install
+        # of the same app_id already exists. Builtins / system apps
+        # are shared, no per-user duplicates needed.
+        if scope == Scope.USER:
+            system_exists = await self._registry.get(
+                manifest.id, scope=Scope.SYSTEM, owner_user_id=None,
+            )
+            if system_exists is not None:
+                raise PackageIdCollision(manifest.id, system_exists)
 
         # Permissions consent (locked design D5)
         if not accept_permissions:
@@ -383,18 +390,21 @@ class InstallFlow:
             )
 
         # Move scratch -> final install dir (atomic on the same FS).
-        # All disk ops off-loop: rmtree of an existing install (with
-        # node_modules etc.) blocks for tens of seconds and stalls
-        # every other user's session during the install.
+        # All disk ops off-loop: rmtree / rename / mkdir / write on Windows
+        # with antivirus can each stall hundreds of ms per call, and with
+        # bootstrap_builtins running 4 installs in parallel that would
+        # block every other connected user during the whole boot.
         import asyncio as _asyncio
         install_dir = self._resolve_install_dir(
             manifest.id, scope=scope, owner_user_id=owner_user_id,
         )
-        if install_dir.exists():
+        if await _asyncio.to_thread(install_dir.exists):
             await _asyncio.to_thread(shutil.rmtree, install_dir)
-        install_dir.parent.mkdir(parents=True, exist_ok=True)
+        await _asyncio.to_thread(
+            install_dir.parent.mkdir, parents=True, exist_ok=True,
+        )
         try:
-            scratch_dir.rename(install_dir)
+            await _asyncio.to_thread(scratch_dir.rename, install_dir)
         except OSError:
             # Cross-FS rename -> fall back to copytree + rmtree (off-loop)
             await _asyncio.to_thread(shutil.copytree, scratch_dir, install_dir)
@@ -403,7 +413,6 @@ class InstallFlow:
         # Compute + persist hash off-loop. Sha256 over every file in
         # the package = O(seconds) on big packages and would stall the
         # event loop for every other connected user during install.
-        import asyncio as _asyncio
         try:
             hash_value = await _asyncio.to_thread(compute_package_hash, install_dir)
             await _asyncio.to_thread(write_package_hash_file, install_dir, hash_value)
@@ -414,12 +423,14 @@ class InstallFlow:
             )
             hash_value = ""
 
-        # Persist manifest snapshot inside the install dir
+        # Persist manifest snapshot inside the install dir, off-loop.
         try:
-            (install_dir / ".digitorn").mkdir(exist_ok=True)
-            (install_dir / ".digitorn" / "manifest.lock").write_text(
-                manifest.to_toml(), encoding="utf-8",
-            )
+            def _write_manifest_lock() -> None:
+                (install_dir / ".digitorn").mkdir(exist_ok=True)
+                (install_dir / ".digitorn" / "manifest.lock").write_text(
+                    manifest.to_toml(), encoding="utf-8",
+                )
+            await _asyncio.to_thread(_write_manifest_lock)
         except Exception as exc:
             logger.warning(
                 "InstallFlow: cannot write manifest.lock: %s", exc,
@@ -432,7 +443,6 @@ class InstallFlow:
             source_uri=source_uri,
             version=manifest.version,
             hash=hash_value,
-            install_dir=str(install_dir),
             manifest=manifest.to_dict(),
             installed_by=installed_by,
             status=Status.INSTALLED,
@@ -542,12 +552,14 @@ class InstallFlow:
         # routinely takes seconds; the daemon stalls for everyone otherwise).
         import asyncio as _asyncio
         install_dir = Path(existing["install_dir"])
-        if install_dir.exists():
+        if await _asyncio.to_thread(install_dir.exists):
             try:
-                if install_dir.is_symlink():
-                    install_dir.unlink()
-                else:
-                    await _asyncio.to_thread(shutil.rmtree, install_dir)
+                def _wipe() -> None:
+                    if install_dir.is_symlink():
+                        install_dir.unlink()
+                    else:
+                        shutil.rmtree(install_dir)
+                await _asyncio.to_thread(_wipe)
             except Exception as exc:
                 logger.warning(
                     "InstallFlow: failed to remove %s: %s", install_dir, exc,
@@ -645,11 +657,13 @@ class InstallFlow:
         old_dir = install_dir.with_name(install_dir.name + "-old")
         new_dir = install_dir.with_name(install_dir.name + "-new")
 
-        # Move scratch -> new_dir for atomic swap.
-        if new_dir.exists():
+        # Move scratch -> new_dir for atomic swap. Every stat / rename
+        # off-loop because each one can spike to hundreds of ms on
+        # Windows + antivirus.
+        if await _asyncio.to_thread(new_dir.exists):
             await _asyncio.to_thread(shutil.rmtree, new_dir)
         try:
-            scratch_dir.rename(new_dir)
+            await _asyncio.to_thread(scratch_dir.rename, new_dir)
         except OSError:
             await _asyncio.to_thread(shutil.copytree, scratch_dir, new_dir)
             await _asyncio.to_thread(shutil.rmtree, scratch_dir, True)
@@ -660,7 +674,7 @@ class InstallFlow:
         )
 
         # Clear any stale ``-old`` leftover from a previous failed upgrade.
-        if old_dir.exists():
+        if await _asyncio.to_thread(old_dir.exists):
             await _asyncio.to_thread(shutil.rmtree, old_dir, True)
 
         # BACKUP current V1 -> old_dir so we can roll back if the new V2
@@ -744,7 +758,7 @@ class InstallFlow:
                     await on_deploy(install_dir / "app.yaml", package_id)
                 deployed = True
                 # Success - delete the old version off-loop
-                if old_dir.exists():
+                if await _asyncio.to_thread(old_dir.exists):
                     await _asyncio.to_thread(shutil.rmtree, old_dir, True)
             except Exception as exc:
                 logger.exception(
@@ -760,8 +774,8 @@ class InstallFlow:
                 # every GET /api/apps/{id}.
                 try:
                     await _asyncio.to_thread(shutil.rmtree, install_dir, True)
-                    if old_dir.exists():
-                        old_dir.rename(install_dir)
+                    if await _asyncio.to_thread(old_dir.exists):
+                        await _asyncio.to_thread(old_dir.rename, install_dir)
 
                     # Rebuild V1 metadata from the restored manifest
                     # + recomputed hash so the registry matches disk.
@@ -845,8 +859,11 @@ class InstallFlow:
                 f"Available: {list(self._sources)}"
             )
 
+        import asyncio as _asyncio
         scratch_root = self._install_root / ".tmp"
-        scratch_root.mkdir(parents=True, exist_ok=True)
+        await _asyncio.to_thread(
+            scratch_root.mkdir, parents=True, exist_ok=True,
+        )
         # Use a stable name so probe_permissions and install share
         # the same scratch dir. urllib-quote-style sanitisation.
         safe_uri = source_uri.replace("/", "_").replace(":", "_")[:128]
@@ -862,7 +879,7 @@ class InstallFlow:
 
         toml_path = package_dir / "package.toml"
         try:
-            manifest = PackageManifest.from_path(toml_path)
+            manifest = await _asyncio.to_thread(PackageManifest.from_path, toml_path)
         except Exception as exc:
             import asyncio as _asyncio
             await _asyncio.to_thread(shutil.rmtree, scratch_dir, True)

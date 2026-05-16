@@ -446,8 +446,17 @@ class _DeployMixin:
             r = await session.execute(stmt)
             rows = r.scalars().all()
 
-        return [
-            {
+        # Compute "is re-enable-able" per row: the install dir on disk
+        # must exist and contain app.yaml. Exposed as ``has_bundle`` for
+        # frontend compat (web + Flutter both gate the Re-enable button
+        # on this flag - renaming would force a coordinated UI release).
+        from digitorn.core.packages.resolver import _app_dir
+        result = []
+        for a in rows:
+            owner = a.owner_user_id or None
+            install_dir = _app_dir(a.app_id, user_id=owner)
+            has_install = (install_dir / "app.yaml").is_file()
+            result.append({
                 "app_id": a.app_id,
                 "scope": a.scope,
                 "owner_user_id": a.owner_user_id,
@@ -456,10 +465,9 @@ class _DeployMixin:
                 "disabled": True,
                 "disabled_at": a.disabled_at.isoformat() if a.disabled_at else None,
                 "disabled_reason": a.disabled_reason or "",
-                "has_bundle": a.current_bundle_id is not None,
-            }
-            for a in rows
-        ]
+                "has_bundle": has_install,
+            })
+        return result
 
     def is_deployed(
         self, app_id: str, *, user_id: str | None = None,
@@ -617,7 +625,7 @@ class _DeployMixin:
            **NOT** touched.
         3. Delete the single matching ``Application`` row. SQLAlchemy's
            cascade removes its ``AppProfile``, ``AppModuleGrant``,
-           ``AppModuleConfig``, ``AppBundle`` and (when
+           ``AppModuleConfig`` and (when
            ``delete_history=True``) sessions/messages/activations.
         4. Purge the secret store for this scope.
 
@@ -630,15 +638,12 @@ class _DeployMixin:
                 "scope": "system" | "user",
                 "owner_user_id": "" | "<uid>",
                 "deployed": bool,
-                "bundles_deleted": int,
                 "disk_removed": bool,
                 "secrets_deleted": int,
                 "db_removed": bool,
                 "history_preserved": bool,
             }
         """
-        from digitorn.core.app.bundle_store import BundleStoreError
-
         # Resolve the (scope, owner) tuple once - every step below uses it.
         resolved_scope, resolved_owner = _normalize_scope(user_id, scope)
 
@@ -657,7 +662,6 @@ class _DeployMixin:
             "scope": resolved_scope,
             "owner_user_id": resolved_owner,
             "deployed": False,
-            "bundles_deleted": 0,
             "disk_removed": False,
             "secrets_deleted": 0,
             "db_removed": False,
@@ -711,32 +715,10 @@ class _DeployMixin:
             try:
                 async with sf() as session:
                     async with session.begin():
-                        # Break the FK from applications → app_bundles for
-                        # THIS scope only. Other scopes stay intact.
-                        await session.execute(
-                            _sql_text(
-                                f"UPDATE applications SET current_bundle_id = NULL "
-                                f"WHERE {scope_filter}"
-                            ),
-                            params,
-                        )
                         if delete_history:
                             # Hard delete for THIS scope. ORM cascade
                             # covers AppProfile, AppModuleConfig and
-                            # UserSession (those still have FKs). We
-                            # explicitly delete app_bundles rows because
-                            # we dropped that FK in the scoping refactor
-                            # (composite keys can't be single-column FK
-                            # in SQLite).
-                            await session.execute(
-                                _sql_text(
-                                    "DELETE FROM app_bundles "
-                                    "WHERE app_id = :a "
-                                    "  AND scope = :s "
-                                    "  AND owner_user_id = :o"
-                                ),
-                                params,
-                            )
+                            # UserSession.
                             result_rows = await session.execute(
                                 _sql_text(
                                     f"DELETE FROM applications "
@@ -764,18 +746,6 @@ class _DeployMixin:
                                     "r": "preserved_after_delete",
                                 },
                             )
-                            # Delete bundle rows for THIS scoped app row.
-                            # app_bundles also carries (scope, owner_user_id)
-                            # since the refactor so the filter is direct.
-                            await session.execute(
-                                _sql_text(
-                                    "DELETE FROM app_bundles "
-                                    "WHERE app_id = :a "
-                                    "  AND scope = :s "
-                                    "  AND owner_user_id = :o"
-                                ),
-                                params,
-                            )
                             result["db_removed"] = False
             except Exception as exc:
                 logger.error(
@@ -784,30 +754,7 @@ class _DeployMixin:
                 )
                 raise
 
-        # Step 3 - delete bundles from disk for THIS scope.
-        #
-        # Runs AFTER the DB delete - see the ORDER MATTERS comment in
-        # Step 2. The scoped_slug isolates user installs so Bob's copy
-        # survives when Alice runs delete. Failures here only leave
-        # orphan files (no DB row points at them) - safe.
-        try:
-            # Off-loop: ``delete_app`` walks every bundle dir and
-            # ``shutil.rmtree``s it. Bundles can carry node_modules /
-            # build artefacts (50-200 MB) -- doing this on the main
-            # loop blocked the watchdog for 2-10s every undeploy.
-            bundle_count = await asyncio.to_thread(
-                self._bundle_store.delete_app, scoped_slug,
-            )
-            result["bundles_deleted"] = bundle_count
-        except BundleStoreError as exc:
-            logger.warning("bundle cleanup failed for '%s': %s", scoped_slug, exc)
-        except Exception as exc:
-            logger.warning(
-                "bundle cleanup raised unexpected error for '%s': %s",
-                scoped_slug, exc, exc_info=True,
-            )
-
-        # Wipe any leftover files inside the scoped app dir.
+        # Step 3 - wipe the scoped app dir from disk.
         # Off-loop: ``rmtree`` of an app dir with a populated workspace
         # (node_modules, build artefacts) routinely takes seconds.
         import asyncio as _asyncio
@@ -846,26 +793,21 @@ class _DeployMixin:
             logger.debug("secret listing failed for '%s': %s", app_id, exc)
 
         logger.info(
-            "app_deleted app=%s scope=%s owner=%r deployed=%s bundles=%d "
+            "app_deleted app=%s scope=%s owner=%r deployed=%s "
             "disk=%s secrets=%d db=%s history=%s",
             app_id,
             resolved_scope,
             resolved_owner,
             result["deployed"],
-            result["bundles_deleted"],
             result["disk_removed"],
             result["secrets_deleted"],
             result["db_removed"],
             "preserved" if result["history_preserved"] else "purged",
         )
         # Truth-check: if absolutely nothing changed on disk, in DB, or
-        # in memory, this was a no-op (user asked to delete something
-        # that doesn't belong to them / doesn't exist at this scope).
-        # Previously the response still said `deleted: true`; callers
-        # believed their data was wiped when it wasn't.
+        # in memory, this was a no-op.
         nothing_happened = (
             not result["deployed"]
-            and result["bundles_deleted"] == 0
             and not result["disk_removed"]
             and result["secrets_deleted"] == 0
             and not result["db_removed"]
@@ -962,14 +904,14 @@ class _DeployMixin:
     ) -> dict[str, Any]:
         """Re-enable a disabled scoped install and redeploy it.
 
-        Admin-only at the API layer. The single install matching
+        Admin-only at the API layer. The install matching
         ``(app_id, scope, owner_user_id)`` is flipped back to
-        ``disabled=False`` and redeployed from its stored bundle.
-        Fails if the bundle was wiped (e.g. previous
-        ``delete_history=False`` call).
+        ``disabled=False`` and redeployed by recompiling its
+        ``install_dir`` on disk. Fails if the install dir was wiped
+        (e.g. previous ``delete_history=True`` call).
         """
         from digitorn.core.database import get_session_factory
-        from digitorn.core.models import AppBundle, Application
+        from digitorn.core.models import Application
         from sqlalchemy import select, text as _sql_text
 
         resolved_scope, resolved_owner = _normalize_scope(user_id, scope)
@@ -998,11 +940,6 @@ class _DeployMixin:
                         "enabled": True,
                         "was_disabled": False,
                     }
-                if app_row.current_bundle_id is None:
-                    raise RuntimeError(
-                        f"App '{app_id}' cannot be re-enabled: no bundle "
-                        f"(deleted with delete_history=False)."
-                    )
                 await session.execute(
                     _sql_text(
                         "UPDATE applications "
@@ -1017,35 +954,30 @@ class _DeployMixin:
                     },
                 )
 
-        # Redeploy from the saved bundle (scope-aware bundle path).
+        # Redeploy from install_dir on disk.
         redeployed = False
         try:
-            async with sf() as session:
-                row = await session.execute(
-                    select(Application).where(
-                        Application.app_id == app_id,
-                        Application.scope == resolved_scope,
-                        Application.owner_user_id == resolved_owner,
+            install_dir = await self._resolve_install_dir(
+                app_id, user_id=resolved_owner or None,
+            )
+            if install_dir is not None:
+                candidate = install_dir / "app.yaml"
+                if candidate.is_file():
+                    db_secrets: dict[str, str] = {}
+                    try:
+                        db_secrets = await self._secret_store.get_all(app_id)
+                    except Exception:
+                        pass
+                    compiled = await asyncio.to_thread(
+                        self._compiler.compile_file,
+                        candidate, secrets=db_secrets or None,
                     )
-                )
-                app_row = row.scalar_one_or_none()
-                if app_row and app_row.current_bundle_id:
-                    br = await session.execute(
-                        select(AppBundle).where(AppBundle.id == app_row.current_bundle_id)
+                    await self._build_and_deploy(
+                        compiled,
+                        scope=resolved_scope,
+                        owner_user_id=resolved_owner or None,
                     )
-                    bundle_row = br.scalar_one_or_none()
-                    if bundle_row is not None:
-                        scoped = _scoped_slug(app_id, resolved_scope, resolved_owner)
-                        descriptor = self._bundle_store.get_by_path(
-                            scoped, bundle_row.bundle_path,
-                        )
-                        if descriptor is not None:
-                            await self._deploy_from_bundle(
-                                descriptor,
-                                scope=resolved_scope,
-                                owner_user_id=resolved_owner or None,
-                            )
-                            redeployed = True
+                    redeployed = True
         except Exception as exc:
             logger.error(
                 "enable_app_redeploy_failed app=%s scope=%s: %s",
@@ -1150,45 +1082,33 @@ class _DeployMixin:
                 )
 
     async def reload_app(self, app_id: str) -> dict[str, Any]:
-        """Hot-reload a single deployed app from its current bundle.
+        """Hot-reload a single deployed app from its install_dir.
 
         Use this when a persistent resource the app depends on has
         changed and the in-memory instance is now stale - typically
-        after a secret / API key rotation, a module config tweak, or an
-        external dependency swap.
+        after a secret / API key rotation or a module config tweak.
 
         Pipeline:
 
-        1. Load the ``Application`` row + its ``current_bundle`` from DB.
-        2. Stop the currently-running in-memory instance (``undeploy``).
-        3. Re-read the bundle from disk via ``BundleStore``.
-        4. Recompile using the **fresh** secrets from ``SecretStore`` -
-           so a PUT /secrets/{key} made just before this call is picked
-           up automatically.
+        1. Load the ``Application`` row from DB.
+        2. Resolve install_dir on disk (or fall back to yaml_content).
+        3. Stop the currently-running in-memory instance.
+        4. Recompile using the fresh secrets from ``SecretStore``.
         5. Re-bootstrap the app and put it back in ``_deployed``.
 
-        The DB rows are NOT modified - same ``app_id``, same bundle
-        hash, same profile / grants / configs. Only the in-memory state
-        is rebuilt. Sessions tied to the app are dropped (they would be
-        inconsistent with the new module state anyway).
-
-        Returns a status dict: ``{app_id, reloaded, bundle_hash,
-        secrets_applied}``.
+        Returns ``{app_id, reloaded, secrets_applied, source}``.
 
         Raises:
             KeyError: if the app is not in the DB.
-            FileNotFoundError: if the bundle is missing from disk.
-            RuntimeError: if the app is built-in (built-ins are reloaded
-                via ``_deploy_builtin_apps`` at daemon startup).
+            FileNotFoundError: if the install_dir is missing AND there
+                is no fallback ``yaml_content``.
+            RuntimeError: if the app is built-in.
         """
         from sqlalchemy import select as _select
-        from sqlalchemy.orm import selectinload as _selectinload
 
         from digitorn.core.database import get_session_factory
-        from digitorn.core.models import AppBundle as _AppBundle
         from digitorn.core.models import Application as _Application
 
-        # Built-in apps own their lifecycle via _deploy_builtin_apps.
         existing = self._deployed.get(app_id)
         if existing is not None and getattr(existing, "builtin", False):
             raise RuntimeError(
@@ -1196,19 +1116,10 @@ class _DeployMixin:
                 f"restart the daemon to pick up changes.",
             )
 
-        # Fetch the app + its current bundle from DB. Apps may exist at
-        # both system and per-user scopes (same ``app_id`` deployed by
-        # multiple users). Without ordering, ``scalar_one_or_none`` would
-        # raise ``MultipleResultsFound`` and the reload returned 500.
-        # Prefer the system-scope row (the deploy that drives the in-
-        # memory ``self._deployed[app_id]`` instance reload_app is
-        # rebuilding) and fall back to the first user-scope row when
-        # only user installs exist.
         _sf = get_session_factory()
         async with _sf() as session:
             result = await session.execute(
                 _select(_Application)
-                .options(_selectinload(_Application.current_bundle))
                 .where(_Application.app_id == app_id)
                 .order_by(_Application.scope.asc())
                 .limit(1)
@@ -1218,88 +1129,63 @@ class _DeployMixin:
         if app_row is None:
             raise KeyError(f"App '{app_id}' not found in database.")
 
-        bundle_row: _AppBundle | None = app_row.current_bundle
-        if bundle_row is None:
-            # Legacy app without a bundle - fall back to yaml_content
-            # reload. Rare: only happens on pre-bundle deploys that
-            # never got re-deployed after the bundle refactor.
-            if not app_row.yaml_content:
-                raise FileNotFoundError(
-                    f"App '{app_id}' has no bundle AND no yaml_content. "
-                    f"Deploy it again from the source YAML.",
-                )
-            await self._deploy_from_content(
-                app_row.yaml_content,
-                source=app_row.yaml_path or app_id,
-            )
-            return {
-                "app_id": app_id,
-                "reloaded": True,
-                "bundle_hash": None,
-                "secrets_applied": 0,
-                "source": "legacy_yaml_content",
-            }
-
-        descriptor = self._bundle_store.get_by_path(
-            app_id, bundle_row.bundle_path,
+        row_owner = getattr(app_row, "owner_user_id", "") or ""
+        install_dir = await self._resolve_install_dir(
+            app_id, user_id=row_owner or None,
         )
-        if descriptor is None:
-            raise FileNotFoundError(
-                f"Bundle for '{app_id}' is missing on disk at "
-                f"{bundle_row.bundle_path}. Re-deploy the app.",
-            )
 
-        # Count secrets for the return payload (so the caller knows
-        # how many keys are currently active).
         try:
             current_secrets = await self._secret_store.get_all(app_id)
         except Exception:
             current_secrets = {}
 
-        # _deploy_from_bundle undeploys the old instance, recompiles
-        # with fresh secrets from SecretStore, and re-bootstraps.
-        await self._deploy_from_bundle(descriptor)
+        if install_dir is not None and (install_dir / "app.yaml").is_file():
+            compiled = await asyncio.to_thread(
+                self._compiler.compile_file,
+                install_dir / "app.yaml",
+                secrets=current_secrets or None,
+            )
+            await self.undeploy(app_id, user_id=row_owner or None)
+            await self._build_and_deploy(compiled)
+            source = "install_dir"
+        elif app_row.yaml_content:
+            await self._deploy_from_content(
+                app_row.yaml_content,
+                source=app_row.yaml_path or app_id,
+            )
+            source = "legacy_yaml_content"
+        else:
+            raise FileNotFoundError(
+                f"App '{app_id}' has no install_dir on disk AND no "
+                f"yaml_content. Deploy it again from the source YAML.",
+            )
 
         logger.info(
-            "app_reloaded app=%s bundle=%s secrets=%d",
-            app_id, descriptor.short_hash, len(current_secrets),
+            "app_reloaded app=%s source=%s secrets=%d",
+            app_id, source, len(current_secrets),
         )
 
         return {
             "app_id": app_id,
             "reloaded": True,
-            "bundle_hash": descriptor.bundle_hash,
             "secrets_applied": len(current_secrets),
-            "source": "bundle",
+            "source": source,
         }
 
     async def reload_from_db(self, *, parallelism: int = 16) -> list[str]:
         """Reload all apps from the database at daemon startup.
 
         Priority order for recompilation:
-        1. AppBundle on disk (via ``current_bundle_id``) - the primary
-           path since the bundle contains the YAML plus every referenced
-           asset (skills, prompts, …). The source filesystem is never
-           touched.
-        2. Legacy fallback: ``yaml_content`` stored directly on the
-           Application row (pre-bundle deploys). This path will be
-           removed once all existing installs have been migrated.
+        1. ``install_dir`` on disk (canonical) -> ``compile_file``.
+        2. Legacy fallback: ``yaml_content`` stored on the Application row.
 
-        Apps are reloaded **concurrently** with a bounded semaphore
-        (default width 16, was 4 previously). Width 16 is the sweet
-        spot for a typical workstation: enough fan-out that 50+ apps
-        warmup in ~15-30s instead of 2 min, while still serialising
-        the most contended shared resources (Postgres connection
-        pool default = 20, fastembed model load, MCP stdio
-        children). Bump higher on beefy hosts with monitoring;
-        lower if you see ``QueuePool overflow`` warnings.
+        Apps reload concurrently with a bounded semaphore (width 16).
 
-        Returns list of app_ids that were successfully reloaded.
+        Returns list of app_ids successfully reloaded.
         """
         import asyncio as _asyncio
 
         from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
 
         from digitorn.core.database import _session_factory
         from digitorn.core.models import Application
@@ -1333,9 +1219,7 @@ class _DeployMixin:
             try:
                 async with _session_factory() as session:
                     result = await session.execute(
-                        select(Application).options(
-                            selectinload(Application.current_bundle),
-                        )
+                        select(Application)
                     )
                     apps = list(result.scalars().all())
                 last_exc = None
@@ -1391,27 +1275,24 @@ class _DeployMixin:
         return reloaded
 
     async def _reload_one_app(self, app_row: Any) -> str | None:
-        """Reload a single app - the body of the loop extracted so
-        ``reload_from_db`` can run them in parallel. Returns the
-        ``app_id`` on success, ``None`` on skip / purge, and raises on
-        hard failure (the caller logs with ``exc_info``).
+        """Reload a single app from its ``install_dir`` on disk.
+
+        Returns the ``app_id`` on success, ``None`` on skip/purge.
+
+        Order:
+          1. install_dir on disk (canonical) -> compile_file
+          2. yaml_content fallback (legacy / content-only deploys)
+          3. orphan purge (no install_dir AND no yaml_content)
         """
         from sqlalchemy import delete as _delete
-        from sqlalchemy import text as _sql_text
-        from sqlalchemy import update as _update
 
         from digitorn.core.database import get_session_factory
-        from digitorn.core.models import AppBundle, Application
+        from digitorn.core.models import Application
 
-        # Keep the original variable names so the inlined body (copied
-        # verbatim from the old ``for`` loop) keeps working unchanged.
         app_id = app_row.app_id
         row_scope = getattr(app_row, "scope", "system") or "system"
         row_owner = getattr(app_row, "owner_user_id", "") or ""
 
-        # Skip disabled apps - they stay registered in DB but are not
-        # deployed to memory. Admins re-enable via enable_app which
-        # re-reads the bundle and calls _deploy_from_bundle directly.
         if getattr(app_row, "disabled", False):
             logger.info(
                 "reload_skip_disabled app=%s scope=%s owner=%r",
@@ -1419,198 +1300,56 @@ class _DeployMixin:
             )
             return None
 
-        # Source-of-truth shortcut: when the package install_dir exists
-        # AND holds an ``app.yaml`` on disk, prefer compiling directly
-        # from there. ``compile_file`` runs the source-tree
-        # ``apply_includes`` which picks up every convention fragment
-        # (templates.yaml, agents/, hooks/, ...) and records them in
-        # ``collected_assets`` — so the bundle written by the
-        # subsequent sync is ALWAYS complete.
-        #
-        # Without this shortcut we'd go through Path A (bundle reload),
-        # which is fragile: if the bundle dir was wiped by the
-        # single-bundle policy, OR if it was created by a buggy earlier
-        # build with ``assets:[]``, the asset_loader returns None for
-        # convention files and ``compiled.collected_assets`` ends up
-        # empty. The subsequent sync then re-writes an empty bundle,
-        # which sticks at restart-loop: templates / agents / hooks
-        # silently vanish on every subsequent restart.
         try:
             _install_dir = await self._resolve_install_dir(
                 app_id, user_id=row_owner or None,
             )
         except Exception:
             _install_dir = None
-        if _install_dir is not None:
-            _candidate = _install_dir / "app.yaml"
-            if _candidate.is_file():
+
+        if _install_dir is not None and (_install_dir / "app.yaml").is_file():
+            try:
+                deployed_key = self._deployed_key(
+                    app_id, row_scope, row_owner,
+                )
+                if deployed_key in self._deployed:
+                    await self.undeploy(app_id, user_id=row_owner or None)
+                db_secrets: dict[str, str] = {}
                 try:
-                    deployed_key = self._deployed_key(
-                        app_id, row_scope, row_owner,
+                    db_secrets = await _retry_db_call(
+                        lambda: self._secret_store.get_all(app_id),
+                        label=f"secrets_get_all:{app_id}",
                     )
-                    if deployed_key in self._deployed:
-                        await self.undeploy(app_id, user_id=row_owner or None)
-                    db_secrets: dict[str, str] = {}
-                    try:
-                        db_secrets = await _retry_db_call(
-                            lambda: self._secret_store.get_all(app_id),
-                            label=f"secrets_get_all:{app_id}",
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "Secret store read failed for '%s': %s",
-                            app_id, exc, exc_info=True,
-                        )
-                    compiled = await asyncio.to_thread(
-                        self._compiler.compile_file,
-                        _candidate, secrets=db_secrets or None,
-                    )
-                    logger.info(
-                        "Reload from install_dir for '%s' "
-                        "(scope=%s owner=%r dir=%s) — bypassing bundle",
-                        app_id, row_scope, row_owner, _install_dir,
-                    )
-                    await self._build_and_deploy(
-                        compiled,
-                        scope=row_scope,
-                        owner_user_id=row_owner or None,
-                    )
-                    return app_id
                 except Exception as exc:
                     logger.warning(
-                        "Reload from install_dir FAILED for '%s' "
-                        "(scope=%s): %s — falling back to bundle/legacy",
-                        app_id, row_scope, exc, exc_info=True,
+                        "Secret store read failed for '%s': %s",
+                        app_id, exc, exc_info=True,
                     )
-
-        # Path A - bundle on disk (legacy fallback when install_dir is
-        # missing, e.g. an app installed via API content-only that was
-        # never written to disk)
-        if app_row.current_bundle is not None:
-            bundle_row: AppBundle = app_row.current_bundle
-            scoped = _scoped_slug(app_id, row_scope, row_owner)
-            descriptor = self._bundle_store.get_by_path(
-                scoped, bundle_row.bundle_path,
-            )
-            if descriptor is None:
-                # Self-heal: the DB references a bundle that no longer
-                # exists on disk (typical aftermath of a botched delete
-                # that wiped the disk dir but left the DB row, or a
-                # manual ``rm -rf ~/.digitorn/apps/<id>``). NULL the
-                # FK + delete the orphan AppBundle row so this warning
-                # stops firing on every subsequent reload. The app
-                # itself stays loadable via the legacy yaml_content
-                # fallback below; the next successful deploy will
-                # mint a fresh bundle and re-attach it.
-                logger.warning(
-                    "Bundle for '%s' (scope=%s) missing on disk at %s - "
-                    "auto-clearing the FK and falling back to legacy "
-                    "yaml_content. Will be rebuilt on next deploy.",
-                    app_id, row_scope, bundle_row.bundle_path,
+                compiled = await asyncio.to_thread(
+                    self._compiler.compile_file,
+                    _install_dir / "app.yaml", secrets=db_secrets or None,
                 )
-                try:
-                    _orphan_bundle_id = bundle_row.id
-                    _sf = get_session_factory()
-                    async with _sf() as _s:
-                        async with _s.begin():
-                            await _s.execute(
-                                _sql_text(
-                                    "UPDATE applications "
-                                    "SET current_bundle_id = NULL "
-                                    "WHERE app_id = :a "
-                                    "  AND scope = :s "
-                                    "  AND owner_user_id = :o"
-                                ),
-                                {
-                                    "a": app_id,
-                                    "s": row_scope,
-                                    "o": row_owner or "",
-                                },
-                            )
-                            await _s.execute(
-                                _sql_text(
-                                    "DELETE FROM app_bundles WHERE id = :i"
-                                ),
-                                {"i": _orphan_bundle_id},
-                            )
-                except Exception as _heal_exc:
-                    logger.debug(
-                        "self_heal_orphan_bundle_failed app=%s: %s",
-                        app_id, _heal_exc,
-                    )
-            else:
-                # Guard against corrupt bundles (earlier versions
-                # of the syncer could write an empty app.yaml
-                # when compiling from a legacy yaml_content).
-                # If the YAML looks empty or unparseable, drop
-                # the bundle and fall through to the legacy path
-                # so the next sync rebuilds it correctly.
-                try:
-                    _yaml_preview = await asyncio.to_thread(
-                        self._bundle_store.load_yaml, descriptor,
-                    )
-                except Exception as exc:
-                    logger.error(
-                        "Bundle YAML unreadable for '%s' at %s: %s",
-                        app_id, bundle_row.bundle_path, exc,
-                    )
-                    _yaml_preview = ""
-
-                if _yaml_preview.strip():
-                    await self._deploy_from_bundle(
-                        descriptor,
-                        scope=row_scope,
-                        owner_user_id=row_owner or None,
-                    )
-                    return app_id
-
-                logger.warning(
-                    "Bundle for '%s' has an empty YAML - likely "
-                    "created by a buggy legacy reload. Deleting "
-                    "it and falling back to yaml_content so the "
-                    "next deploy rebuilds the bundle properly.",
-                    app_id,
+                logger.info(
+                    "reload_from_install_dir app=%s scope=%s owner=%r dir=%s",
+                    app_id, row_scope, row_owner, _install_dir,
                 )
-                try:
-                    # Off-loop: rmtree on a bundle dir blocks the loop.
-                    await asyncio.to_thread(
-                        self._bundle_store.delete_bundle,
-                        app_id, descriptor.bundle_hash,
-                    )
-                except Exception as exc:
-                    logger.debug(
-                        "failed to delete corrupt bundle %s: %s",
-                        descriptor.bundle_path, exc,
-                    )
-                # Clear the FK so the next sync re-creates a
-                # fresh bundle instead of trying to reuse the
-                # broken row.
-                try:
-                    _sf = get_session_factory()
-                    async with _sf() as _s:
-                        async with _s.begin():
-                            await _s.execute(
-                                _update(Application)
-                                .where(Application.app_id == app_id)
-                                .values(current_bundle_id=None)
-                            )
-                            await _s.execute(
-                                AppBundle.__table__.delete().where(
-                                    AppBundle.id == bundle_row.id,
-                                )
-                            )
-                except Exception as exc:
-                    logger.debug(
-                        "failed to clear current_bundle_id for %s: %s",
-                        app_id, exc,
-                    )
+                await self._build_and_deploy(
+                    compiled,
+                    scope=row_scope,
+                    owner_user_id=row_owner or None,
+                )
+                return app_id
+            except Exception as exc:
+                logger.warning(
+                    "reload_from_install_dir_failed app=%s scope=%s: %s "
+                    "- falling back to yaml_content",
+                    app_id, row_scope, exc, exc_info=True,
+                )
 
-        # Path B - legacy yaml_content (pre-bundle deploys or
-        # recovered from a broken bundle above)
+        # Legacy / content-only fallback
         if app_row.yaml_content:
             logger.info(
-                "Reloading legacy app '%s' from yaml_content - "
-                "bundle will be created on next deploy",
+                "reload_from_yaml_content app=%s (install_dir missing)",
                 app_id,
             )
             await self._deploy_from_content(
@@ -1619,46 +1358,20 @@ class _DeployMixin:
             )
             return app_id
 
-        # Path C - orphaned row: no bundle AND no yaml_content.
-        # Nothing we can reconstruct from. These rows are leftovers
-        # from a pre-refactor deploy where the old syncer failed to
-        # persist yaml_content (the bug my refactor inherited and
-        # then propagated into an empty bundle). They cannot be
-        # reloaded and keeping them around just causes the daemon
-        # to log errors at every boot. Purge them aggressively.
+        # Orphan: no install_dir AND no yaml_content -> purge.
         logger.warning(
-            "Purging orphaned app '%s' - no bundle AND no "
-            "yaml_content on disk. Row is unrecoverable.",
+            "purging_orphan_app app=%s (no install_dir, no yaml_content)",
             app_id,
         )
         try:
             _sf = get_session_factory()
             async with _sf() as _cleanup_session:
                 async with _cleanup_session.begin():
-                    # Break any remaining FK loop before delete
-                    await _cleanup_session.execute(
-                        _update(Application)
-                        .where(Application.app_id == app_id)
-                        .values(current_bundle_id=None)
-                    )
-                    await _cleanup_session.execute(
-                        _delete(AppBundle).where(
-                            AppBundle.app_id == app_id,
-                        )
-                    )
                     await _cleanup_session.execute(
                         _delete(Application).where(
                             Application.app_id == app_id,
                         )
                     )
-            # Also remove any empty bundle directory left on disk.
-            try:
-                # Off-loop: rmtree of the app's bundles can be heavy.
-                await asyncio.to_thread(
-                    self._bundle_store.delete_app, app_id,
-                )
-            except Exception:
-                pass
             logger.info("orphan_purged app=%s", app_id)
         except Exception as exc:
             logger.error(
@@ -1666,81 +1379,6 @@ class _DeployMixin:
                 app_id, exc, exc_info=True,
             )
         return None
-
-    async def _deploy_from_bundle(
-        self, descriptor: Any,
-        *,
-        scope: str = "system",
-        owner_user_id: str | None = None,
-    ) -> DeployedApp:
-        """Recompile and deploy an app directly from its on-disk bundle.
-
-        The compiler reads YAML + assets through the bundle store's
-        asset_loader, so the original source filesystem is never
-        accessed. This is the standard path used at daemon startup.
-
-        ``scope`` / ``owner_user_id`` propagate to ``_build_and_deploy``
-        so per-user and system installs of the same app_id coexist in
-        ``self._deployed`` without overwriting each other.
-        """
-        # Sync disk read -- off-load so the loop never stalls during
-        # multi-app reload at boot.
-        yaml_content = await asyncio.to_thread(
-            self._bundle_store.load_yaml, descriptor,
-        )
-        peek_app_id = descriptor.app_id
-        db_secrets: dict[str, str] = {}
-        try:
-            # Retry with exponential backoff on transient DB
-            # connectivity failures (DNS blip, conn reset). Without it
-            # a one-second hiccup cascades across every builtin app
-            # the daemon tries to reload at boot.
-            db_secrets = await _retry_db_call(
-                lambda: self._secret_store.get_all(peek_app_id),
-                label=f"secrets_get_all:{peek_app_id}",
-            )
-        except Exception as exc:
-            logger.warning(
-                "Secret store read failed for '%s': %s",
-                peek_app_id, exc, exc_info=True,
-            )
-
-        # YAML parse + Pydantic validation + transformations is CPU-bound
-        # and can take 10-100 ms per app. Off-load to a thread so a hot
-        # boot reloading 50 apps doesn't freeze HTTP for 5 s.
-        compiled = await asyncio.to_thread(
-            self._compiler.compile_string,
-            yaml_content,
-            source=f"bundle://{descriptor.app_id}/{descriptor.short_hash}",
-            secrets=db_secrets or None,
-            asset_loader=self._bundle_store.asset_loader(descriptor),
-        )
-        app_id = compiled.app_id
-
-        # compile_string cannot set ``source_path`` (no real filesystem
-        # path went in), but downstream code (web/dist static-serve,
-        # workspace sync, ...) needs the bundle's on-disk install dir.
-        # Look it up from the package registry and stamp it onto the
-        # compiled app.
-        install_dir = await self._resolve_install_dir(app_id)
-        if install_dir is not None:
-            compiled.source_path = install_dir / "app.yaml"
-
-        # Only undeploy the SAME scope - other scopes of the same app_id
-        # stay live.
-        existing_key = self._deployed_key(app_id, scope, owner_user_id)
-        if existing_key in self._deployed:
-            await self.undeploy(app_id, user_id=owner_user_id)
-
-        logger.info(
-            "Deploying app '%s' scope=%s from bundle %s",
-            app_id, scope, descriptor.short_hash,
-        )
-        return await self._build_and_deploy(
-            compiled,
-            scope=scope,
-            owner_user_id=owner_user_id,
-        )
 
     async def _resolve_install_dir(
         self,
@@ -1778,9 +1416,8 @@ class _DeployMixin:
     ) -> DeployedApp:
         """Deploy an app from stored YAML content (legacy - no bundle).
 
-        Same lifecycle as deploy() but compiles from a string. Used only
-        for legacy pre-bundle deploys during reload - new deploys always
-        go through ``_deploy_from_bundle``.
+        Same lifecycle as deploy() but compiles from a string. Used
+        as the legacy fallback when ``install_dir`` is missing.
         """
         from digitorn.core.app.yaml_loader import safe_load_strict
 
@@ -1986,9 +1623,7 @@ class _DeployMixin:
         try:
             from digitorn.core.app.syncer import AppSyncer
 
-            # Reuse the manager's bundle store so every deploy writes
-            # to the same on-disk root.
-            syncer = AppSyncer(bundle_store=self._bundle_store)
+            syncer = AppSyncer()
             # Pass the scope/owner so the row is written under the correct
             # (app_id, scope, owner_user_id) composite key. This is what
             # lets two users install the same app_id in parallel.

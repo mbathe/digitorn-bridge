@@ -499,13 +499,49 @@ CATALOG: dict[str, CatalogEntry] = {
 
 
 def get_catalog_entry(server_id: str) -> CatalogEntry | None:
-    """Look up a server in the catalog. Returns None if not found."""
+    """Look up a server in the catalog. Returns None if not found.
+
+    Resolution order: Hub-served curated catalog (5 min in-process
+    cache, the authoritative source) → baked-in ``CATALOG`` dict
+    (last-resort offline fallback). Per the App Store / iPhone model,
+    each daemon defers to the Hub for what's installable.
+    """
+    from . import hub_catalog_client as _hub
+    cache = _hub.get()
+    if cache is not None:
+        hit = cache.get_sync(server_id)
+        if hit is not None:
+            return hit
     return CATALOG.get(server_id)
 
 
 def list_catalog() -> list[str]:
-    """List available catalog server IDs."""
+    """List available catalog server IDs.
+
+    Returns the Hub-served list when the cache is populated, else the
+    baked-in fallback. Server IDs are sorted alphabetically in both
+    cases for stable rendering.
+    """
+    from . import hub_catalog_client as _hub
+    cache = _hub.get()
+    if cache is not None and cache.size > 0:
+        return sorted(cache.all_sync().keys())
     return sorted(CATALOG.keys())
+
+
+def all_catalog_entries() -> dict[str, CatalogEntry]:
+    """Return the full live catalog as a dict.
+
+    Hub-first with offline fallback (same resolution as ``get_catalog_entry``).
+    Used by the daemon API ``/api/mcp/catalog`` route handler so the
+    Flutter client always sees the authoritative list — adding a server
+    via the Hub admin API propagates here within one cache TTL.
+    """
+    from . import hub_catalog_client as _hub
+    cache = _hub.get()
+    if cache is not None and cache.size > 0:
+        return cache.all_sync()
+    return dict(CATALOG)
 
 
 @dataclass
@@ -551,19 +587,66 @@ def get_server_requirements(server_id: str) -> ServerRequirements:
 
 
 async def get_server_requirements_async(server_id: str) -> ServerRequirements:
-    """Get configuration requirements - catalog + registry fallback."""
-    entry = CATALOG.get(server_id)
+    """Get configuration requirements - catalog + registry fallback.
+
+    Resolution order:
+
+    1. Direct catalog hit on ``server_id`` (the curated 31-entry list,
+       Hub-backed cache + baked-in fallback).
+    2. Registry lookup. If the registry entry's ``package`` (e.g.
+       ``@modelcontextprotocol/server-github``) matches a catalog entry,
+       **promote** the request to the catalog entry — the user gets the
+       curated env_mapping + key_descriptions instead of the registry's
+       often-empty ``environmentVariables`` list.
+    3. Plain registry requirements (community-submitted, no env_mapping).
+    """
+    entry = get_catalog_entry(server_id)
     if entry is not None:
         return _requirements_from_catalog(entry)
 
     registry_entry = await _search_registry(server_id)
     if registry_entry is not None:
+        promoted = _promote_registry_to_catalog(registry_entry)
+        if promoted is not None:
+            return _requirements_from_catalog(promoted)
         return _requirements_from_registry(server_id, registry_entry)
 
     raise ValueError(
         f"Server '{server_id}' not found in catalog or registry. "
         f"Run: digitorn mcp search {server_id}"
     )
+
+
+def _promote_registry_to_catalog(
+    registry_entry: dict[str, Any],
+) -> CatalogEntry | None:
+    """Return the catalog entry that ships the same package as *registry_entry*.
+
+    The official MCP registry mirrors packages like
+    ``@modelcontextprotocol/server-github`` under registry-specific
+    server ids (``smithery-ai-github``, etc.). When the user clicks
+    one of those in the Registry tab, we want to install the **curated**
+    entry instead — same npm package, but with admin-curated env_mapping
+    + key_descriptions + OAuth wiring.
+
+    Match strategy: exact ``package`` string equality across all
+    ``packages[].identifier`` values in the registry entry. We do not
+    fuzzy-match on names because the registry has many forks/wrappers
+    that share a similar name but ship different code.
+    """
+    pkgs = registry_entry.get("packages") or []
+    pkg_ids: set[str] = set()
+    for pkg in pkgs:
+        pid = pkg.get("identifier")
+        if isinstance(pid, str) and pid:
+            pkg_ids.add(pid)
+    if not pkg_ids:
+        return None
+
+    for entry in all_catalog_entries().values():
+        if entry.package and entry.package in pkg_ids:
+            return entry
+    return None
 
 
 def _requirements_from_catalog(entry: CatalogEntry) -> ServerRequirements:

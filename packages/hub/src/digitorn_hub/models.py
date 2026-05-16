@@ -415,3 +415,99 @@ class McpRegistryEntry(Base):
         Index("ix_mcp_registry_status", "status"),
         Index("ix_mcp_registry_last_seen_at", "last_seen_at"),
     )
+
+
+# ── MCP featured catalog (admin-curated, source of truth) ─────────
+
+
+class McpFeaturedEntry(Base):
+    """Curated, admin-editable MCP server entry.
+
+    The Hub is the single source of truth for which MCP servers Digitorn
+    officially supports. Each per-user daemon proxies ``GET /api/mcp/catalog``
+    to ``GET /api/v1/mcp/featured`` on the Hub (5 min in-memory cache).
+    Adding/removing a server is an admin CRUD operation here — no daemon
+    redeploy required, all live daemons see the change after the cache
+    window expires.
+
+    Schema mirrors the ``CatalogEntry`` dataclass in
+    ``packages/digitorn/modules/mcp/catalog.py``. That file is kept as a
+    last-resort offline fallback (a baked-in copy of an old snapshot of
+    this table) so the daemon stays usable without network.
+    """
+
+    __tablename__ = "mcp_featured_entries"
+
+    server_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    display_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    icon: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    category: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+
+    transport: Mapped[str] = mapped_column(String(20), nullable=False, default="stdio")
+    command: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    args: Mapped[list[str]] = mapped_column(
+        ARRAY(String(512)), nullable=False, default=list
+    )
+    runtime: Mapped[str] = mapped_column(String(20), nullable=False, default="npm")
+    package: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    url: Mapped[str | None] = mapped_column(String(512))
+    default_env: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    # Shorthand → real env var name + per-key user-facing help text.
+    env_mapping: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+    key_descriptions: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
+
+    oauth_provider: Mapped[str | None] = mapped_column(String(80))
+    oauth_style: Mapped[str] = mapped_column(String(40), nullable=False, default="")
+    oauth_env_token_var: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    oauth_scopes: Mapped[list[str]] = mapped_column(
+        ARRAY(String(255)), nullable=False, default=list
+    )
+    oauth_keyfile_env: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    oauth_credentials_env: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    oauth_credentials_filename: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+
+    binary_name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    smithery_slug: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    timeout: Mapped[float] = mapped_column(default=30.0, nullable=False)
+
+    # Curation. ``featured_priority`` is a small int — lower = higher on the
+    # list. ``hidden`` lets admins soft-disable an entry without losing
+    # its history (probe results, verification trail).
+    featured_priority: Mapped[int] = mapped_column(Integer, nullable=False, default=100)
+    hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_by: Mapped[str | None] = mapped_column(String(255))
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_tested_ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_test_error: Mapped[str | None] = mapped_column(Text)
+
+    # Optional link back to the firehose mirror — admins can promote a
+    # registry row into the featured list and keep the link for future
+    # automated re-syncs.
+    registry_server_id: Mapped[str | None] = mapped_column(String(120))
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "runtime IN ('npm','pip','uv','docker','remote','custom','none')",
+            name="ck_mcp_featured_runtime",
+        ),
+        CheckConstraint(
+            "transport IN ('stdio','sse','streamable_http','http','ws')",
+            name="ck_mcp_featured_transport",
+        ),
+        Index("ix_mcp_featured_category", "category"),
+        Index("ix_mcp_featured_priority_hidden", "hidden", "featured_priority"),
+        Index("ix_mcp_featured_oauth_provider", "oauth_provider"),
+    )

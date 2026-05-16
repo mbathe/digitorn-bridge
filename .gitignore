@@ -63,7 +63,6 @@ coverage.xml
 *.py.cover
 cover/
 test_workspace/
-.claude/
 # ── IDE ───────────────────────────────────────────────
 .idea/
 .vscode/
@@ -95,7 +94,6 @@ Thumbs.db
 Desktop.ini
 *.tmp
 *.bak
-*.swp
 
 # ── Temp test files ───────────────────────────────────
 test1.txt
@@ -114,7 +112,6 @@ events.ndjson
 !server.key.example
 
 # ── Build artifacts ───────────────────────────────────
-*.egg-info/
 develop-eggs/
 downloads/
 lib/
@@ -134,10 +131,6 @@ docs/_build/
 .digitorn/server.key
 
 # ── Claude Code local settings + worktrees ────────────
-.claude/settings.local.json
-.claude/scheduled_tasks.lock
-.claude/launch.json
-.claude/worktrees/
 
 # ── Test runner output ────────────────────────────────
 test-results/

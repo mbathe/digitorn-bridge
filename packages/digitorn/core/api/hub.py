@@ -44,7 +44,11 @@ class HubInstallRequest(BaseModel):
     publisher: str = Field(..., min_length=1, max_length=80)
     package_id: str = Field(..., min_length=1, max_length=80)
     version: str | None = None
-    accept_permissions: list[str] | None = None
+    # Accept ``bool`` (web client - "user clicked Accept") OR ``list[str]``
+    # (Flutter, CLI - explicit list of accepted scopes) OR ``None`` (first
+    # call, daemon returns 409 with the permissions block). Coerced to a
+    # truthy value before flow.install which only checks bool-ness.
+    accept_permissions: bool | list[str] | None = None
     scope: str = Field(default="user", pattern="^(user|system)$")
 
 
@@ -151,9 +155,18 @@ async def hub_install(
     except InstallError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
 
+    from dataclasses import asdict, is_dataclass
+    if is_dataclass(result):
+        result_dict = asdict(result)
+    elif hasattr(result, "model_dump"):
+        result_dict = result.model_dump()
+    elif hasattr(result, "dict"):
+        result_dict = result.dict()
+    else:
+        result_dict = dict(result)
     return {
         "package_id": payload.package_id,
         "publisher": payload.publisher,
         "scope": payload.scope,
-        "result": result.dict() if hasattr(result, "dict") else dict(result),
+        "result": result_dict,
     }

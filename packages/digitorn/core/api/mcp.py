@@ -157,10 +157,10 @@ async def list_catalog_entries(category: str | None = None) -> dict[str, Any]:
     CatalogEntry with ``env_mapping`` + ``key_descriptions`` so
     the client can render the install form fields.
     """
-    from digitorn.modules.mcp.catalog import CATALOG
+    from digitorn.modules.mcp.catalog import all_catalog_entries
 
     entries: list[dict[str, Any]] = []
-    for sid, entry in CATALOG.items():
+    for sid, entry in all_catalog_entries().items():
         cat, ico = _catalog_category_and_icon(
             sid,
             getattr(entry, "category", "") or "",

@@ -68,8 +68,6 @@ class _BaseMixin:
         self._runtime_store = runtime_store
         self._stop_on_error = stop_on_error
         self._compiler = AppYAMLCompiler(registry)
-        from digitorn.core.app.bundle_store import BundleStore
-        self._bundle_store = BundleStore()
         self._deployed: dict[str, DeployedApp] = {}
         self._deploy_lock = asyncio.Lock()
         self._deploy_errors: dict[str, dict[str, Any]] = {}

@@ -390,29 +390,29 @@ class AuthConfig(BaseModel):
         description="Time to wait for user approval before auto-deny (seconds).",
     )
 
-    # ── Central auth integration (opt-in) ────────────────────────────
-    # When ``mode == 'embedded'`` (default), the daemon signs and
-    # verifies its own JWTs against the local secret, exactly like
-    # before — zero behavioural change.
-    # When ``mode == 'remote'``, the daemon TRUSTS tokens issued by
-    # the central digitorn-auth service: it caches the central's JWKS
-    # via ``digitorn_auth.client.RemoteAuthClient`` and verifies
-    # signatures with the central's RSA public key. Combined with
+    # ── Central auth integration ─────────────────────────────────────
+    # The daemon TRUSTS tokens issued by the central digitorn-auth
+    # service: it caches the central's JWKS via
+    # ``digitorn_auth.client.RemoteAuthClient`` and verifies signatures
+    # with the central's RSA public key. Combined with
     # ``LocalDeviceAuth`` (paired via ``digitorn install-local``) the
     # daemon can authenticate the user fully offline.
     mode: str = Field(
-        default="embedded",
+        default="remote",
         description=(
-            "Auth mode: 'embedded' (legacy, daemon-signed JWTs) or "
-            "'remote' (central digitorn-auth service issues, daemon validates)."
+            "Auth mode. Only ``'remote'`` is supported. The daemon "
+            "validates tokens issued by the central digitorn-auth "
+            "service at ``service_url``; it never signs its own JWTs."
         ),
     )
     service_url: str = Field(
-        default="",
+        default="https://auth.digitorn.ai",
         description=(
-            "Base URL of the central digitorn-auth service. Required "
-            "when mode='remote'. Example: https://auth.digitorn.ai. "
-            "In dev: http://127.0.0.1:8001."
+            "Base URL of the central digitorn-auth service. Defaults "
+            "to Digitorn's hosted auth so a fresh install boots "
+            "without manual config; override here or via env "
+            "``DIGITORN_AUTH__SERVICE_URL`` to point at a self-hosted "
+            "instance (e.g. ``http://127.0.0.1:8001`` in dev)."
         ),
     )
     accept_issuers: list[str] = Field(
