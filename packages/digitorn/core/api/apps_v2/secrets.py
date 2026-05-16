@@ -144,13 +144,12 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
     # Mutation routes (PUT/DELETE secrets) remain gated by `apps:write`.
     manager = _get_manager(request)
 
-    # Resolve the raw YAML the app was deployed with. Prefer the bundle
-    # (authoritative) and fall back to Application.yaml_content for
-    # legacy rows that predate the bundle refactor.
+    # Resolve the raw YAML the app was deployed with. Prefer the
+    # install_dir on disk (canonical) and fall back to
+    # Application.yaml_content for content-only deploys.
     raw_yaml: str | None = None
     try:
         from sqlalchemy import select as _select
-        from sqlalchemy.orm import selectinload as _selectinload
 
         from digitorn.core.database import get_session_factory
         from digitorn.core.models import Application
@@ -158,9 +157,7 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
         _sf = get_session_factory()
         async with _sf() as session:
             result = await session.execute(
-                _select(Application)
-                .options(_selectinload(Application.current_bundle))
-                .where(Application.app_id == app_id)
+                _select(Application).where(Application.app_id == app_id)
             )
             app_row = result.scalar_one_or_none()
     except Exception as exc:
@@ -172,18 +169,21 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
     if app_row is None:
         raise HTTPException(status_code=404, detail=f"App '{app_id}' not found")
 
-    if app_row.current_bundle is not None:
-        descriptor = manager._bundle_store.get_by_path(
-            app_id, app_row.current_bundle.bundle_path,
+    try:
+        from digitorn.core.packages.resolver import resolve_app_install_dir
+        install_dir = await resolve_app_install_dir(
+            app_id,
+            user_id=(app_row.owner_user_id or None),
         )
-        if descriptor is not None:
-            try:
-                raw_yaml = manager._bundle_store.load_yaml(descriptor)
-            except Exception as exc:
-                logger.warning(
-                    "required_secrets: bundle YAML unreadable for %s: %s",
-                    app_id, exc,
-                )
+        if install_dir is not None:
+            candidate = install_dir / "app.yaml"
+            if candidate.is_file():
+                raw_yaml = candidate.read_text(encoding="utf-8")
+    except Exception as exc:
+        logger.warning(
+            "required_secrets: install_dir YAML unreadable for %s: %s",
+            app_id, exc,
+        )
 
     if raw_yaml is None:
         raw_yaml = app_row.yaml_content
@@ -192,8 +192,8 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
         raise HTTPException(
             status_code=404,
             detail=(
-                f"App '{app_id}' has no readable YAML (no bundle and no "
-                f"yaml_content). Re-deploy it to enable secret introspection."
+                f"App '{app_id}' has no readable YAML on disk and no "
+                f"yaml_content. Re-deploy it to enable secret introspection."
             ),
         )
 

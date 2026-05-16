@@ -74,6 +74,7 @@ def _refresh_token(daemon: str, creds: dict[str, Any]) -> dict[str, Any] | None:
             f"{daemon}/auth/refresh",
             json={"refresh_token": refresh},
             timeout=10.0,
+            follow_redirects=True,
         )
         if resp.status_code != 200:
             return None
@@ -109,10 +110,14 @@ def _prompt_login(daemon: str) -> dict[str, Any]:
         payload = {"username": identity, "password": password}
 
     try:
+        # follow_redirects: when auth.mode=remote the daemon 308-redirects
+        # /auth/login to the central service. Without this the helper
+        # crashes on an empty body via .json().
         resp = httpx.post(
             f"{daemon}/auth/login",
             json=payload,
             timeout=10.0,
+            follow_redirects=True,
         )
     except httpx.ConnectError:
         console.print(f"[bold red]Cannot connect to daemon at {daemon}[/bold red]")
@@ -120,7 +125,10 @@ def _prompt_login(daemon: str) -> dict[str, Any]:
         raise typer.Exit(1)
 
     if resp.status_code != 200:
-        error = resp.json().get("error", "Login failed")
+        try:
+            error = resp.json().get("error") or resp.json().get("detail") or "Login failed"
+        except Exception:
+            error = f"HTTP {resp.status_code}: {resp.text[:200]}"
         console.print(f"\n[bold red]Login failed:[/bold red] {error}")
 
         # Offer to register
@@ -161,13 +169,17 @@ def _prompt_register(daemon: str, username: str, password: str) -> dict[str, Any
                 "email": email or None,
             },
             timeout=10.0,
+            follow_redirects=True,
         )
     except httpx.ConnectError:
         console.print(f"[bold red]Cannot connect to daemon at {daemon}[/bold red]")
         raise typer.Exit(1)
 
     if resp.status_code != 200:
-        error = resp.json().get("error", "Registration failed")
+        try:
+            error = resp.json().get("error") or resp.json().get("detail") or "Registration failed"
+        except Exception:
+            error = f"HTTP {resp.status_code}: {resp.text[:200]}"
         console.print(f"\n[bold red]Registration failed:[/bold red] {error}")
         raise typer.Exit(1)
 

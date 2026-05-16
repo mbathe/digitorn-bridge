@@ -819,6 +819,37 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         asyncio.create_task(_start_mcp_bg())
         app.state.mcp_pool = mcp_pool
 
+        # Hub-served catalog cache. Per the App Store model, the Hub is
+        # the source of truth for which MCP servers are officially
+        # supported; the daemon caches the list in-process and refreshes
+        # every 5 min. Disabled when ``settings.hub.url`` is empty
+        # (offline / dev) — in that case the baked-in ``catalog.CATALOG``
+        # dict serves as the fallback.
+        hub_url = getattr(settings.hub, "url", "") or ""
+        if hub_url:
+            from digitorn.modules.mcp import hub_catalog_client
+            hub_catalog = hub_catalog_client.init(hub_url)
+
+            async def _start_hub_catalog_bg() -> None:
+                try:
+                    ok = await hub_catalog.refresh()
+                    logger.info(
+                        "hub_catalog_prewarm ok=%s size=%d url=%s",
+                        ok, hub_catalog.size, hub_url,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("hub_catalog_prewarm_failed: %s", exc)
+
+            asyncio.create_task(_start_hub_catalog_bg())
+            app.state.hub_catalog_task = asyncio.create_task(
+                hub_catalog.run_refresh_loop()
+            )
+            app.state.hub_catalog = hub_catalog
+        else:
+            logger.info("hub_catalog_disabled (settings.hub.url empty)")
+            app.state.hub_catalog = None
+            app.state.hub_catalog_task = None
+
         from digitorn.core.app.runtime import AppRuntimeStore
 
         runtime_store = AppRuntimeStore(registry)
@@ -1131,11 +1162,11 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
         # Wire the PackageRegistry onto the manager BEFORE reloading
         # deployed apps from the DB. The reload path
-        # (``_deploy_from_bundle``) needs the package's on-disk
+        # (``_reload_one_app``) needs the package's on-disk
         # install_dir to resolve relative paths (web/dist, workspace
         # sync_path, etc). Without the registry wired in time,
-        # ``_resolve_install_dir`` returns None and bundle_dir falls
-        # back to ``Path.cwd()`` which is usually wrong.
+        # ``_resolve_install_dir`` returns None and the install dir
+        # falls back to ``Path.cwd()`` which is usually wrong.
         try:
             from digitorn.core.packages import (
                 PackageRegistry,
@@ -1660,6 +1691,18 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
         for app_id in list(app_manager._deployed.keys()):
             await app_manager.undeploy(app_id)
+
+        hub_catalog_task = getattr(app.state, "hub_catalog_task", None)
+        if hub_catalog_task is not None and not hub_catalog_task.done():
+            hub_catalog = getattr(app.state, "hub_catalog", None)
+            if hub_catalog is not None:
+                hub_catalog.stop()
+            hub_catalog_task.cancel()
+            try:
+                await hub_catalog_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
         await mcp_pool.stop()
         await sidecar_pool.stop()
         await lifecycle.stop_all()
@@ -2156,9 +2199,9 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         # even when the central is unreachable.
         if auth_mode != "remote":
             raise RuntimeError(
-                f"auth.mode={auth_mode!r} is no longer supported - "
-                "the daemon only consumes tokens from a central "
-                "digitorn-auth service. Set auth.mode='remote' and "
+                f"auth.mode={auth_mode!r} is invalid - the only "
+                "supported mode is 'remote'. The daemon consumes "
+                "tokens from a central digitorn-auth service. Set "
                 "auth.service_url=https://<your-auth-service>."
             )
 

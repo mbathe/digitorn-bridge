@@ -91,7 +91,6 @@ class PackageRegistry:
         source_uri: str,
         version: str,
         hash: str,
-        install_dir: str,
         manifest: dict[str, Any],
         installed_by: str = "",
         status: str = Status.INSTALLED,
@@ -149,7 +148,6 @@ class PackageRegistry:
                     source_uri=source_uri,
                     version=version,
                     hash=hash,
-                    install_dir=install_dir,
                     manifest=manifest,
                     status=status,
                     installed_by=installed_by,
@@ -161,7 +159,6 @@ class PackageRegistry:
                 row.source_uri = source_uri
                 row.version = version
                 row.hash = hash
-                row.install_dir = install_dir
                 row.manifest = manifest
                 row.status = status
                 row.installed_by = installed_by
@@ -479,25 +476,17 @@ class PackageRegistry:
 
         Returns ``{drifted, current_hash, stored_hash, install_dir}``.
         Used by the marketplace UI to flag tampered installs.
-
-        ``compute_package_hash`` is fully synchronous (sha256 over
-        every file's bytes via ``Path.read_bytes``) and can take tens
-        of SECONDS on a large package - measured 72s on a stalled
-        production loop. Off-load it to a worker thread so the call
-        no longer blocks every other connected user. Any HTTP route
-        that ``await``s this previously stalled the entire daemon
-        (Socket.IO drops, every other request frozen) for the
-        duration of the hash.
         """
         import asyncio as _asyncio
         from digitorn.core.packages.hash import compute_package_hash
-        from pathlib import Path
+        from digitorn.core.packages.resolver import _app_dir
 
         row = await self.get(package_id)
         if row is None:
             raise PackageNotFound(package_id)
 
-        install_dir = Path(row["install_dir"])
+        owner = row.get("owner_user_id") or None
+        install_dir = _app_dir(package_id, user_id=owner)
         if not install_dir.is_dir():
             return {
                 "drifted": True,
@@ -530,6 +519,9 @@ class PackageRegistry:
 
     @staticmethod
     def _row_to_dict(row: Any) -> dict[str, Any]:
+        from digitorn.core.packages.resolver import _app_dir
+        owner = getattr(row, "owner_user_id", None) or None
+        install_dir = _app_dir(row.package_id, user_id=owner)
         return {
             "id": getattr(row, "id", None),
             "package_id": row.package_id,
@@ -539,7 +531,7 @@ class PackageRegistry:
             "source_uri": row.source_uri,
             "version": row.version,
             "hash": row.hash,
-            "install_dir": row.install_dir,
+            "install_dir": str(install_dir),
             "manifest": dict(row.manifest or {}),
             "status": row.status,
             "last_error": row.last_error,

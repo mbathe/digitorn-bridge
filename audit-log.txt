@@ -1,1 +1,0 @@
-"ActionResult(success=True, data={'stdout': 'hello pipe demo\\n', 'stderr': '', 'exit_code': 0, 'command': 'echo \"hello pipe demo\"', 'cwd': 'C:\\\\Users\\\\ASUS\\\\Documents\\\\digitorn-bridge', 'platform': 'windows', 'shell': 'C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe'}, error=None, metadata={})"

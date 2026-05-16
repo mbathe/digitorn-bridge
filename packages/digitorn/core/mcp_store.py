@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 import subprocess
 from datetime import datetime, timezone
 from typing import Any
@@ -517,9 +518,22 @@ async def _install_package(
     npm servers:  ``~/.local/share/digitorn/mcp-servers/<id>/node_modules/``
     pip servers:  ``~/.local/share/digitorn/mcp-servers/<id>/.venv/``
 
+    ``uvx`` / ``npx`` style commands are no-ops here: the package is
+    pulled lazily on first invocation by the runtime itself, so we
+    skip the eager install (and the ``.venv`` / ``node_modules`` it
+    would otherwise create).
+
     Returns error message or None on success.
     """
     if not package and not command:
+        return None
+
+    cmd_base = (command or "").lower().rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    if cmd_base in ("uvx", "pipx"):
+        logger.info(
+            "mcp_install_skip_uvx server=%s package=%s cmd=%s",
+            server_id, package, command,
+        )
         return None
 
     server_dir = _server_dir(server_id)
@@ -605,21 +619,49 @@ async def _install_npm(
     return None
 
 
+def _venv_bin_dir(venv_dir: "Path") -> "Path":
+    """Cross-platform venv binaries directory.
+
+    Posix venvs put scripts under ``bin/``; Windows uses ``Scripts/``.
+    """
+    if sys.platform == "win32":
+        return venv_dir / "Scripts"
+    return venv_dir / "bin"
+
+
+def _venv_python(venv_dir: "Path") -> "Path":
+    """Resolve the python executable inside *venv_dir*."""
+    bin_dir = _venv_bin_dir(venv_dir)
+    if sys.platform == "win32":
+        return bin_dir / "python.exe"
+    return bin_dir / "python"
+
+
 async def _install_pip(
     server_id: str, package: str, server_dir: "Path",
 ) -> str | None:
     """Install a pip package in an isolated venv.
 
-    Creates ``server_dir/.venv/`` and installs with uv or pip.
-    The binary is then at ``server_dir/.venv/bin/<cmd>``.
+    Strategy (in order):
+      1. ``uvx`` / ``uv tool`` runtime — no install needed; uv lazily
+         downloads the package on first run into its own managed env.
+      2. ``uv`` available — create the venv with ``uv venv`` and
+         install with ``uv pip install`` (does **not** require pip
+         to be present inside the venv).
+      3. Plain ``python -m venv`` — creates a venv with pip bundled
+         and runs that pip directly.
     """
-    import sys
+    if not package:
+        return None
 
     venv_dir = server_dir / ".venv"
+    uv = shutil.which("uv")
 
-    # Create venv if not exists
+    # Create venv when missing. Prefer ``uv venv`` (much faster) when
+    # uv is around, but it produces a venv WITHOUT pip pre-installed,
+    # so we must follow up with ``uv pip install`` rather than calling
+    # the venv's pip directly.
     if not venv_dir.exists():
-        uv = shutil.which("uv")
         if uv:
             cmd = [uv, "venv", str(venv_dir), "--python", sys.executable]
         else:
@@ -636,19 +678,27 @@ async def _install_pip(
         except Exception as exc:
             return f"Failed to create venv: {exc}"
 
-    # Install package into venv
-    venv_pip = venv_dir / "bin" / "pip"
-    uv = shutil.which("uv")
+    # Install package into venv. Three paths, picked by what's available.
     if uv:
-        cmd = [uv, "pip", "install", package, "--python", str(venv_dir / "bin" / "python")]
-    elif venv_pip.exists():
-        cmd = [str(venv_pip), "install", package]
+        venv_python = _venv_python(venv_dir)
+        cmd = [uv, "pip", "install", package, "--python", str(venv_python)]
     else:
-        return f"Cannot install into venv: pip not found in {venv_dir}"
+        bin_dir = _venv_bin_dir(venv_dir)
+        venv_pip = (
+            bin_dir / "pip.exe" if sys.platform == "win32" else bin_dir / "pip"
+        )
+        if not venv_pip.exists():
+            return (
+                f"Cannot install into venv: pip not found in {venv_dir}. "
+                f"Install ``uv`` (https://docs.astral.sh/uv/) or rebuild "
+                f"the venv with the stdlib ``python -m venv`` so it ships "
+                f"with pip."
+            )
+        cmd = [str(venv_pip), "install", package]
 
     logger.info(
-        "mcp_pip_install server=%s package=%s venv=%s",
-        server_id, package, venv_dir,
+        "mcp_pip_install server=%s package=%s venv=%s tool=%s",
+        server_id, package, venv_dir, cmd[0],
     )
 
     try:
@@ -659,9 +709,14 @@ async def _install_pip(
         if proc.returncode != 0:
             return f"pip install failed for {package}: {proc.stderr[:400]}"
 
-        # Verify the command is available
-        venv_bin = venv_dir / "bin"
-        binaries = [f.name for f in venv_bin.iterdir() if f.is_file() and not f.name.startswith("python") and not f.name.startswith("pip") and not f.name.startswith("activate")]
+        venv_bin = _venv_bin_dir(venv_dir)
+        binaries: list[str] = []
+        if venv_bin.exists():
+            binaries = [
+                f.name for f in venv_bin.iterdir()
+                if f.is_file()
+                and not f.name.lower().startswith(("python", "pip", "activate"))
+            ]
         logger.info(
             "mcp_pip_install_ok server=%s binaries=%s",
             server_id, binaries[:5],

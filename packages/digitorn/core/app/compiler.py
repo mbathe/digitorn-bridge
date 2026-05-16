@@ -1117,9 +1117,8 @@ class CompiledApp:
 
     # Every external file the compiler read while producing this
     # CompiledApp, keyed by its path relative to the YAML source dir.
-    # This is the raw material the AppSyncer freezes into an AppBundle
-    # so the daemon can reload the app without going back to the source
-    # filesystem. Keys are always forward-slash relative paths.
+    # Kept for downstream introspection (e.g. /health, drift checks).
+    # Keys are always forward-slash relative paths.
     collected_assets: dict[str, str] = field(default_factory=dict)
 
     # The raw YAML text used to produce this compiled app. Always
@@ -1290,7 +1289,6 @@ class AppYAMLCompiler:
         self._source_file: Path | None = None
         self._positions: PositionMap = {}
         self._source_name: str = ""
-        self._asset_loader: Any = None
         self._collected_assets: dict[str, str] = {}
         # Non-fatal warnings collected during a single compile() call.
         # Reset at the start of compile(), bubbled into CompiledApp.warnings
@@ -1299,7 +1297,7 @@ class AppYAMLCompiler:
         self._warnings: list[str] = []
         # Serialise compile_file / compile_string calls across threads.
         # The compiler keeps per-call state as INSTANCE attributes
-        # (``_source_dir``, ``_asset_loader``, ``_collected_assets``, ...)
+        # (``_source_dir``, ``_collected_assets``, ...)
         # which would race when ``reload_from_db`` launches up to 16
         # parallel ``asyncio.to_thread(compiler.compile_*)`` jobs on
         # the same shared compiler. Without this lock, Thread A's
@@ -1324,34 +1322,17 @@ class AppYAMLCompiler:
     ) -> tuple[str, str]:
         """Resolve an external file referenced by the YAML.
 
-        Returns ``(normalised_relpath, content)``. The normalised rel
-        path is always forward-slash relative to the source dir (or just
-        the original string if it was absolute and couldn't be made
-        relative).
+        Returns ``(normalised_relpath, content)``. The path is read
+        from disk under ``_source_dir / path_str``. The resulting
+        content is stored in ``_collected_assets`` for downstream
+        introspection.
 
-        Resolution order:
-          1. If an ``_asset_loader`` is set (bundle-reload mode), delegate
-             entirely to it - the source filesystem is NOT touched.
-          2. Otherwise read from ``_source_dir / path_str`` on disk. The
-             resulting content is stored in ``_collected_assets`` so the
-             AppSyncer can freeze it into a bundle on the next deploy.
-
-        Raises ``FileNotFoundError`` if the asset cannot be resolved, so
-        the caller can produce a precise error message (e.g. "skills: ...").
+        Raises ``FileNotFoundError`` if the asset cannot be resolved.
         """
-        # Normalise to a forward-slash relative path for bundle storage.
+        # Normalise to a forward-slash relative path.
         rel_path = path_str.replace("\\", "/").strip()
         while rel_path.startswith("./"):
             rel_path = rel_path[2:]
-
-        if self._asset_loader is not None:
-            content = self._asset_loader(rel_path)
-            if content is None:
-                raise FileNotFoundError(
-                    f"{label}: asset not found in bundle: {rel_path}"
-                )
-            self._collected_assets[rel_path] = content
-            return rel_path, content
 
         path = Path(path_str)
         if not path.is_absolute() and self._source_dir is not None:
@@ -1386,27 +1367,13 @@ class AppYAMLCompiler:
         """Resolve an external BINARY file (e.g. template cover image)
         and return ``(normalised_relpath, base64_string)``.
 
-        The bundle store keeps assets as ``dict[str, str]`` so binary
-        payloads are stored base64-encoded. Callers serve the file by
-        decoding before responding to HTTP.
-
-        Same resolution order as ``_load_external_text``: asset_loader
-        in bundle-reload mode, source_dir on disk otherwise.
+        Binary payloads are stored base64-encoded so they fit alongside
+        text assets in ``_collected_assets``.
         """
         import base64
         rel_path = path_str.replace("\\", "/").strip()
         while rel_path.startswith("./"):
             rel_path = rel_path[2:]
-
-        if self._asset_loader is not None:
-            content = self._asset_loader(rel_path)
-            if content is None:
-                raise FileNotFoundError(
-                    f"{label}: asset not found in bundle: {rel_path}"
-                )
-            # Bundle-stored covers are already base64; return as-is.
-            self._collected_assets[rel_path] = content
-            return rel_path, content
 
         path = Path(path_str)
         if not path.is_absolute() and self._source_dir is not None:
@@ -1417,8 +1384,7 @@ class AppYAMLCompiler:
             raise FileNotFoundError(
                 f"{label}: file not found: input={path_str!r} "
                 f"resolved={str(path)!r} "
-                f"source_dir={str(self._source_dir)!r} "
-                f"asset_loader={'set' if self._asset_loader else 'none'}"
+                f"source_dir={str(self._source_dir)!r}"
             )
         try:
             data = path.read_bytes()
@@ -1456,7 +1422,6 @@ class AppYAMLCompiler:
         self, path: Path, *, secrets: dict[str, str] | None = None
     ) -> CompiledApp:
         self._secrets = secrets
-        self._asset_loader = None
         self._collected_assets = {}
         path = Path(path)
         if not path.exists():
@@ -1505,31 +1470,20 @@ class AppYAMLCompiler:
         *,
         source: str = "<string>",
         secrets: dict[str, str] | None = None,
-        asset_loader: Any = None,
     ) -> CompiledApp:
         """Compile a YAML string into a CompiledApp.
 
-        Two modes:
+        Relative paths in the YAML (skills/, agent prompt files, ...)
+        are resolved against ``source``'s parent directory on the real
+        filesystem.
 
-        - Default: relative paths in the YAML (skills/, agent prompt
-          files, …) are resolved against ``source``'s parent directory on
-          the real filesystem.
-        - Bundle mode: pass an ``asset_loader`` callable - a function that
-          takes a forward-slash relative path and returns its content
-          (or None). The compiler uses that instead of reading from disk,
-          so reloading an app from an AppBundle never touches the
-          original source tree.
-
-        Thread-safe: serialised via ``self._compile_lock`` for the
-        same reason as ``compile_file`` (shared per-call instance
-        state).
+        Thread-safe: serialised via ``self._compile_lock``.
         """
         with self._compile_lock:
             return self._compile_string_locked(
                 content,
                 source=source,
                 secrets=secrets,
-                asset_loader=asset_loader,
             )
 
     def _compile_string_locked(
@@ -1538,10 +1492,8 @@ class AppYAMLCompiler:
         *,
         source: str = "<string>",
         secrets: dict[str, str] | None = None,
-        asset_loader: Any = None,
     ) -> CompiledApp:
         self._secrets = secrets
-        self._asset_loader = asset_loader
         self._collected_assets = {}
         # Resolve _source_dir from source path so relative skill/agent
         # paths work even when recompiling from DB-stored YAML content.
@@ -1580,7 +1532,6 @@ class AppYAMLCompiler:
         finally:
             self._secrets = None
             self._source_dir = None
-            self._asset_loader = None
             self._positions = {}
             self._source_name = ""
             self._collected_assets = {}
@@ -1608,46 +1559,14 @@ class AppYAMLCompiler:
             )
 
         # Apply fragmentation: auto-load ./agents, ./hooks and any
-        # explicit include: block. Two modes:
-        #   - source-tree: we have a real filesystem path (compile_file).
-        #     Fragments are read from disk AND copied into
-        #     `_collected_assets` so the bundle stores them.
-        #   - bundle-reload: we have an `_asset_loader`. Fragments are
-        #     read through it, no filesystem access.
-        if isinstance(raw, dict) and (
-            self._source_dir is not None or self._asset_loader is not None
-        ):
+        # explicit include: block from ``_source_dir`` on disk.
+        if isinstance(raw, dict) and self._source_dir is not None:
             from digitorn.core.app.include_loader import apply_includes
 
-            if self._asset_loader is not None and self._source_dir is None:
-                # Bundle mode: build a list_dir over the loader's known
-                # asset keys. The bundle store exposes a side-channel
-                # via ``list_dir`` when present; we degrade gracefully
-                # if it's missing (no fragments seen on reload).
-                #
-                # ``collected_assets`` is passed here too — without it
-                # the convention files (templates.yaml, agents/*.yaml,
-                # hooks/*.yaml) get read from the bundle but never
-                # recorded back into ``self._collected_assets``. The
-                # next ``syncer.sync(compiled)`` would then write a
-                # new bundle with ``assets:[]``, single-bundle policy
-                # drops the old one with the conventions, and the
-                # following reload sees an empty bundle → templates /
-                # agents / hooks silently vanish across restarts.
-                _list_dir = getattr(self._asset_loader, "list_dir", None)
-                if _list_dir is None:
-                    _list_dir = lambda _rel: []  # bundle has no fragments
-                raw, _include_errors = apply_includes(
-                    raw, None,
-                    asset_loader=self._asset_loader,
-                    list_dir=_list_dir,
-                    collected_assets=self._collected_assets,
-                )
-            else:
-                raw, _include_errors = apply_includes(
-                    raw, self._source_dir,
-                    collected_assets=self._collected_assets,
-                )
+            raw, _include_errors = apply_includes(
+                raw, self._source_dir,
+                collected_assets=self._collected_assets,
+            )
 
             if _include_errors:
                 raise AppCompilationError(_include_errors)
@@ -2327,42 +2246,11 @@ class AppYAMLCompiler:
         Returns a ``{stem: parsed_dict}`` map. Errors during parsing
         are appended to the shared error list and the offending file
         is skipped - partial loads still allow other widgets to work.
-
-        Bundle-mode aware: when the compiler is reading from an asset
-        loader (recompile from a bundle store) the function lists files
-        via the asset_loader contract instead of touching the disk.
         """
         from digitorn.core.app.yaml_loader import safe_load_strict
 
         loaded: dict[str, Any] = {}
 
-        # Bundle/asset loader path - used during reload_from_db
-        if self._asset_loader is not None:
-            list_fn = getattr(self._asset_loader, "list", None)
-            if callable(list_fn):
-                try:
-                    candidates = [
-                        p for p in list_fn()
-                        if p.startswith("widgets/") and p.endswith(".yaml")
-                    ]
-                except Exception as exc:
-                    errors.append(f"widgets/: asset_loader.list failed: {exc}")
-                    candidates = []
-                for rel in candidates:
-                    try:
-                        text = self._asset_loader(rel)
-                        if not text:
-                            continue
-                        # YAML 1.2 strict bool rules — see yaml_loader.py.
-                        parsed = safe_load_strict(text)
-                    except Exception as exc:
-                        errors.append(f"widgets/{rel}: parse error - {exc}")
-                        continue
-                    name = Path(rel).stem
-                    loaded[name] = parsed
-            return loaded
-
-        # Disk path - normal compile_file flow
         if self._source_dir is None:
             return loaded
         widgets_dir = self._source_dir / "widgets"

@@ -93,15 +93,11 @@ class EncryptedJSON(TypeDecorator):
 class Application(Base):
     """A registered application that connects to Digitorn.
 
-    A deployed app is backed by an immutable **AppBundle** that contains
-    the YAML source and every file it references (skills, agent prompts,
-    any other asset). The bundle is the single source of truth after the
-    initial deploy - the daemon never reaches back to the original source
-    filesystem to reload an app.
-
-    The ``current_bundle_id`` FK points to the active bundle. Previous
-    bundles can be kept around for rollback (the AppBundle rows are not
-    automatically deleted when a new bundle replaces them).
+    A deployed app lives on disk at ``~/.digitorn/apps/<scoped>/`` -
+    the install dir IS the source of truth. The daemon reloads each
+    app by recompiling that dir at startup. ``yaml_content`` on this
+    row is kept as a fallback for content-only deploys whose install
+    dir is missing.
     """
 
     __tablename__ = "applications"
@@ -134,19 +130,11 @@ class Application(Base):
     author: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     tags: Mapped[list[str]] = mapped_column(JSON, default=list)
 
-    # Legacy columns - kept for backward-compat with pre-bundle deploys.
-    # New deploys write to the AppBundle table instead.
+    # Cached YAML for fallback when install_dir on disk is missing
+    # (content-only deploys, or orphaned rows after manual cleanup).
     yaml_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     yaml_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     yaml_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-
-    # Pointer to the currently active bundle (the one used on reload).
-    # Nullable only for legacy rows - new deploys always set it.
-    current_bundle_id: Mapped[str | None] = mapped_column(
-        String(64),
-        ForeignKey("app_bundles.id", ondelete="SET NULL", use_alter=True),
-        nullable=True,
-    )
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
@@ -174,7 +162,7 @@ class Application(Base):
     # When `disabled=True`, the app is NOT reloaded at daemon startup, is
     # hidden from list_apps/get for non-admins, and session creation is
     # refused. Only an admin can re-enable (via POST /api/apps/{id}/enable).
-    # Bundles + history + sessions are preserved - disable is reversible.
+    # History + sessions are preserved - disable is reversible.
     disabled: Mapped[bool] = mapped_column(
         default=False, server_default="0", nullable=False,
         comment="True = app hidden + unusable; only admin can re-enable.",
@@ -212,27 +200,6 @@ class Application(Base):
         primaryjoin="foreign(AppModuleConfig.app_id) == Application.app_id",
         viewonly=True,
     )
-    # ``bundles`` was previously cascade="all, delete-orphan" via an
-    # FK on AppBundle.app_id. With the scoping refactor the FK is gone
-    # (composite keys can't be represented as a single FK in SQLite),
-    # so this relationship is now read-only - actual cascade is done
-    # explicitly in ``manager.delete_app`` via scoped SQL.
-    bundles: Mapped[list["AppBundle"]] = relationship(
-        back_populates="application",
-        foreign_keys="AppBundle.app_id",
-        primaryjoin=(
-            "and_("
-            "AppBundle.app_id == Application.app_id, "
-            "AppBundle.scope == Application.scope, "
-            "AppBundle.owner_user_id == Application.owner_user_id"
-            ")"
-        ),
-        viewonly=True,
-    )
-    current_bundle: Mapped["AppBundle | None"] = relationship(
-        foreign_keys=[current_bundle_id],
-        post_update=True,
-    )
 
     __table_args__ = (
         # Composite uniqueness: one install per (app_id, scope, owner_user_id).
@@ -240,72 +207,6 @@ class Application(Base):
         Index(
             "ix_applications_scope_key",
             "app_id", "scope", "owner_user_id",
-            unique=True,
-        ),
-    )
-
-
-class AppBundle(Base):
-    """An immutable snapshot of a deployed application.
-
-    Every time an app is deployed (or re-deployed with changes), the
-    compiler walks the YAML, reads every referenced file (skills, agent
-    prompts, etc.) and freezes the whole set into an AppBundle. The
-    bundle's content is written to disk under
-    ``~/.digitorn/apps/<app_id>/bundle-<short_hash>/`` and is the ONLY
-    source the daemon uses to reload the app after a restart. The
-    original source directory can be deleted, moved, or modified - the
-    deployed app keeps working.
-
-    ``bundle_hash`` is a deterministic SHA-256 over the YAML plus every
-    asset (sorted by relative path), so two deploys of the same content
-    produce the same bundle_id and are deduplicated.
-    """
-
-    __tablename__ = "app_bundles"
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
-    # No FK here anymore - ``applications.app_id`` is not unique in the
-    # multi-tenant schema (the unique key is now the composite
-    # ``(app_id, scope, owner_user_id)``). Deletes cascade at the
-    # application layer via ``delete_app`` / ``disable_app``.
-    app_id: Mapped[str] = mapped_column(
-        String(255), nullable=False, index=True,
-    )
-    # Scope partitioning - mirrors Application. Two users can hold a
-    # bundle for the same ``app_id`` simultaneously without collision.
-    scope: Mapped[str] = mapped_column(
-        String(16), default="system", server_default="system", nullable=False,
-    )
-    owner_user_id: Mapped[str] = mapped_column(
-        String(64), default="", server_default="", nullable=False,
-    )
-    bundle_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    bundle_path: Mapped[str] = mapped_column(String(1024), nullable=False)
-    yaml_filename: Mapped[str] = mapped_column(String(255), nullable=False, default="app.yaml")
-    asset_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, nullable=False,
-    )
-
-    application: Mapped["Application"] = relationship(
-        back_populates="bundles",
-        foreign_keys=[app_id],
-        primaryjoin=(
-            "and_("
-            "AppBundle.app_id == Application.app_id, "
-            "AppBundle.scope == Application.scope, "
-            "AppBundle.owner_user_id == Application.owner_user_id"
-            ")"
-        ),
-        viewonly=True,
-    )
-
-    __table_args__ = (
-        Index(
-            "ix_app_bundles_scope_key",
-            "app_id", "scope", "owner_user_id", "bundle_hash",
             unique=True,
         ),
     )
@@ -331,7 +232,7 @@ class AppProfile(Base):
         # multi-tenant support). Postgres rejects FKs to non-unique columns;
         # SQLite silently accepted them but it was never valid. Cascade
         # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``) like ``AppBundle`` already does.
+        # ``disable_app``).
         unique=True,
         nullable=False,
     )
@@ -404,7 +305,7 @@ class AppModuleConfig(Base):
         # multi-tenant support). Postgres rejects FKs to non-unique columns;
         # SQLite silently accepted them but it was never valid. Cascade
         # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``) like ``AppBundle`` already does.
+        # ``disable_app``).
         nullable=False,
     )
     module_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -440,7 +341,7 @@ class AppSecret(Base):
         # multi-tenant support). Postgres rejects FKs to non-unique columns;
         # SQLite silently accepted them but it was never valid. Cascade
         # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``) like ``AppBundle`` already does.
+        # ``disable_app``).
         nullable=False,
     )
     key: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -527,7 +428,7 @@ class UserSession(Base):
         # multi-tenant support). Postgres rejects FKs to non-unique columns;
         # SQLite silently accepted them but it was never valid. Cascade
         # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``) like ``AppBundle`` already does.
+        # ``disable_app``).
         nullable=False,
     )
     # Python attribute stays ``session_id`` (every call site reads
@@ -846,7 +747,7 @@ class SessionCheckpoint(Base):
         # multi-tenant support). Postgres rejects FKs to non-unique columns;
         # SQLite silently accepted them but it was never valid. Cascade
         # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``) like ``AppBundle`` already does.
+        # ``disable_app``).
         nullable=False,
     )
     session_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -972,7 +873,7 @@ class UserRole(Base):
         # multi-tenant support). Postgres rejects FKs to non-unique columns;
         # SQLite silently accepted them but it was never valid. Cascade
         # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``) like ``AppBundle`` already does.
+        # ``disable_app``).
         nullable=True,
     )
     granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -1170,7 +1071,7 @@ class APIKey(Base):
         # multi-tenant support). Postgres rejects FKs to non-unique columns;
         # SQLite silently accepted them but it was never valid. Cascade
         # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``) like ``AppBundle`` already does.
+        # ``disable_app``).
         nullable=True,
     )
     permissions: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -1202,7 +1103,7 @@ class BackgroundSession(Base):
         # multi-tenant support). Postgres rejects FKs to non-unique columns;
         # SQLite silently accepted them but it was never valid. Cascade
         # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``) like ``AppBundle`` already does.
+        # ``disable_app``).
         nullable=False,
     )
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -1249,7 +1150,7 @@ class Activation(Base):
         # multi-tenant support). Postgres rejects FKs to non-unique columns;
         # SQLite silently accepted them but it was never valid. Cascade
         # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``) like ``AppBundle`` already does.
+        # ``disable_app``).
         nullable=False,
     )
     trigger_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -1776,7 +1677,6 @@ class InstalledPackage(Base):
 
     version: Mapped[str] = mapped_column(String(32), default="0.0.0")
     hash: Mapped[str] = mapped_column(String(64), default="")
-    install_dir: Mapped[str] = mapped_column(String(1024), default="")
 
     # Frozen copy of package.toml at install time. Used by API
     # listing routes so we don't re-read the TOML on every call.

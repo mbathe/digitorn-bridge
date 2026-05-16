@@ -1314,31 +1314,17 @@ def _resolve_app_bundle_dir(request: Request, app_id: str, manager) -> Any:
     """Return the on-disk directory that contains a deployed app's
     companion files (YAML, icon, README, skills, assets/...).
 
-    Tries the manager's bundle store first, falls back to the
-    package install dir when the app was installed as a package,
-    and returns None when neither is available.
+    Uses the deterministic install dir under
+    ``~/.digitorn/apps/<scoped>/``.
     """
     from pathlib import Path
+    from digitorn.core.packages.resolver import _app_dir
     try:
-        bs = getattr(manager, "_bundle_store", None)
-        if bs is not None:
-            _d = bs.app_dir(app_id)
-            if _d:
-                p = Path(_d).resolve()
-                if p.is_dir():
-                    return p
+        p = _app_dir(app_id)
+        if p.is_dir():
+            return p
     except Exception:
         pass
-    pkg_registry = getattr(request.app.state, "package_registry", None)
-    if pkg_registry is not None:
-        try:
-            import asyncio as _asyncio
-            # ``package_registry.get`` is async - run the coroutine
-            # via ``loop.run_until_complete`` in FastAPI handlers is
-            # wrong; just return None and let the caller fall back.
-            return None
-        except Exception:
-            pass
     return None
 
 
