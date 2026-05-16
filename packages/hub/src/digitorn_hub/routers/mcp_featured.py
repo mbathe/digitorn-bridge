@@ -93,6 +93,11 @@ class McpFeaturedRow(BaseModel):
 
     registry_server_id: str | None = None
 
+    # App Store classification (migration 0009)
+    personal_keys: list[str] = Field(default_factory=list)
+    digitorn_provided: dict[str, str] = Field(default_factory=dict)
+    hosted_url: str | None = None
+
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -142,6 +147,11 @@ class McpFeaturedCreate(BaseModel):
     hidden: bool = False
     registry_server_id: str | None = None
 
+    # App Store classification (migration 0009)
+    personal_keys: list[str] = Field(default_factory=list)
+    digitorn_provided: dict[str, str] = Field(default_factory=dict)
+    hosted_url: str | None = None
+
 
 class McpFeaturedPatch(BaseModel):
     """All fields optional. ``None`` = "leave alone"."""
@@ -177,6 +187,11 @@ class McpFeaturedPatch(BaseModel):
     featured_priority: int | None = None
     hidden: bool | None = None
     registry_server_id: str | None = None
+
+    # App Store classification (migration 0009)
+    personal_keys: list[str] | None = None
+    digitorn_provided: dict[str, str] | None = None
+    hosted_url: str | None = None
 
 
 class McpFeaturedSeedRequest(BaseModel):

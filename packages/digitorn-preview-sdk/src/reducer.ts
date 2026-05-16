@@ -157,6 +157,7 @@ function _freezeStreaming(tail: ChatAssistantMessage): ChatAssistantMessage {
 
 export const initialState: DigiPreviewContextValue = {
   connected: false,
+  hydrated: false,
   resources: new Map(),
   state: {},
   agentStatus: "idle",
@@ -265,6 +266,7 @@ export function reducer(
       return {
         ...state,
         connected: true,
+        hydrated: true,
         state: { ...(s.state || {}) },
         resources,
         events: Array.isArray(s.events) ? [...s.events] : state.events,

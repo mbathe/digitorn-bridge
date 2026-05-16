@@ -107,6 +107,24 @@ class CatalogEntry:
     icon: str = ""
     category: str = ""
 
+    # ── App Store classification (Hub-curated, sourced from
+    # ``hub.mcp_featured_entries`` post-migration 0009) ─────────────
+    # Subset of ``env_mapping`` keys the user fills personally. Used
+    # by the install dialog to prominently show only what's truly
+    # user-specific. Empty = no personal credentials needed.
+    personal_keys: tuple[str, ...] = ()
+    # ``{env_var_name: credential_name}`` — env vars Digitorn provides
+    # at install time from the credential store (system_wide scope).
+    # The daemon resolves each name via ``CredentialStore`` and
+    # injects the value into the subprocess env. The user never sees
+    # these fields in the install dialog.
+    digitorn_provided: dict[str, str] = field(default_factory=dict)
+    # Digitorn-hosted endpoint URL (shared infra bridge, e.g. a public
+    # Cloudflare Worker we operate for all users). Filled into the
+    # canonical URL env var when present and the user hasn't supplied
+    # one — see ``install_server._resolve_for_install``.
+    hosted_url: str = ""
+
 
 CATALOG: dict[str, CatalogEntry] = {
 
@@ -649,6 +667,24 @@ def _promote_registry_to_catalog(
     return None
 
 
+# Pattern matched by ``_description_has_default``. Catches ``(default: X)``
+# and ``(default = X)``, case-insensitive, anywhere in the description.
+import re as _re
+_DEFAULT_HINT_RE = _re.compile(r"\(default\s*[:=]\s*[^)]+\)", _re.IGNORECASE)
+
+
+def _description_has_default(description: str) -> bool:
+    """Return True when *description* declares a literal default value.
+
+    Many catalog/registry authors embed the fallback their server uses
+    when an env var is absent (e.g. ``"...(default: https://example.com)"``).
+    A field bearing such a hint is effectively optional — the user can
+    omit it and let the server's default kick in. We use this to soften
+    the form's required-marker UX and to relax the install validator.
+    """
+    return bool(_DEFAULT_HINT_RE.search(description or ""))
+
+
 def _requirements_from_catalog(entry: CatalogEntry) -> ServerRequirements:
     """Build requirements from a catalog entry."""
     creds = []
@@ -659,7 +695,7 @@ def _requirements_from_catalog(entry: CatalogEntry) -> ServerRequirements:
             key=key,
             env_var=env_var if not is_arg else "(positional argument)",
             description=desc,
-            required=True,
+            required=not _description_has_default(desc),
             is_arg=is_arg,
         ))
 
@@ -722,11 +758,18 @@ def _requirements_from_registry(
             if not var_name:
                 continue
             shorthand = _env_var_to_shorthand(var_name)
+            desc = env_var.get("description", "")
+            # An "(default: X)" hint in the description signals a sane
+            # fallback the server will use when the env var is absent —
+            # in that case the field is not strictly required, even if
+            # the registry metadata flags it as such.
+            raw_required = env_var.get("required", True)
+            required = raw_required and not _description_has_default(desc)
             creds.append(ServerRequirement(
                 key=shorthand,
                 env_var=var_name,
-                description=env_var.get("description", ""),
-                required=env_var.get("required", True),
+                description=desc,
+                required=required,
             ))
 
     if not packages and remotes:

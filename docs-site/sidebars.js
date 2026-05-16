@@ -204,6 +204,8 @@ const sidebars = {
         "reference/runtime/credentials",
         "reference/runtime/hooks",
         "reference/runtime/middleware",
+        "reference/runtime/workdir-sandbox",
+        "reference/runtime/user-skills",
         "reference/runtime/multimodal",
         "reference/runtime/voice",
         "reference/runtime/tool-chaining",

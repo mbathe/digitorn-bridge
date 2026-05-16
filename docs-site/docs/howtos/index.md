@@ -15,6 +15,7 @@ to the full module reference instead of repeating it.
 | Build a RAG bot over a folder of markdowns       | [Build a RAG bot](build-a-rag-bot.md)               |
 | Attach files to a chat session (paperclip menu)  | [Attach files to chat](attach-files-to-chat.md)     |
 | Add a new module to the daemon (contributor doc) | [Add a module](add-a-module.md)                     |
+| Install an MCP server (Hub catalog or custom)    | [Install an MCP server](install-an-mcp-server.md)   |
 
 ## Linked recipes
 

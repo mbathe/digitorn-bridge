@@ -207,6 +207,23 @@ ui:
     width_pct: 65
     auto_open_on_first_tool: true
 
+  # ── Activity pane (sub-agent fan-out + recent events + stats) ─
+  # Opt-in observability view. Surfaces what the agent is doing
+  # behind the chat — live sub-agents, background tasks, recent
+  # tool results — as an extra tab in the workspace mode menu.
+  # Enabled here so the smoke-test surface lets us visually
+  # validate the ActivityPanel renderer.
+  activity:
+    enabled: true
+    position: right
+    title: Activity
+    show_running: true
+    show_recent: true
+    show_stats: true
+    show_bg_tasks: true
+    max_recent: 50
+    auto_open_on_spawn: false
+
   # ── Chat layout / behaviour (Phase 0 demo) ────────────────────
   # Each flag below maps to a Phase-0 wired feature in both Flutter
   # and the web client. Flip any value, redeploy, refresh - the

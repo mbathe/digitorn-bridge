@@ -906,6 +906,19 @@ def _normalize_openai_function_schema(schema: Any) -> dict[str, Any]:
     return normalized
 
 
+# JSON Schema ``format`` keywords OpenAI's structured-outputs /
+# function-calling API accepts. Anything else (``uri``, ``url``,
+# ``regex``, ``relative-uri``, …) is dropped from the schema before
+# the request goes out — OpenAI returns a 400 ``Invalid schema for
+# function`` otherwise. This is the source of bugs like the MCP
+# ``fetch`` tool which declares ``properties.url.format = "uri"``.
+_OPENAI_ALLOWED_STRING_FORMATS = frozenset({
+    "date", "date-time", "time", "duration",
+    "email", "hostname",
+    "ipv4", "ipv6", "uuid",
+})
+
+
 def _normalize_openai_schema_node(node: Any) -> Any:
     """Recursively harden a JSON Schema node for OpenAI strict validation."""
     if isinstance(node, list):
@@ -918,6 +931,14 @@ def _normalize_openai_schema_node(node: Any) -> Any:
         for key, value in node.items()
         if key not in {"title", "$schema", "examples", "default"}
     }
+
+    # Strip unsupported ``format`` values on string nodes — OpenAI
+    # rejects the whole schema otherwise (BadRequestError ``Invalid
+    # schema for function 'X': In context=('properties', 'Y'), 'Z'
+    # is not a valid format``).
+    fmt = normalized.get("format")
+    if isinstance(fmt, str) and fmt not in _OPENAI_ALLOWED_STRING_FORMATS:
+        normalized.pop("format", None)
 
     node_type = normalized.get("type")
     if node_type == "object" or "properties" in normalized:

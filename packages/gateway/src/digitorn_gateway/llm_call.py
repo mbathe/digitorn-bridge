@@ -538,16 +538,31 @@ async def dispatch(
                 break
             except Exception as exc:
                 last_exc = exc
+                is_balance = _is_balance_error(exc)
                 if record_health and r_at.route_id is not None:
+                    cooldown = (
+                        float(_settings.balance_failover_cooldown_seconds)
+                        if is_balance and _settings.balance_failover_cooldown_seconds > 0
+                        else 30.0
+                    )
                     cache.mark_route_failure(
                         r_at.route_id,
-                        f"{type(exc).__name__}: {exc}"[:200],
+                        (
+                            f"insufficient_balance: {exc}"
+                            if is_balance else f"{type(exc).__name__}: {exc}"
+                        )[:200],
+                        cooldown_s=cooldown,
                     )
                 if record_health and inflight_cid is not None and _is_rate_limit_error(exc):
                     cache.mark_credential_429(
                         inflight_cid,
                         retry_after_s=_extract_retry_after(exc),
                     )
+                # Balance-specific failover gate: independent of the generic
+                # ``failover_enabled`` so operators can keep cross-provider
+                # cascade ON for outages but OFF for balance (cost-attribution).
+                if is_balance and not _settings.balance_failover_enabled:
+                    raise
                 if not _is_failover_eligible(exc):
                     raise
             finally:
@@ -944,10 +959,20 @@ async def dispatch_stream(
             break
         except Exception as exc:
             last_exc = exc
+            is_balance = _is_balance_error(exc)
             if record_health and r_at.route_id is not None:
+                cooldown = (
+                    float(_settings.balance_failover_cooldown_seconds)
+                    if is_balance and _settings.balance_failover_cooldown_seconds > 0
+                    else 30.0
+                )
                 cache.mark_route_failure(
                     r_at.route_id,
-                    f"{type(exc).__name__}: {exc}"[:200],
+                    (
+                        f"insufficient_balance: {exc}"
+                        if is_balance else f"{type(exc).__name__}: {exc}"
+                    )[:200],
+                    cooldown_s=cooldown,
                 )
             if record_health and cur_inflight_cid is not None and _is_rate_limit_error(exc):
                 cache.mark_credential_429(
@@ -956,6 +981,9 @@ async def dispatch_stream(
                 )
             if cur_inflight_cid is not None:
                 cache.mark_dispatch_finished(cur_inflight_cid)
+            # Balance-specific gate: see dispatch() for rationale.
+            if is_balance and not _settings.balance_failover_enabled:
+                raise
             if not _is_failover_eligible(exc):
                 raise
 
@@ -986,20 +1014,83 @@ async def dispatch_stream(
     # is committed; first chunk may already be on the wire). They are
     # propagated up to ``_stream_response`` which emits a single SSE
     # ``error`` chunk and closes cleanly.
+    #
+    # We additionally track two things to detect SILENT TRUNCATION (the
+    # provider closes its connection mid-stream without sending a final
+    # ``finish_reason`` chunk - common with Copilot per-minute throttle,
+    # OpenAI content filter mid-response, transient network drop):
+    #   * ``chunk_count``: zero means we never got a single token. The
+    #     client would see a blank response with no error. We raise so
+    #     the HTTP route surfaces it as an upstream error.
+    #   * ``last_finish_reason``: if the stream ends without any chunk
+    #     having a non-null finish_reason, we emit a synthetic chunk
+    #     with ``finish_reason: "stop"`` so the client receives a
+    #     proper end-of-stream event AND we log it for observability.
+    chunk_count = 0
+    last_finish_reason: str | None = None
     try:
         if use_responses_for_winner:
             async for chunk in stream_responses_as_chat_chunks(
                 open_stream_obj, model_hint=real_model_id_winner,
             ):
+                chunk_count += 1
+                try:
+                    choices = chunk.get("choices") or []
+                    if choices:
+                        fr = choices[0].get("finish_reason")
+                        if fr:
+                            last_finish_reason = fr
+                except Exception:
+                    pass
                 yield chunk
         else:
             async for chunk in open_stream_obj:
                 if hasattr(chunk, "model_dump"):
-                    yield chunk.model_dump()
+                    chunk_dict = chunk.model_dump()
                 elif hasattr(chunk, "dict"):
-                    yield chunk.dict()
+                    chunk_dict = chunk.dict()
                 else:
-                    yield dict(chunk)
+                    chunk_dict = dict(chunk)
+                chunk_count += 1
+                try:
+                    choices = chunk_dict.get("choices") or []
+                    if choices:
+                        fr = choices[0].get("finish_reason")
+                        if fr:
+                            last_finish_reason = fr
+                except Exception:
+                    pass
+                yield chunk_dict
+
+        # Post-loop truncation detection.
+        if chunk_count == 0:
+            logger.warning(
+                "stream_empty served_by=%s route_id=%s - raising upstream_returned_empty_stream",
+                open_resolved.provider_slug if open_resolved else "unknown",
+                str(open_resolved.route_id) if open_resolved and open_resolved.route_id else None,
+            )
+            raise RuntimeError("upstream_returned_empty_stream")
+        if last_finish_reason is None:
+            logger.warning(
+                "stream_truncated_no_finish_reason served_by=%s route_id=%s "
+                "chunks=%d - emitting synthetic stop chunk",
+                open_resolved.provider_slug if open_resolved else "unknown",
+                str(open_resolved.route_id) if open_resolved and open_resolved.route_id else None,
+                chunk_count,
+            )
+            yield {
+                "id": f"chatcmpl-truncated-{int(time.monotonic()*1000)}",
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": real_model_id_winner or "unknown",
+                "choices": [{
+                    "index": 0,
+                    "delta": {},
+                    "finish_reason": "stop",  # safe for all OpenAI-compat clients
+                }],
+                "digitorn_truncated": True,  # custom flag for observability
+            }
+
         if record_health and inflight_cid is not None:
             cache.mark_credential_success(inflight_cid)
         if record_health and open_resolved is not None and open_resolved.route_id is not None:
@@ -1211,6 +1302,31 @@ def _is_failover_eligible(exc: Exception) -> bool:
     # Everything else (auth, rate limit, timeout, server, network, ...)
     # is worth trying the next provider.
     return True
+
+
+def _is_balance_error(exc: Exception) -> bool:
+    """True when the upstream signalled insufficient credit / balance.
+
+    Detects HTTP 402 (Payment Required) and the common error wordings:
+    DeepSeek ("Account balance too low", "Please add credits"), OpenAI
+    ("insufficient_quota"), Anthropic ("credit balance is too low"),
+    Together / Groq / Mistral variants. The check is run only in the
+    failover loop's error branch, so the per-call cost is paid only
+    when something failed already.
+    """
+    if getattr(exc, "status_code", None) == 402:
+        return True
+    msg = str(exc).lower()
+    return (
+        "insufficient_quota" in msg          # OpenAI
+        or "insufficient balance" in msg     # DeepSeek
+        or "balance too low" in msg          # DeepSeek wording variant
+        or "account balance" in msg          # DeepSeek
+        or "add credits" in msg              # DeepSeek
+        or "out of credits" in msg
+        or "insufficient credit" in msg
+        or "credit balance" in msg           # Anthropic
+    )
 
 
 def _is_rate_limit_error(exc: Exception) -> bool:

@@ -1112,6 +1112,11 @@ class CompiledApp:
     source_path: Path | None = None
     middleware: list[dict[str, Any]] = field(default_factory=list)
     skills: list[dict[str, str]] = field(default_factory=list)
+    # End-user CRUD permission for skills (set from dev.allow_user_skills).
+    # When false the ``/api/apps/{app_id}/skills`` mutation endpoints
+    # reject POST/PATCH/DELETE; GET still works but only returns the
+    # app-declared ``skills`` list and an empty ``user_skills``.
+    allow_user_skills: bool = False
     hidden_actions: list[dict[str, Any]] = field(default_factory=list)
     behavior: Any = None  # BehaviorConfig from the YAML - passed to bootstrap for wiring
 
@@ -2207,6 +2212,7 @@ class AppYAMLCompiler:
             security_profile=security_profile,
             middleware=definition.runtime.middleware,
             skills=compiled_skills,
+            allow_user_skills=bool(getattr(definition.dev, "allow_user_skills", False)),
             hidden_actions=_hidden_raw,
             behavior=resolved_behavior,
             workspace=definition.ui.workspace,

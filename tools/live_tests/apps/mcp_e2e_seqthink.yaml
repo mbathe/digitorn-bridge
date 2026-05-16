@@ -1,0 +1,39 @@
+app:
+  app_id: qtest-mcp-seqthink
+  name: "MCP E2E - catalog reference (sequential_thinking, npm, no auth)"
+
+# Validates the npm-runtime path of the catalog + bare-name reference
+# resolution against ``managed_mcp_servers``. ``sequential_thinking``
+# was wired earlier in the test suite (npm install + probe → ready).
+modules:
+  mcp:
+    config:
+      servers:
+        sequential_thinking:
+          sandbox:
+            permissions: [process.exec, net.http]
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 4096
+    system_prompt: |
+      You are a test agent with access to the ``sequentialthinking``
+      tool. When asked to solve a problem step by step, you MUST call
+      that tool at least once before giving your final answer.
+
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 90
+
+capabilities:
+  default_policy: auto

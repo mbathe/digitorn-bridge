@@ -61,6 +61,15 @@ class AgentContext:
     workspace: str | None = None
     messages: list[dict[str, Any]] = field(default_factory=list)
 
+    # ── Path sandbox ────────────────────────────────────────────────────
+    # Workdir-scoped path policy enforced by every agent-facing module
+    # that takes a path input (filesystem, workspace, shell, mcp). Built
+    # by bootstrap from ``workspace`` + per-module ``constraints``. May
+    # be ``None`` in legacy / test paths that don't go through the
+    # standard bootstrap; in that case modules fall back to their pre-
+    # sandbox behaviour to avoid breaking unrelated code.
+    path_policy: Any = None
+
     # ── Security & middleware ───────────────────────────────────────────
     approval_queue: ApprovalQueue | None = None
     security_profile: SecurityProfile | None = None
@@ -205,6 +214,28 @@ def apply_workspace_override(
         fs_constraints["paths"] = [workspace]
         ctx.compiled_constraints = dict(ctx.compiled_constraints)
         ctx.compiled_constraints["filesystem"] = fs_constraints
+
+        # Rebuild the workdir-scoped path policy whenever the workspace
+        # changes (new session, workdir picker swap, fork, ...). Constraint
+        # merging picks the most-permissive declaration the YAML applied
+        # to ANY agent-facing module so the policy lifts every legitimate
+        # allowed_path. Daemon-secret denylist always wins inside the
+        # policy regardless of constraints.
+        from digitorn.core.path_policy import PathPolicy
+        merged_constraints: dict[str, Any] = {}
+        for mod_constraints in ctx.compiled_constraints.values():
+            if not isinstance(mod_constraints, dict):
+                continue
+            if mod_constraints.get("unrestricted"):
+                merged_constraints["unrestricted"] = True
+            extras = mod_constraints.get("allowed_paths") or []
+            if extras:
+                acc = list(merged_constraints.get("allowed_paths", []))
+                for e in extras:
+                    if e and e not in acc:
+                        acc.append(e)
+                merged_constraints["allowed_paths"] = acc
+        ctx.path_policy = PathPolicy.from_constraints(workspace, merged_constraints)
 
     if ctx.system_prompt:
         if yaml_workspace and workspace and yaml_workspace != workspace:

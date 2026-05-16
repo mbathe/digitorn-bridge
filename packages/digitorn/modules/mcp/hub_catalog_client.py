@@ -75,6 +75,10 @@ def _row_to_entry(row: dict[str, Any]) -> CatalogEntry | None:
             timeout=float(row.get("timeout") or 30.0),
             icon=row.get("icon") or "",
             category=row.get("category") or "",
+            # App Store classification (migration 0009)
+            personal_keys=tuple(row.get("personal_keys") or ()),
+            digitorn_provided=dict(row.get("digitorn_provided") or {}),
+            hosted_url=row.get("hosted_url") or "",
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("hub_catalog_row_invalid id=%s: %s", sid, exc)

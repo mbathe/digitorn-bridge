@@ -1,0 +1,45 @@
+app:
+  app_id: qtest-mcp-inline
+  name: "MCP E2E - inline custom server (YAML power-user path)"
+
+# Validates the YAML escape hatch: full inline config for a server
+# that's NOT in the curated catalog. We point at the already-installed
+# cli2mcp binary so the test doesn't pay an npm install cost; the
+# install_server call sees command/url/transport in user_config and
+# routes through the ``source = custom`` branch.
+modules:
+  mcp:
+    config:
+      servers:
+        my_inline_seqthink:
+          transport: stdio
+          command: npx
+          args: ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+          env: {}
+          sandbox:
+            permissions: [process.exec, net.http]
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 4096
+    system_prompt: |
+      You are a test agent connected to an inline-declared MCP server.
+      When asked to think through a problem step by step you MUST call
+      the ``sequentialthinking`` tool at least once before answering.
+
+execution:
+  mode: conversation
+  max_turns: 4
+  timeout: 60
+
+capabilities:
+  default_policy: auto

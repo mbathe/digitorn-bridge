@@ -2942,6 +2942,17 @@ class DevBlock(BaseModel):
         default_factory=list,
         description="App-level /command skill files the agent can invoke.",
     )
+    allow_user_skills: bool = Field(
+        default=False,
+        description=(
+            "When true, end users may CRUD their own skills for this app "
+            "via ``/api/apps/{app_id}/skills`` (stored per-user in the "
+            "``user_skills`` table). When false the endpoints are "
+            "read-only and the user palette shows only ``dev.skills`` "
+            "entries declared in this YAML. Defaults to false so apps "
+            "opt in explicitly to user-authored content."
+        ),
+    )
     variables: dict[str, str] = Field(
         default_factory=dict,
         description="Template variables available as {{name}} in params and constraints.",

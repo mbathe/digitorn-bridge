@@ -17,6 +17,7 @@ import shutil
 import sys
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import select
@@ -205,6 +206,7 @@ async def install_server(
     session: AsyncSession,
     server_id: str,
     config: dict[str, Any] | None = None,
+    credential_store: "Any | None" = None,
 ) -> ManagedMCPServer:
     """Install an MCP server into the daemon registry.
 
@@ -257,6 +259,18 @@ async def install_server(
         for key in ("api_key", "token", "access_token"):
             if key in config and "Authorization" not in headers:
                 headers["Authorization"] = f"Bearer {config[key]}"
+
+    # App-Store classification: inject Digitorn-provided credentials and
+    # the hosted-bridge URL when the catalog entry declares them. This
+    # is what makes a no-config install possible for servers like
+    # ``brave_search`` (shared Brave API key managed by Digitorn) or
+    # ``github_webhook_mcp`` (Digitorn-hosted Cloudflare Worker URL).
+    # The user never sees these fields in the install dialog.
+    if entry is not None:
+        await _inject_digitorn_provided(entry, env, headers, credential_store)
+        if entry.hosted_url and resolved["transport"] in ("sse", "streamable_http"):
+            if not resolved.get("url"):
+                resolved["url"] = entry.hosted_url
 
     # Persist registry metadata in config for later use (credentials detection)
     saved_config = dict(config)
@@ -469,38 +483,107 @@ def _post_install_probe(server: ManagedMCPServer) -> None:
 def _ensure_node_in_path() -> None:
     """Add Node.js to PATH if not already discoverable.
 
-    Discovers Node.js from version managers (nvm, fnm, volta) so that
-    npm/npx commands work even in environments where nvm isn't loaded
-    (e.g. IDE-spawned processes, systemd services).
+    Discovers Node.js from common installation layouts so that
+    ``npm`` / ``npx`` commands work even when the parent shell didn't
+    activate a version manager (IDE-spawned processes, systemd / NSSM
+    services, fresh CI runners, …).
+
+    Supported layouts:
+
+    Posix:
+      * nvm        — ``~/.nvm/versions/node/v*/bin/``
+      * fnm        — ``~/.local/share/fnm/node-versions/v*/installation/bin/``
+      * volta      — ``~/.volta/bin/``
+      * homebrew   — ``/opt/homebrew/bin``, ``/usr/local/bin``
+      * official   — ``/usr/local/bin/node``
+
+    Windows:
+      * nvm-windows — ``%APPDATA%\\nvm\\v*\\`` (node + npm side-by-side)
+      * fnm        — ``%LOCALAPPDATA%\\fnm\\node-versions\\v*\\installation\\``
+      * volta      — ``%LOCALAPPDATA%\\Volta\\bin``
+      * official   — ``%ProgramFiles%\\nodejs\\``,
+                     ``%ProgramFiles(x86)%\\nodejs\\``
     """
     if shutil.which("node"):
         return
 
     from pathlib import Path
     home = Path.home()
+    node_exe = "node.exe" if _IS_WINDOWS else "node"
 
-    # nvm: ~/.nvm/versions/node/v*/bin/ - pick the latest
-    nvm_dir = home / ".nvm" / "versions" / "node"
-    if nvm_dir.is_dir():
-        for v in sorted(nvm_dir.iterdir(), reverse=True):
-            if (v / "bin" / "node").exists():
-                os.environ["PATH"] = f"{v / 'bin'}:{os.environ.get('PATH', '')}"
-                return
+    def _prepend_path(p: "Path") -> None:
+        os.environ["PATH"] = f"{p}{os.pathsep}{os.environ.get('PATH', '')}"
 
-    # fnm: ~/.local/share/fnm/node-versions/v*/installation/bin/
-    fnm_dir = home / ".local" / "share" / "fnm" / "node-versions"
-    if fnm_dir.is_dir():
-        for v in sorted(fnm_dir.iterdir(), reverse=True):
-            bin_dir = v / "installation" / "bin"
-            if (bin_dir / "node").exists():
-                os.environ["PATH"] = f"{bin_dir}:{os.environ.get('PATH', '')}"
-                return
+    candidates: list[Path] = []
 
-    # volta: ~/.volta/bin/
-    volta_bin = home / ".volta" / "bin"
-    if (volta_bin / "node").exists():
-        os.environ["PATH"] = f"{volta_bin}:{os.environ.get('PATH', '')}"
-        return
+    if _IS_WINDOWS:
+        # nvm-windows: %APPDATA%\nvm\v{version}\
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            nvmw = Path(appdata) / "nvm"
+            if nvmw.is_dir():
+                for v in sorted(nvmw.iterdir(), reverse=True):
+                    if v.is_dir() and (v / node_exe).exists():
+                        candidates.append(v)
+                        break
+
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        if local_appdata:
+            # fnm (Windows)
+            fnmw = Path(local_appdata) / "fnm" / "node-versions"
+            if fnmw.is_dir():
+                for v in sorted(fnmw.iterdir(), reverse=True):
+                    bin_dir = v / "installation"
+                    if (bin_dir / node_exe).exists():
+                        candidates.append(bin_dir)
+                        break
+
+            # Volta (Windows)
+            volta_bin = Path(local_appdata) / "Volta" / "bin"
+            if (volta_bin / node_exe).exists():
+                candidates.append(volta_bin)
+
+        # Official MSI installer
+        for env_var in ("ProgramFiles", "ProgramFiles(x86)"):
+            pf = os.environ.get(env_var)
+            if pf:
+                pf_node = Path(pf) / "nodejs"
+                if (pf_node / node_exe).exists():
+                    candidates.append(pf_node)
+
+    else:
+        # nvm: ~/.nvm/versions/node/v*/bin/
+        nvm_dir = home / ".nvm" / "versions" / "node"
+        if nvm_dir.is_dir():
+            for v in sorted(nvm_dir.iterdir(), reverse=True):
+                if (v / "bin" / node_exe).exists():
+                    candidates.append(v / "bin")
+                    break
+
+        # fnm: ~/.local/share/fnm/node-versions/v*/installation/bin/
+        fnm_dir = home / ".local" / "share" / "fnm" / "node-versions"
+        if fnm_dir.is_dir():
+            for v in sorted(fnm_dir.iterdir(), reverse=True):
+                bin_dir = v / "installation" / "bin"
+                if (bin_dir / node_exe).exists():
+                    candidates.append(bin_dir)
+                    break
+
+        # Volta
+        volta_bin = home / ".volta" / "bin"
+        if (volta_bin / node_exe).exists():
+            candidates.append(volta_bin)
+
+        # Homebrew on Apple Silicon + Intel
+        for brew in (Path("/opt/homebrew/bin"), Path("/usr/local/bin")):
+            if (brew / node_exe).exists():
+                candidates.append(brew)
+                break
+
+    for c in candidates:
+        _prepend_path(c)
+        if shutil.which("node"):
+            return
 
 
 def _server_dir(server_id: str) -> "Path":
@@ -508,6 +591,97 @@ def _server_dir(server_id: str) -> "Path":
     from pathlib import Path
     from digitorn.core.paths import mcp_servers_dir
     return mcp_servers_dir() / server_id
+
+
+async def _inject_digitorn_provided(
+    entry: "Any",
+    env: dict[str, str],
+    headers: dict[str, str],
+    credential_store: "Any | None",
+) -> None:
+    """Inject Digitorn-managed shared credentials into the install env.
+
+    ``entry.digitorn_provided`` is a ``{env_var_name: credential_name}``
+    map declared on the Hub catalog entry (see migration 0009 — column
+    ``digitorn_provided``). For each pair we resolve the credential
+    against the daemon's system-wide credential store and write the
+    decrypted value into ``env`` (or as a Bearer header when the env
+    var name signals an Authorization).
+
+    Behaviour on a missing credential is non-fatal: we log a warning
+    and leave the env var alone. The catalog entry can still ship,
+    the user is just expected to fall back to providing the value
+    themselves via the install dialog. This lets us flip
+    ``digitorn_provided`` on per-entry without coordinating a daemon
+    redeploy with a credential-store push.
+
+    No-op when ``digitorn_provided`` is empty (the default for every
+    entry today — provisioning happens entry-by-entry post-prod).
+    """
+    provided = dict(getattr(entry, "digitorn_provided", None) or {})
+    if not provided:
+        return
+
+    if credential_store is None:
+        logger.warning(
+            "digitorn_provided_skip server=%s reason=no_credential_store_in_install_context",
+            getattr(entry, "server_id", "?"),
+        )
+        return
+
+    try:
+        from digitorn.core.credentials import Scope
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "digitorn_provided_skip server=%s reason=credentials_module_missing: %s",
+            getattr(entry, "server_id", "?"), exc,
+        )
+        return
+    store = credential_store
+
+    for env_var, cred_name in provided.items():
+        if env_var in env and env[env_var]:
+            # User-supplied value already wins, skip overwrite.
+            continue
+        try:
+            cred = await store.get_credential_by_name(
+                name=cred_name, scope=Scope.SYSTEM_WIDE, decrypt=True,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "digitorn_provided_lookup_failed server=%s var=%s cred=%s: %s",
+                getattr(entry, "server_id", "?"), env_var, cred_name, exc,
+            )
+            continue
+        if cred is None:
+            logger.warning(
+                "digitorn_provided_credential_missing server=%s var=%s cred=%s "
+                "— store has no system_wide credential by that name yet. "
+                "Provision it via the admin UI; the user keeps having to "
+                "fill the field manually until then.",
+                getattr(entry, "server_id", "?"), env_var, cred_name,
+            )
+            continue
+        fields = cred.get("fields") or {}
+        value = (
+            fields.get(env_var.lower())
+            or fields.get("api_key")
+            or fields.get("token")
+            or fields.get("access_token")
+            or fields.get("value")
+            or (next(iter(fields.values())) if fields else None)
+        )
+        if not value:
+            logger.warning(
+                "digitorn_provided_empty_field server=%s var=%s cred=%s",
+                getattr(entry, "server_id", "?"), env_var, cred_name,
+            )
+            continue
+        env[env_var] = str(value)
+        logger.info(
+            "digitorn_provided_injected server=%s var=%s cred=%s",
+            getattr(entry, "server_id", "?"), env_var, cred_name,
+        )
 
 
 async def _install_package(
@@ -528,11 +702,16 @@ async def _install_package(
     if not package and not command:
         return None
 
-    cmd_base = (command or "").lower().rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-    if cmd_base in ("uvx", "pipx"):
+    cmd_base = Path(command or "").stem.lower() if command else ""
+    if cmd_base in ("uvx", "pipx", "npx"):
+        # Lazy runtime — package is fetched on first run. Verify the
+        # runtime itself is on PATH so the user gets a clear error NOW
+        # instead of a confusing "command not found" later at start time.
+        if shutil.which(cmd_base) is None:
+            return _missing_runtime_hint(cmd_base)
         logger.info(
-            "mcp_install_skip_uvx server=%s package=%s cmd=%s",
-            server_id, package, command,
+            "mcp_install_skip_lazy_runtime server=%s package=%s cmd=%s",
+            server_id, package, cmd_base,
         )
         return None
 
@@ -619,12 +798,98 @@ async def _install_npm(
     return None
 
 
+_IS_WINDOWS = sys.platform == "win32"
+_IS_MACOS = sys.platform == "darwin"
+
+
+def _missing_runtime_hint(cmd: str) -> str:
+    """Return a clear, OS-specific error message when *cmd* isn't on PATH.
+
+    Used by both install-time (refuse to save a row pointing at a tool
+    the user doesn't have) and start-time (the SDK FileNotFoundError
+    wrapper) so the message is consistent.
+    """
+    if cmd == "uvx":
+        if _IS_WINDOWS:
+            install = 'Install uv: powershell -c "irm https://astral.sh/uv/install.ps1 | iex"'
+        elif _IS_MACOS:
+            install = 'Install uv: brew install uv  (or: curl -LsSf https://astral.sh/uv/install.sh | sh)'
+        else:
+            install = 'Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh'
+        return (
+            f"'uvx' is not on PATH. The server uses uvx as its runtime "
+            f"(Python tool runner from astral-sh/uv). {install}. "
+            f"After install, restart the daemon so it picks up the new PATH."
+        )
+    if cmd == "pipx":
+        if _IS_WINDOWS:
+            install = 'Install pipx: py -m pip install --user pipx && py -m pipx ensurepath'
+        elif _IS_MACOS:
+            install = 'Install pipx: brew install pipx && pipx ensurepath'
+        else:
+            install = 'Install pipx: python3 -m pip install --user pipx && python3 -m pipx ensurepath'
+        return (
+            f"'pipx' is not on PATH. The server uses pipx as its runtime. "
+            f"{install}. After install, restart the daemon so it picks up "
+            f"the new PATH."
+        )
+    if cmd == "npx":
+        if _IS_WINDOWS:
+            install = "Install Node.js from https://nodejs.org/ (the MSI ships npm + npx)"
+        elif _IS_MACOS:
+            install = "Install Node.js: brew install node  (or: https://nodejs.org/)"
+        else:
+            install = "Install Node.js from https://nodejs.org/ or via your package manager (apt install nodejs npm)"
+        return (
+            f"'npx' is not on PATH. The server uses npx as its runtime "
+            f"(comes with Node.js). {install}. After install, restart "
+            f"the daemon so it picks up the new PATH."
+        )
+    return f"'{cmd}' is not on PATH. Install it and restart the daemon."
+
+
+def _exe_extensions() -> tuple[str, ...]:
+    """Executable filename extensions to try when resolving a command.
+
+    Windows uses ``PATHEXT`` (``.exe``/``.cmd``/``.bat``). npm shims
+    install as ``<name>.cmd`` (cmd.exe wrapper) and ``<name>`` (bash
+    shell script) — only the ``.cmd`` flavour is launchable via
+    ``subprocess`` without ``shell=True``, so we must explicitly probe
+    it. Posix returns the bare extension only.
+    """
+    if _IS_WINDOWS:
+        return (".cmd", ".exe", ".bat", ".ps1", "")
+    return ("",)
+
+
+def _resolve_exe_in(directory: "Path", name: str) -> "Path | None":
+    """Find an executable named *name* inside *directory*.
+
+    Probes platform-appropriate extensions in priority order. Returns
+    the resolved path or ``None`` if no match exists. Empty/missing
+    *directory* is a soft None (callers fall through to the next
+    lookup strategy).
+    """
+    if not name:
+        return None
+    try:
+        if not directory.exists():
+            return None
+    except OSError:
+        return None
+    for ext in _exe_extensions():
+        cand = directory / f"{name}{ext}"
+        if cand.exists():
+            return cand
+    return None
+
+
 def _venv_bin_dir(venv_dir: "Path") -> "Path":
     """Cross-platform venv binaries directory.
 
     Posix venvs put scripts under ``bin/``; Windows uses ``Scripts/``.
     """
-    if sys.platform == "win32":
+    if _IS_WINDOWS:
         return venv_dir / "Scripts"
     return venv_dir / "bin"
 
@@ -632,7 +897,7 @@ def _venv_bin_dir(venv_dir: "Path") -> "Path":
 def _venv_python(venv_dir: "Path") -> "Path":
     """Resolve the python executable inside *venv_dir*."""
     bin_dir = _venv_bin_dir(venv_dir)
-    if sys.platform == "win32":
+    if _IS_WINDOWS:
         return bin_dir / "python.exe"
     return bin_dir / "python"
 
@@ -1324,11 +1589,37 @@ def _prepare_oauth_headers(
         headers["Authorization"] = f"{token_type} {token}"
 
 
+def _resolve_bare_command(command: str) -> str:
+    """If *command* is a bare name (no separators), resolve it through PATH.
+
+    On Windows ``subprocess`` does **not** consult PATHEXT for bare names,
+    so ``npx``/``uvx``/``python`` need to be expanded to their full
+    ``.cmd`` / ``.exe`` path before being handed to ``stdio_client``.
+    Posix systems resolve names through ``execvp`` and don't need this
+    pass; we still run ``shutil.which`` to surface a clearer error early
+    when the command isn't installed at all.
+    """
+    if not command:
+        return command
+    if os.sep in command or (os.altsep and os.altsep in command):
+        return command
+    resolved = shutil.which(command)
+    return resolved or command
+
+
 def _resolve_local_command(server: ManagedMCPServer) -> tuple[str, list[str]]:
     """Resolve the actual command + args using the local isolated install.
 
     Prefers local install, falls back to original command if not found.
+    Every return path goes through :func:`_resolve_bare_command` so the
+    final command string is launchable as-is on Windows + Posix.
     """
+    cmd, args = _resolve_local_command_inner(server)
+    return _resolve_bare_command(cmd), args
+
+
+def _resolve_local_command_inner(server: ManagedMCPServer) -> tuple[str, list[str]]:
+    """Internal: original local-install resolution (no PATH expansion)."""
     server_dir = _server_dir(server.server_id)
     original_command = server.command or ""
     original_args = list(server.args or [])
@@ -1339,16 +1630,16 @@ def _resolve_local_command(server: ManagedMCPServer) -> tuple[str, list[str]]:
 
         # 1. Read the package's own package.json → "bin" field (authoritative)
         bin_name = _read_npm_bin_name(server_dir, server.package)
-        if bin_name and bin_dir.exists():
-            bin_path = bin_dir / bin_name
-            if bin_path.exists():
+        if bin_name:
+            bin_path = _resolve_exe_in(bin_dir, bin_name)
+            if bin_path is not None:
                 return str(bin_path), stripped_args
 
         # 2. Catalog binary_name override
         catalog_entry = get_catalog_entry(server.server_id)
-        if catalog_entry and catalog_entry.binary_name and bin_dir.exists():
-            bin_path = bin_dir / catalog_entry.binary_name
-            if bin_path.exists():
+        if catalog_entry and catalog_entry.binary_name:
+            bin_path = _resolve_exe_in(bin_dir, catalog_entry.binary_name)
+            if bin_path is not None:
                 return str(bin_path), stripped_args
 
         # 3. Heuristic candidates (fallback)
@@ -1356,18 +1647,32 @@ def _resolve_local_command(server: ManagedMCPServer) -> tuple[str, list[str]]:
             pkg_short = server.package.rsplit("/", 1)[-1]
             for candidate in [
                 pkg_short, f"mcp-{pkg_short}",
-                original_command, server.server_id,
+                Path(original_command).name if original_command else "",
+                server.server_id,
             ]:
-                bin_path = bin_dir / candidate
-                if bin_path.exists():
+                bin_path = _resolve_exe_in(bin_dir, candidate)
+                if bin_path is not None:
                     return str(bin_path), stripped_args
 
-            # Filter: prefer bins with "mcp" or "server" in name
+            # Filter: prefer bins with "mcp" or "server" in the stem. On
+            # Windows a single npm shim shows up as both ``foo`` (bash)
+            # and ``foo.cmd`` (cmd.exe) — pick the launchable one.
             bins = sorted(bin_dir.iterdir())
-            mcp_bins = [f for f in bins if f.is_file() and
-                        ("mcp" in f.name or "server" in f.name)]
+            mcp_bins = [
+                f for f in bins
+                if f.is_file() and ("mcp" in f.name or "server" in f.name)
+            ]
             if mcp_bins:
-                return str(mcp_bins[0]), stripped_args
+                if _IS_WINDOWS:
+                    win_exts = (".cmd", ".exe", ".bat", ".ps1")
+                    winnable = [
+                        f for f in mcp_bins
+                        if f.suffix.lower() in win_exts
+                    ]
+                    chosen = winnable[0] if winnable else mcp_bins[0]
+                else:
+                    chosen = mcp_bins[0]
+                return str(chosen), stripped_args
 
         # 4. Fallback: node + dist/index.js
         pkg_main = server_dir / "node_modules" / server.package / "dist" / "index.js"
@@ -1384,21 +1689,25 @@ def _resolve_local_command(server: ManagedMCPServer) -> tuple[str, list[str]]:
         return original_command, original_args
 
     elif server.runtime == "pip":
-        # Check for binary in .venv/bin/
-        venv_bin = server_dir / ".venv" / "bin"
+        # Binary inside the venv: ``Scripts/`` on Windows, ``bin/`` on Posix.
+        venv_bin = _venv_bin_dir(server_dir / ".venv")
         if venv_bin.exists():
-            # Try the command name first
-            cmd_name = original_command.rsplit("/", 1)[-1] if original_command else ""
+            # Try the command name first. ``Path.name`` is cross-platform —
+            # ``rsplit('/', 1)`` would miss backslash-separated entries.
+            cmd_name = Path(original_command).name if original_command else ""
             if cmd_name:
-                local_cmd = venv_bin / cmd_name
-                if local_cmd.exists():
+                # Strip platform extension if the saved command carries one,
+                # so the probe doesn't double-suffix ``foo.exe.exe``.
+                stem = Path(cmd_name).stem
+                local_cmd = _resolve_exe_in(venv_bin, stem)
+                if local_cmd is not None:
                     return str(local_cmd), original_args
 
             # Try package name (some pip packages have different binary names)
             pkg_name = (server.package or "").replace("-", "_")
             for candidate in [server.server_id, pkg_name]:
-                local_cmd = venv_bin / candidate
-                if local_cmd.exists():
+                local_cmd = _resolve_exe_in(venv_bin, candidate)
+                if local_cmd is not None:
                     return str(local_cmd), original_args
 
         logger.debug(

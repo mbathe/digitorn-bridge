@@ -488,6 +488,24 @@ class McpFeaturedEntry(Base):
     # automated re-syncs.
     registry_server_id: Mapped[str | None] = mapped_column(String(120))
 
+    # ── App Store classification (introduced in migration 0009) ────
+    # Subset of ``env_mapping`` keys the user fills personally — their
+    # own GitHub PAT, their Notion key, etc. Anything missing from this
+    # set is either ``digitorn_provided`` or has a sane built-in default.
+    personal_keys: Mapped[list[str]] = mapped_column(
+        ARRAY(String(120)), nullable=False, default=list
+    )
+    # ``{env_var_name: credential_ref}`` — env vars Digitorn injects
+    # at install time from the gateway credentials store. The user
+    # never sees these in the install dialog.
+    digitorn_provided: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict
+    )
+    # Digitorn-hosted endpoint URL (e.g. a shared Cloudflare Worker
+    # bridge). Used as the default value when the matching env var
+    # isn't user-supplied.
+    hosted_url: Mapped[str | None] = mapped_column(String(512))
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

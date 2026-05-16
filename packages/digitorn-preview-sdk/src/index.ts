@@ -29,6 +29,7 @@ export { useAutoResize } from "./hooks/auto-resize.js";
 // All hooks
 export {
   useConnection,
+  useHydrated,
   useResources,
   useResource,
   usePreviewState,
@@ -45,8 +46,16 @@ export {
   useToolCalls,
   useApprovalRequest,
   useEvents,
+  useResourceLifecycle,
+  useResourceEvents,
 } from "./hooks/index.js";
-export type { FileStats } from "./hooks/index.js";
+export type {
+  FileStats,
+  ResourceEvent,
+  ResourceEventKind,
+  UseResourceLifecycleOptions,
+  UseResourceEventsOptions,
+} from "./hooks/index.js";
 
 // Workspace checkpoint / fork + file-level mutations + lifecycle
 export {

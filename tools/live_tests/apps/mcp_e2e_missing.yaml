@@ -1,0 +1,39 @@
+app:
+  app_id: qtest-mcp-missing
+  name: "MCP E2E - reference to a non-installed server (error path)"
+
+# Negative test: references a bare server_id that is neither installed
+# in the daemon nor present in the Hub catalog. The MCP module should
+# log the new actionable ``mcp_server_not_installed`` error, mark the
+# missing ref, and continue without crashing the app — the agent boots
+# with zero MCP tools but stays usable.
+modules:
+  mcp:
+    config:
+      servers:
+        - completely_unknown_xyz_42
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 512
+    system_prompt: |
+      You are a test agent. The MCP server you were supposed to use
+      doesn't exist on this daemon; you have no MCP tools. Respond
+      naturally to the user without inventing tool calls.
+
+execution:
+  mode: conversation
+  max_turns: 2
+  timeout: 30
+
+capabilities:
+  default_policy: auto

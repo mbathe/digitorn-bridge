@@ -223,9 +223,11 @@ async def oauth_callback(provider: str, request: Request):
         target = desktop_bounce or f"{web}/login"
         return RedirectResponse(f"{target}?{params}", status_code=302)
 
+    device_info = request.headers.get("user-agent", "")[:512] or None
     result = await auth_service.login(
         {"code": code, "state": state},
         provider=pid,
+        device_info=device_info,
     )
     if not result.success or not result.access_token:
         params = urlencode({"oauth_error": result.error or "auth_failed"})

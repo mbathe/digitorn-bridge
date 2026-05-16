@@ -270,6 +270,9 @@ def _build_exec_context(ctx: AgentContext, tool_name: str) -> Any:
         workspace=ctx.workspace,
         constraints=module_constraints,
         approval_queue=ctx.approval_queue,
+        # Forward the workdir-scoped sandbox so every module's
+        # path-touching action enforces the same confinement.
+        path_policy=ctx.path_policy,
     )
 
 

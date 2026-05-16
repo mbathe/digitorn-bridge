@@ -81,6 +81,14 @@ _SURFACED_FLAGS: list[dict[str, Any]] = [
     {"key": "failover_max_inflight_per_credential", "group": "failover", "kind": "int",
      "label": "Inflight cap per credential", "min": 0, "max": 1000,
      "description": "0 = unlimited. >0 enables load-aware spill to next route."},
+    {"key": "balance_failover_enabled", "group": "failover", "kind": "bool",
+     "label": "Balance-aware failover",
+     "description": "Cascade to next route on insufficient-balance / "
+                    "out-of-credit errors. Requires master failover ON."},
+    {"key": "balance_failover_cooldown_seconds", "group": "failover", "kind": "int",
+     "label": "Balance cooldown (s)", "min": 0, "max": 86400,
+     "description": "How long an out-of-credit route stays blocked. "
+                    "Longer than the generic route cooldown."},
 
     # Truncation.
     {"key": "truncate_enabled", "group": "truncate", "kind": "bool",

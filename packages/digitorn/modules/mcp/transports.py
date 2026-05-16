@@ -30,6 +30,65 @@ from typing import Any, Protocol, runtime_checkable
 logger = logging.getLogger(__name__)
 
 
+def _format_missing_command(command: str) -> str:
+    """Build a clear, OS-specific error when an MCP server's command is missing.
+
+    Special-cases the lazy runtime tools (``uvx``, ``pipx``, ``npx``) with
+    actionable install instructions per platform. Falls back to a generic
+    "not found" message for arbitrary binaries.
+    """
+    if not command:
+        return "Command not found (empty)."
+
+    base = os.path.splitext(os.path.basename(command))[0].lower()
+    is_win = sys.platform == "win32"
+    is_mac = sys.platform == "darwin"
+
+    if base == "uvx":
+        if is_win:
+            how = (
+                'Install uv: powershell -c '
+                '"irm https://astral.sh/uv/install.ps1 | iex"'
+            )
+        elif is_mac:
+            how = "Install uv: brew install uv"
+        else:
+            how = "Install uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+        return (
+            f"'uvx' is not on PATH. The server uses uvx as its runtime. "
+            f"{how}. After install, restart the daemon."
+        )
+    if base == "npx":
+        if is_win:
+            how = "Install Node.js from https://nodejs.org/"
+        elif is_mac:
+            how = "Install Node.js: brew install node"
+        else:
+            how = "Install Node.js (e.g. apt install nodejs npm)"
+        return (
+            f"'npx' is not on PATH. The server uses npx as its runtime "
+            f"(ships with Node.js). {how}. After install, restart the "
+            f"daemon."
+        )
+    if base == "pipx":
+        if is_win:
+            how = "Install pipx: py -m pip install --user pipx && py -m pipx ensurepath"
+        elif is_mac:
+            how = "Install pipx: brew install pipx && pipx ensurepath"
+        else:
+            how = (
+                "Install pipx: python3 -m pip install --user pipx "
+                "&& python3 -m pipx ensurepath"
+            )
+        return (
+            f"'pipx' is not on PATH. {how}. After install, restart the daemon."
+        )
+    return (
+        f"Command not found: {command}. Install it on this machine "
+        f"and restart the daemon so it picks up the new PATH."
+    )
+
+
 @runtime_checkable
 class MCPTransport(Protocol):
     """Protocol for MCP server communication."""
@@ -338,10 +397,7 @@ class StdioTransport:
             )
 
         except FileNotFoundError:
-            raise MCPTransportError(
-                f"Command not found: {self._command}. "
-                f"Make sure it's installed (npm, pip, etc.)."
-            )
+            raise MCPTransportError(_format_missing_command(self._command))
         except PermissionError:
             raise MCPTransportError(f"Permission denied: {self._command}")
         except Exception as exc:

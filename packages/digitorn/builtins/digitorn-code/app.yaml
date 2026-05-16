@@ -636,6 +636,7 @@ ui:
     render_mode: code
     entry_file: README.md
     title: Your Project
+    auto_open_on_first_tool: true
   # Coordinator app — fan-out delegated to Explore / Plan / etc.
   # Surfaces the Activity pane so the user can watch the
   # specialists run in real time and cancel any of them. Generic

@@ -247,6 +247,28 @@ class Settings(BaseSettings):
             "is available. 0 = unlimited (legacy behaviour)."
         ),
     )
+    balance_failover_enabled: bool = Field(
+        default=True,
+        description=(
+            "When a provider returns an insufficient-balance / out-of-"
+            "credit error (HTTP 402, DeepSeek 'Account balance too low', "
+            "OpenAI 'insufficient_quota', Anthropic 'credit balance'), "
+            "automatically continue to the next route configured for "
+            "the same model. The general ``failover_enabled`` must also "
+            "be ON. Set to False to surface the balance error to the "
+            "caller directly - useful for cost attribution / debugging."
+        ),
+    )
+    balance_failover_cooldown_seconds: int = Field(
+        default=600,
+        ge=0, le=86400,
+        description=(
+            "How long a route is blocked after a balance error. Longer "
+            "than the generic 30s+exponential cooldown because a "
+            "provider out of credit stays broken until topped up. "
+            "0 = no balance-specific cooldown (generic cooldown applies)."
+        ),
+    )
 
     # ── Auto-truncation (opt-in safety net) ──────────────────────
     # Two modes layered on the same flag:

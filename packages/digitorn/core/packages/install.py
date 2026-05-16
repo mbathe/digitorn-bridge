@@ -57,60 +57,37 @@ from digitorn.core.packages.source import FetchError, PackageSource
 logger = logging.getLogger(__name__)
 
 
-# Directories whose CONTENT we never want to overwrite during an
-# upgrade. Split into two tiers because the same directory name can
-# legitimately mean different things at different depths:
+# Upgrade policy: PRESERVE BY DEFAULT.
 #
-# - ``_PRESERVE_DIRS_ANY_DEPTH``: caches that should never be copied
-#   regardless of where they live (every nested ``__pycache__``,
-#   every ``.cache``, every ``.git``).
+# ``_patch_in_place`` overlays every file from the new source over the
+# existing install dir. Files present in the install dir but absent
+# from the source tarball are NEVER touched - we don't know what an
+# app may have stashed (data dir, user assets, agent-generated build
+# outputs, cached deps, …). The new tarball declares what it ships;
+# anything else stays.
 #
-# - ``_PRESERVE_DIRS_AT_ROOT``: build outputs / dependency caches that
-#   only need preservation when they sit at the package root (or under
-#   ``web/`` — the typical Vite/Next layout). When a directory of the
-#   same name sits DEEPER (e.g. ``templates/landing-ai-saas/dist/``
-#   in ``digitorn-lovable``, which is SHIPPED preview content, not a
-#   live build output), we MUST copy it through. The previous flat
-#   set caused every nested ``dist/`` in lovable's templates to be
-#   silently skipped on upgrade, leaving the iframe previews 404.
-_PRESERVE_DIRS_AT_ROOT: frozenset[str] = frozenset({
-    "node_modules",
-    "dist",
-    "build",
-})
-_PRESERVE_DIRS_ANY_DEPTH: frozenset[str] = frozenset({
-    ".vite",
-    ".next",
-    ".turbo",
-    ".cache",
-    "__pycache__",
-    ".output",
-    ".svelte-kit",
-    ".digitorn",
-})
-# Backwards-compatible union kept for legacy callers
-# (``shutil.ignore_patterns(*_PRESERVE_DIRS)`` etc.) — covers both
-# tiers. New code paths should prefer the depth-aware split.
-_PRESERVE_DIRS: frozenset[str] = _PRESERVE_DIRS_AT_ROOT | _PRESERVE_DIRS_ANY_DEPTH
+# The ONLY exception is ``.digitorn/`` (daemon-owned metadata:
+# hash.sha256 + manifest.lock). The daemon rewrites these post-patch,
+# so the source's ``.digitorn/`` would be a stale snapshot if shipped.
+_DAEMON_PRIVATE_DIR: str = ".digitorn"
 
 
 def _patch_in_place(src: Path, dst: Path) -> tuple[int, int]:
-    """Copy every file in ``src`` over the matching path in ``dst``.
+    """Overlay every file in ``src`` over the matching path in ``dst``.
 
     Used in lieu of an atomic rename swap when the install dir is held
-    open on Windows (Vite, antivirus, file watcher). We never rename or
-    delete ``dst`` itself - only individual files are overwritten in
-    place. Existing files in ``dst`` that aren't in ``src`` are left
-    untouched (safer than aggressive pruning).
+    open on Windows (Vite, antivirus, file watcher). Never renames or
+    deletes ``dst`` itself - only individual files are overwritten in
+    place.
 
-    Two-tier preservation (see ``_PRESERVE_DIRS_AT_ROOT`` /
-    ``_PRESERVE_DIRS_ANY_DEPTH``):
-      - ``dist`` / ``build`` / ``node_modules`` are preserved ONLY when
-        sitting at the package root or directly under ``web/``. A
-        nested ``templates/<id>/dist/`` is treated as shipped content
-        and copied through.
-      - ``.vite``, ``__pycache__``, ``.digitorn``, … are caches that
-        get preserved at any depth.
+    Policy: PRESERVE BY DEFAULT. Files present in ``dst`` but absent
+    from ``src`` are left untouched at every depth. We don't know what
+    an app may stash on disk (data dir, user assets, agent build
+    outputs, cached deps, ...) - the new tarball declares what it
+    ships, everything else stays. The only exception is the daemon-
+    owned ``.digitorn/`` directory (hash.sha256 + manifest.lock) which
+    the daemon rewrites post-patch, so we skip it during overlay to
+    avoid copying a stale snapshot from the source tarball.
 
     Returns ``(written, skipped_due_to_lock)``.
     """
@@ -120,19 +97,9 @@ def _patch_in_place(src: Path, dst: Path) -> tuple[int, int]:
     skipped_locked = 0
     dst.mkdir(parents=True, exist_ok=True)
     for root, dirs, files in _os.walk(src, topdown=True):
-        # Compute depth from src to know whether root-level
-        # preservation rules apply. ``rel_root`` is the path of the
-        # current directory relative to ``src``; depth 0 == src itself.
-        rel_root_str = _os.path.relpath(root, src)
-        is_root_or_web = rel_root_str in (".", "web")
-        kept_dirs: list[str] = []
-        for d in dirs:
-            if d in _PRESERVE_DIRS_ANY_DEPTH:
-                continue  # cache dir, never copy
-            if d in _PRESERVE_DIRS_AT_ROOT and is_root_or_web:
-                continue  # build output at root/web/ — preserve target
-            kept_dirs.append(d)
-        dirs[:] = kept_dirs
+        # Skip the daemon-private dir if the tarball happens to ship
+        # one. We rewrite it post-patch with the fresh manifest+hash.
+        dirs[:] = [d for d in dirs if d != _DAEMON_PRIVATE_DIR]
         rel_root = Path(root).relative_to(src)
         target_dir = dst / rel_root
         try:
@@ -152,7 +119,7 @@ def _patch_in_place(src: Path, dst: Path) -> tuple[int, int]:
                     skipped_locked += 1
                 else:
                     logger.warning(
-                        "patch_in_place: copy %s → %s failed: %s",
+                        "patch_in_place: copy %s -> %s failed: %s",
                         src_file, target_file, exc,
                     )
     return written, skipped_locked
@@ -678,16 +645,16 @@ class InstallFlow:
             await _asyncio.to_thread(shutil.rmtree, old_dir, True)
 
         # BACKUP current V1 -> old_dir so we can roll back if the new V2
-        # deploy fails. Without this, ``_patch_in_place`` would mutate
-        # install_dir irreversibly and the rollback branch below would
-        # rename an empty/nonexistent old_dir back, leaving the app in
-        # an inconsistent state. We copy (not rename) so any open file
-        # handle into install_dir - think Vite watcher, antivirus scan,
-        # Windows Indexer - doesn't block the upgrade at step zero.
+        # deploy fails. Full copy: since upgrade preserves everything
+        # in install_dir by default (PRESERVE BY DEFAULT policy), the
+        # backup must mirror EVERYTHING too - we don't know what state
+        # the app stashed there and rollback must restore it 1:1.
+        # Cost: a ``cp -r`` of the full install dir incl. node_modules
+        # (can be 100-200 MB on web-heavy apps). Acceptable price for
+        # a correct rollback.
         def _backup_copy() -> None:
             shutil.copytree(
                 install_dir, old_dir,
-                ignore=shutil.ignore_patterns(*_PRESERVE_DIRS),
                 dirs_exist_ok=False,
             )
         try:

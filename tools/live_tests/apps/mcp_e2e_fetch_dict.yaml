@@ -1,0 +1,41 @@
+app:
+  app_id: qtest-mcp-fetch-dict
+  name: "MCP E2E - fetch (dict form + explicit sandbox, comparison)"
+
+# Same fetch server as mcp_e2e_fetch.yaml but written in the dict
+# form with an explicit sandbox block. Used by the proof scenario to
+# A/B compare against the list form and isolate whether the sandbox
+# is what's gating tool execution.
+modules:
+  mcp:
+    config:
+      servers:
+        fetch:
+          sandbox:
+            permissions: [process.exec, net.http]
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 1024
+    system_prompt: |
+      You are a test agent. When asked to fetch a URL, you MUST call
+      the ``fetch`` tool exposed by the MCP server. Never invent the
+      content - always use the tool. After the tool returns, summarise
+      what you got in one short sentence.
+
+execution:
+  mode: conversation
+  max_turns: 4
+  timeout: 90
+
+capabilities:
+  default_policy: auto

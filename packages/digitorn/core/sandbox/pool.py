@@ -57,8 +57,13 @@ class WorkerPool:
 
         self._compiled = compiled
         self._app_id = app_id
-        self._pool_size = max(1, pool_size)
-        self._pool_max = max(pool_size, pool_max)
+        # ``pool_size=0`` is the explicit "no prewarm" opt-out for
+        # machines where parallel cold imports saturate the disk
+        # (Windows + AV, slow SSDs, ...). Workers spawn lazily on
+        # first session use. clamp(0, ...) preserves the disable
+        # path while keeping the legacy positive defaults.
+        self._pool_size = max(0, pool_size)
+        self._pool_max = max(self._pool_size, pool_max)
         self._namespaces = namespaces or set()
         self._hardening = hardening or {}
         self._audit = audit
@@ -100,16 +105,24 @@ class WorkerPool:
         """Pre-warm the pool with pool_size workers."""
         self._running = True
 
-        # Spawn initial workers in parallel
-        tasks = [self._spawn_warm_worker() for _ in range(self._pool_size)]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # ``pool_size == 0`` is the explicit opt-out: no prewarming,
+        # workers will spawn lazily on first ``acquire``. Skip the
+        # asyncio.gather entirely so we don't even create the empty
+        # task list and short-circuit the log to a single line.
+        if self._pool_size > 0:
+            # Spawn initial workers in parallel
+            tasks = [self._spawn_warm_worker() for _ in range(self._pool_size)]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for r in results:
-            if isinstance(r, Exception):
-                logger.warning("pool_warm_error app=%s: %s", self._app_id, r)
+            for r in results:
+                if isinstance(r, Exception):
+                    logger.warning("pool_warm_error app=%s: %s", self._app_id, r)
 
-        # Start background replenisher
-        self._replenish_task = asyncio.create_task(self._replenish_loop())
+            # Start background replenisher only when prewarming is enabled.
+            self._replenish_task = asyncio.create_task(self._replenish_loop())
+
+        # Idle reaper always runs - it cleans up tainted/idle workers
+        # that materialised via the lazy acquire path too.
         self._idle_reaper_task = asyncio.create_task(self._idle_reaper_loop())
 
         logger.info(

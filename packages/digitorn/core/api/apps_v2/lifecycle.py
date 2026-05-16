@@ -156,12 +156,41 @@ async def list_apps(
         except Exception as exc:
             logger.debug("registry bulk fetch for list failed: %s", exc)
 
+    # Last-used-at per (app_id) for the caller, derived from
+    # ``user_sessions.last_active_at``. Lets the client sort apps by
+    # recency without a per-app round-trip. One bulk query, indexed
+    # on user_id - O(1) lookup per app afterwards.
+    last_used_by_id: dict[str, str] = {}
+    if user_id:
+        try:
+            from sqlalchemy import select, func
+            from digitorn.core.database import get_session_factory
+            from digitorn.core.models import UserSession
+            sf = get_session_factory()
+            async with sf() as session:
+                stmt = (
+                    select(
+                        UserSession.app_id,
+                        func.max(UserSession.last_active_at).label("last_used"),
+                    )
+                    .where(UserSession.user_id == user_id)
+                    .where(UserSession.deleted_at.is_(None))
+                    .group_by(UserSession.app_id)
+                )
+                result = await session.execute(stmt)
+                for row in result.all():
+                    if row.app_id and row.last_used:
+                        last_used_by_id[row.app_id] = row.last_used.isoformat()
+        except Exception as exc:
+            logger.debug("last_used_at bulk fetch failed: %s", exc)
+
     # Every deployed entry defaults to "running" unless later marked disabled.
     # Enrich with source attribution from the registry row when available.
     for a in apps:
         if isinstance(a, dict):
             a.setdefault("runtime_status", "running")
             a.setdefault("install_status", "installed")
+            a["last_used_at"] = last_used_by_id.get(a.get("app_id") or "")
             pkg = pkg_by_id.get(a.get("app_id") or "")
             if pkg is not None:
                 a.setdefault("source_type", pkg.get("source_type") or "")
@@ -187,6 +216,7 @@ async def list_apps(
                 if isinstance(d, dict):
                     d["runtime_status"] = "disabled"
                     d.setdefault("install_status", "installed")
+                    d.setdefault("last_used_at", last_used_by_id.get(d.get("app_id") or ""))
                     if d.get("app_id") not in seen_ids:
                         apps.append(d)
                         seen_ids.add(d["app_id"])
@@ -216,6 +246,7 @@ async def list_apps(
                         "is_builtin": bool(row.get("is_builtin", False)),
                         "is_default": bool(row.get("is_default", False)),
                         "installed_at": row.get("installed_at"),
+                        "last_used_at": last_used_by_id.get(pkg_id),
                         "install_status": row_status or "installed",
                         "runtime_status": runtime_status,
                         "deploy_error": row.get("deploy_error"),
@@ -234,6 +265,30 @@ async def list_apps(
                 logger.warning("list_installed_packages failed: %s", exc, exc_info=True)
 
     return AppResponse(success=True, data=apps)
+
+
+@router.post("/sync-deployed", response_model=AppResponse)
+async def sync_deployed_with_db(request: Request) -> AppResponse:
+    """Admin: reconcile in-memory ``_deployed`` with the DB.
+
+    Drops any deploy whose ``applications`` row was removed out-of-band
+    (direct SQL cleanup, failed partial deploy, etc). Without this the
+    daemon keeps serving ghost apps from its in-memory cache until the
+    next restart. Idempotent and cheap (one SELECT + N undeploys).
+    """
+    perms = list(getattr(request.state, "permissions", []) or [])
+    if "*" not in perms:
+        raise HTTPException(
+            status_code=403,
+            detail="sync-deployed is admin-only.",
+        )
+    manager = _get_manager(request)
+    try:
+        result = await manager.sync_deployed_with_db()
+    except Exception as exc:
+        logger.error("sync_deployed_with_db failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+    return AppResponse(success=True, data=result)
 
 
 @router.get("/disabled", response_model=AppResponse)

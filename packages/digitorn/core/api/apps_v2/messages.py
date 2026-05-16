@@ -207,6 +207,34 @@ async def session_send_message(
     # pass (the handler creates them bound to the caller).
     _existing_session = await _require_session_create_or_owner(request, app_id, session_id)
 
+    # Workdir liveness guard. For an existing session whose workdir
+    # was deleted on disk (manual ``rm -rf``, future explicit project
+    # delete, OS-level event), refuse to send new messages so the
+    # agent doesn't end up writing into a non-existent cwd or, worse,
+    # silently recreate the dir and lose the user's perception of
+    # what was on disk. 410 Gone is the structured signal the web
+    # client surfaces inline in the drawer.
+    if _existing_session is not None:
+        _wd = getattr(_existing_session, "workdir", "") or getattr(_existing_session, "workspace", "") or ""
+        if _wd:
+            from pathlib import Path as _Path
+            if not _Path(_wd).exists():
+                raise HTTPException(
+                    status_code=410,
+                    detail={
+                        "error": "workdir_missing",
+                        "code": "workdir_missing",
+                        "category": "session",
+                        "workdir": _wd,
+                        "message": (
+                            "This session's working directory no longer "
+                            "exists on disk. The project may have been "
+                            "deleted. Start a new session or pick another "
+                            "project."
+                        ),
+                    },
+                )
+
     _user_id = getattr(request.state, "user_id", None)
     _workspace = body.workspace
     _active_mode = body.mode  # NOTE: received only - merge layer pending
@@ -621,6 +649,125 @@ async def session_send_message(
                 "template_preview_register_failed app=%s sid=%s template=%s: %s",
                 app_id, session_id, body.template_id, exc,
             )
+
+    # ── /use_skill <name> <prompt> parser ─────────────────────────────
+    #
+    # User-facing skill invocation. Distinct from the agent-facing
+    # ``use_skill`` tool: there the LLM decides when to load a skill;
+    # here the user picks one from the composer and the daemon
+    # forces the agent to follow its instructions for THIS turn.
+    #
+    # Resolution order:
+    #   1. ``user_skills`` table (per-user, per-app) when the app
+    #      has ``dev.allow_user_skills: true``. User-authored skills
+    #      take precedence over app-declared ones so a user can
+    #      override an app skill with their own variant.
+    #   2. ``compiled.skills`` (app-declared, .md-backed).
+    #
+    # Found → strip the ``/use_skill <name>`` prefix from
+    # ``body.message`` and concat the skill instructions into the
+    # turn-scoped system prompt (same slot as ``template_id``). Not
+    # found → 404 ``skill_not_found`` so the client surfaces a clean
+    # error instead of letting the LLM silently mis-handle the
+    # literal text.
+    import re as _re
+    _skill_match = _re.match(
+        r"^\s*/use_skill\s+/?([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$",
+        body.message or "",
+        flags=_re.IGNORECASE,
+    )
+    if _skill_match:
+        _skill_name = _skill_match.group(1).strip().lower()
+        _skill_prompt = (_skill_match.group(2) or "").strip()
+
+        # Pull the deployed app for both user-flag check + app_skills lookup.
+        _deployed_for_skill = _get_deployed(request, app_id)
+        if _deployed_for_skill is None:
+            _raise_not_deployed(request, app_id)
+
+        _skill_body: str | None = None
+        _skill_source = "unknown"
+
+        # 1. user_skills table - only when the app opted in
+        _allow_user = bool(getattr(
+            _deployed_for_skill.compiled, "allow_user_skills", False,
+        ))
+        if _allow_user and _user_id:
+            from digitorn.core.database import get_session_factory as _gsf
+            from digitorn.core.models import UserSkill as _UserSkill
+            from sqlalchemy import select as _select
+
+            _factory = _gsf()
+            async with _factory() as _db:
+                _row = (
+                    await _db.execute(
+                        _select(_UserSkill.instructions)
+                        .where(_UserSkill.user_id == _user_id)
+                        .where(_UserSkill.app_id == app_id)
+                        .where(_UserSkill.name == _skill_name)
+                    )
+                ).scalar_one_or_none()
+                if _row:
+                    _skill_body = _row
+                    _skill_source = "user"
+
+        # 2. compiled.skills (app-declared) as fallback
+        if _skill_body is None:
+            _app_skills_raw = list(
+                getattr(_deployed_for_skill.compiled, "skills", []) or []
+            )
+            _wanted_cmd = f"/{_skill_name}"
+            for _s in _app_skills_raw:
+                _cmd = (_s.get("command") or "").strip().lower()
+                if _cmd == _wanted_cmd or _cmd.lstrip("/") == _skill_name:
+                    _skill_body = _s.get("content") or ""
+                    _skill_source = "app"
+                    break
+
+        if _skill_body is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Skill '/{_skill_name}' not found for app '{app_id}'. "
+                    f"Check ``GET /api/apps/{app_id}/skills`` for the "
+                    f"available list."
+                ),
+            )
+
+        # Wrap the skill body in a MANDATORY framing so the LLM treats
+        # it as authoritative for this turn. The framing line is the
+        # same regardless of source - the agent never needs to know
+        # whether a skill came from YAML or the user table.
+        _skill_directive = (
+            f"# MANDATORY DIRECTIVE — Skill: /{_skill_name}\n\n"
+            "Follow the instructions below to handle the user's next "
+            "message. They take precedence over your default behaviour "
+            "for this turn only.\n\n"
+            "---\n\n"
+            f"{_skill_body.strip()}"
+        )
+        # Concat with any pre-existing template_id directive. Template
+        # comes first (template seeds + ambient instructions), skill
+        # second (specific behaviour override). Separator matches the
+        # framing convention.
+        if _template_system_prompt:
+            _template_system_prompt = (
+                _template_system_prompt.rstrip()
+                + "\n\n---\n\n"
+                + _skill_directive
+            )
+        else:
+            _template_system_prompt = _skill_directive
+
+        # Strip the slash prefix so what the agent (and chat history)
+        # actually sees is the user's real prompt, not the dispatch
+        # command. Mutates the request body in place — ``extra="allow"``
+        # on ``SessionMessageRequest`` keeps Pydantic from complaining.
+        body.message = _skill_prompt
+        logger.info(
+            "skill_invoked app=%s sid=%s name=%s source=%s prompt_len=%d",
+            app_id, session_id, _skill_name, _skill_source, len(_skill_prompt),
+        )
 
     # ── Phase 3: per-session message queue ────────────────────────────
     #

@@ -768,6 +768,15 @@ class AuthService:
         ``device_info`` carries the User-Agent (or any caller-provided
         free-form label) so the user can recognise the session in the
         ``/auth/sessions`` listing. Capped at 512 chars (column type).
+
+        Dedup-by-device: any existing active refresh row matching
+        ``(user_id, device_info)`` is revoked before the new row is
+        inserted. Net effect: same browser = always one active session,
+        across login lifetimes. Different browsers / devices stay
+        distinct because their UA strings differ. Crucial when refresh
+        TTL is set to "never" (dev or prod) — without this dedup the
+        table grows unboundedly and ``/auth/sessions`` becomes
+        unusable.
         """
         from digitorn_auth.models import RefreshToken
 
@@ -776,11 +785,31 @@ class AuthService:
         # practice without needing a NULL column.
         effective_ttl = ttl if ttl > 0 else 100 * 365 * 24 * 3600
 
+        normalized_device = (device_info or "")[:512] or None
+
         async with self._session_factory() as session:
+            # SQL NULL == NULL never matches, so branch on whether the
+            # caller supplied a device hint. NULL rows still dedup
+            # against each other (e.g. legacy "Unknown browser" rows
+            # for the same user collapse to one on next login).
+            device_clause = (
+                RefreshToken.device_info == normalized_device
+                if normalized_device is not None
+                else RefreshToken.device_info.is_(None)
+            )
+            await session.execute(
+                update(RefreshToken)
+                .where(
+                    RefreshToken.user_id == user_id,
+                    device_clause,
+                    RefreshToken.revoked.is_(False),
+                )
+                .values(revoked=True),
+            )
             rt = RefreshToken(
                 user_id=user_id,
                 token_hash=token_hash,
-                device_info=(device_info or "")[:512] or None,
+                device_info=normalized_device,
                 expires_at=datetime.fromtimestamp(
                     time.time() + effective_ttl, tz=timezone.utc,
                 ),

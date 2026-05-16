@@ -1,0 +1,20 @@
+[package]
+id = "notes-lm"
+name = "Notes LM"
+version = "2.0.0"
+description = "Upload sources, get grounded answers with verbatim citations, audio overviews, mind maps, briefings, study guides. NotebookLM-equivalent on Digitorn — read-direct, no RAG."
+category = "research"
+icon = "icon.svg"
+
+[package.permissions]
+risk_level = "low"
+network_access = true
+filesystem_access = []
+filesystem_scopes = []
+
+[package.hub]
+tags = ["research", "notebook", "study", "citations", "audio", "podcast", "summary"]
+publisher_notes = "v2 rewrite: drops RAG for read-direct via workspace. Sources are markdown files the agent reads on demand, citations point to exact line ranges with verbatim quotes. Lighter, faster, more accurate citations than v1. Audio overview still uses OpenAI TTS via http."
+
+[package.compatibility]
+digitorn_min = "0.1"

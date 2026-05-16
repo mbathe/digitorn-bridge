@@ -1,0 +1,136 @@
+app:
+  app_id: notes-lm
+  name: Notes LM
+  short_name: Notes
+  version: "2.0.0"
+  description: "Upload sources, get grounded answers with verbatim citations, briefings, mind maps, audio overviews. Read-direct, no RAG."
+  category: research
+  icon: icon.svg
+  color: "#6366F1"
+  author: mbathe
+  tags:
+    - research
+    - notebook
+    - citations
+  quick_prompts:
+    - label: Add a source
+      icon: 📥
+      message: "Add this source: <paste URL or upload a file>"
+    - label: Briefing
+      icon: 📄
+      message: "Write a briefing document covering all my sources."
+    - label: Mind map
+      icon: 🧭
+      message: "Build a mind map of my sources."
+    - label: Timeline
+      icon: 📆
+      message: "Extract a chronological timeline from my sources."
+    - label: Study guide
+      icon: 🎓
+      message: "Turn my sources into a study guide (concepts + FAQ + quiz)."
+    - label: Audio overview
+      icon: 🎙️
+      message: "Generate a 5-minute audio overview between two hosts."
+  attachments: "*"
+  attachments_mode: tool
+
+runtime:
+  mode: conversation
+  max_turns: 80
+
+agents:
+  - id: main
+    role: researcher
+    capabilities:
+      - ingest
+      - answer
+      - briefing
+      - mindmap
+      - timeline
+      - study_guide
+      - audio_overview
+    brain:
+      provider: doubleword
+      backend: openai_compat
+      model: deepseek-ai/DeepSeek-V4-Pro
+      config:
+        api_key: placeholder
+      temperature: 0.3
+      max_tokens: 8192
+      context:
+        max_tokens: 200000
+    system_prompt: '{{prompt.system}}'
+
+tools:
+  modules:
+    web:
+      config:
+        search_backend: duckduckgo
+    http:
+      config: {}
+    memory:
+      config:
+        auto_remember: false
+        working_memory: true
+    # Preview module - the SSE transport that mirrors every workspace
+    # mutation to the iframe via the ``files`` resource channel. The
+    # agent never calls it directly; workspace.write -> preview internally.
+    preview: {}
+    # Web preview - serves ``web/dist/index.html`` at
+    # ``/api/apps/notes-lm/preview/`` via the daemon's
+    # ``auto_attach_bundled_dist`` on session start. The custom React
+    # UI lives there.
+    web_preview: {}
+    workspace:
+      config:
+        # ``react`` is informational - the actual rendering is our
+        # static React bundle in web/dist. Anything other than
+        # ``code`` makes the host show the preview iframe.
+        render_mode: react
+        title: "Notes LM"
+        entry_file: briefing.md
+        sync_to_disk: false
+        auto_approve: true
+        lint: false
+    context_builder: {}
+  capabilities:
+    default_policy: auto
+    grant:
+      - module: web
+        actions:
+          - search
+          - fetch
+          - extract
+      - module: http
+        actions:
+          - post
+          - get
+      - module: memory
+        actions:
+          - remember
+      - module: workspace
+        actions:
+          - write
+          - read
+          - edit
+          - glob
+          - grep
+          - delete
+
+ui:
+  greeting: "Drop a source (URL, file, text) and I'll save it under `sources/`. Then ask any question — I'll read the relevant file(s) and cite the exact line range."
+  workspace:
+    render_mode: react
+    title: "Notes LM"
+    position: right
+    width_pct: 70
+    default_open: true
+    auto_open_on_first_tool: true
+    default_view: preview
+    hidden_views: [code, changes]
+    preview_chrome:
+      enabled: true
+      refresh: true
+      open_in_new_tab: true
+      viewport_toggle: false
+      url_bar: never

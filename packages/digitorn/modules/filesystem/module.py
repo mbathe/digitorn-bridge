@@ -337,21 +337,30 @@ class FilesystemModule(BaseModule):
         return items
 
     def _resolve_path(self, file_path: str) -> str:
-        """Resolve a file path - relative paths are resolved from the workspace root."""
+        """Resolve a file path. Delegates to the workdir-scoped
+        ``PathPolicy`` on the current execution context so every
+        agent-facing read/write/edit/glob/grep enforces the same
+        sandbox.
+
+        Fallback path (no policy on context) preserves the legacy
+        behaviour for CLI / unit-test / module-API callers that don't
+        flow through the standard runtime bootstrap.
+        """
+        ctx = self._context_var.get()
+        policy = getattr(ctx, "path_policy", None) if ctx else None
+        if policy is not None:
+            return str(policy.enforce(file_path))
+
+        # Legacy fallback - no per-session policy in scope.
         p = os.path.expanduser(file_path)
         if not os.path.isabs(p):
             ws = self.workspace
             base = ws if ws else os.getcwd()
             p = os.path.join(base, p)
         resolved = os.path.normpath(p)
-        # BUG-077 + BUG-083: even when a caller legitimately reaches
-        # this module (admin token, agent with explicit workspace
-        # grant, etc.) there is a hard-denied set of daemon-private
-        # files whose exposure would let the caller impersonate the
-        # daemon or decrypt every user's secrets. This is defence-in-
-        # depth - BUG-061's admin gate on /api/modules/execute is the
-        # primary lock, but a bug there must not be enough to leak
-        # jwt.key or master.key.
+        # Daemon-secret denylist stays active even without a policy -
+        # admin tokens hitting the module endpoint must still be
+        # rejected from reading signing keys / DB / credentials.
         _assert_not_daemon_secret(resolved)
         return resolved
 

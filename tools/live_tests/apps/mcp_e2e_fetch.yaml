@@ -1,0 +1,38 @@
+app:
+  app_id: qtest-mcp-fetch
+  name: "MCP E2E - catalog reference (fetch, no auth)"
+
+# Reference an MCP server that's already installed via the daemon's
+# Hub-curated catalog. ``fetch`` is a pip-runtime server that needs no
+# user credentials; this validates the "App Store + zero config" path.
+modules:
+  mcp:
+    config:
+      servers:
+        - fetch
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 4096
+    system_prompt: |
+      You are a test agent. When asked to fetch a URL, you MUST call
+      the ``fetch`` tool exposed by the MCP server. Never invent the
+      content - always use the tool. After the tool returns, summarise
+      what you got in one short sentence.
+
+execution:
+  mode: conversation
+  max_turns: 4
+  timeout: 90
+
+capabilities:
+  default_policy: auto

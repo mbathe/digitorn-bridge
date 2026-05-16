@@ -292,6 +292,13 @@ class ExecutionContext:
     constraints: dict[str, Any] = field(default_factory=dict, compare=False)
     metadata: dict[str, Any] = field(default_factory=dict, compare=False)
     approval_queue: Any | None = field(default=None, compare=False)
+    # Workdir-scoped sandbox shared by every agent-facing module
+    # that resolves a path input. Built once per session by
+    # ``apply_workspace_override`` and carried here so modules can
+    # enforce confinement without re-deriving the policy. ``None``
+    # in non-agent paths (CLI helpers, unit tests) — modules then
+    # fall back to their pre-sandbox behaviour.
+    path_policy: Any | None = field(default=None, compare=False)
 
 
 @dataclass

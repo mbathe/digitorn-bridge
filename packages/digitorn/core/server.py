@@ -1803,7 +1803,12 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         ),
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Request-ID",
+            "X-Digitorn-Client",
+        ],
     )
 
     # ── Combined middleware (security + context + shutdown + metrics) ───
@@ -1811,6 +1816,10 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     # stack traversals per request from 4 to 2 (this + rate_limit).
 
     from digitorn.core.metrics import metrics as _metrics
+    from digitorn.core.clients import (
+        CLIENT_HEADER as _CLIENT_HEADER,
+        parse_client_kind as _parse_client_kind,
+    )
     import uuid as _uuid
 
     # Pre-import JSONResponse and structlog to avoid per-request imports
@@ -1943,6 +1952,13 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         # ── Phase 2: Request context (ID + structlog bind) ────────
         request_id = request.headers.get("x-request-id") or _uuid.uuid4().hex[:12]
         request.state.request_id = request_id
+        # Client kind hint - lets downstream handlers branch on
+        # ``web`` vs ``flutter-desktop`` etc. without UA sniffing.
+        # Read once here, surfaced via ``clients.client_kind_of`` /
+        # ``request.state.client_kind`` in handlers.
+        request.state.client_kind = _parse_client_kind(
+            request.headers.get(_CLIENT_HEADER),
+        )
         user_id = getattr(request.state, "user_id", None)
         path = request.url.path
         app_id = None

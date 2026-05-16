@@ -190,6 +190,26 @@ Per the Pydantic schema (`SkillEntry` `extra: forbid`):
 - Duplicate `command` values raise an error (skill resolution would
   be ambiguous at runtime).
 
+## User skills (`/use_skill`)
+
+Skills on this page are **agent-facing**: the LLM calls `use_skill`
+and the body comes back as a tool result. The runtime also supports
+**user-facing** skills the end user picks from the composer and
+that get injected as a **forced** `role: system` directive on the
+matching turn. Authored per-user, stored in the daemon database,
+gated by a single YAML flag:
+
+```yaml
+dev:
+  allow_user_skills: true     # default false
+```
+
+Full mechanics, CRUD endpoints, the `/use_skill <name> <prompt>`
+parser, the turn-scoped injection slot, and the web composer flow
+(including the `.md` file picker) are documented in:
+
+[Reference → Runtime → User Skills & `/use_skill`](../reference/runtime/user-skills.md)
+
 ## Cross-references
 
 - The `use_skill` tool (always-available primitive):
@@ -202,3 +222,5 @@ Per the Pydantic schema (`SkillEntry` `extra: forbid`):
   [Client Manifest](44-client-manifest.md)
 - Bundle namespace deep dive (`{{prompt.X}}`, `{{skill.X}}`,
   `{{include:}}`): [Bundle namespaces](38-bundle-namespaces.md)
+- End-user-authored skills + `/use_skill` command:
+  [Runtime → User Skills](../reference/runtime/user-skills.md)

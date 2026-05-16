@@ -269,24 +269,53 @@ class _ChatMixin:
             )
 
         from digitorn.core.workspace import WorkspaceLayout
-        # Detect the daemon's per-session auto-workspace shape:
-        # ``~/.digitorn/workspaces/<app_id>/<session_id>/``. When the
-        # workspace path is already scoped to one (app, session), tell
-        # the layout to FLATTEN — otherwise it nests
-        # ``apps/<app_id>/sessions/<sid>/`` redundantly inside the
-        # workspace's ``.digitorn/``, doubling the app_id and sid in
-        # the path tree for no reason.
+        from digitorn.core.workdirs import is_named_project_path
+        # Three workspace shapes coexist:
+        #
+        # 1. Legacy per-session daemon workspace
+        #    (``~/.digitorn/workspaces/{app_id}/{sid}/``): the path is
+        #    already scoped to one (app, session), so the layout
+        #    flattens (no ``apps/{app_id}/sessions/{sid}/`` nesting
+        #    inside ``.digitorn/``).
+        #
+        # 2. Project-shared workdir
+        #    (``~/.digitorn/workdirs/{app_id}/{user_id}/{slug}/``,
+        #    introduced with the named-project picker): the workdir
+        #    is shared across every session of the same project, so
+        #    the workdir's ``.digitorn/`` holds ONLY project-level
+        #    artifacts (skills, rules, project memory). Per-session
+        #    state (checkpoints, future per-session files) routes to
+        #    ``~/.digitorn/workspaces/{app_id}/{session_id}/`` via
+        #    ``external_session_dir`` so concurrent sessions never
+        #    trample each other and the workdir stays clean of
+        #    daemon internals the agent shouldn't touch.
+        #
+        # 3. User-picked workspace (CLI / Flutter desktop): the user's
+        #    own project folder. Falls through to the default shared
+        #    layout that segregates apps + sessions inside
+        #    ``.digitorn/`` because one folder may host many apps.
         _per_session_ws = False
+        _external_session_dir: Path | None = None
         if ws:
             try:
                 _ws_path = Path(ws).resolve()
-                _per_session_ws = (
-                    _ws_path.name == session_id
-                    and _ws_path.parent.name == app_id
-                )
+                if _ws_path.name == session_id and _ws_path.parent.name == app_id:
+                    _per_session_ws = True
+                elif is_named_project_path(_ws_path):
+                    _per_session_ws = True
+                    _external_session_dir = (
+                        Path.home()
+                        / ".digitorn" / "workspaces"
+                        / app_id / session_id
+                    )
             except Exception:
                 _per_session_ws = False
-        layout = WorkspaceLayout(ws, app_id, per_session=_per_session_ws)
+                _external_session_dir = None
+        layout = WorkspaceLayout(
+            ws, app_id,
+            per_session=_per_session_ws,
+            external_session_dir=_external_session_dir,
+        )
         layout.ensure_session_dirs(session_id)
 
         fs_mod = deployed.modules.get("filesystem")

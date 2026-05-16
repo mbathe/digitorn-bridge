@@ -166,17 +166,45 @@ def deploy(
     yaml_path: Annotated[Path, typer.Argument(help="Path to the app YAML file.")],
     daemon: str = typer.Option(_DEFAULT_DAEMON, "--daemon", "-d"),
     force: bool = typer.Option(True, "--force/--no-force", "-f"),
+    scope: str = typer.Option(
+        "system",
+        "--scope",
+        "-s",
+        help=(
+            "Deploy scope. Defaults to ``system`` so every authenticated "
+            "user on the daemon (and every chat session) sees the same "
+            "app — that's what you want when iterating on a YAML with "
+            "the dev CLI. Override with ``--scope user`` to deploy a "
+            "private copy visible only to your account."
+        ),
+    ),
 ) -> None:
-    """Deploy an app to the daemon for testing."""
+    """Deploy an app to the daemon for testing.
+
+    ``scope=system`` is the dev-CLI default. The API back-channel in
+    ``apps_v2/lifecycle.py::deploy_app`` accepts ``scope=system`` for
+    any caller with ``apps:deploy`` when the YAML lives inside the
+    daemon's bundled ``builtins/`` tree. For YAMLs outside that tree
+    you need the admin permission ``*`` to push at system scope;
+    otherwise re-run with ``--scope user`` to deploy privately.
+    """
     resp = daemon_request(
         "post",
         f"{daemon}/api/apps/deploy",
-        json={"yaml_path": str(yaml_path.resolve()), "force": force},
+        json={
+            "yaml_path": str(yaml_path.resolve()),
+            "force": force,
+            "scope": scope,
+        },
     )
     data = resp.json()
     if data.get("success"):
         info = data.get("data", {})
-        _print(f"Deployed: {info.get('app_id', '?')} ({info.get('mode', '?')} mode)", "green")
+        _print(
+            f"Deployed: {info.get('app_id', '?')} "
+            f"({info.get('mode', '?')} mode, scope={scope})",
+            "green",
+        )
         if info.get("agents"):
             _print(f"  Agents: {', '.join(str(a) for a in info['agents'])}")
     else:

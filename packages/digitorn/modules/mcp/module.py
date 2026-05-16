@@ -22,7 +22,7 @@ import logging
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from digitorn.core.credentials.slot import CredentialSlot
 from digitorn.modules.base import ActionResult, BaseModule, ExecutionContext
@@ -60,6 +60,9 @@ class McpConfig(BaseModel):
 
     ``servers`` stays permissive - each MCP server carries free-form
     ``command``/``args``/``env``/``url`` keys depending on transport.
+    It also accepts a **list** of server ids (referring to daemon-managed
+    installs) — both forms are normalised to ``dict[str, dict]`` by the
+    validator so the runtime sees one shape.
     """
 
     model_config = {"extra": "forbid"}
@@ -67,10 +70,71 @@ class McpConfig(BaseModel):
     workspace: str = Field(default="", description="Auto-injected by the daemon.")
     servers: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
-        description="Named MCP server configs (free-form per transport).",
+        description=(
+            "Named MCP server configs. Accepts three YAML shapes: "
+            "``- github`` (bare reference list), "
+            "``github: {}`` (dict reference) or "
+            "``custom: {transport: stdio, command: ...}`` (inline config)."
+        ),
     )
     cache: dict[str, Any] = Field(default_factory=dict)
     middleware: list[dict[str, Any]] = Field(default_factory=list)
+
+    @field_validator("servers", mode="before")
+    @classmethod
+    def _normalise_servers(cls, raw: Any) -> dict[str, dict[str, Any]]:
+        """Accept a list of bare server ids alongside the dict form.
+
+        Users write ``servers: [github, notion]`` to reference daemon-
+        managed installs without repeating config. That shorthand also
+        carries an implicit "trust the daemon install" contract: the
+        list-form server is allowed the standard MCP sandbox permissions
+        (``process.exec`` for stdio subprocess transports, ``net.http``
+        for SSE / streamable_http). Users who need a tighter sandbox
+        must spell the entry out as ``server: {sandbox: {...}}``.
+
+        Without this default, the runtime's deny-by-default sandbox
+        check at dispatch time blocks every tool call on list-form
+        references — the LLM emits a ``tool_call`` event, the dispatch
+        rejects it with ``mcp_sandbox_blocked``, and the user sees a
+        cryptic "no sandbox permissions declared" error even though
+        they followed the documented shorthand. Detected via the live
+        E2E proof in ``tools/live_tests/_mcp_proof.py``.
+        """
+        if raw is None:
+            return {}
+        default_sandbox = {
+            "sandbox": {"permissions": ["process.exec", "net.http"]},
+        }
+        if isinstance(raw, dict):
+            # ``servers: {fetch: {}}`` is semantically the same as
+            # ``- fetch`` — a bare reference to a daemon-managed install.
+            # Apply the same default sandbox so dispatch doesn't reject
+            # the call. Users with stricter needs spell the sandbox out
+            # in the per-server config block.
+            out: dict[str, dict[str, Any]] = {}
+            for key, val in raw.items():
+                if isinstance(val, dict) and val:
+                    out[str(key)] = dict(val)
+                else:
+                    out[str(key)] = dict(default_sandbox)
+            return out
+        if isinstance(raw, list):
+            out: dict[str, dict[str, Any]] = {}
+            for item in raw:
+                if isinstance(item, str):
+                    out[item] = dict(default_sandbox)
+                elif isinstance(item, dict):
+                    for key, val in item.items():
+                        if isinstance(val, dict) and val:
+                            out[str(key)] = dict(val)
+                        else:
+                            # Empty / non-dict value → bare reference.
+                            out[str(key)] = dict(default_sandbox)
+                # Anything else falls through silently — the runtime
+                # logs ``mcp_invalid_server_entry`` for unrecognised items.
+            return out
+        return {}
 
 
 _MCP_ACTION_RE = re.compile(r"^mcp_([^_]+(?:_[^_]+)*)__(.+)$")
@@ -184,6 +248,11 @@ class MCPModule(BaseModule):
         # Per-server sandbox permissions (deny-by-default).
         # None = no sandbox declared (server blocked), set() = declared but empty.
         self._server_sandbox: dict[str, set[str] | None] = {}
+        # Server IDs the app referenced (by short name) but that aren't
+        # installed in the daemon and don't have a catalog entry. Kept
+        # for diagnostic surfacing; the agent can ``mcp.diagnose`` to
+        # see them.
+        self._missing_refs: set[str] = set()
 
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest.from_module(self)
@@ -281,20 +350,39 @@ class MCPModule(BaseModule):
         await super().on_config_update(config)
         raw_servers = config.get("servers", {})
 
+        # Default sandbox applied to bare references (list-form, or
+        # dict-form with empty value). Encodes the "trust the daemon
+        # install" contract of the shorthand syntax — without it the
+        # runtime dispatch ``self._server_sandbox[server_id] = None``
+        # blocks every tool call with the cryptic
+        # ``mcp_sandbox_blocked`` error. Users who need a tighter
+        # sandbox must spell it out in the per-server config dict.
+        _DEFAULT_BARE_SERVER_CONFIG: dict[str, Any] = {
+            "sandbox": {"permissions": ["process.exec", "net.http"]},
+        }
+
         servers: dict[str, dict[str, Any]]
         if isinstance(raw_servers, list):
             servers = {}
             for item in raw_servers:
                 if isinstance(item, str):
-                    servers[item] = {}
+                    servers[item] = dict(_DEFAULT_BARE_SERVER_CONFIG)
                 elif isinstance(item, dict):
                     for k, v in item.items():
-                        servers[k] = v if isinstance(v, dict) else {}
+                        if isinstance(v, dict) and v:
+                            servers[k] = v
+                        else:
+                            servers[k] = dict(_DEFAULT_BARE_SERVER_CONFIG)
                 else:
                     logger.warning("mcp_invalid_server_entry: %s", item)
             logger.info("mcp_servers_from_list count=%d", len(servers))
         elif isinstance(raw_servers, dict):
-            servers = raw_servers
+            servers = {}
+            for k, v in raw_servers.items():
+                if isinstance(v, dict) and v:
+                    servers[k] = v
+                else:
+                    servers[k] = dict(_DEFAULT_BARE_SERVER_CONFIG)
         else:
             servers = {}
         cache_config = config.get("cache", {})
@@ -351,11 +439,23 @@ class MCPModule(BaseModule):
 
             if not server_config:
                 if get_catalog_entry(server_id) is None:
+                    # The app references this server by name only — neither
+                    # the live pool, the managed_mcp_servers table, nor
+                    # the Hub catalog match. Three actionable fixes for
+                    # the operator; we surface them all so support tickets
+                    # don't need a code dive.
+                    self._missing_refs.add(server_id)
                     logger.error(
-                        "mcp_server_not_in_daemon server=%s - "
-                        "server referenced by name only but not found in daemon "
-                        "or catalog. Install it first: digitorn mcp install %s",
-                        server_id, server_id,
+                        "mcp_server_not_installed server=%s app=%s\n"
+                        "  This app references '%s' as a bare ID, but no "
+                        "managed install was found. Fix it one of three ways:\n"
+                        "    1. Install via the Hub Catalog UI (Admin → MCP Servers → Catalog)\n"
+                        "    2. Run on the daemon host: digitorn mcp install %s\n"
+                        "    3. Provide a full inline config in your app.yaml under "
+                        "modules.mcp.config.servers.%s\n"
+                        "  Doc: https://docs.digitorn.ai/reference/modules/mcp#referencing-installed-servers",
+                        server_id, self._app_id or "?",
+                        server_id, server_id, server_id,
                     )
                     continue
 
@@ -809,6 +909,16 @@ class MCPModule(BaseModule):
 
         params = self._coerce_params(server_id, tool_name, params)
 
+        # Workdir sandbox: walk the tool args and enforce the agent's
+        # ``PathPolicy`` on every path-like value. Schema-driven for
+        # fields whose name / description marks them as paths, plus a
+        # value-driven heuristic for the long tail of MCP tools that
+        # don't annotate. Out-of-sandbox values return a structured
+        # error without ever reaching the remote MCP server.
+        sandbox_error = self._enforce_path_sandbox(server_id, tool_name, params)
+        if sandbox_error is not None:
+            return ActionResult(success=False, error=sandbox_error)
+
         pipeline = self._server_pipelines.get(server_id) or self._global_pipeline
         try:
             if pipeline is not None:
@@ -1261,6 +1371,66 @@ class MCPModule(BaseModule):
                     )
 
         return coerced
+
+    def _enforce_path_sandbox(
+        self, server_id: str, tool_name: str, params: dict[str, Any],
+    ) -> str | None:
+        """Walk ``params`` and enforce the workdir-scoped ``PathPolicy``
+        on every path-like value before dispatch to the MCP server.
+
+        Two layers cooperate:
+          1. Schema-driven: fields the input schema marks as paths
+             (``path``, ``file_path``, ``cwd``, ``format=path``,
+             ``description=...path...``) are unconditionally enforced.
+          2. Heuristic: every other string is checked with
+             ``_looks_like_path`` (rooted by ``/``, ``\\``, ``~``, or
+             a drive letter, and not a URL / pseudo-path).
+
+        Returns ``None`` when allowed, an error string when blocked.
+        Skips entirely when no ``path_policy`` is in scope (admin /
+        CLI paths that don't flow through ``apply_workspace_override``).
+        """
+        ctx = getattr(self, "_context", None)
+        policy = getattr(ctx, "path_policy", None) if ctx else None
+        if policy is None:
+            return None
+
+        # Resolve the tool's input schema once so the walker knows
+        # which field names are path-typed.
+        schema_path_fields: set[str] = set()
+        entry = self._pool.get_server(server_id)
+        if entry is not None:
+            for t in entry.tools:
+                if t.name == tool_name:
+                    if t.input_schema:
+                        from digitorn.core.mcp_path_guard import (
+                            _collect_path_fields_from_schema,
+                        )
+                        schema_path_fields = _collect_path_fields_from_schema(
+                            t.input_schema,
+                        )
+                    break
+
+        from digitorn.core.mcp_path_guard import enforce_args
+        from digitorn.modules.exceptions import PermissionDeniedError
+        try:
+            enforce_args(
+                params,
+                policy=policy,
+                schema_path_fields=schema_path_fields,
+            )
+        except PermissionDeniedError as exc:
+            # Map the structured exception to a user-readable MCP error.
+            # The agent sees "Path 'X' is outside the workspace..."
+            # and learns to use relative paths.
+            return (
+                f"MCP tool '{tool_name}' on '{server_id}' refused: a "
+                "path argument falls outside the agent workspace. "
+                "Pass paths relative to the workdir, or declare "
+                "``constraints.allowed_paths`` in the app YAML for "
+                f"this server. (action={exc.action} module={exc.module})"
+            )
+        return None
 
     def _build_schema_hint(self, server_id: str, tool_name: str) -> str:
         """Build a schema hint from the MCP tool's inputSchema.
