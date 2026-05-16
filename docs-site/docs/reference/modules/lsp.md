@@ -281,3 +281,100 @@ pool (`_owns_pool = True`).
   [filesystem reference](filesystem.md)
 - LSP REST endpoints:
   [API Integration → LSP](../../language/14-api-integration.md)
+
+## Live test audit (2026-05-17)
+
+Comprehensive end-to-end audit covering the 5 internal actions,
+the auto-detect path, the built-in content validators, session
+cleanup, cross-OS spawn safety, and dead-code drift. Scenarios
+live in `tools/live_tests/lsp_e2e_scenarios.py`. Final state:
+**10 PASS / 0 FAIL / 2 SKIP** (the 2 skips are external limits,
+not bugs - see below).
+
+### Bugs found and fixed
+
+1. **Workered proxy installed unbound on the instance**
+   (`workers/action_wrapper.py`).
+   `_make_proxy_handler` returned `async def _proxy(module_self,
+   params)` and `setattr(module, action_name, proxy_handler)`
+   bypassed Python's descriptor protocol, so REST callers like
+   `lsp_module.cancel_request(params)` lost `self` and 500'd
+   with `missing 1 required positional argument: 'params'`.
+   Fix: new `_bind_proxy_to_module` helper pre-binds the module
+   before `setattr`. Affects every workered module's
+   direct-attribute call path, not just LSP.
+
+2. **Workered proxy returned a bare `dict` instead of an
+   `ActionResult`** (`workers/action_wrapper.py`).
+   `client.call_action(...)` deserialises the worker's HTTP
+   response into a `dict`; daemon-side callers reach for
+   `result.success` and crash with
+   `AttributeError: 'dict' object has no attribute 'success'`.
+   Fix: new `_rehydrate_action_result` helper reconstructs an
+   `ActionResult` (with `success / data / error / metadata`)
+   before returning. Pass-through for non-dict / already-typed
+   payloads.
+
+### Bug found, not yet fixed (workers framework, broader scope)
+
+1. **Workered modules never receive their per-app `module.config`
+   from YAML.** *(Numbered #3 in the cumulative audit log; restarted
+   at 1 here because it's a fresh ordered list.)* The daemon-side
+   `bootstrap.py` correctly skips
+   `on_config_update` on a workered instance (the wrap stamps
+   `_skip_on_start = True`, and the lifecycle loop short-circuits
+   right after). But the worker's own lifespan
+   (`workers/app.py:174`) calls `module.on_start()` for each
+   hosted module and **never replays the config either**. Net
+   effect: any `modules.lsp.config.python: "ruff check ..."` (or
+   any per-app explicit server spec) is silently dropped when LSP
+   is hosted by a worker (default deployment ships it in the
+   `tools` worker alongside MCP).
+
+   Symptoms observed during the audit:
+   - The `linter_python` scenario reports the .py file is written
+     correctly and `ruff` is on PATH, but the `lint` field comes
+     back empty. Built-in validators only catch *syntax errors*;
+     they don't run ruff. Ruff invoked manually on the same disk
+     path returns F401 + E722 as expected.
+   - This is **not** an LSP module bug. It's a workers framework
+     gap that affects every workered module that needs per-app
+     config (LSP servers, custom MCP servers, etc.).
+   - MCP's catalog-only references (e.g. `fetch`) happen to work
+     because they're resolved at `on_start()` from the
+     daemon-side catalog, not from per-app YAML.
+
+   Fix sketch (post-audit, needs design sign-off): the
+   `wrap_module_for_worker` call should push the compiled app
+   config to the worker via an HTTP envelope (e.g. a new
+   `POST /admin/config` route on the worker, or a per-call ctx
+   field that the worker applies on first dispatch). The latter
+   is simpler but couples per-request data to module-level state;
+   the former is cleaner but adds one extra round-trip per
+   deploy.
+
+### Skipped scenarios (external limits, not module bugs)
+
+- `lsp_request_hover` - SKIPs even when `pyright-langserver` is
+  on PATH. The full hover round-trip needs a real Pyright server
+  plus a .py file at a known disk path; the audit covers the
+  endpoint plumbing via code review and leaves the live
+  round-trip as future work (no LSP bug surfaced in the path
+  reviewed).
+- `linter_python` - SKIPs because of Bug #3 above. The scenario
+  is preserved so it auto-promotes to PASS once the workers
+  framework propagates per-app config.
+
+### Cleanups done in passing
+
+- `packages/digitorn/modules/lsp/parsers.py` - removed
+  `BUILTIN_VALIDATORS` + the 4 `validate_*_file` functions.
+  Dead code: the canonical content validators live in
+  `workspace/module.py::_BUILTIN_CONTENT_VALIDATORS` (with the
+  LaTeX validator on top), wired by workspace + filesystem.
+- `packages/digitorn/modules/lsp/module.py::_start_server` -
+  uses `shlex.split(command, posix=(sys.platform != "win32"))`
+  at the spawn site, with a `command.split()` fallback only on
+  `ValueError` (unmatched quotes). Previously `command.split()`
+  was the sole strategy and would mangle paths-with-spaces on
+  Windows.

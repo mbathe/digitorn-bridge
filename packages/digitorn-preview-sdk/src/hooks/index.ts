@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useDigiPreview } from "../DigiPreview.js";
+import { useDigiPreview, useDigiPreviewSocket } from "../DigiPreview.js";
+import type { TurnEnricher } from "../DigiPreview.js";
 import type {
   WorkspaceFile,
   PreviewNode,
@@ -401,4 +402,99 @@ export function useResourceEvents<T = Record<string, unknown>>(
   });
 
   return events;
+}
+
+// ── Turn enrichment: one-turn system prompt injection ─────────────────
+//
+// Apps need to slip ephemeral context to the agent BEFORE a user turn
+// fires - "user just dropped X into the iframe", "current selection is
+// page 12", "an attachment landed under attachments/Y". The chat
+// composer is owned by the host, so the app can't append to the user
+// message; injecting into the conversation history would be visible to
+// the user.
+//
+// The SDK collects these one-shot signals through two complementary
+// primitives:
+//
+//   * ``useTurnEnricher(fn)`` - register a function that the SDK calls
+//     once per ``useChat().send()``. Return a string to contribute it
+//     to ``system_addendum`` for THIS turn; return ``null`` to skip.
+//     Stateless (re-evaluated every send), good for "derive a hint
+//     from current state on the fly".
+//   * ``usePendingHints()`` - returns a stable ``addHint(text)`` that
+//     queues a hint. The queue is drained into ``system_addendum`` on
+//     the next ``send`` and cleared. Stateful, good for "fire-and-
+//     forget when a resource lifecycle event lands".
+//
+// Both contribute to the SAME envelope field (``system_addendum`` on
+// the ``send_message`` payload); the SDK joins their outputs with
+// blank-line separators. The daemon frames the joined text as a one-
+// turn system message at the head of the agent's context and clears
+// it after the turn completes, so nothing leaks into follow-up turns.
+
+/**
+ * Register a functional contributor to the next ``send`` envelope's
+ * ``system_addendum``.
+ *
+ * The function is called once per ``useChat().send()`` invocation; its
+ * return value (a string) is concatenated with other enrichers and any
+ * pending hints, then sent as a one-turn system prompt fragment.
+ *
+ * Return ``null`` or ``undefined`` to skip the current send (the most
+ * common case - you only have something to say when state changed).
+ *
+ * ```tsx
+ * const files = useFilesByPrefix("sources/");
+ * const lastSeenCount = useRef(files.length);
+ * useTurnEnricher(() => {
+ *   const fresh = files.length - lastSeenCount.current;
+ *   lastSeenCount.current = files.length;
+ *   if (fresh <= 0) return null;
+ *   return `${fresh} new source(s) added since last turn.`;
+ * });
+ * ```
+ *
+ * Identity-stable callbacks aren't required - the hook re-registers
+ * when ``fn`` changes. The unregister happens automatically on
+ * unmount. Errors thrown by the enricher are caught and logged; they
+ * never break a send.
+ */
+export function useTurnEnricher(fn: TurnEnricher): void {
+  const { turn } = useDigiPreviewSocket();
+  useEffect(() => {
+    return turn.registerEnricher(fn);
+  }, [turn, fn]);
+}
+
+export interface UsePendingHintsApi {
+  /** Queue a hint to be sent on the NEXT ``useChat().send()``. The
+   *  queue is drained after that send, so this is one-shot per call. */
+  addHint: (text: string) => void;
+}
+
+/**
+ * Stateful one-shot hint queue. Push hints from resource-lifecycle
+ * callbacks or any other side-effect; the next ``useChat().send()``
+ * folds them into ``system_addendum`` and clears the queue.
+ *
+ * Pairs naturally with ``useResourceLifecycle``:
+ *
+ * ```tsx
+ * const { addHint } = usePendingHints();
+ * useResourceLifecycle({
+ *   channel: "files",
+ *   match: "attachments/",
+ *   fireForInitial: false,
+ *   onCreate: (e) => addHint(`User uploaded ${e.id} via paperclip.`),
+ * });
+ * ```
+ *
+ * The hint queue is per-``DigiPreview`` instance and lives across
+ * renders of every consumer (it's not React state) - so calling
+ * ``usePendingHints()`` from two components both push into the same
+ * queue.
+ */
+export function usePendingHints(): UsePendingHintsApi {
+  const { turn } = useDigiPreviewSocket();
+  return useMemo(() => ({ addHint: turn.addHint }), [turn]);
 }

@@ -1918,7 +1918,24 @@ class AppYAMLCompiler:
             config_model = getattr(module, "CONFIG_MODEL", None)
             if resolved_config and config_model is not None:
                 try:
-                    config_model.model_validate(resolved_config)
+                    # Persist the validated + normalised form rather than the
+                    # raw YAML dict. Without this, any ``@field_validator``
+                    # / ``@model_validator`` that normalises input (defaults
+                    # injection, list→dict coercion, alias resolution…) sees
+                    # its output silently dropped — the runtime ends up with
+                    # the original input shape and the normalisation might
+                    # as well not exist. Surfaced in the May 2026 MCP audit
+                    # where ``McpConfig.servers``' list-to-dict validator
+                    # produced a clean dict that the runtime never saw.
+                    #
+                    # ``model_dump(mode="python")`` keeps native Python
+                    # types (Path, datetime, …) intact for downstream
+                    # consumers, and Pydantic v2 includes ``model_extra``
+                    # for ``extra=allow`` configs (llm_provider, lsp,
+                    # memory, web_preview) so user-typed keys still flow
+                    # through to the runtime.
+                    validated = config_model.model_validate(resolved_config)
+                    resolved_config = validated.model_dump(mode="python")
                 except ValidationError as exc:
                     for e in exc.errors():
                         loc = ".".join(str(x) for x in e["loc"])

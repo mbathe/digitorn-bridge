@@ -111,6 +111,18 @@ class WorkerRegistry:
             except StopIteration:
                 return None
 
+    def endpoints_for(self, module_name: str) -> list[WorkerEndpoint]:
+        """Return every endpoint hosting ``module_name``.
+
+        Distinct from ``route()``: that picks ONE (round-robin) for
+        load-balancing a single request. ``endpoints_for`` returns
+        ALL so admin operations (config push, hot-config-reload,
+        broadcast events) can hit every replica. Empty list when no
+        worker hosts the module -- caller falls back to in-process.
+        """
+        with self._lock:
+            return list(self._by_module.get(module_name, []))
+
     def hosted_modules(self) -> list[str]:
         with self._lock:
             return sorted(self._by_module.keys())

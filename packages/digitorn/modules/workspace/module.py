@@ -956,17 +956,20 @@ class WorkspaceModule(BaseModule):
         *,
         mime: str = "text/plain",
         file_id: str = "",
+        target_dir: str = "attachments",
     ) -> str | None:
-        """Mirror an extracted attachment's text into the workspace at
-        ``attachments/<sanitised_name>``.
+        """Mirror an extracted attachment / source's text into the workspace
+        at ``<target_dir>/<sanitised_name>``.
 
-        Internal API used by the chat attachments pipeline to expose
-        an uploaded PDF / DOCX / etc. to the agent via the same
-        WsRead / WsGlob / WsGrep tools it uses for normal workspace
-        files. Pre-approved (skips the diff queue) and tagged
-        ``source: "attachment"`` so the SDK iframe can render it
-        differently if it wants. Idempotent: re-registering the same
-        name overwrites the previous payload.
+        Internal API used by both the chat attachments pipeline
+        (``target_dir="attachments"``, default) and the iframe-side
+        source-ingestion endpoint (``target_dir="sources"``). Exposes
+        the file to the agent via the same WsRead / WsGlob / WsGrep
+        tools it uses for normal workspace files. Pre-approved (skips
+        the diff queue) and tagged ``source: "attachment"`` / ``"source"``
+        based on the destination so the SDK iframe can render the
+        provenance. Idempotent: re-registering the same name overwrites
+        the previous payload.
 
         Returns the workspace-relative path on success, ``None`` when
         the preview module isn't wired (silent no-op for apps that
@@ -974,14 +977,23 @@ class WorkspaceModule(BaseModule):
         """
         if self._preview is None or not text:
             return None
+        # Whitelist of allowed target dirs prevents an upstream caller
+        # from accidentally writing to "../something" or "sources/sub/x"
+        # (only one path segment, no traversal).
+        if target_dir not in ("attachments", "sources"):
+            logger.warning(
+                "register_attachment_invalid_target session=%s target=%s",
+                session_id[:8], target_dir,
+            )
+            return None
 
         from digitorn.modules.preview.module import SetResourceParams
 
         # Sanitise the filename - keep alphanumerics + ``.-_ ()`` and
         # collapse separators. Path traversal (``..``) cannot survive
-        # this filter so the agent can't reach outside attachments/.
+        # this filter so the agent can't reach outside the target dir.
         safe = re.sub(r"[^A-Za-z0-9._\-() ]+", "_", name).strip("._ ") or "file"
-        path = f"attachments/{safe}"
+        path = f"{target_dir}/{safe}"
 
         lines = text.count("\n") + 1
         payload: dict[str, Any] = {
@@ -993,7 +1005,11 @@ class WorkspaceModule(BaseModule):
             "updated_at": time.time(),
             "validation": "approved",
             "baseline_lines": lines,
-            "source": "attachment",
+            # ``source`` = "attachment" for files coming from the chat
+            # composer paperclip, "source" for files curated via the
+            # iframe's Sources panel. The SDK iframe can branch on this
+            # to render different badges / metadata.
+            "source": "attachment" if target_dir == "attachments" else "source",
             "mime": mime,
             "file_id": file_id,
         }

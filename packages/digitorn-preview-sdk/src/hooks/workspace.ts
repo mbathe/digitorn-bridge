@@ -56,6 +56,25 @@ function _useResolvedSession() {
 
 // ── File-level workspace API ───────────────────────────────────────────
 
+/** Where an ingested file lands in the workspace. */
+export type IngestTargetDir = "sources" | "attachments";
+
+/** Result of a successful ``ingestFile`` call. */
+export interface IngestResult {
+  /** Workspace-relative path the extracted text landed at. */
+  path: string;
+  /** Line count of the extracted text. */
+  lines: number;
+  /** Character count of the extracted text. */
+  size: number;
+  /** MIME type the daemon detected (after magic-byte sniffing). */
+  mime: string;
+  /** Canonical format (``.pdf``, ``.docx``, ...). */
+  format: string;
+  /** Whether the file landed in ``sources/`` or ``attachments/``. */
+  target_dir: IngestTargetDir;
+}
+
 export interface UseWorkspaceFilesApi {
   /** Read a single file's content from the workspace. */
   readFile: (path: string) => Promise<{ content: string; size: number; lines: number }>;
@@ -66,13 +85,47 @@ export interface UseWorkspaceFilesApi {
     content: string,
     opts?: { autoApprove?: boolean },
   ) => Promise<unknown>;
-  /** Upload a binary blob (image, archive, audio). The daemon writes
-   *  the bytes 1:1 - no transcoding. ``autoApprove`` like above. */
+  /** Upload a binary blob (image, archive, audio) to a known path.
+   *  The daemon writes the bytes 1:1 - no transcoding, no extraction.
+   *  For PDF/DOCX/etc. that need text extraction, use ``ingestFile``
+   *  instead. ``autoApprove`` like ``writeFile``. */
   uploadFile: (
     path: string,
     blob: Blob,
     opts?: { autoApprove?: boolean },
   ) => Promise<unknown>;
+  /**
+   * Ingest a file with **server-side text extraction**. The daemon
+   * sniffs the format (magic bytes + filename hint), routes PDF through
+   * pymupdf, DOCX through python-docx, spreadsheets through openpyxl,
+   * etc., and writes the plain-text result to the workspace under
+   * ``<targetDir>/<sanitised_name>``. For pure-text inputs the
+   * extractor returns the raw bytes unchanged.
+   *
+   * Use this whenever the iframe wants to accept files the agent should
+   * be able to *read* — PDFs, Word docs, slides, spreadsheets, etc. —
+   * without forcing the user through the chat composer paperclip.
+   *
+   * ``targetDir`` defaults to ``"sources"`` (manual curation). Pass
+   * ``"attachments"`` to mirror the chat-composer destination instead.
+   *
+   * ```tsx
+   * const fs = useWorkspaceFiles();
+   * <input type="file" onChange={async e => {
+   *   const f = e.target.files?.[0];
+   *   if (f) await fs.ingestFile(f);
+   * }} />
+   * ```
+   *
+   * Errors:
+   * - 422 ``no extractable text`` when the file is empty or unsupported
+   * - 413 when over the 10 MB upload cap
+   * - 400 on invalid target_dir
+   */
+  ingestFile: (
+    file: File | Blob,
+    opts?: { targetDir?: IngestTargetDir; filename?: string },
+  ) => Promise<IngestResult>;
   /** Delete a file from the workspace. */
   deleteFile: (path: string) => Promise<unknown>;
   /** Mark a file as approved (snapshot the current content as the
@@ -167,6 +220,56 @@ export function useWorkspaceFiles(): UseWorkspaceFilesApi {
     });
   }, [appId, sessionId, baseUrl, token]);
 
+  const ingestFile = useCallback(async (
+    file: File | Blob,
+    opts?: { targetDir?: IngestTargetDir; filename?: string },
+  ): Promise<IngestResult> => {
+    return _wrap(async () => {
+      const fd = new FormData();
+      const fname =
+        opts?.filename ?? (file instanceof File ? file.name : "upload");
+      // Wrap into a File so the filename round-trips through FormData
+      // and ends up on the multipart Content-Disposition header. A bare
+      // Blob would default to "blob" in some runtimes.
+      const upload =
+        file instanceof File && file.name === fname
+          ? file
+          : new File([file], fname, { type: file.type });
+      fd.append("file", upload, fname);
+      fd.append("target_dir", opts?.targetDir ?? "sources");
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(
+        `${baseUrl}/api/apps/${appId}/sessions/${sessionId}/workspace/ingest-source`,
+        { method: "POST", body: fd, headers },
+      );
+      if (!res.ok) {
+        // Daemon errors on this route use the same envelope as the
+        // rest of apps_v2: ``{detail: {error, ...}}`` for 4xx, plain
+        // text for some 5xx. Surface the daemon's error message
+        // verbatim so callers can show it to the user.
+        let detail: unknown = null;
+        try { detail = (await res.json())?.detail ?? null; } catch { /* */ }
+        const msg =
+          detail && typeof detail === "object" && "error" in detail
+            ? String((detail as { error: string }).error)
+            : typeof detail === "string"
+              ? detail
+              : `${res.status} ${res.statusText}`;
+        throw new Error(msg);
+      }
+      const body = (await res.json()) as {
+        success: boolean;
+        data?: IngestResult;
+        error?: string;
+      };
+      if (!body.success || !body.data) {
+        throw new Error(body.error || "ingest failed");
+      }
+      return body.data;
+    });
+  }, [appId, sessionId, baseUrl, token]);
+
   const deleteFile = useCallback(async (path: string) => {
     return _wrap(async () => _request<unknown>(
       baseUrl,
@@ -213,7 +316,7 @@ export function useWorkspaceFiles(): UseWorkspaceFilesApi {
   }, [appId, sessionId, baseUrl, token]);
 
   return {
-    readFile, writeFile, uploadFile, deleteFile,
+    readFile, writeFile, uploadFile, ingestFile, deleteFile,
     approveFile, rejectFile, commit,
     busy, error,
   };

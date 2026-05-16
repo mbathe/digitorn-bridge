@@ -188,6 +188,81 @@ class WorkerClient:
         # Unreachable -- the loop always exits via return/raise.
         raise WorkerError(f"worker call failed: {last_exc}")
 
+    async def push_config(
+        self, module: str, config: dict[str, Any],
+    ) -> bool:
+        """POST ``/admin/config/{module}`` with the per-app config
+        block. The worker calls ``module.on_config_update(config)``
+        and returns ``{success, error?}``.
+
+        Called once per (module, app) by the daemon's bootstrap path
+        right after ``wrap_module_for_worker`` -- this is what makes
+        workered modules behave like in-process ones from the YAML
+        author's POV. Returns ``True`` only when the worker confirmed
+        success; transport / module errors return ``False`` (and log)
+        so the deploy continues with a degraded module rather than
+        blocking on a flaky worker.
+        """
+        path = f"/admin/config/{module}"
+        client = await self._get_client()
+        last_exc: Exception | None = None
+        for attempt in range(self._retries + 1):
+            try:
+                resp = await client.post(path, json={"config": config})
+            except (httpx.ConnectError, httpx.ReadTimeout,
+                    httpx.RemoteProtocolError) as exc:
+                last_exc = exc
+                if attempt >= self._retries:
+                    logger.warning(
+                        "worker_config_push_transport_failed module=%s "
+                        "attempts=%d err=%s",
+                        module, attempt + 1, exc,
+                    )
+                    return False
+                await asyncio.sleep(0.2 * (attempt + 1))
+                continue
+            if resp.status_code >= 400 and resp.status_code not in (
+                502, 503, 504,
+            ):
+                logger.warning(
+                    "worker_config_push_http_error module=%s status=%d "
+                    "body=%s",
+                    module, resp.status_code, resp.text[:200],
+                )
+                return False
+            if resp.status_code in (502, 503, 504):
+                last_exc = WorkerError(
+                    f"worker returned {resp.status_code}",
+                    status=resp.status_code,
+                )
+                if attempt >= self._retries:
+                    logger.warning(
+                        "worker_config_push_5xx module=%s attempts=%d "
+                        "status=%d",
+                        module, attempt + 1, resp.status_code,
+                    )
+                    return False
+                await asyncio.sleep(0.2 * (attempt + 1))
+                continue
+            try:
+                body = resp.json()
+            except json.JSONDecodeError:
+                logger.warning(
+                    "worker_config_push_bad_json module=%s body=%s",
+                    module, resp.text[:200],
+                )
+                return False
+            if not body.get("success"):
+                logger.warning(
+                    "worker_config_push_module_rejected module=%s "
+                    "error=%s",
+                    module, body.get("error", "(no error message)"),
+                )
+                return False
+            return True
+        # Unreachable -- the loop always exits via return.
+        return False
+
     async def stream_action(
         self,
         module: str,

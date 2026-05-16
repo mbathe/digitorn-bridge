@@ -639,6 +639,136 @@ async def delete_file_endpoint(
     return AppResponse(success=True, data=result.data)
 
 
+@router.post(
+    "/{app_id}/sessions/{session_id}/workspace/ingest-source",
+    response_model=AppResponse,
+)
+async def ingest_source_endpoint(
+    request: Request, app_id: str, session_id: str,
+    file: UploadFile = File(...),
+    target_dir: str = Form("sources"),
+):
+    """Ingest a binary file as a workspace source / attachment with
+    server-side text extraction.
+
+    The chat composer paperclip already does this for attachments — same
+    pymupdf / python-docx / pure-text fall-through pipeline used by
+    ``POST /messages``. This endpoint exposes the SAME path to the
+    preview SDK so iframe apps can offer their own "add source"
+    affordance without the user having to round-trip through the chat
+    composer. Target directory is parameterised so a single endpoint
+    serves both ``sources/`` (default, manual curation) and
+    ``attachments/`` (parity with chat composer).
+
+    Effect:
+      1. Read the upload's bytes into the file store
+      2. Sniff format from bytes + filename hint
+      3. ``extract_text(path, format_hint=fmt)`` → plain text
+      4. ``workspace.register_attachment(target_dir=<dir>)`` writes
+         the extracted text to the files channel under
+         ``<dir>/<sanitised_name>`` (idempotent overwrite)
+
+    For pure-text uploads (``text/*``, ``.md``, ``.txt``, ``.csv``, ...)
+    the extractor returns the raw content unchanged — no double-encode.
+
+    Returns the workspace-relative path + lines count.
+    """
+    _validate_id(session_id, "session_id")
+    await _require_session_access(request, app_id, session_id)
+
+    # Match the same chat-composer cap so the two paths agree on what
+    # an "upload" is allowed to be.
+    raw = await file.read()
+    if len(raw) > _WRITEBACK_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"upload exceeds {_WRITEBACK_MAX_BYTES} bytes",
+        )
+
+    if target_dir not in ("sources", "attachments"):
+        raise HTTPException(
+            status_code=400,
+            detail="target_dir must be 'sources' or 'attachments'",
+        )
+
+    deployed, preview_module = await _resolve_deployed_preview(request, app_id)
+    _uid = getattr(request.state, "user_id", None) or "local"
+    await _activate_preview_session(
+        request, app_id, session_id, preview_module, user_id=_uid, set_active=True,
+    )
+    ws_module = (
+        deployed.modules.get("workspace") if hasattr(deployed, "modules") else None
+    )
+    if ws_module is None:
+        raise HTTPException(status_code=400, detail="App has no workspace module")
+
+    # Persist the upload through the same file_store the chat composer
+    # uses. The store decodes base64 already, so we re-encode here.
+    # Round-trip cost is acceptable for files we're going to extract
+    # text from anyway (orders of magnitude cheaper than pymupdf).
+    import base64
+    from digitorn.core.file_store import get_file_store
+    from digitorn.core.file_extract import extract_text
+    from ._attach_helpers import sniff_format
+
+    name = file.filename or "source"
+    mime = file.content_type or "application/octet-stream"
+    b64 = base64.b64encode(raw).decode("ascii")
+
+    file_store = get_file_store()
+    ref = await file_store.store_base64(
+        b64, mime,
+        session_id=session_id,
+        original_name=name,
+        message_id="",  # not tied to a chat message
+        app_id=app_id,
+    )
+    fmt = sniff_format(ref.path, filename_hint=name)
+    file_store.update_index_status(ref.file_id, session_id, format=fmt)
+
+    extracted = await extract_text(ref.path, format_hint=fmt)
+    if not extracted.strip():
+        file_store.update_index_status(
+            ref.file_id, session_id,
+            status="empty",
+            error="no extractable text",
+        )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "no extractable text from file",
+                "format": fmt,
+                "mime": mime,
+            },
+        )
+
+    file_store.update_index_status(
+        ref.file_id, session_id,
+        status="indexed",
+        chunks=0,
+        extracted_text=extracted,
+    )
+
+    path = await ws_module.register_attachment(
+        session_id, name, extracted,
+        mime=mime, file_id=ref.file_id, target_dir=target_dir,
+    )
+    if path is None:
+        raise HTTPException(
+            status_code=500,
+            detail="workspace.register_attachment did not return a path",
+        )
+
+    return AppResponse(success=True, data={
+        "path": path,
+        "lines": extracted.count("\n") + 1,
+        "size": len(extracted),
+        "mime": mime,
+        "format": fmt,
+        "target_dir": target_dir,
+    })
+
+
 @router.post("/{app_id}/sessions/{session_id}/workspace/upload/{file_path:path}",
              response_model=AppResponse)
 async def upload_file_endpoint(

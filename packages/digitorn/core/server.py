@@ -16,6 +16,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, AsyncGenerator
 
+# Silence HuggingFace Hub + FastEmbed progress bars BEFORE any module
+# in the chain (fastembed, sentence-transformers, transformers) imports
+# tqdm. setdefault preserves an operator override. Applies to the daemon
+# process AND every subprocess sandbox worker that inherits the env -
+# stops the "Fetching 5 files: 100%" cache-check spam on every restart.
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("FASTEMBED_DISABLE_PROGRESS_BAR", "1")
+
 # ── Windows asyncio event loop policy ───────────────────────────────
 # MUST run BEFORE any asyncio loop is created (i.e. before uvicorn,
 # socketio, or anything that touches asyncio).
@@ -729,6 +737,43 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                     "on first call", exc,
                 )
         asyncio.create_task(_warm_tiktoken_bg())
+
+        # Warm the FastEmbed model in a background thread. Otherwise the
+        # first sync caller (mcp semantic cache, vector module, RAG, or
+        # the first app deploy that hits ``build_and_set_index`` via a
+        # path that forgot to_thread) eats a 2-5s stall on the main loop:
+        # cache verification + ONNX runtime init + ~220 MB mmap of the
+        # paraphrase-multilingual-MiniLM-L12-v2 weights. Once this task
+        # completes the singleton is set; every subsequent call returns
+        # instantly. Respects the ``discovery.skip_embeddings`` kill
+        # switch - when True we never load the model at all.
+        async def _warm_embedding_model_bg() -> None:
+            try:
+                if settings.discovery.skip_embeddings:
+                    logger.info(
+                        "embedding_warmup_skipped (discovery.skip_embeddings=true)",
+                    )
+                    return
+                from digitorn.modules.context_builder.embeddings import (
+                    _get_model,
+                )
+                t0 = time.monotonic()
+                model = await asyncio.to_thread(_get_model)
+                if model is not None:
+                    logger.info(
+                        "embedding_warmed_up model_ready_in_ms=%d",
+                        int((time.monotonic() - t0) * 1000),
+                    )
+                else:
+                    logger.info(
+                        "embedding_warmup_unavailable (fastembed not installed)",
+                    )
+            except Exception as exc:
+                logger.debug(
+                    "embedding_warmup_failed: %s -- lazy path will retry "
+                    "on first call", exc,
+                )
+        asyncio.create_task(_warm_embedding_model_bg())
 
         from digitorn.modules.context import ModuleContext
 

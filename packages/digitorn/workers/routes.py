@@ -531,6 +531,81 @@ async def list_modules(request: Request) -> dict[str, Any]:
     }
 
 
+@router.post("/admin/config/{module}")
+async def push_config(
+    module: str,
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> Response:
+    """Apply a per-app ``module.config`` block on a workered module.
+
+    Called by the daemon side immediately after
+    ``wrap_module_for_worker`` so the worker's module instance can
+    register protocol handlers / servers / backends that the YAML
+    declared. Without this, the per-app config is silently dropped
+    because the worker's lifespan only calls ``on_start()`` -- it
+    has no app context at boot.
+
+    Body: ``{"config": {...}}``. Returns
+    ``{"success": bool, "error": "..." | null}`` -- HTTP 200 on
+    *transport* success regardless of module outcome, mirroring
+    the unary tool route's convention.
+
+    Idempotent: if the same config is replayed (hot-reload, daemon
+    restart), the module's ``on_config_update`` runs again -- each
+    workered module is expected to be idempotent (rag / lsp already
+    are; they close stale backends / re-register protocols cleanly).
+    """
+    state = request.app.state
+    _require_auth(authorization, state.shared_secret)
+    body = await request.json()
+    config: dict[str, Any] = body.get("config") or {}
+
+    if module not in state.hosted_modules:
+        raise HTTPException(
+            status_code=404,
+            detail=f"module {module!r} not hosted by this worker",
+        )
+    module_instance = state.modules.get(module)
+    if module_instance is None:
+        return Response(
+            content=dumps({
+                "success": False,
+                "error": (
+                    f"module {module!r} listed but not loaded "
+                    f"-- check worker startup logs"
+                ),
+            }),
+            media_type="application/json",
+        )
+
+    logger.info(
+        "worker_config_push module=%s keys=%s",
+        module, sorted(config.keys()),
+    )
+    try:
+        await module_instance.on_config_update(config)
+    except Exception as exc:
+        logger.exception(
+            "worker_on_config_update_failed module=%s",
+            module,
+        )
+        return Response(
+            content=dumps({
+                "success": False,
+                "error": (
+                    f"{type(exc).__name__}: {exc}"
+                ),
+            }),
+            media_type="application/json",
+        )
+
+    return Response(
+        content=dumps({"success": True}),
+        media_type="application/json",
+    )
+
+
 @router.get("/health")
 async def health(request: Request) -> dict[str, Any]:
     """Always returns 200 with a small JSON status. The supervisor

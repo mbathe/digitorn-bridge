@@ -1763,6 +1763,21 @@ class SessionMessageRequest(BaseModel):
             "(see ``TemplateBlock``). Unknown id => 404."
         ),
     )
+    system_addendum: str | None = Field(
+        default=None,
+        max_length=16_000,
+        description=(
+            "Optional one-turn system prompt fragment injected by the "
+            "client (typically the preview SDK's ``useTurnEnricher`` / "
+            "``usePendingHints`` hooks). Lets an iframe app pass "
+            "ephemeral context to the agent BEFORE the next user turn "
+            "without polluting the visible chat history: 'user just "
+            "added X via the iframe', 'a new attachment landed under "
+            "attachments/Y', 'current selection is page 12'. Concatenated "
+            "with any template/skill directive for this turn; cleared "
+            "afterwards. Capped at 16 KiB."
+        ),
+    )
 
 
 class CreateSessionRequest(BaseModel):
@@ -1851,6 +1866,15 @@ class CreateSessionRequest(BaseModel):
             "daemon (1) copies the template's ``seed_dir`` into the "
             "session workspace and (2) injects its ``system_prompt`` as "
             "a one-turn directive. See ``SessionMessageRequest.template_id``."
+        ),
+    )
+    system_addendum: str | None = Field(
+        default=None,
+        max_length=16_000,
+        description=(
+            "Optional one-turn system prompt fragment for the FIRST "
+            "message of a freshly created session. See "
+            "``SessionMessageRequest.system_addendum`` for semantics."
         ),
     )
 

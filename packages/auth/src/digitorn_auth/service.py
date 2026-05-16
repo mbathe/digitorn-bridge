@@ -356,10 +356,21 @@ class AuthService:
         permissions = await self._get_user_permissions(payload.user_id)
         features = await self._get_account_features(payload.user_id)
 
+        # Refresh tokens carry only ``sub`` — no email / display_name.
+        # Re-fetch the user identity from the DB so the rotated access
+        # token retains its full claim set. Without this lookup, every
+        # token issued past the first login is missing ``email``, which
+        # breaks downstream linking (Hub user table, audit logs, ...).
+        email = payload.email
+        display_name = payload.display_name
+        if not email:
+            email, db_name = await self._get_user_identity(payload.user_id)
+            display_name = display_name or db_name
+
         access_token = self._jwt.generate_access_token(
             user_id=payload.user_id,
-            email=payload.email,
-            display_name=payload.display_name,
+            email=email,
+            display_name=display_name,
             roles=roles,
             permissions=permissions,
             extra={"features": features} if features else None,
@@ -613,6 +624,28 @@ class AuthService:
             )
             result = await session.execute(stmt)
             return [row[0] for row in result.fetchall()]
+
+    async def _get_user_identity(
+        self, user_id: str,
+    ) -> tuple[str | None, str | None]:
+        """Return ``(email, display_name)`` for *user_id*, or ``(None, None)``.
+
+        Used by ``refresh_access_token``: the refresh token only carries
+        ``sub`` (user_id), so the rotated access token needs a fresh
+        DB lookup to repopulate the ``email`` / ``name`` claims. Without
+        this, every token issued after a refresh loses the email claim
+        and downstream services (Hub user linking, etc.) can no longer
+        associate the JWT with a user record.
+        """
+        from digitorn_auth.models import User
+
+        async with self._session_factory() as session:
+            stmt = select(User).where(User.id == user_id)
+            result = await session.execute(stmt)
+            user = result.scalar_one_or_none()
+            if user is None:
+                return None, None
+            return user.email, user.display_name
 
     async def _get_user_permissions(self, user_id: str) -> list[str]:
         """Get merged permissions from all user roles."""

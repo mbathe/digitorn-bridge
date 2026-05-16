@@ -191,6 +191,21 @@ ui:
           finalizing:
             - "Wrapping up the response..."
             - "Composing the final answer..."
+  # Builtin slash commands dispatched server-side (no LLM call).
+  # The parser in apps_v2/messages.py looks up ``action.name`` in
+  # ``slash_dispatch.BUILTIN_HANDLERS`` and short-circuits the
+  # normal turn dispatch when matched.
+  slash_commands:
+    - command: /help
+      description: List available commands and skills
+      action:
+        type: builtin
+        name: help
+    - command: /compact
+      description: Compact the context window (trim older messages)
+      action:
+        type: builtin
+        name: compact_session
 
 dev:
   # Lets end users author their own skills via the composer's

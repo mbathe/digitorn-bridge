@@ -1,0 +1,40 @@
+app:
+  app_id: qtest-mcp-ratelimit
+  name: "MCP audit - rate limit"
+
+# 1 call per minute is below any sensible load; the agent makes a
+# burst of 3 fetch calls, the rate-limit gate rejects 2 with the
+# ``mcp_rate_limit_blocked`` error path so we can assert the
+# enforcement at dispatch time.
+modules:
+  mcp:
+    config:
+      servers:
+        fetch:
+          rate_limit_rpm: 1
+          sandbox:
+            permissions: [process.exec, net.http]
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 4096
+    system_prompt: |
+      You are a load-test agent. When asked, call the fetch tool
+      multiple times in rapid succession on the URLs given.
+
+execution:
+  mode: conversation
+  max_turns: 6
+  timeout: 90
+
+capabilities:
+  default_policy: auto

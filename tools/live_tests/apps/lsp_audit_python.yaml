@@ -1,0 +1,39 @@
+app:
+  app_id: qtest-lsp-python
+  name: "LSP audit - Python linting (ruff via LSP linter protocol)"
+
+# Explicit lsp.config.python pointing at ruff. The linter protocol
+# shells out per file change - no persistent process. Workspace's
+# `_run_lint` calls `lsp.notify_change` first, which routes to the
+# linter handler, which shells out to ruff and parses JSON.
+modules:
+  preview: {}
+  workspace:
+    config:
+      sync_to_disk: true
+      lint: true
+  lsp:
+    config:
+      python: "ruff check --output-format=json"
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 4096
+    system_prompt: "Test agent."
+
+execution:
+  mode: conversation
+  max_turns: 2
+  timeout: 30
+
+capabilities:
+  default_policy: auto

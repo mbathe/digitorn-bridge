@@ -1,0 +1,20 @@
+app:
+  app_id: qtest-mcp-oauth-notion
+  name: "MCP audit - OAuth URL gen"
+modules:
+  mcp:
+    config:
+      servers:
+        - notion
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config: {api_key: placeholder, base_url: https://api.openai.com/v1}
+      max_tokens: 1024
+    system_prompt: "Test agent."
+execution: {mode: conversation, max_turns: 2, timeout: 30}
+capabilities: {default_policy: auto}

@@ -132,8 +132,15 @@ def wrap_module_for_worker(
         # via ``module.bash(...)`` instead of going through
         # ``execute()``; mirror the swap there too. Falls back
         # gracefully when the attribute is a read-only descriptor.
+        # The proxy is ``async def _proxy(module_self, params)`` -- an
+        # unbound function. Installing it as an instance attribute
+        # skips Python's descriptor protocol, so ``module.action(p)``
+        # would call ``_proxy(p)`` with one positional arg and
+        # blow up with "missing 1 required argument: 'params'". Bind
+        # ``module`` here so direct callers see a normal one-arg API.
+        bound = _bind_proxy_to_module(proxy_handler, module)
         try:
-            setattr(module, action_name, proxy_handler)
+            setattr(module, action_name, bound)
         except (AttributeError, TypeError):
             pass
 
@@ -171,9 +178,14 @@ def unwrap_module(module: Any) -> int:
         if entry is None:
             continue
         entry.handler = original_handler
+        # Original handler is the class-level wrapper (decorators.py:285),
+        # which is unbound. Drop the instance attribute so attribute
+        # lookup falls through to the class and the descriptor protocol
+        # rebinds it as a method again -- otherwise direct callers like
+        # ``module.action(params)`` would lose ``self``.
         try:
-            setattr(module, action_name, original_handler)
-        except (AttributeError, TypeError):
+            delattr(module, action_name)
+        except AttributeError:
             pass
         restored += 1
 
@@ -198,6 +210,66 @@ def unwrap_module(module: Any) -> int:
     return restored
 
 
+async def push_module_config(
+    module_id: str,
+    config: dict[str, Any],
+    *,
+    registry: Any | None = None,
+) -> dict[str, bool]:
+    """Push a per-app ``module.config`` block to every worker that
+    hosts ``module_id``.
+
+    The wire path: ``WorkerClient.push_config`` → worker's
+    ``POST /admin/config/{module}`` → worker calls
+    ``module.on_config_update(config)``. This is what makes workered
+    modules behave like in-process ones: a YAML's
+    ``modules.lsp.config.python: "ruff ..."`` actually reaches the
+    LSP instance that handles the call, instead of being silently
+    dropped by the bootstrap loop's ``_skip_on_start`` short-circuit.
+
+    Multi-replica safe: pushes to ALL endpoints (registry's
+    ``endpoints_for``), not just the round-robin pick from
+    ``route()``. Without that, scaled-out modules would have
+    stale-config replicas serving stale results.
+
+    Returns ``{worker_id: success_bool}``. Caller logs the map but
+    does NOT abort the deploy on partial failure -- the workered
+    module falls back to its on_start defaults (auto-detect for LSP,
+    catalog-only for MCP, etc.), same behaviour as today.
+    """
+    if not config:
+        return {}
+
+    if registry is None:
+        from .registry import get_default_registry
+        registry = get_default_registry()
+
+    endpoints = registry.endpoints_for(module_id)
+    if not endpoints:
+        return {}
+
+    from .client import get_or_create_client
+
+    results: dict[str, bool] = {}
+    for ep in endpoints:
+        try:
+            client = get_or_create_client(ep)
+            ok = await client.push_config(module_id, config)
+            results[ep.worker_id] = ok
+        except Exception as exc:
+            logger.warning(
+                "push_module_config_failed module=%s worker=%s err=%s",
+                module_id, ep.worker_id, exc,
+            )
+            results[ep.worker_id] = False
+
+    logger.info(
+        "push_module_config module=%s endpoints=%d ok=%d",
+        module_id, len(endpoints), sum(1 for v in results.values() if v),
+    )
+    return results
+
+
 # ---- internals -----------------------------------------------------
 
 
@@ -213,6 +285,53 @@ def _stamp_wrapped_state(
     module._workered_original_handlers = dict(original_handlers or {})
     module._skip_on_start = True
     module._skip_on_stop = True
+
+
+def _rehydrate_action_result(payload: Any) -> Any:
+    """Convert the worker's JSON-decoded response back into an
+    ``ActionResult``. Daemon-side callers (REST endpoints, hooks,
+    behaviour engine) reach for ``.success`` / ``.error`` / ``.data``
+    -- a bare ``dict`` would crash them with ``AttributeError``.
+
+    Non-dict / non-ActionResult payloads pass through untouched so
+    custom return types (stream chunks, raw bytes) still work.
+    """
+    from digitorn.modules.base import ActionResult
+
+    if isinstance(payload, ActionResult):
+        return payload
+    if not isinstance(payload, dict):
+        return payload
+    # Accept both the canonical ActionResult shape and the looser
+    # ``{success, data, error}`` envelope some workers emit.
+    if "success" not in payload:
+        return payload
+    return ActionResult(
+        success=bool(payload.get("success")),
+        data=payload.get("data"),
+        output=payload.get("output"),
+        error=payload.get("error"),
+        metadata=dict(payload.get("metadata") or {}),
+    )
+
+
+def _bind_proxy_to_module(proxy_handler: Any, module: Any) -> Any:
+    """Bind ``module`` as the first positional argument of an unbound
+    proxy. Returns a one-arg coroutine that mirrors what callers expect
+    from a class-defined method on ``module`` (post-descriptor binding).
+    """
+    import functools as _ft
+
+    async def _bound(*args: Any, **kwargs: Any) -> Any:
+        return await proxy_handler(module, *args, **kwargs)
+
+    _bound.__name__ = getattr(proxy_handler, "__name__", "proxy")
+    _bound.__qualname__ = getattr(
+        proxy_handler, "__qualname__", _bound.__name__,
+    )
+    _bound._unbound_proxy = proxy_handler  # type: ignore[attr-defined]
+    _ft.update_wrapper(_bound, proxy_handler, updated=())
+    return _bound
 
 
 def _make_proxy_handler(
@@ -252,7 +371,7 @@ def _make_proxy_handler(
         result = await client.call_action(
             module_id, action_name, args, ctx=ctx_payload,
         )
-        return result
+        return _rehydrate_action_result(result)
 
     _proxy.__name__ = f"proxy_{module_id}_{action_name}"
     _proxy.__qualname__ = _proxy.__name__

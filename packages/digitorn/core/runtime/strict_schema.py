@@ -98,10 +98,26 @@ def normalize_strict_schema(schema: Any) -> None:
     if not isinstance(schema, dict):
         return
 
-    # 0. Drop unsupported ``format`` values (e.g. MCP fetch's ``uri``).
+    # 0a. Drop unsupported ``format`` values (e.g. MCP fetch's ``uri``).
     fmt = schema.get("format")
     if isinstance(fmt, str) and fmt not in _OPENAI_ALLOWED_FORMATS:
         schema.pop("format", None)
+
+    # 0b. Inject default ``type`` on schemas OpenAI strict mode requires
+    # to have one. Empty {} sub-schemas (e.g. ``list`` / ``dict`` /
+    # ``Any`` translated by Pydantic into ``items: {}``) get
+    # ``"string"`` - the most permissive single type strict accepts.
+    # Skipped when the schema has a compositional alternative
+    # (anyOf/oneOf/allOf/$ref) or a value constraint (enum/const), since
+    # those define the shape without ``type``. The proper long-term fix
+    # is for tool authors to tighten ``list`` → ``list[X]``.
+    if (
+        not schema.get("type")
+        and not any(k in schema for k in (
+            "anyOf", "oneOf", "allOf", "$ref", "enum", "const",
+        ))
+    ):
+        schema["type"] = "string"
 
     # 1. Object-shape rules: complete required + force additionalProperties=false.
     if _is_object_shape(schema):

@@ -1,0 +1,34 @@
+app:
+  app_id: qtest-lsp-autodetect
+  name: "LSP audit - auto-detect from workspace markers"
+
+# No explicit LSP config — the module should call its own _auto_detect
+# which scans for marker files (pyproject.toml, package.json, Cargo.toml, ...)
+# and registers known servers lazily. With markers absent here, the
+# module ends up with zero registered protocols, which is the correct
+# behaviour for a fresh workspace.
+modules:
+  filesystem: {}
+  lsp: {}
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 1024
+    system_prompt: "Test agent."
+
+execution:
+  mode: conversation
+  max_turns: 2
+  timeout: 30
+
+capabilities:
+  default_policy: auto

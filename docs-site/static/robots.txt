@@ -1,0 +1,12 @@
+# https://www.robotstxt.org/
+# Allow crawlers full access; point them to the sitemap.
+
+User-agent: *
+Allow: /
+
+# Block low-value or transient routes
+Disallow: /404
+Disallow: /search
+Disallow: /*?_=*
+
+Sitemap: https://docs.digitorn.ai/sitemap.xml

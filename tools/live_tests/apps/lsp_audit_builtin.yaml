@@ -1,0 +1,42 @@
+app:
+  app_id: qtest-lsp-builtin
+  name: "LSP audit - built-in validators (no external tools)"
+
+# LSP module configured but no language servers. We use ``workspace``
+# (which has the built-in JSON/YAML/TOML/Python/LaTeX validators) so
+# writes still get diagnostics even when no real LSP is wired.
+modules:
+  preview: {}
+  workspace:
+    config:
+      sync_to_disk: true
+      lint: true
+  lsp: {}
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 4096
+    system_prompt: |
+      You are a workspace test agent. Write files exactly as requested.
+      When you see a ``lint`` field in a tool result with errors, leave
+      it as-is — the test is verifying the validator caught it.
+
+execution:
+  mode: conversation
+  max_turns: 4
+  timeout: 60
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: workspace
+      actions: [write, read, edit, glob, grep]

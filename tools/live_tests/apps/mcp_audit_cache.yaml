@@ -1,0 +1,44 @@
+app:
+  app_id: qtest-mcp-cache
+  name: "MCP audit - smart cache"
+
+# Cache the ``fetch`` tool's results so a repeated call with identical
+# arguments comes back from the in-memory LRU instead of hitting the
+# subprocess again. ``cache.ttl`` keeps the entry valid for 5 minutes.
+modules:
+  mcp:
+    config:
+      servers:
+        fetch:
+          sandbox:
+            permissions: [process.exec, net.http]
+          cache_ttl: 300
+          cacheable_tools: ["fetch"]
+      cache:
+        ttl: 300
+        max_size: 50
+        enabled: true
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 4096
+    system_prompt: |
+      You are a test agent. Always use the fetch tool when asked to
+      retrieve a URL. Never invent content.
+
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 90
+
+capabilities:
+  default_policy: auto

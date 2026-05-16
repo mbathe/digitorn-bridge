@@ -4,8 +4,10 @@ import {
   useConnection,
   useFiles,
   useHostTheme,
+  usePendingHints,
   useResourceLifecycle,
 } from "@digitorn/preview-sdk";
+import { AddSourceButton } from "./components/AddSourceButton";
 import { SourceList } from "./components/SourceList";
 import { Studio } from "./components/Studio";
 import { Viewer } from "./components/Viewer";
@@ -86,7 +88,11 @@ export function App() {
     }
   }, [files, selection.kind]);
 
-  // Toast every time the agent adds a new source under sources/.
+  // Toast + system-prompt hint every time a new source lands under
+  // sources/. The hint flows into the next user turn via the SDK's
+  // useChat -> system_addendum path, so the LLM is aware that the
+  // user just curated something new and can prioritise reading it.
+  const { addHint } = usePendingHints();
   useResourceLifecycle({
     channel: "files",
     match: "sources/",
@@ -94,6 +100,31 @@ export function App() {
     onCreate: (e) => {
       const name = e.id.slice("sources/".length);
       requestToast(`Source added: ${name}`, "info");
+      addHint(
+        `The user just added a new source via the iframe sidebar: ` +
+        `\`${e.id}\`. Discover the full corpus with WsGlob and read this ` +
+        `file with WsRead when answering the next question.`,
+      );
+    },
+  });
+
+  // Mirror the hint path for attachments uploaded via the chat composer
+  // paperclip. They land under attachments/<name> via the daemon's
+  // register_attachment, the LLM has no other signal that something
+  // arrived. fireForInitial: false so existing attachments from prior
+  // turns don't re-trigger on every iframe mount.
+  useResourceLifecycle({
+    channel: "files",
+    match: "attachments/",
+    fireForInitial: false,
+    onCreate: (e) => {
+      const name = e.id.slice("attachments/".length);
+      requestToast(`Attachment added: ${name}`, "info");
+      addHint(
+        `The user just uploaded a file via the chat composer paperclip: ` +
+        `\`${e.id}\`. The extracted text is in the workspace. Read it with ` +
+        `WsRead before answering the next question if it's relevant.`,
+      );
     },
   });
 
@@ -101,14 +132,19 @@ export function App() {
     <div className="app-shell">
       <aside className="pane">
         <header className="pane-header">
-          <h2>Sources</h2>
-          <span className="count" aria-label="connection status">
-            <span
-              className={`status-dot ${connected ? "connected" : ""}`}
-              title={connected ? "Live" : "Disconnected"}
-            />{" "}
-            {sourceFiles.length}
-          </span>
+          <div className="pane-header-title">
+            <h2>Sources</h2>
+            <span className="count" aria-label="connection status">
+              <span
+                className={`status-dot ${connected ? "connected" : ""}`}
+                title={connected ? "Live" : "Disconnected"}
+              />{" "}
+              {sourceFiles.length}
+            </span>
+          </div>
+          <AddSourceButton
+            onAdded={(path) => setSelection({ kind: "file", path })}
+          />
         </header>
         <div className="pane-body">
           <SourceList
