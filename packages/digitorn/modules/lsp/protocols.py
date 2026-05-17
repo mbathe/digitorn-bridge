@@ -382,6 +382,20 @@ class LinterProtocol(FeedbackProtocol):
 
         cwd = self._cwd or str(Path(path).parent)
 
+        def _dbg(stage: str, **kw: Any) -> None:
+            try:
+                from pathlib import Path as _P
+                logp = _P.home() / ".digitorn" / "logs" / "lsp_linter_debug.log"
+                logp.parent.mkdir(parents=True, exist_ok=True)
+                with open(logp, "a", encoding="utf-8") as f:
+                    f.write(
+                        f"[{stage}] name={self._name} path={path} cwd={cwd} "
+                        f"parts={parts} {kw}\n"
+                    )
+            except Exception:
+                pass
+
+        _dbg("start")
         try:
             proc = await asyncio.create_subprocess_exec(
                 *parts,
@@ -396,13 +410,22 @@ class LinterProtocol(FeedbackProtocol):
             parser = get_parser(self._parser_name)
             diags = parser(stdout_str, stderr_str)
             self._cached[path] = diags
+            _dbg(
+                "done", returncode=proc.returncode,
+                stdout_len=len(stdout_str), stderr_len=len(stderr_str),
+                stdout_head=stdout_str[:300], stderr_head=stderr_str[:300],
+                diags=len(diags),
+            )
 
         except asyncio.TimeoutError:
             logger.warning("linter_timeout name=%s", self._name)
-        except FileNotFoundError:
+            _dbg("timeout")
+        except FileNotFoundError as exc:
             logger.warning("linter_not_found name=%s cmd=%s", self._name, parts[0])
+            _dbg("file_not_found", exc=repr(exc))
         except Exception as exc:
             logger.warning("linter_error name=%s: %s", self._name, exc)
+            _dbg("exception", exc=repr(exc), type=type(exc).__name__)
 
     def get_diagnostics(self, path: str) -> list[Diagnostic]:
         return self._cached.get(path, [])
