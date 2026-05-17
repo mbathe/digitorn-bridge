@@ -66,6 +66,7 @@ const config = {
         { name: "keywords", content: "AI agents, LLM, YAML, MCP, framework, multi-agent, gateway, declarative, OpenAI, Anthropic, DeepSeek" },
         { name: "theme-color", content: "#A78BFA" },
         { name: "robots", content: "index, follow" },
+        { name: "msvalidate.01", content: "BC6F5335D6247EA4DA70816F635BDD2B" },
         { name: "twitter:card", content: "summary_large_image" },
         { name: "twitter:title", content: "Digitorn - Declarative AI agent framework" },
         { name: "twitter:description", content: "Build production-ready AI apps in YAML. Multi-agent runtimes, native MCP, streaming, hooks." },
