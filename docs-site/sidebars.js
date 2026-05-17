@@ -42,6 +42,9 @@ const sidebars = {
         "tutorial/advanced-12-mcp",
         "tutorial/advanced-13-locking-down",
         "tutorial/advanced-14-redteam",
+        "tutorial/advanced-15-parallel-spawn",
+        "tutorial/advanced-16-selfcorrect-builtin",
+        "tutorial/advanced-17-gate-destructive",
       ],
     },
     {

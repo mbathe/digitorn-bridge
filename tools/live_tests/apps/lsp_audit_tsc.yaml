@@ -1,0 +1,38 @@
+app:
+  app_id: qtest-lsp-tsc
+  name: "LSP audit - tsc compiler protocol (.ts re-run per edit)"
+
+# tsc --noEmit is a one-shot compiler: re-runs after each file change,
+# parses stdout into Diagnostic objects via parse_tsc. Validates the
+# compiler protocol path end-to-end.
+modules:
+  preview: {}
+  workspace:
+    config:
+      sync_to_disk: true
+      lint: true
+  lsp:
+    config:
+      typescript: "tsc --noEmit"
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 4096
+    system_prompt: "Test agent."
+
+execution:
+  mode: conversation
+  max_turns: 2
+  timeout: 30
+
+capabilities:
+  default_policy: auto

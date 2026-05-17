@@ -372,17 +372,42 @@ class AppSecret(Base):
 
 
 class _UserRef(Base):
-    """FK-target stub for the auth-service-owned ``users`` table.
+    """FK-target stub for the ``users`` table - schema mirrors the
+    auth-service-owned ``digitorn_auth.models.User``.
 
-    Do NOT query this class. Do NOT attach relationships to it. It
-    exists only so SQLAlchemy can validate ``ForeignKey("users.id")``
-    declarations on daemon-owned tables.
+    On Postgres prod the auth service owns the table and creates it
+    with the full schema first; ``create_all`` is a no-op and
+    ``_migrate_missing_columns`` has nothing to add. On SQLite local
+    (self-hosted daemon, no separate auth service), the daemon owns
+    the table - declaring the full schema here lets the JIT mirror
+    (``digitorn_auth.fastapi``) INSERT into a complete table instead
+    of failing on missing columns.
+
+    Do NOT query this class from daemon code. Do NOT attach
+    relationships to it. The auth service is the source of truth.
     """
 
     __tablename__ = "users"
     __table_args__ = {"extend_existing": True}
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    external_id: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    provider: Mapped[str] = mapped_column(String(64), nullable=False, default="local")
+    app_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
+    display_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    attributes: Mapped[dict[str, Any]] = mapped_column(_JSON_X, default=dict)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("TRUE"))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class UserOAuthToken(Base):
@@ -420,8 +445,7 @@ class UserSnippet(Base):
     "Insert snippet" menu hands the user.
 
     Scoped on (``user_id``, ``app_id``) so the snippets the user
-    builds while talking to ``copilot-smoke`` don't bleed into
-    ``digitorn-code``. The CRUD endpoints under
+    builds while talking to one app don't bleed into another. The CRUD endpoints under
     ``/api/apps/{app_id}/snippets`` filter on the calling user's id
     transparently.
 

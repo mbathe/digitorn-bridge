@@ -75,9 +75,32 @@ export interface IngestResult {
   target_dir: IngestTargetDir;
 }
 
+/** Result of ``readFile(path)`` in the default text mode. */
+export interface ReadFileTextResult {
+  content: string;
+  size: number;
+  lines: number;
+}
+
+/**
+ * Read a single file from the workspace.
+ *
+ * Two modes:
+ *
+ * - **Default (text)** — returns the workspace-stored content as a
+ *   string. For ingested files (PDF/DOCX/...), this is the EXTRACTED
+ *   text the agent reads via ``WsRead``, not the original bytes.
+ * - **Raw (``opts.raw === true``)** — returns the ORIGINAL binary
+ *   bytes as a ``Blob``, served from the daemon's file_store. Only
+ *   works for files written via the ingest pipeline (chat composer
+ *   paperclip, SDK ``ingestFile``). Throws when the file was written
+ *   directly by the agent and has no associated binary.
+ */
 export interface UseWorkspaceFilesApi {
-  /** Read a single file's content from the workspace. */
-  readFile: (path: string) => Promise<{ content: string; size: number; lines: number }>;
+  readFile: {
+    (path: string): Promise<ReadFileTextResult>;
+    (path: string, opts: { raw: true }): Promise<Blob>;
+  };
   /** Write or overwrite a text file. ``autoApprove`` skips the
    *  pending-validation step so the file lands as approved instantly. */
   writeFile: (
@@ -106,8 +129,11 @@ export interface UseWorkspaceFilesApi {
    * be able to *read* — PDFs, Word docs, slides, spreadsheets, etc. —
    * without forcing the user through the chat composer paperclip.
    *
-   * ``targetDir`` defaults to ``"sources"`` (manual curation). Pass
-   * ``"attachments"`` to mirror the chat-composer destination instead.
+   * ``targetDir`` defaults to ``"attachments"`` to align with the chat
+   * composer's paperclip pipeline — both iframe-uploaded and chat-
+   * uploaded files end up in the same bucket so the agent has a
+   * single place to look. Pass ``"sources"`` only when the host app
+   * deliberately wants a separate "manually curated" bucket.
    *
    * ```tsx
    * const fs = useWorkspaceFiles();
@@ -171,13 +197,37 @@ export function useWorkspaceFiles(): UseWorkspaceFilesApi {
     finally { setBusy(false); }
   };
 
-  const readFile = useCallback(async (path: string) => {
-    return _wrap(async () => _request<{ content: string; size: number; lines: number }>(
-      baseUrl,
-      `/api/apps/${appId}/sessions/${sessionId}/workspace/files/${encodeURI(path)}`,
-      token,
-    ));
-  }, [appId, sessionId, baseUrl, token]);
+  const readFile = useCallback(
+    async (path: string, opts?: { raw?: boolean }): Promise<ReadFileTextResult | Blob> => {
+      return _wrap(async () => {
+        const url =
+          `${baseUrl}/api/apps/${appId}/sessions/${sessionId}/workspace/files/${encodeURI(path)}` +
+          (opts?.raw ? "?raw=true" : "");
+        if (opts?.raw) {
+          // Raw mode bypasses the JSON envelope - the daemon serves
+          // the original binary directly via FileResponse. We hand the
+          // caller a fresh Blob (preserves Content-Type set by the
+          // daemon), ready to feed into URL.createObjectURL, PDF.js,
+          // docx-preview, <img src>, etc.
+          const headers: Record<string, string> = {};
+          if (token) headers.Authorization = `Bearer ${token}`;
+          const res = await fetch(url, { headers });
+          if (!res.ok) {
+            const text = await res.text().catch(() => "");
+            throw new Error(`${res.status} ${res.statusText}: ${text.slice(0, 200)}`);
+          }
+          return res.blob();
+        }
+        // Default JSON envelope path.
+        return _request<ReadFileTextResult>(
+          baseUrl,
+          `/api/apps/${appId}/sessions/${sessionId}/workspace/files/${encodeURI(path)}`,
+          token,
+        );
+      });
+    },
+    [appId, sessionId, baseUrl, token],
+  ) as UseWorkspaceFilesApi["readFile"];
 
   const writeFile = useCallback(async (
     path: string, content: string, opts?: { autoApprove?: boolean },
@@ -236,7 +286,7 @@ export function useWorkspaceFiles(): UseWorkspaceFilesApi {
           ? file
           : new File([file], fname, { type: file.type });
       fd.append("file", upload, fname);
-      fd.append("target_dir", opts?.targetDir ?? "sources");
+      fd.append("target_dir", opts?.targetDir ?? "attachments");
       const headers: Record<string, string> = {};
       if (token) headers.Authorization = `Bearer ${token}`;
       const res = await fetch(

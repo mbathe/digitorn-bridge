@@ -1889,7 +1889,7 @@ class WebPreviewModule(BaseModule):
         """Register the session's bundled-dist fallback attachment.
 
         Called by the session-create path for SDK apps that ship a
-        ``web/dist`` (digitorn-builder, digitorn-react-sandbox, etc.).
+        ``web/dist`` (e.g. digitorn-builder, digitorn-lovable).
         Lives in the fixed ``bundled`` slot — never collides with the
         ``proxy`` slot that ``PreviewProxy`` writes. When both exist
         for a session, the HTTP route prefers ``proxy``; if the proxy

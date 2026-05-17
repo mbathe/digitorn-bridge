@@ -24,7 +24,7 @@ export function Studio({
     selection.kind === "artefact" ? selection.id : null;
 
   const hasSources = Array.from(files.keys()).some(
-    (p) => p.startsWith("sources/") || p.startsWith("attachments/"),
+    (p) => p.startsWith("attachments/"),
   );
 
   return (

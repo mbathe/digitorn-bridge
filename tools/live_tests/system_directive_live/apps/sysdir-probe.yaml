@@ -1,0 +1,62 @@
+app:
+  app_id: sysdir-probe
+  name: System Directive Probe
+  description: "Exercises every runtime-injected system directive path. Test-only."
+  version: "1.0.0"
+  category: test
+
+runtime:
+  mode: conversation
+  max_turns: 6
+
+agents:
+  - id: main
+    role: probe
+    brain:
+      provider: ollama
+      backend: openai_compat
+      model: qwen2.5:7b
+      config:
+        api_key: ""
+        # Point at the tap proxy instead of Ollama directly. The
+        # scenario runner brings up the proxy on this port before
+        # deploying the app.
+        base_url: "http://127.0.0.1:11500/v1"
+      temperature: 0.3
+      max_tokens: 512
+      context:
+        max_tokens: 16384
+
+    # Per-agent hook: fires once at turn_start and injects a system
+    # message. Used by scenario S1 to prove hook_inject_message
+    # persists with seq + lands in the LLM's messages list.
+    hooks:
+      - id: probe_inject_on_session_start
+        'on': session_start
+        condition:
+          type: always
+        max_fires: 1
+        action:
+          type: inject_message
+          content: "[Probe directive] You MUST end every reply with the literal token <PROBE-OK>."
+          strategy: system
+
+    system_prompt: |
+      You are a test agent. Be concise. Answer in one short sentence.
+      When you see a [Probe directive] in your context, FOLLOW IT.
+
+tools:
+  modules:
+    memory:
+      config:
+        working_memory: true
+        auto_remember: false
+  capabilities:
+    default_policy: auto
+    grant:
+      - module: memory
+        actions:
+          - remember
+          - set_goal
+          - task_create
+          - task_update

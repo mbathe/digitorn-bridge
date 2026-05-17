@@ -8,11 +8,30 @@ import { MindMap } from "./MindMap";
 import { Timeline } from "./Timeline";
 import { StudyGuide } from "./StudyGuide";
 import { AudioOverview } from "./AudioOverview";
+import { FormViewer } from "./FormViewer";
 
 interface Props {
   files: Map<string, WorkspaceFile>;
   selection: Selection;
   onSelectFile: (path: string, focusLines?: [number, number]) => void;
+}
+
+function isMarkdown(path: string, file: WorkspaceFile | undefined): boolean {
+  const mime = (file as { mime?: string } | undefined)?.mime ?? "";
+  const lower = path.toLowerCase();
+  return (
+    lower.endsWith(".md") ||
+    lower.endsWith(".markdown") ||
+    mime === "text/markdown"
+  );
+}
+
+function isForm(path: string): boolean {
+  return path.startsWith("forms/") && path.toLowerCase().endsWith(".json");
+}
+
+function isResponse(path: string): boolean {
+  return path.startsWith("responses/") && path.toLowerCase().endsWith(".json");
 }
 
 export function Viewer({ files, selection, onSelectFile }: Props) {
@@ -100,28 +119,115 @@ export function Viewer({ files, selection, onSelectFile }: Props) {
     );
   }
 
+  const path = selection.path;
+  const showAsForm = isForm(path);
+  const showAsResponse = isResponse(path);
+
   return (
     <div className="viewer">
       <ViewerHeader
-        title={displayName(selection.path)}
-        subtitle={`${selection.path} · ${file.lines ?? 0} lines`}
+        title={displayName(path)}
+        subtitle={`${path} · ${file.lines ?? 0} lines`}
         actions={
           <button
             type="button"
-            onClick={() => copyMarkdown(file.content, displayName(selection.path))}
+            onClick={() => copyMarkdown(file.content, displayName(path))}
           >
             Copy
           </button>
         }
       />
       <div className="viewer-body">
-        <SourceViewer
-          content={file.content}
-          focusLines={selection.focusLines}
-        />
+        {showAsForm ? (
+          <FormViewer path={path} source={file.content} />
+        ) : showAsResponse ? (
+          <ResponseViewer source={file.content} />
+        ) : isMarkdown(path, file) ? (
+          <Markdown source={file.content} />
+        ) : (
+          <SourceViewer
+            content={file.content}
+            focusLines={selection.focusLines}
+          />
+        )}
       </div>
     </div>
   );
+}
+
+/** Pretty-prints a form response JSON (`responses/<slug>-<iso>.json`)
+ *  with the submitted values laid out as a definition list rather
+ *  than raw JSON. Falls back to JSON when parsing fails. */
+function ResponseViewer({ source }: { source: string }) {
+  try {
+    const parsed = JSON.parse(source) as {
+      form_id?: string;
+      form_path?: string;
+      submitted_at?: string;
+      values?: Record<string, unknown>;
+    };
+    const entries = Object.entries(parsed.values || {});
+    return (
+      <div className="response-viewer">
+        <header className="response-meta">
+          <div>
+            <span className="response-meta-label">Form:</span>{" "}
+            <code>{parsed.form_id || parsed.form_path || "(unknown)"}</code>
+          </div>
+          {parsed.submitted_at && (
+            <div>
+              <span className="response-meta-label">Submitted:</span>{" "}
+              {new Date(parsed.submitted_at).toLocaleString()}
+            </div>
+          )}
+        </header>
+        <dl className="response-values">
+          {entries.map(([k, v]) => (
+            <div key={k} className="response-row">
+              <dt>{k}</dt>
+              <dd>{formatResponseValue(v)}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    );
+  } catch {
+    return <SourceViewer content={source} />;
+  }
+}
+
+function formatResponseValue(v: unknown): React.ReactNode {
+  if (v === null || v === undefined || v === "") {
+    return <span className="response-empty">—</span>;
+  }
+  if (typeof v === "boolean") return v ? "yes" : "no";
+  if (Array.isArray(v)) {
+    if (v.length === 0) return <span className="response-empty">empty</span>;
+    if (v.every((x) => typeof x !== "object")) {
+      return v.join(", ");
+    }
+    // Array of records (a repeating group).
+    return (
+      <ol className="response-list">
+        {v.map((entry, i) => (
+          <li key={i}>
+            <dl className="response-values nested">
+              {Object.entries(entry as Record<string, unknown>).map(([k, sv]) => (
+                <div key={k} className="response-row">
+                  <dt>{k}</dt>
+                  <dd>{formatResponseValue(sv)}</dd>
+                </div>
+              ))}
+            </dl>
+          </li>
+        ))}
+      </ol>
+    );
+  }
+  if (typeof v === "object") {
+    return <pre className="response-json">{JSON.stringify(v, null, 2)}</pre>;
+  }
+  return String(v);
 }
 
 function Welcome({ hasFiles }: { hasFiles: boolean }) {
@@ -132,7 +238,7 @@ function Welcome({ hasFiles }: { hasFiles: boolean }) {
         <h1>Notes LM</h1>
         <p>
           Drop a source in the chat (URL, file, or pasted text) — the agent
-          saves it under <code>sources/</code> and grounds every answer with
+          curates them in your workspace and grounds every answer with
           verbatim line-range citations.
         </p>
         {!hasFiles && (
@@ -195,4 +301,3 @@ function downloadFile(path: string, content: string): void {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-

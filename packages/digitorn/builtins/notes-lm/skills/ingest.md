@@ -26,8 +26,8 @@ Triggered when the user pastes a URL in chat and says "save", "add", "ingest", "
    <content>
    ```
 
-4. `WsWrite(path="sources/<slug>.md", content=<above>)`.
-5. Reply ONE line: `Saved: <title> (sources/<slug>.md, ~<wordcount> words).`
+4. `WsWrite(path="attachments/<slug>.md", content=<above>)`.
+5. Reply ONE line: `Saved: <title> (attachments/<slug>.md, ~<wordcount> words).`
 
 Multiple URLs at once: parallel `web.fetch` + `WsWrite`, then ONE summary line: `Saved 3 sources: <slug1.md>, <slug2.md>, <slug3.md>`.
 
@@ -48,7 +48,7 @@ If the user describes a file they want to add, redirect:
 ## Don'ts
 
 - Don't summarise on ingest. That's for the briefing skill.
-- Don't re-save the same URL twice. Use `WsGlob("sources/**")` to check first.
+- Don't re-save the same URL twice. Use `WsGlob("attachments/**")` to check first.
 - If a fetch returns >100k chars, save the first ~80k and tell the user.
 - If a URL is paywalled / 403, save the title + URL + error message in the markdown and continue.
 

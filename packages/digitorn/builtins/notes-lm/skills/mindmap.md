@@ -4,7 +4,7 @@ Triggered by "mind map", "graph", "visualise structure", "relationships".
 
 ## Steps
 
-1. `WsGlob("sources/**")` + `WsGlob("attachments/**")` to find the corpus.
+1. `WsGlob("attachments/**")` to find the corpus.
 2. `WsRead` each file (sample if >10).
 3. Identify 3-6 top-level themes that cut across the corpus.
 4. For each theme, pick 2-5 sub-concepts. Every leaf cites a source.
@@ -28,7 +28,7 @@ Triggered by "mind map", "graph", "visualise structure", "relationships".
 
    ## Sources
 
-   [^1]: sources/foo.md:L42-L42 — "..."
+   [^1]: attachments/foo.md:L42-L42 — "..."
    [^2]: attachments/report.pdf:p.7 — "..."
    ````
 

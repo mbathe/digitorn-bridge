@@ -1,0 +1,121 @@
+% =====================================================================
+% Scribe — Thesis / book template (multi-chapter).
+%
+% Structure:
+%   main.tex                       this file (preamble + front/main/back matter)
+%   chapters/01-introduction.tex
+%   chapters/02-related-work.tex
+%   chapters/03-method.tex
+%   chapters/04-experiments.tex
+%   chapters/05-conclusion.tex
+%   references.bib
+%
+% Replace {{TITLE}}, {{AUTHOR}}, {{DATE}}, {{UNIVERSITY}}, {{ADVISOR}}.
+% =====================================================================
+\documentclass[12pt,a4paper,openright,twoside]{book}
+
+% ── 1. Encoding & language ──────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{csquotes}
+
+% ── 2. Layout & typography ──────────────────────────────────────────
+\usepackage[margin=2.8cm, bindingoffset=8mm]{geometry}
+\usepackage{microtype}
+\usepackage{setspace}
+  \onehalfspacing
+\usepackage{emptypage}                 % suppress page numbers on blank pages
+
+% ── 3. Math ─────────────────────────────────────────────────────────
+\usepackage{amsmath, amssymb, amsthm, mathtools}
+
+\newtheorem{theorem}{Theorem}[chapter]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+
+% ── 4. Graphics & tables ────────────────────────────────────────────
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+\usepackage{subcaption}
+\usepackage{booktabs}
+
+% ── 5. Refs & links ─────────────────────────────────────────────────
+\usepackage[colorlinks=true,
+            linkcolor=blue!50!black,
+            citecolor=blue!50!black,
+            urlcolor=blue!50!black,
+            bookmarksnumbered=true]{hyperref}
+\usepackage[capitalize,noabbrev]{cleveref}
+
+% ── 6. Bibliography ─────────────────────────────────────────────────
+\usepackage[style=authoryear,backend=biber,sorting=nyt]{biblatex}
+\addbibresource{references.bib}
+
+% ── 7. Custom macros ────────────────────────────────────────────────
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+% ── Title page metadata ─────────────────────────────────────────────
+\title{{{TITLE}}}
+\author{{{AUTHOR}}}
+\date{{{DATE}}}
+
+% =====================================================================
+\begin{document}
+
+% ─── Front matter ─────────────────────────────────────────────────
+\frontmatter
+
+\begin{titlepage}
+  \centering
+  \vspace*{2cm}
+  {\Large {{UNIVERSITY}}}\\[0.5cm]
+  \vspace{2cm}
+  {\Huge\bfseries {{TITLE}} \par}
+  \vspace{2cm}
+  {\Large A thesis submitted by\par}
+  {\Large\textbf{{{AUTHOR}}}\par}
+  \vfill
+  Advisor: {{ADVISOR}}\\
+  {{DATE}}
+\end{titlepage}
+
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+% Abstract text goes here. 200-300 words.
+
+\chapter*{Acknowledgements}
+\addcontentsline{toc}{chapter}{Acknowledgements}
+
+% Personal acknowledgements.
+
+\tableofcontents
+\listoffigures
+\listoftables
+
+% ─── Main matter ──────────────────────────────────────────────────
+\mainmatter
+
+\include{chapters/01-introduction}
+\include{chapters/02-related-work}
+\include{chapters/03-method}
+\include{chapters/04-experiments}
+\include{chapters/05-conclusion}
+
+% ─── Back matter ──────────────────────────────────────────────────
+\backmatter
+
+\printbibliography[heading=bibintoc, title={References}]
+
+\end{document}

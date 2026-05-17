@@ -266,21 +266,35 @@ class RemoteAuthMiddleware(BaseHTTPMiddleware):
                 self._provisioned_user_ids[claims.user_id] = __import__("time").time()
                 return True
             async with factory() as db:
+                # Self-hosted users run the daemon on SQLite locally; prod
+                # daemons run on Postgres. The mirror SQL has three
+                # dialect-specific bits we substitute here so the same
+                # INSERT works on both. ON CONFLICT + EXCLUDED is the
+                # one syntactic primitive both engines speak natively
+                # (SQLite 3.24+, ubiquitous since 2018).
+                dialect = db.bind.dialect.name if db.bind else "postgresql"
+                schema = "public." if dialect == "postgresql" else ""
+                attr_expr = (
+                    "CAST(:attributes AS jsonb)"
+                    if dialect == "postgresql" else ":attributes"
+                )
+                now_fn = "NOW()" if dialect == "postgresql" else "CURRENT_TIMESTAMP"
+
                 await db.execute(
                     text(
-                        "INSERT INTO public.users "
+                        f"INSERT INTO {schema}users "
                         "(id, external_id, provider, email, display_name, "
                         " phone, avatar_url, attributes, is_active, "
                         " created_at, updated_at, last_seen_at) "
                         "VALUES (:id, :external_id, :provider, :email, "
                         " :display_name, :phone, :avatar_url, "
-                        " CAST(:attributes AS jsonb), :is_active, "
-                        " NOW(), NOW(), NOW()) "
+                        f" {attr_expr}, :is_active, "
+                        f" {now_fn}, {now_fn}, {now_fn}) "
                         "ON CONFLICT (id) DO UPDATE SET "
-                        "  last_seen_at = NOW(), "
-                        "  email = COALESCE(EXCLUDED.email, public.users.email), "
+                        f"  last_seen_at = {now_fn}, "
+                        f"  email = COALESCE(EXCLUDED.email, {schema}users.email), "
                         "  display_name = COALESCE(EXCLUDED.display_name, "
-                        "                         public.users.display_name), "
+                        f"                         {schema}users.display_name), "
                         "  is_active = EXCLUDED.is_active"
                     ),
                     {

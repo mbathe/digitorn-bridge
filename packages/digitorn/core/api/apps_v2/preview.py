@@ -335,8 +335,8 @@ async def session_published(
 async def web_static(request: Request, app_id: str, path: str):
     """Serve a file from the app's bundled ``web/dist/`` directory.
 
-    Used by SDK apps that ship a pre-built UI (digitorn-builder,
-    digitorn-react-sandbox, ...). The bundle MUST be built with
+    Used by SDK apps that ship a pre-built UI (e.g. digitorn-builder,
+    digitorn-lovable). The bundle MUST be built with
     ``base: './'`` so relative URLs resolve under this route.
 
     Sandbox: refuses any path that walks outside ``install_dir/web/dist``.

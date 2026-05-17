@@ -342,13 +342,27 @@ class AgentSpawnModule(BaseModule):
         # how ``_chat.py`` calls the resolver for sub-class brains.
         agent_wrapper = type("_Wrap", (), {"brain": brain})()
 
+        # ``modules`` here is the specialist's filtered subset (only the
+        # tools declared in YAML ``agent.modules:``). The resolver needs
+        # ``llm_provider`` -- an infra singleton, never declared in
+        # ``agent.modules:`` -- to decide between KEEP and ROUTE. Inject
+        # the cached app-level reference so the resolver sees it. Each
+        # specialist's per-brain routing is unaffected: the resolver
+        # still reads ``agent.brain`` from the wrapper above to build
+        # the gateway model alias.
+        resolver_modules = dict(modules)
+        if "llm_provider" not in resolver_modules:
+            cached_llm = spec.get("llm_module")
+            if cached_llm is not None:
+                resolver_modules["llm_provider"] = cached_llm
+
         try:
             resolved = await resolve_session_provider(
                 deployed_provider=deployed_provider,
                 agent=agent_wrapper,
                 user_id=user_id,
                 app_id=app_id,
-                modules=modules,
+                modules=resolver_modules,
                 settings=_get_settings(),
                 byok_enabled=byok_on,
             )
@@ -359,6 +373,15 @@ class AgentSpawnModule(BaseModule):
                 spec.get("specialty", "?"), exc, exc_info=True,
             )
             return deployed_provider
+
+        logger.info(
+            "agent_spawn._resolve_specialist_provider: specialty=%s user=%s app=%s "
+            "byok=%s deployed.hint=%s resolved.hint=%s same_object=%s",
+            spec.get("specialty", "?"), user_id, app_id, byok_on,
+            getattr(deployed_provider, "provider_hint", "?"),
+            getattr(resolved, "provider_hint", "?"),
+            resolved is deployed_provider,
+        )
 
         if resolved is not deployed_provider:
             logger.info(

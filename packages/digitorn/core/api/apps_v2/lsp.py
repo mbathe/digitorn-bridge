@@ -146,15 +146,77 @@ async def lsp_rpc_request(
     if sess is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    # Resolve the request path to an absolute on-disk path. The LSP
+    # module's ``request`` action passes ``path`` straight to the
+    # protocol, which builds ``file://`` URIs and tries to read the
+    # file from disk for didOpen. A workspace-relative path (the
+    # canonical shape clients send) would be resolved against the
+    # worker process's cwd -- not the session workspace -- and the
+    # didOpen would silently skip, returning empty hover results.
+    # Resolving here mirrors what ``workspace._run_lint`` does for
+    # the lint pipeline; we activate the preview session first so
+    # the workspace module's ``_resolve_sync_dir`` picks the right
+    # per-session dir (otherwise it leaks the previously-active
+    # session's workspace).
+    resolved_path = body.path
+    try:
+        ws_module = deployed.modules.get("workspace") if hasattr(
+            deployed, "modules",
+        ) else None
+        if ws_module is not None and hasattr(ws_module, "_resolve_disk_dir_for"):
+            preview_module = deployed.modules.get("preview") if hasattr(
+                deployed, "modules",
+            ) else None
+            if preview_module is not None:
+                await _activate_preview_session(
+                    request, app_id, session_id, preview_module,
+                    user_id=_uid, set_active=True,
+                )
+            rel = ws_module._resolve_ws_path(body.path) if hasattr(
+                ws_module, "_resolve_ws_path",
+            ) else body.path
+            disk_dir = ws_module._resolve_disk_dir_for(rel)
+            if disk_dir and hasattr(ws_module, "_join_inside"):
+                full = ws_module._join_inside(disk_dir, rel)
+                if full:
+                    resolved_path = full
+    except Exception as exc:
+        logger.debug(
+            "lsp_rpc_path_resolve_failed app=%s path=%s err=%s",
+            app_id, body.path, exc,
+        )
+
     from digitorn.modules.lsp.params import LspRequestParams
     lsp_params = LspRequestParams(
-        path=body.path,
+        path=resolved_path,
         method=body.method,
         params=body.params,
         timeout_seconds=body.timeout_seconds,
         request_id=body.request_id,
         session_id=session_id,
         supersede_previous=body.supersede_previous,
+    )
+
+    # Stamp an ExecutionContext with the URL-derived ``app_id`` so the
+    # daemon-side proxy (when LSP is workered) ships the right tenant
+    # in the call envelope. Without this, the proxy reads an empty
+    # ``_context_var`` (REST endpoints don't go through
+    # ``module.execute()``) and the worker resolves the call against
+    # whichever app last called ``on_config_update`` -- which means
+    # one app's pyright/ruff bleeds into another's hover request.
+    from digitorn.modules.base import (
+        BaseModule as _BaseModule,
+        ExecutionContext as _ExecutionContext,
+    )
+    _ctx_token = _BaseModule._context_var.set(
+        _ExecutionContext(
+            plan_id=f"lsp_rpc:{app_id}",
+            action_id="lsp.request",
+            app_id=app_id,
+            session_id=session_id,
+            user_id=_uid,
+            workspace=getattr(sess, "workspace", None) if sess else None,
+        ),
     )
 
     # Fire LSP request as a monitored task so we can react to HTTP
@@ -187,6 +249,12 @@ async def lsp_rpc_request(
     finally:
         if not watch_task.done():
             watch_task.cancel()
+        try:
+            _BaseModule._context_var.reset(_ctx_token)
+        except (ValueError, LookupError):
+            # Token from a different task / context -- safe to ignore;
+            # the context will fall out of scope with the request.
+            pass
 
     if not result.success:
         err = result.error or "LSP request failed"

@@ -212,9 +212,18 @@ class LspModule(BaseModule):
         self._workspace: str = ""
         self._sidecar_pool: Any = None
         self._app_id: str = "default"
-        self._protocols: dict[str, FeedbackProtocol] = {}
-        self._protocol_instances: list[FeedbackProtocol] = []
-        self._pending_specs: dict[str, dict[str, Any]] = {}  # ext → server spec (lazy)
+        # Per-app keyed state -- mandatory for the workered path where
+        # one ``LspModule()`` instance is shared across every deployed
+        # app routed to the ``tools`` worker. Without per-app keying,
+        # ``app A`` configuring ``python: "ruff ..."`` would leak ruff
+        # diagnostics into every other app's .py writes (verified by
+        # ``state_isolation`` scenario). Each map is keyed by
+        # ``app_id``; the legacy single-tenant fields below are
+        # property views that aggregate everything for diagnostic /
+        # introspection callers.
+        self._app_protocols: dict[str, dict[str, FeedbackProtocol]] = {}
+        self._app_protocol_instances: dict[str, list[FeedbackProtocol]] = {}
+        self._app_pending_specs: dict[str, dict[str, dict[str, Any]]] = {}
         self._owns_pool: bool = False
         # Phase 3: in-flight request tracking for abort + supersession.
         # Keyed by (session_id, request_id) → asyncio.Task. Secondary
@@ -264,11 +273,97 @@ class LspModule(BaseModule):
             )
         return cancelled
 
-    async def on_config_update(self, config: dict[str, Any]) -> None:
+    # ── Per-app state helpers ───────────────────────────────────
+
+    def _current_app_id(self) -> str:
+        """Best-effort app_id for the *current* call. Consults the
+        active ``ExecutionContext`` first (the worker route reconstructs
+        it from the daemon-side ctx envelope on every dispatch), falls
+        back to ``self._app_id`` which is set during the last
+        ``on_config_update`` -- good enough for in-process / legacy
+        callers where the module instance is per-app anyway.
+        """
+        try:
+            ec = self._context_var.get()
+        except LookupError:
+            ec = None
+        if ec is not None:
+            aid = getattr(ec, "app_id", None)
+            if aid:
+                return aid
+        return self._app_id or "default"
+
+    def _protos_for(self, app_id: str) -> dict[str, FeedbackProtocol]:
+        return self._app_protocols.setdefault(app_id, {})
+
+    def _pending_for(self, app_id: str) -> dict[str, dict[str, Any]]:
+        return self._app_pending_specs.setdefault(app_id, {})
+
+    def _instances_for(self, app_id: str) -> list[FeedbackProtocol]:
+        return self._app_protocol_instances.setdefault(app_id, [])
+
+    async def _drain_app(self, app_id: str) -> None:
+        """Stop and forget every protocol instance owned by ``app_id``.
+        Called before re-registering on a hot redeploy so we don't end
+        up with two pyright subprocesses serving the same extension.
+        """
+        for proto in self._instances_for(app_id):
+            try:
+                await proto.stop()
+            except Exception:
+                pass
+        self._app_protocols.pop(app_id, None)
+        self._app_protocol_instances.pop(app_id, None)
+        self._app_pending_specs.pop(app_id, None)
+
+    # ── Legacy single-tenant views (read-only) ──────────────────
+
+    @property
+    def _protocols(self) -> dict[str, FeedbackProtocol]:
+        """Aggregated view across all apps -- last-write-wins per ext.
+        Kept for diagnostic introspection / tests that don't carry an
+        ExecutionContext. New code should go through ``_protos_for``
+        with an explicit ``app_id``.
+        """
+        merged: dict[str, FeedbackProtocol] = {}
+        for m in self._app_protocols.values():
+            merged.update(m)
+        return merged
+
+    @property
+    def _protocol_instances(self) -> list[FeedbackProtocol]:
+        out: list[FeedbackProtocol] = []
+        for lst in self._app_protocol_instances.values():
+            out.extend(lst)
+        return out
+
+    @property
+    def _pending_specs(self) -> dict[str, dict[str, Any]]:
+        merged: dict[str, dict[str, Any]] = {}
+        for m in self._app_pending_specs.values():
+            merged.update(m)
+        return merged
+
+    # ── Lifecycle ────────────────────────────────────────────────
+
+    async def on_config_update(
+        self,
+        config: dict[str, Any],
+        *,
+        app_id: str | None = None,
+    ) -> None:
         await super().on_config_update(config)
         # _workspace is set by base class; keep empty-string compat for downstream
         if not self._workspace:
             self._workspace = ""
+
+        # Resolve the owning app. Priority: explicit kwarg from the
+        # worker's ``/admin/config/{module}`` route → ctx app_id →
+        # legacy ``_app_id`` slot. ``default`` only for genuine
+        # tenantless callers (CLI smoke tests).
+        if app_id is None:
+            app_id = self._current_app_id()
+        self._app_id = app_id  # legacy slot consumers still read this
 
         if self._sidecar_pool is None:
             self._sidecar_pool = getattr(self, "_sidecar_pool", None)
@@ -276,20 +371,24 @@ class LspModule(BaseModule):
             ctx = getattr(self, "ctx", None)
             if ctx:
                 self._sidecar_pool = getattr(ctx, "sidecar_pool", None)
-                self._app_id = getattr(ctx, "app_id", "default")
         if self._sidecar_pool is None:
             from digitorn.core.sidecar_pool import DaemonSidecarPool
             self._sidecar_pool = DaemonSidecarPool()
             await self._sidecar_pool.start()
             self._owns_pool = True
 
+        # Hot redeploy: drop the app's prior protocols before
+        # registering the new config so a deploy with an emptied YAML
+        # actually unregisters its servers.
+        await self._drain_app(app_id)
+
         servers = self._parse_config(config)
 
         for spec in servers:
-            await self._start_server(spec)
+            await self._start_server(spec, app_id=app_id)
 
         if not servers:
-            await self._auto_detect()
+            await self._auto_detect(app_id=app_id)
 
     def _parse_config(self, config: dict[str, Any]) -> list[dict[str, Any]]:
         """Parse YAML config into normalized server specs."""
@@ -344,8 +443,14 @@ class LspModule(BaseModule):
             "parser": parser,
         }
 
-    async def _start_server(self, spec: dict[str, Any]) -> bool:
-        """Start a feedback server from a normalized spec."""
+    async def _start_server(
+        self, spec: dict[str, Any], *, app_id: str | None = None,
+    ) -> bool:
+        """Start a feedback server from a normalized spec under
+        ``app_id`` (defaults to the current execution context's app
+        when omitted)."""
+        if app_id is None:
+            app_id = self._current_app_id()
         name = spec["name"]
         command = spec.get("command", "")
         if not command:
@@ -376,23 +481,27 @@ class LspModule(BaseModule):
         protocol.extensions = spec.get("extensions", [])
 
         success = await protocol.start(
-            self._sidecar_pool, name, self._app_id, cmd_parts, self._workspace or None,
+            self._sidecar_pool, name, app_id, cmd_parts, self._workspace or None,
         )
 
         if success:
-            self._protocol_instances.append(protocol)
+            self._instances_for(app_id).append(protocol)
             for ext in protocol.extensions:
-                self._protocols[ext] = protocol
+                self._protos_for(app_id)[ext] = protocol
             logger.info(
-                "lsp_server_active name=%s mode=%s extensions=%s",
-                name, protocol.mode, protocol.extensions,
+                "lsp_server_active app=%s name=%s mode=%s extensions=%s",
+                app_id, name, protocol.mode, protocol.extensions,
             )
 
         return success
 
-    async def _auto_detect(self) -> None:
+    async def _auto_detect(self, *, app_id: str | None = None) -> None:
         """Auto-detect project languages and register servers as pending (lazy startup)."""
+        if app_id is None:
+            app_id = self._current_app_id()
         ws = Path(self._workspace) if self._workspace else Path.cwd()
+        protos = self._protos_for(app_id)
+        pending = self._pending_for(app_id)
 
         for server in _AUTO_DETECT_SERVERS:
             has_marker = any(
@@ -403,7 +512,7 @@ class LspModule(BaseModule):
 
             name = server["name"]
             extensions = _NAME_TO_EXTENSIONS.get(name, [])
-            if any(ext in self._protocols for ext in extensions):
+            if any(ext in protos for ext in extensions):
                 continue  # Already covered by explicit config
 
             spec = {
@@ -416,20 +525,24 @@ class LspModule(BaseModule):
 
             # Register as pending - will start on first use
             for ext in extensions:
-                if ext not in self._pending_specs:
-                    self._pending_specs[ext] = spec
+                if ext not in pending:
+                    pending[ext] = spec
 
-            logger.debug("lsp_pending name=%s extensions=%s", name, extensions)
+            logger.debug(
+                "lsp_pending app=%s name=%s extensions=%s",
+                app_id, name, extensions,
+            )
 
     async def on_stop(self) -> None:
-        for proto in self._protocol_instances:
-            try:
-                await proto.stop()
-            except Exception:
-                pass
-        self._protocols.clear()
-        self._protocol_instances.clear()
-        self._pending_specs.clear()
+        for app_id in list(self._app_protocol_instances.keys()):
+            for proto in self._app_protocol_instances.get(app_id, []):
+                try:
+                    await proto.stop()
+                except Exception:
+                    pass
+        self._app_protocols.clear()
+        self._app_protocol_instances.clear()
+        self._app_pending_specs.clear()
 
         if self._owns_pool and self._sidecar_pool:
             await self._sidecar_pool.stop()
@@ -448,22 +561,34 @@ class LspModule(BaseModule):
         })
 
     async def _get_protocol(self, path: str) -> FeedbackProtocol | None:
+        """Resolve the feedback protocol for ``path`` *within the
+        currently-active app's scope*.
+
+        Cross-app isolation: an app that didn't configure a server
+        for this extension gets ``None`` -- it doesn't inherit another
+        app's protocol. This is what makes the workered LSP module
+        safe to share across tenants.
+        """
         ext = Path(path).suffix.lower()
-        proto = self._protocols.get(ext)
+        app_id = self._current_app_id()
+        protos = self._protos_for(app_id)
+        pending = self._pending_for(app_id)
+
+        proto = protos.get(ext)
         if proto:
             return proto
 
         # Lazy startup: if we have a pending spec for this extension, start it now
-        spec = self._pending_specs.pop(ext, None)
+        spec = pending.pop(ext, None)
         if spec is None:
             return None
 
         # Remove all extensions for this spec from pending (they share one server)
         for e in list(spec.get("extensions", [])):
-            self._pending_specs.pop(e, None)
+            pending.pop(e, None)
 
-        if await self._start_server(spec):
-            return self._protocols.get(ext)
+        if await self._start_server(spec, app_id=app_id):
+            return protos.get(ext)
 
         # LSP binary not available - try fallback linters
         name = spec["name"]
@@ -476,8 +601,8 @@ class LspModule(BaseModule):
                     "extensions": linter["extensions"],
                     "parser": linter.get("parser", "fallback"),
                 }
-                if await self._start_server(fallback_spec):
-                    return self._protocols.get(ext)
+                if await self._start_server(fallback_spec, app_id=app_id):
+                    return protos.get(ext)
                 break
 
         return None
@@ -674,18 +799,34 @@ class LspModule(BaseModule):
 
         # Auto-fill textDocument.uri from `path` when absent - standard
         # LSP clients send this but we support shorthand requests.
+        # ``Path.as_uri()`` is RFC 8089-compliant (``file:///C:/...`` on
+        # Windows, three slashes + forward slashes); the legacy
+        # ``f"file://{...resolve()}"`` shape would mismatch the URI that
+        # ``notify_file_changed`` registered via didOpen and pyright /
+        # tsserver would silently fail to find the document.
         from pathlib import Path as _Path
         td = req_params.get("textDocument")
         if not isinstance(td, dict):
             td = {}
             req_params["textDocument"] = td
         if not td.get("uri"):
-            td["uri"] = f"file://{_Path(path).resolve()}"
+            td["uri"] = _Path(path).resolve().as_uri()
 
         # Some servers require the doc to be explicitly opened before
-        # accepting hover / goto / completion. Open-if-needed.
+        # accepting hover / goto / completion. Open-if-needed -- and
+        # let the server actually parse the file before we ask it to
+        # answer questions about it. Pyright / typescript-language-
+        # server cold-start their analysis on the first didOpen for a
+        # URI (~1-3 s); a hover fired immediately after returns ``null``
+        # because no symbol table exists yet. We mirror the same warm-
+        # up window used by ``notify_change`` (3 s on cold, 0.3 s on
+        # warm) so the first request after a deploy gets a real reply.
+        is_cold = _Path(path).resolve().as_uri() not in getattr(
+            proto, "_opened", set(),
+        )
         try:
             await proto.notify_file_changed(path)  # no-op if already opened
+            await asyncio.sleep(3.0 if is_cold else 0.3)
         except Exception:
             pass
 

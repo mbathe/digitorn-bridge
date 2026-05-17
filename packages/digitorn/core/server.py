@@ -2060,8 +2060,8 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         # web/Flutter chat panel. The strict CSP/X-Frame-Options stays
         # on every other route.
         # ``/web-static/`` is the new home for bundled SDK app dist
-        # served by the daemon (digitorn-builder, digitorn-react-sandbox,
-        # ...). Without this carve-out the iframe gets blocked by
+        # served by the daemon (e.g. digitorn-builder, digitorn-lovable).
+        # Without this carve-out the iframe gets blocked by
         # ``frame-ancestors 'none'``.
         is_preview = (
             "/preview-server/proxy" in path
@@ -2305,8 +2305,8 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             "/api/apps/*/preview-server/proxy",
             "/api/apps/*/preview-server/proxy/",
             "/api/apps/*/preview-server/proxy/*",
-            # Bundled SDK app dist (digitorn-builder, digitorn-react-sandbox,
-            # ...). Same risk model as ``/preview/``: compiled JS/CSS
+            # Bundled SDK app dist (e.g. digitorn-builder, digitorn-lovable).
+            # Same risk model as ``/preview/``: compiled JS/CSS
             # shipped publicly by design, no PII or workspace data here.
             # The browser can't attach the bearer token to <script src>
             # / <link href> requests, so without this allow rule the

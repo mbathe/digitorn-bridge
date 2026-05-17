@@ -411,12 +411,12 @@ async def file_history_endpoint(
     return AppResponse(success=True, data={"path": file_path, "revisions": revisions})
 
 
-@router.get("/{app_id}/sessions/{session_id}/workspace/files/{file_path:path}",
-            response_model=AppResponse)
+@router.get("/{app_id}/sessions/{session_id}/workspace/files/{file_path:path}")
 async def get_file_content(
     request: Request, app_id: str, session_id: str, file_path: str,
     include_baseline: bool = False,
-) -> AppResponse:
+    raw: bool = False,
+):
     """Fetch the full content of a single workspace file (lazy-loaded).
 
     Works for apps with or without the ``preview`` module - if preview is
@@ -428,6 +428,18 @@ async def get_file_content(
     With ``include_baseline=true`` the response also includes the
     last-approved baseline content + a pending unified diff - used by the
     diff viewer when the user clicks "review changes".
+
+    With ``raw=true`` and the workspace payload carries a ``file_id`` (i.e.
+    the file was ingested via the chat composer paperclip or the SDK's
+    ``ingestFile()`` -> ``register_attachment`` path), this route serves
+    the ORIGINAL binary bytes from the file_store directly via
+    ``FileResponse`` instead of the JSON envelope. Use case: iframe
+    document viewers (PDF.js, docx-preview, image preview) that need the
+    pre-extraction bytes, not the text extracted for the agent.
+
+    The ``raw`` mode is a no-op (falls back to JSON) for workspace files
+    written by the agent itself (no ``file_id``) - the agent-written
+    content IS the file, there's no separate binary.
     """
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
@@ -509,6 +521,39 @@ async def get_file_content(
 
     if payload is None:
         raise HTTPException(status_code=404, detail=f"file not found: {file_path}")
+
+    # Raw binary mode: when the caller asks for ``raw=true`` AND this
+    # file came from the ingest pipeline (paperclip / SDK ingestFile),
+    # serve the ORIGINAL bytes from the file_store. The workspace
+    # payload only stores the post-extraction TEXT — for an iframe PDF
+    # viewer or DOCX renderer we need the pre-extraction binary.
+    if raw:
+        file_id = payload.get("file_id") if isinstance(payload, dict) else None
+        if isinstance(file_id, str) and file_id:
+            from digitorn.core.file_store import get_file_store
+            from starlette.responses import FileResponse
+            store = get_file_store()
+            ref = store.get_ref(file_id, session_id)
+            if ref is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"raw bytes not in file_store: file_id={file_id}",
+                )
+            return FileResponse(
+                str(ref.path),
+                media_type=ref.mime or "application/octet-stream",
+                headers={
+                    # Inline display in iframe (PDF.js, docx-preview)
+                    # rather than triggering a download.
+                    "Content-Disposition": "inline",
+                    # Modest cache so multi-page navigation in PDF.js
+                    # doesn't re-fetch the same blob.
+                    "Cache-Control": "private, max-age=300",
+                },
+            )
+        # ``raw=true`` requested but no file_id on payload (agent-written
+        # file). Fall through to the JSON envelope - the caller will
+        # see the missing file_id and can decide to use the text path.
 
     out: dict[str, Any] = {
         "path": resolved_path,

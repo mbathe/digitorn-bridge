@@ -1,0 +1,41 @@
+# Digitorn Scribe — Expert LaTeX writing assistant.
+#
+# A senior academic writer + LaTeX engineer crafted as a Digitorn
+# builtin. Operates a tight compile-feedback loop on top of
+# tectonic (compiler), texlab (LSP), and chktex (linter), with a
+# Supreme Coach classifier that calibrates the strategy to each
+# user request (scaffold / extend / fix-compile / rename-label /
+# bibliography / style-cleanup / refactor-structure / explain).
+#
+# Static-bundle preview: ``web/dist/`` is the canonical UI iframe,
+# pre-built via ``npx vite build``. No live Vite dev server.
+
+[package]
+id = "digitorn-scribe"
+name = "Scribe"
+version = "1.0.0"
+description = "Expert LaTeX writing assistant with live compile + LSP-aware refactoring."
+author = "Digitorn"
+license = "MIT"
+icon = "📜"
+category = "writing"
+
+[package.source]
+type = "official"
+verified = true
+publisher = "digitorn"
+
+[package.compatibility]
+digitorn_min = ">=1.0.0"
+
+[package.requirements]
+modules = ["workspace", "preview", "lsp", "memory"]
+recommended_models = ["claude-opus-4-7", "claude-sonnet-4-6", "gpt-5"]
+# External binaries the user installs themselves (env documentation
+# only — Digitorn does not download them). Without these the agent
+# still runs but degrades: no LSP server, no compile, no chktex.
+external_tools = [
+  "tectonic",   # PDF compiler (Rust binary, ~50 MB cache)
+  "texlab",     # LaTeX LSP server
+  "chktex",    # Style linter (often ships with MiKTeX)
+]

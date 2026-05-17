@@ -4,7 +4,7 @@ Triggered by "briefing", "summary", "summarize my sources", "executive summary".
 
 ## Steps
 
-1. `WsGlob("sources/**")` + `WsGlob("attachments/**")` to discover the corpus.
+1. `WsGlob("attachments/**")` to discover the corpus.
 2. `WsRead` each (up to ~10 files; if more, sample by recency or ask user to focus).
 3. Compose a markdown document:
 
@@ -27,7 +27,7 @@ Triggered by "briefing", "summary", "summarize my sources", "executive summary".
 
    ## Sources
 
-   [^1]: sources/foo.md:L42-L46 — "verbatim quote"
+   [^1]: attachments/foo.md:L42-L46 — "verbatim quote"
    [^2]: attachments/report.pdf:p.14 — "verbatim quote"
    ```
 

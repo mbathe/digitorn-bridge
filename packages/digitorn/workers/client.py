@@ -190,10 +190,13 @@ class WorkerClient:
 
     async def push_config(
         self, module: str, config: dict[str, Any],
+        *, app_id: str | None = None,
     ) -> bool:
         """POST ``/admin/config/{module}`` with the per-app config
-        block. The worker calls ``module.on_config_update(config)``
-        and returns ``{success, error?}``.
+        block. The worker calls
+        ``module.on_config_update(config, app_id=app_id)`` (or omits
+        the kwarg for modules whose signature doesn't accept it) and
+        returns ``{success, error?}``.
 
         Called once per (module, app) by the daemon's bootstrap path
         right after ``wrap_module_for_worker`` -- this is what makes
@@ -204,11 +207,14 @@ class WorkerClient:
         blocking on a flaky worker.
         """
         path = f"/admin/config/{module}"
+        body: dict[str, Any] = {"config": config}
+        if app_id is not None:
+            body["app_id"] = app_id
         client = await self._get_client()
         last_exc: Exception | None = None
         for attempt in range(self._retries + 1):
             try:
-                resp = await client.post(path, json={"config": config})
+                resp = await client.post(path, json=body)
             except (httpx.ConnectError, httpx.ReadTimeout,
                     httpx.RemoteProtocolError) as exc:
                 last_exc = exc

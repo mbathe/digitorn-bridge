@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/components/codeviewer.tsx","./src/components/fileexplorer.tsx","./src/components/sandboxiframe.tsx","./src/lib/esbuild-bundler.ts","./src/lib/preview-sdk.ts"],"errors":true,"version":"5.9.3"}

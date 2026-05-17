@@ -117,6 +117,72 @@ def parse_tsc(stdout: str, stderr: str) -> list[Diagnostic]:
     return diags
 
 
+def parse_tectonic(stdout: str, stderr: str) -> list[Diagnostic]:
+    """Parse tectonic compiler output.
+
+    Tectonic writes status to stdout AND errors to stdout (mixed with
+    pdflatex transcript). The canonical error shape is::
+
+        error: <path>:<line>: <message>
+        ! <TeX-level error message>
+        l.<line> <offending source>
+
+    Warnings come in two shapes depending on the underlying engine
+    (pdflatex / XeTeX)::
+
+        Underfull \\hbox (badness 10000) in paragraph at lines 12--13
+        LaTeX Warning: Reference `fig:plot' on page 1 undefined ...
+
+    We extract the structured ``error:`` lines first (most precise),
+    then sweep for the unstructured LaTeX warnings.
+    """
+    diags: list[Diagnostic] = []
+    text = (stdout or "") + "\n" + (stderr or "")
+
+    # Pattern 1: structured tectonic errors
+    #   error: file.tex:42: Undefined control sequence
+    for m in re.finditer(
+        r"^error:\s+([^:\n]+?):(\d+):\s+(.+)$",
+        text, flags=re.MULTILINE,
+    ):
+        diags.append(Diagnostic(
+            file=m.group(1).strip(),
+            line=int(m.group(2)),
+            column=1,
+            severity="error",
+            message=m.group(3).strip(),
+            source="tectonic",
+        ))
+
+    # Pattern 2: LaTeX-level warnings (file context inferred from
+    # the most recent ``(file.tex`` token tectonic emits in its
+    # transcript).
+    current_file = ""
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        # Track current file via ``(filename`` markers tectonic prints
+        # when opening a .tex file in the transcript stream.
+        for f in re.findall(r"\(([^()\s]+\.tex)", line):
+            current_file = f
+        m = re.match(
+            r"^LaTeX (Warning|Error|Info):\s+(.+?)(?:\s+on input line\s+(\d+))?\.?\s*$",
+            line,
+        )
+        if m and m.group(1) in ("Warning", "Error"):
+            sev = "error" if m.group(1) == "Error" else "warning"
+            lineno = int(m.group(3)) if m.group(3) else 0
+            diags.append(Diagnostic(
+                file=current_file,
+                line=lineno,
+                column=1,
+                severity=sev,
+                message=m.group(2).strip(),
+                source="tectonic",
+            ))
+
+    return diags
+
+
 def parse_cargo(stdout: str, stderr: str) -> list[Diagnostic]:
     """Parse cargo check --message-format=json output."""
     diags: list[Diagnostic] = []
@@ -247,6 +313,7 @@ PARSERS: dict[str, Any] = {
     "tsc": parse_tsc,
     "cargo": parse_cargo,
     "govet": parse_govet,
+    "tectonic": parse_tectonic,
     "generic_json": parse_generic_json,
     "generic_lines": parse_generic_lines,
     "fallback": parse_fallback,

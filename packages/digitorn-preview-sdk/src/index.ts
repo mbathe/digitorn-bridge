@@ -77,6 +77,7 @@ export {
 export type {
   UseWorkspaceSnapshotApi,
   UseWorkspaceFilesApi,
+  ReadFileTextResult,
   IngestTargetDir,
   IngestResult,
   SessionMeta,

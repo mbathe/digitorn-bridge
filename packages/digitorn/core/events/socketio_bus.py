@@ -499,6 +499,11 @@ def create_socketio_server(
 
         _sid_sessions[sid] = {
             "user_id": user_id, "roles": roles, "permissions": permissions,
+            # Carry the raw JWT so socket-initiated turns (form submit,
+            # iframe useChat.send) can propagate it to the gateway via
+            # ``attach_jwt`` / ``set_inbound_user_jwt`` - same auth path
+            # the HTTP POST /messages middleware uses.
+            "token": token,
         }
         return user_id
 
@@ -1185,8 +1190,18 @@ def create_socketio_server(
 
         _qcfg = _get_settings().session.queue
         if not _qcfg.enabled:
-            # Queue disabled by config - fall back to direct chat.
+            # Queue disabled by config - fall back to direct chat. Set
+            # the JWT ContextVar inside the spawned task so the gateway
+            # call carries the user's bearer (without this, the gateway
+            # rejects with 401 "Not enough segments" - the placeholder
+            # api_key from the YAML never gets swapped for the user's
+            # real token).
+            _socket_jwt = _sid_sessions.get(sid, {}).get("token")
             async def _run_direct():
+                from digitorn.core.runtime.request_context import (
+                    set_inbound_user_jwt, reset_inbound_user_jwt,
+                )
+                _tok_handle = set_inbound_user_jwt(_socket_jwt) if _socket_jwt else None
                 try:
                     await manager.chat(
                         app_id, session_id, message, user_id=user_id,
@@ -1200,6 +1215,12 @@ def create_socketio_server(
                         app_id=app_id, session_id=session_id,
                         error=str(exc),
                     )
+                finally:
+                    if _tok_handle is not None:
+                        try:
+                            reset_inbound_user_jwt(_tok_handle)
+                        except Exception:
+                            pass
             _asyncio.create_task(_run_direct())
             return {"ok": True, "accepted": True}
 
@@ -1249,10 +1270,18 @@ def create_socketio_server(
             return {"ok": False, "error": f"enqueue failed: {exc}"}
 
         # Stash the inbound JWT so a queued/replayed turn can re-publish
-        # it via ContextVar before calling the gateway.
+        # it via ContextVar before calling the gateway. Socket.IO does
+        # NOT propagate the HTTP middleware's ContextVar into this
+        # coroutine, so reading ``get_inbound_user_jwt()`` alone returns
+        # None and the gateway gets an empty Authorization header.
+        # Fall back to the JWT we stashed at connect time in
+        # ``_sid_sessions[sid]['token']`` - that one was just validated
+        # by ``_authenticate``, so it's the canonical user creds for
+        # this socket.
         try:
             from digitorn.core.runtime.request_context import get_inbound_user_jwt
-            _mq.attach_jwt(entry.id, get_inbound_user_jwt())
+            _jwt = _sid_sessions.get(sid, {}).get("token") or get_inbound_user_jwt()
+            _mq.attach_jwt(entry.id, _jwt)
         except Exception:
             pass
 

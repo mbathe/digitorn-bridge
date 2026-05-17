@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from digitorn.core.app.sessions import ConversationSession
+from digitorn.core.runtime.system_directive import inject_system_directive
 from digitorn.core.runtime.types import TurnResult
 
 from ._models import _resolve_tool_display, _recover_interrupted_session
@@ -469,6 +470,44 @@ class _ChatMixin:
                     session_id, app_id, uid, workspace,
                 )
 
+        # Heal: regardless of where the session came from (fresh in-memory,
+        # loaded from session_store, restored from history_log), ensure
+        # ``messages[0]`` carries the deploy-time system prompt. Three bugs
+        # used to skip this:
+        #
+        #   1. POST /sessions persists the user message event BEFORE the
+        #      chat handler runs, so ``self._session_store.get`` may return
+        #      a non-None ConversationSession already populated with just
+        #      ``[user_msg]`` - the ``if session is None`` branch is then
+        #      bypassed entirely.
+        #   2. Sessions created in earlier daemon versions (before the
+        #      system_prompt-in-messages convention) carry only user +
+        #      assistant rows.
+        #   3. A failed compile during a prior deploy left
+        #      ``entry_context.system_prompt`` empty when the session
+        #      was first persisted; later redeploys must heal those.
+        #
+        # Idempotent: if a system message is already present anywhere
+        # (typically index 0), leave it alone — never duplicate.
+        try:
+            has_system_msg = any(
+                m.get("role") == "system" for m in session.messages
+            )
+            if not has_system_msg and effective_prompt:
+                session.messages.insert(
+                    0, {"role": "system", "content": effective_prompt},
+                )
+                logger.warning(
+                    "Healed missing system prompt for session '%s' "
+                    "app '%s' user '%s' (sys_prompt_len=%d)",
+                    session_id, app_id, uid, len(effective_prompt),
+                )
+        except Exception as _heal_exc:
+            logger.debug(
+                "system_prompt heal skipped (%s): %s",
+                type(_heal_exc).__name__, _heal_exc,
+            )
+
         # Update workspace on the session if it was missing (e.g. old sessions)
         if workspace and not session.workspace:
             session.workspace = workspace
@@ -571,17 +610,42 @@ class _ChatMixin:
             if not session.title and message:
                 session.title = message[:80]
         elif reminder:
-            session.messages.append({
-                "role": "system",
-                "content": (
-                    f"[REMINDER from cron] You scheduled this earlier and it "
-                    f"just fired. Take whatever action you committed to. "
-                    f"Message: {message}"
-                ),
-            })
+            cron_content = (
+                f"[REMINDER from cron] You scheduled this earlier and it "
+                f"just fired. Take whatever action you committed to. "
+                f"Message: {message}"
+            )
+            await inject_system_directive(
+                None,
+                content=cron_content,
+                source="cron_reminder",
+                messages=session.messages,
+                bus=self.event_bus,
+                app_id=app_id,
+                session_id=session_id,
+                user_id=uid or "local",
+                metadata={"message": message[:200]},
+            )
             session.last_active = time.time()
         else:
             session.add_user(message)
+
+        # Per-turn system addendum coming from the iframe (template /
+        # useTurnEnricher hook). Persist it as a regular system_message
+        # event so the directive is part of the canonical timeline and
+        # restored in order on daemon restart.
+        if template_system_prompt:
+            await inject_system_directive(
+                None,
+                content=template_system_prompt,
+                source="template_addendum",
+                messages=session.messages,
+                bus=self.event_bus,
+                app_id=app_id,
+                session_id=session_id,
+                user_id=uid or "local",
+                metadata={"scope": "turn"},
+            )
         _log_event("turn_start", {"message": message, "images": len(image_refs or [])})
 
         await asyncio.to_thread(self._session_store.put, session)
@@ -600,11 +664,14 @@ class _ChatMixin:
         # app_id. We set it unconditionally; the entry_context copy
         # may or may not already have it set upstream.
         ctx.app_id = app_id
-        # One-turn template directive (set by ``POST /messages`` when the
-        # user attached a template). Lives only on this per-turn ctx
-        # copy, so the next turn (fresh ctx copy from entry_context)
-        # automatically forgets it — no cleanup required.
-        ctx.template_system_prompt = template_system_prompt or ""
+        # Per-turn template addendums used to be carried on
+        # ``ctx.template_system_prompt`` and re-prefixed at every LLM
+        # round-trip. They are now persisted as a regular
+        # ``system_message`` event at turn start (see the
+        # ``template_addendum`` injection above), which restores them
+        # at the correct seq on cold reload. The ctx attribute stays
+        # for legacy readers but holds no behavioural role.
+        ctx.template_system_prompt = ""
         # Apply WORKDIR (agent-facing) to the context, not workspace.
         # The agent's tools (Read/Write/Bash, Ws*) operate inside
         # ``ctx.workspace`` - that path must be the workdir so the

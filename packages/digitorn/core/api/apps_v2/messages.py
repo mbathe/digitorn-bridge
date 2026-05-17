@@ -865,28 +865,67 @@ async def session_send_message(
                     manager=manager,
                 )
 
-                # Synthetic assistant_message — the handler's reply.
-                # ``slash_synthetic: true`` lets the client tag the
-                # bubble for future filtering (e.g. exclude from
-                # context exports). Not persisted in the chat history
-                # table for v1 — refresh loses it.
+                # Mimic the live-turn protocol the web client speaks:
+                # ``message_started`` opens the assistant slot,
+                # ``token`` streams the body (one event with the full
+                # content; the client merges via the standard delta
+                # path), and ``message_done`` finalises. The chat
+                # store has no handler for the standalone
+                # ``assistant_message`` event — it tracks bubble
+                # creation through ``token`` exclusively — so emitting
+                # ``assistant_message`` alone leaves the bubble
+                # invisible and the spinner stuck until timeout.
                 try:
                     await manager.event_bus.emit(_turn_event(
-                        "assistant_message",
+                        "message_started",
+                        app_id=app_id, session_id=session_id,
+                        user_id=_user_id or "local",
+                        correlation_id=_slash_corr,
+                        op_state=_OS_SLASH.RUNNING,
+                        payload={
+                            "session_id": session_id,
+                            "correlation_id": _slash_corr,
+                        },
+                    ))
+                except Exception as exc:
+                    logger.debug("slash message_started emit failed: %s", exc)
+
+                try:
+                    await manager.event_bus.emit(_turn_event(
+                        "token",
+                        app_id=app_id, session_id=session_id,
+                        user_id=_user_id or "local",
+                        correlation_id=_slash_corr,
+                        op_state=_OS_SLASH.RUNNING,
+                        payload={
+                            "session_id": session_id,
+                            "correlation_id": _slash_corr,
+                            # ``delta`` is what the web reducer reads
+                            # for streaming text; we ship the whole
+                            # synthetic body in one shot.
+                            "delta": _slash_result.message,
+                            "count": len(_slash_result.message),
+                            "slash_synthetic": True,
+                        },
+                    ))
+                except Exception as exc:
+                    logger.debug("slash token emit failed: %s", exc)
+
+                try:
+                    await manager.event_bus.emit(_turn_event(
+                        "message_done",
                         app_id=app_id, session_id=session_id,
                         user_id=_user_id or "local",
                         correlation_id=_slash_corr,
                         op_state=_OS_SLASH.COMPLETED,
                         payload={
                             "session_id": session_id,
-                            "role": "assistant",
-                            "content": _slash_result.message,
                             "correlation_id": _slash_corr,
                             "slash_synthetic": True,
                         },
                     ))
                 except Exception as exc:
-                    logger.debug("slash assistant_message emit failed: %s", exc)
+                    logger.debug("slash message_done emit failed: %s", exc)
 
                 # Close the synthetic turn. The client uses
                 # ``turn_terminal`` as the single signal that flips

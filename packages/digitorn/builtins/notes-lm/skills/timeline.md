@@ -4,7 +4,7 @@ Triggered by "timeline", "chronology", "what happened when", "order of events".
 
 ## Steps
 
-1. `WsGlob("sources/**")` + `WsGlob("attachments/**")`.
+1. `WsGlob("attachments/**")` to discover the corpus.
 2. `WsRead` each file.
 3. Extract every `(date, event)` pair. Be conservative — only events with explicit dates (year minimum).
 4. Sort ascending.
@@ -22,7 +22,7 @@ Triggered by "timeline", "chronology", "what happened when", "order of events".
 
    ## Sources
 
-   [^1]: sources/foo.md:L42-L42 — "verbatim quote that mentions the date"
+   [^1]: attachments/foo.md:L42-L42 — "verbatim quote that mentions the date"
    [^2]: attachments/report.pdf:p.7 — "..."
    ```
 

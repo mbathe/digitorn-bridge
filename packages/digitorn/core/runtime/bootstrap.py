@@ -286,7 +286,20 @@ async def _init_modules(
             module._started_ok = True  # type: ignore[attr-defined]
             cfg = dict(compiled.modules[module_id].config or {})
             workspace = _resolve_module_workspace(compiled, module_id)
-            if workspace and "workspace" not in cfg:
+            # WORKSPACE_PLACEHOLDER is a daemon-side template that gets
+            # substituted per session at chat time. Shipping it to a
+            # worker as a literal string would set its module-level
+            # ``_workspace`` (and downstream ``_cwd`` on linter protocols)
+            # to the literal "{WORKSPACE}" -- triggering FileNotFoundError
+            # on every subprocess that chdirs into it. Per-session
+            # workspace already travels in the ``ctx`` envelope on every
+            # action call, so dropping the placeholder here is safe.
+            from digitorn.core.runtime.types import WORKSPACE_PLACEHOLDER
+            if (
+                workspace
+                and workspace != WORKSPACE_PLACEHOLDER
+                and "workspace" not in cfg
+            ):
                 cfg["workspace"] = workspace
             if cfg:
                 try:
@@ -294,7 +307,9 @@ async def _init_modules(
                         push_module_config,
                     )
                     await push_module_config(
-                        module_id, cfg, registry=_workers_registry,
+                        module_id, cfg,
+                        registry=_workers_registry,
+                        app_id=getattr(compiled, "app_id", None),
                     )
                 except Exception as exc:
                     logger.warning(
@@ -1369,6 +1384,20 @@ def _register_specialist(
         "system_prompt": spec_prompt,
         "tools": spec_tools,
         "modules": spec_modules,
+        # ``spec_modules`` is filtered to the agent's declared
+        # ``agent.modules:`` list and never includes infrastructure
+        # modules like llm_provider (which is not a user-facing tool).
+        # ``resolve_session_provider`` bails to KEEP when it can't find
+        # llm_provider in the dict it gets, which falls back to the
+        # specialist's deploy-time provider (raw upstream URL + YAML
+        # credential) and skips the gateway + JWT auth + quota tracker
+        # for every sub-agent call. Cache the full app's llm_provider
+        # reference here so ``_resolve_specialist_provider`` can inject
+        # it before calling the resolver. Per-specialist brain
+        # remains the source of truth for which gateway model alias
+        # gets built (``{provider}/{model}``) -- the cached module is
+        # just the registry singleton used for the presence check.
+        "llm_module": modules.get("llm_provider"),
         "native_tool_use": True,
         "tool_injection": spec_injection,
         "specialty": agent.specialty,

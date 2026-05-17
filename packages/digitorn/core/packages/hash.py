@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # such dir anywhere) because user apps regularly produce these as
 # session-time artefacts that we don't want to count as "drift".
 # BUT for builtins / packages that ship a pre-built UI (SDK apps
-# like digitorn-builder, digitorn-react-sandbox), the canonical
+# like digitorn-builder, digitorn-lovable), the canonical
 # location is ``web/dist/`` and that path IS part of the package
 # payload. The check in ``_iter_hashable_files`` matches a path
 # component anywhere in the rel_path, with ONE exception: the

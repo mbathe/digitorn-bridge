@@ -215,6 +215,7 @@ async def push_module_config(
     config: dict[str, Any],
     *,
     registry: Any | None = None,
+    app_id: str | None = None,
 ) -> dict[str, bool]:
     """Push a per-app ``module.config`` block to every worker that
     hosts ``module_id``.
@@ -254,7 +255,7 @@ async def push_module_config(
     for ep in endpoints:
         try:
             client = get_or_create_client(ep)
-            ok = await client.push_config(module_id, config)
+            ok = await client.push_config(module_id, config, app_id=app_id)
             results[ep.worker_id] = ok
         except Exception as exc:
             logger.warning(
@@ -401,6 +402,16 @@ def _build_ctx_payload(module_self: Any) -> dict[str, Any]:
     Phase 2 keeps this envelope minimal. Richer fields (full
     AgentContext, workspace permissions, security profile body) are
     added in Phase 3 when the worker-side dispatch is wired in.
+
+    Module-level fallbacks: when ``module_self`` is reached outside a
+    ``module.execute()`` call (typical: a REST endpoint invokes
+    ``ws_module.writeback_file(...)`` directly, then workspace calls
+    ``self._lsp.notify_change(...)`` -- the proxy then has no
+    ``_context_var`` to read from), we still want the WORKER side to
+    know which app the call belongs to. Without a fallback, every
+    workered module call from such a direct path lands with
+    ``app_id=None`` and tenant-keyed state (per-app LSP protocols,
+    per-app caches, etc.) collapses to a single bucket.
     """
     payload: dict[str, Any] = {}
     try:
@@ -427,4 +438,15 @@ def _build_ctx_payload(module_self: Any) -> dict[str, Any]:
         workspace = getattr(module_self, "_workspace", None)
         if workspace:
             payload["workspace"] = workspace
+    if "app_id" not in payload:
+        # Bootstrap stamps ``_app_id_override`` on per-app modules
+        # (workspace, cron_native, cache, vector, channels, web_preview)
+        # via ``_inject_app_id_overrides``. Read it here as the
+        # canonical fallback identifier for tenant routing.
+        app_id_fallback = (
+            getattr(module_self, "_app_id_override", None)
+            or getattr(module_self, "_app_id", None)
+        )
+        if app_id_fallback and app_id_fallback != "default":
+            payload["app_id"] = app_id_fallback
     return payload

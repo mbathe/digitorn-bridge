@@ -285,11 +285,16 @@ pool (`_owns_pool = True`).
 ## Live test audit (2026-05-17)
 
 Comprehensive end-to-end audit covering the 5 internal actions,
-the auto-detect path, the built-in content validators, session
-cleanup, cross-OS spawn safety, and dead-code drift. Scenarios
-live in `tools/live_tests/lsp_e2e_scenarios.py`. Final state:
-**10 PASS / 0 FAIL / 2 SKIP** (the 2 skips are external limits,
-not bugs - see below).
+all 3 protocol modes (LSP server JSON-RPC, compiler, linter),
+the auto-detect path, the built-in content validators, real raw
+LSP requests (`textDocument/hover` against pyright), real
+mid-flight cancellation, per-app state isolation, session
+cleanup, cross-OS spawn safety, and dead-code drift. 15
+scenarios in `tools/live_tests/lsp_e2e_scenarios.py`. Final
+state: **14 PASS / 0 FAIL / 1 SKIP** (the skip is
+`cancel_inflight` when the race is lost -- pyright already warm
+in the worker; the same scenario PASSes deterministically when
+the request hits the cold-start window).
 
 ### Bugs found and fixed
 
@@ -315,55 +320,184 @@ not bugs - see below).
    before returning. Pass-through for non-dict / already-typed
    payloads.
 
-### Bug found, not yet fixed (workers framework, broader scope)
-
-1. **Workered modules never receive their per-app `module.config`
-   from YAML.** *(Numbered #3 in the cumulative audit log; restarted
-   at 1 here because it's a fresh ordered list.)* The daemon-side
-   `bootstrap.py` correctly skips
+3. **Workered modules never received their per-app `module.config`
+   from YAML.** *(Workers framework bug; affects every workered
+   module that needs per-app config -- custom MCP servers, RAG
+   backends, shell allow-lists -- surfaced first on LSP because
+   LSP is the canonical workered module with explicit per-app
+   server declarations.)* The daemon-side `bootstrap.py` correctly
+   skipped
    `on_config_update` on a workered instance (the wrap stamps
-   `_skip_on_start = True`, and the lifecycle loop short-circuits
+   `_skip_on_start = True`, and the lifecycle loop short-circuited
    right after). But the worker's own lifespan
-   (`workers/app.py:174`) calls `module.on_start()` for each
-   hosted module and **never replays the config either**. Net
+   (`workers/app.py:174`) called `module.on_start()` for each
+   hosted module and **never replayed the config either**. Net
    effect: any `modules.lsp.config.python: "ruff check ..."` (or
-   any per-app explicit server spec) is silently dropped when LSP
-   is hosted by a worker (default deployment ships it in the
+   any per-app explicit server spec) was silently dropped when LSP
+   was hosted by a worker (default deployment ships it in the
    `tools` worker alongside MCP).
 
-   Symptoms observed during the audit:
-   - The `linter_python` scenario reports the .py file is written
-     correctly and `ruff` is on PATH, but the `lint` field comes
-     back empty. Built-in validators only catch *syntax errors*;
-     they don't run ruff. Ruff invoked manually on the same disk
-     path returns F401 + E722 as expected.
-   - This is **not** an LSP module bug. It's a workers framework
-     gap that affects every workered module that needs per-app
-     config (LSP servers, custom MCP servers, etc.).
-   - MCP's catalog-only references (e.g. `fetch`) happen to work
-     because they're resolved at `on_start()` from the
-     daemon-side catalog, not from per-app YAML.
+   Impact extended far beyond LSP — every workered module that
+   needs per-app config (custom MCP servers, RAG backend paths,
+   shell allow-lists, web allow-domains) was affected. MCP's
+   catalog-only references (e.g. `fetch`) happened to work because
+   they're resolved at `on_start()` from the daemon-side catalog,
+   not from per-app YAML.
 
-   Fix sketch (post-audit, needs design sign-off): the
-   `wrap_module_for_worker` call should push the compiled app
-   config to the worker via an HTTP envelope (e.g. a new
-   `POST /admin/config` route on the worker, or a per-call ctx
-   field that the worker applies on first dispatch). The latter
-   is simpler but couples per-request data to module-level state;
-   the former is cleaner but adds one extra round-trip per
-   deploy.
+   **Fix** (4 small patches, no breaking changes):
+   - `workers/routes.py` -- new `POST /admin/config/{module}`
+     route that takes `{config: {...}}`, auth via the shared
+     bearer secret, calls `module.on_config_update(config)`
+     server-side, returns `{success, error?}`.
+   - `workers/client.py` -- new `WorkerClient.push_config(module,
+     config)` with the same retry semantics as `call_action`.
+   - `workers/registry.py` -- new `endpoints_for(module)` that
+     returns ALL endpoints (multi-replica safe; the round-robin
+     `route()` is only for single-call load-balancing).
+   - `workers/action_wrapper.py` -- new `push_module_config()`
+     helper that broadcasts the config to every endpoint hosting
+     the module. Logs partial failures, never blocks the deploy.
+   - `core/runtime/bootstrap.py` -- in the workered branch of the
+     lifecycle loop (the `_skip_on_start` short-circuit), now
+     awaits `push_module_config(module_id, cfg, registry=...)`
+     with the compiled per-app config. The `WORKSPACE_PLACEHOLDER`
+     template (`"{WORKSPACE}"`) is intentionally NOT pushed --
+     workspace is per-session and travels in the `ctx` envelope
+     on each call instead.
 
-### Skipped scenarios (external limits, not module bugs)
+4. **Workspace passed workspace-relative paths to `lsp.notify_change`.**
+   Linter / compiler protocols shell out to a subprocess that
+   reads from disk. With a bare relative path (`test_lint.py`) and
+   the LSP module's `_workspace` being a leaked `"{WORKSPACE}"`
+   placeholder, the subprocess `cwd` resolved to a literal
+   non-existent directory and ruff died with
+   `FileNotFoundError`. Even after the placeholder fix above, the
+   relative path would have made ruff fall back to its own cwd
+   (the worker's process dir), which doesn't contain the file.
 
-- `lsp_request_hover` - SKIPs even when `pyright-langserver` is
-  on PATH. The full hover round-trip needs a real Pyright server
-  plus a .py file at a known disk path; the audit covers the
-  endpoint plumbing via code review and leaves the live
-  round-trip as future work (no LSP bug surfaced in the path
-  reviewed).
-- `linter_python` - SKIPs because of Bug #3 above. The scenario
-  is preserved so it auto-promotes to PASS once the workers
-  framework propagates per-app config.
+   **Fix** in `workspace/module.py::_run_lint`: before calling
+   `lsp.notify_change`, resolve the workspace path to its absolute
+   on-disk location via `_resolve_disk_dir_for(path)` +
+   `_join_inside(disk_dir, path)`. LSP-server-mode protocols are
+   unaffected (URIs are built downstream); linter / compiler now
+   get a path that ruff / tsc / cargo can actually find. Stable
+   cache keys across the workspace + lsp boundary as a bonus.
+
+5. **`sys.platform` referenced without `import sys`** in
+   `lsp/module.py::_start_server` (introduced earlier in this
+   audit when replacing `command.split()` with `shlex.split`).
+   Latent because the daemon's lifecycle loop skipped
+   `on_config_update` on workered modules -- the `NameError`
+   never had a chance to fire. Surfaced as soon as Bug #3's fix
+   made `on_config_update` reach the worker for real. Added
+   `import sys` at the top of the module.
+
+6. **Workspace passed workspace-relative paths to
+   `lsp.notify_change`** -- linter / compiler subprocesses read
+   from disk, so a bare `test_lint.py` resolved against the
+   worker process's cwd (not the session workspace) and ruff
+   /tsc died with `FileNotFoundError`. Fix in
+   `workspace/module.py::_run_lint`: resolve to the absolute
+   on-disk path via `_resolve_disk_dir_for` + `_join_inside`
+   before calling `lsp.notify_change`.
+
+7. **Malformed `file://` URIs on Windows** -- the legacy
+   `f"file://{Path(path).resolve()}"` shape produced
+   `file://C:\Users\...` (two slashes, backslashes), which
+   pyright / typescript-language-server accept silently on
+   didOpen but then can't match against hover / goto requests
+   that come back with the normalised
+   `file:///C:/Users/...` shape. Replaced every URI build site
+   in `lsp/{module,protocols}.py` with `Path.resolve().as_uri()`
+   (RFC 8089-compliant: three slashes, forward slashes).
+
+8. **`lsp.request` auto-opened the document but didn't wait for
+   the LSP server to parse it.** First-time `textDocument/hover`
+   on pyright fired right after didOpen and got back `null`
+   because pyright's symbol table didn't exist yet. Fix in
+   `lsp/module.py::request`: mirror the same cold-start warm-up
+   `notify_change` already uses (3 s on cold-first-hit, 0.3 s
+   on warm).
+
+9. **REST `/lsp/request` and `/lsp/cancel` didn't carry the
+   per-app routing identity.** REST endpoints invoke
+   `lsp_module.request(...)` directly (not via
+   `module.execute()`), so the daemon-side proxy's
+   `_build_ctx_payload` reads an empty `_context_var` and
+   tenant routing collapses to "whichever app last called
+   `on_config_update`". Fix in `apps_v2/lsp.py::lsp_rpc_request`:
+   stamp an `ExecutionContext(app_id=app_id, session_id=...)`
+   on the contextvar before dispatching; reset in the `finally`.
+   The endpoint also now resolves the request path to absolute
+   (via the workspace module's `_resolve_disk_dir_for`)
+   alongside activating the preview session, so didOpen reads
+   the right file from the right tenant's workspace dir.
+
+10. **`CompilerProtocol` never appended the file path to its
+    argv.** Designed for `cargo check` (project-wide), but the
+    docstring claimed `tsc --noEmit` and `javac` were also
+    supported -- they aren't usable without the file as a
+    positional. Fix in `protocols.py`: append `path` to the
+    argv unless the command's basename is in
+    `_PROJECT_WIDE = {"cargo", "go"}` (those genuinely
+    project-wide tools choke on extra positionals).
+
+11. **`shutil.which` not used at the spawn site** --
+    `asyncio.create_subprocess_exec("tsc", ...)` on Windows
+    calls `CreateProcessW` which does NOT honour `PATHEXT` for
+    `.cmd` / `.bat` shims (`tsc` ships as `tsc.cmd` via npm).
+    Resolved with `FileNotFoundError(2)` even though
+    `shutil.which("tsc")` returned a real path. Fix in
+    `protocols.py`: pre-resolve `argv[0]` with `shutil.which`
+    before the spawn; applied to both `LinterProtocol` and
+    `CompilerProtocol`. Defense in depth for both posix and
+    Windows.
+
+12. **Workered modules with per-app state had no app keying
+    -- the canonical `app_id` bleed.** A YAML configuring
+    `lsp.config.python: "ruff ..."` for app A registered the
+    ruff protocol on the LSP module's flat `_protocols[".py"]`
+    map; app B (no python config) writing a `.py` then got
+    ruff diagnostics too. Confirmed live by the
+    `state_isolation` scenario. Fix: replace
+    `_protocols: dict[ext, protocol]` with
+    `_app_protocols: dict[app_id, dict[ext, protocol]]` (same
+    for `_protocol_instances` and `_pending_specs`); keep
+    legacy `_protocols`/`_pending_specs` as read-only
+    `@property` aggregations so introspection and the existing
+    `on_stop` clean-up still work. `on_config_update` accepts
+    an `app_id` kwarg threaded through from the worker's
+    `/admin/config/{module}` route via
+    `WorkerClient.push_config` and bootstrap. `_get_protocol`
+    looks up by the active `ExecutionContext.app_id` (with
+    `self._app_id` as fallback). Clean isolation: an app that
+    didn't configure a server for the extension gets `None`
+    -- no cross-tenant inheritance.
+
+13. **REST endpoints bypass `module.execute()` and lose the
+    `_context_var` envelope** -- a class of latent bugs that
+    surfaced through Bug #12. Workspace's `_run_lint` now
+    stamps its own `ExecutionContext` (with
+    `app_id=self._app_id_override`) around its
+    `self._lsp.notify_change(...)` call so the daemon-side
+    proxy ships the right tenant. `_build_ctx_payload` in
+    `workers/action_wrapper.py` also reads
+    `module_self._app_id_override` (set by
+    `_inject_app_id_overrides`) as a fallback when
+    `_context_var` is empty, so any other REST entry point
+    that touches a per-app module's `_app_id_override` slot
+    gets the same protection by default.
+
+### Skipped scenarios (timing limits, not module bugs)
+
+- `cancel_inflight` - SKIPs when the LSP server (pyright) is
+  already warm in the worker and the hover response races ahead
+  of the cancel POST. The cancel endpoint correctly reports
+  request-not-found in that case; the scenario flips to PASS
+  whenever the request hits pyright's cold-start window. Both
+  paths exercise the same in-flight tracking dict, so coverage
+  is intact -- the only variable is which arm fires first on a
+  given run.
 
 ### Cleanups done in passing
 

@@ -1,0 +1,38 @@
+app:
+  app_id: qtest-lsp-hover
+  name: "LSP audit - real pyright JSON-RPC round-trip"
+
+# pyright-langserver runs as a long-lived JSON-RPC subprocess. Workspace
+# writes trigger didChange; agents/REST hit /lsp/request for hover, goto,
+# references. This app validates the persistent LSP-mode path end-to-end.
+modules:
+  preview: {}
+  workspace:
+    config:
+      sync_to_disk: true
+      lint: true
+  lsp:
+    config:
+      python: "pyright-langserver --stdio"
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 4096
+    system_prompt: "Test agent."
+
+execution:
+  mode: conversation
+  max_turns: 2
+  timeout: 30
+
+capabilities:
+  default_policy: auto
