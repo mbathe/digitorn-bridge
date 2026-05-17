@@ -1,24 +1,29 @@
 import { useMemo } from "react";
 import type { WorkspaceFile } from "@digitorn/preview-sdk";
 import type { Selection } from "../App";
-import { FileIcon, LinkIcon } from "../lib/icons";
+import { DocIcon, FileIcon } from "../lib/icons";
 
 interface Group {
   label: string;
   prefix: string;
-  iconFor: (path: string) => JSX.Element;
+  icon: typeof FileIcon;
+  emptyHint?: string;
 }
 
 const GROUPS: Group[] = [
   {
     label: "Sources",
-    prefix: "sources/",
-    iconFor: () => <LinkIcon className="source-icon" size={16} />,
+    prefix: "attachments/",
+    icon: FileIcon,
+    emptyHint:
+      "Use the + Add button to paste text, drop a file or fetch a URL. The chat composer paperclip works too.",
   },
   {
-    label: "Attachments",
-    prefix: "attachments/",
-    iconFor: () => <FileIcon className="source-icon" size={16} />,
+    label: "Forms",
+    prefix: "forms/",
+    icon: DocIcon,
+    emptyHint:
+      "Ask the agent for a form, e.g. 'build me a feedback form'.",
   },
 ];
 
@@ -44,11 +49,12 @@ export function SourceList({
 
   const total = groups.reduce((n, g) => n + g.items.length, 0);
   if (total === 0) {
+    const primary = groups[0];
     return (
       <div className="empty">
         <strong style={{ color: "var(--text-muted)" }}>No sources yet.</strong>
         <div style={{ marginTop: 8, fontSize: 12.5 }}>
-          Paste a URL or upload a file in the chat to get started.
+          {primary.emptyHint}
         </div>
       </div>
     );
@@ -60,6 +66,7 @@ export function SourceList({
     <>
       {groups.map((g) => {
         if (g.items.length === 0) return null;
+        const Icon = g.icon;
         return (
           <section key={g.prefix}>
             <div className="section-label">{g.label}</div>
@@ -75,7 +82,7 @@ export function SourceList({
                     onClick={() => onSelect(path)}
                     title={path}
                   >
-                    {g.iconFor(path)}
+                    <Icon className="source-icon" size={16} />
                     <span className="source-name">{name}</span>
                     <span className="source-meta">{file.lines ?? 0}L</span>
                   </button>

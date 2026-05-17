@@ -1722,9 +1722,69 @@ class WorkspaceModule(BaseModule):
         if self._lsp is not None:
             try:
                 from digitorn.modules.lsp.params import NotifyChangeParams
-                result = await self._lsp.notify_change(
-                    NotifyChangeParams(path=path, content=content),
+                # Linter / compiler protocols shell out to a subprocess
+                # that reads from disk -- they need the resolved on-disk
+                # path, not the workspace-relative one. ``path`` here is
+                # workspace-relative (see ``_resolve_ws_path``), so when
+                # ``sync_to_disk`` is on we compose the absolute disk
+                # path before handing it off. LSP server mode is happy
+                # with either shape (URIs are built downstream), but the
+                # absolute path keeps the cache key stable across the
+                # workspace + lsp boundary.
+                lsp_path = path
+                try:
+                    disk_dir = self._resolve_disk_dir_for(path)
+                    if disk_dir:
+                        full = self._join_inside(disk_dir, path)
+                        if full:
+                            lsp_path = full
+                except Exception:
+                    pass
+
+                # The LSP module is shared across every app routed to
+                # the ``tools`` worker (one daemon-side instance per
+                # endpoint). When workspace is called via a REST
+                # endpoint that bypasses ``execute()``, the proxy
+                # captures an empty ``_context_var`` and the worker
+                # has no way to know which tenant owns the call --
+                # tenant-keyed state (per-app protocols, per-app
+                # caches) then collapses to whichever app was last
+                # active. We stamp an ExecutionContext here with our
+                # own app_id so the proxy ships it in the envelope
+                # and the worker's LSP module routes to the right
+                # tenant's protocol map. ``_app_id_override`` is set
+                # by bootstrap's ``_inject_app_id_overrides`` for
+                # every per-app module instance.
+                from digitorn.modules.base import (
+                    BaseModule as _BaseModule,
+                    ExecutionContext as _ExecutionContext,
                 )
+                _own_app_id = getattr(self, "_app_id_override", None) or getattr(
+                    self, "_app_id", None,
+                )
+                _existing_ctx = _BaseModule._context_var.get()
+                _ctx_token = None
+                if _own_app_id and (
+                    _existing_ctx is None
+                    or not getattr(_existing_ctx, "app_id", None)
+                ):
+                    _ctx_token = _BaseModule._context_var.set(
+                        _ExecutionContext(
+                            plan_id=getattr(_existing_ctx, "plan_id", "") or "workspace:lint",
+                            action_id=getattr(_existing_ctx, "action_id", "") or "workspace.lint",
+                            app_id=_own_app_id,
+                            session_id=getattr(_existing_ctx, "session_id", None) or self._preview_session_id() or None,
+                            user_id=getattr(_existing_ctx, "user_id", "") or "local",
+                            workspace=getattr(_existing_ctx, "workspace", None) or self._workspace or None,
+                        ),
+                    )
+                try:
+                    result = await self._lsp.notify_change(
+                        NotifyChangeParams(path=lsp_path, content=content),
+                    )
+                finally:
+                    if _ctx_token is not None:
+                        _BaseModule._context_var.reset(_ctx_token)
                 if result.success and result.data:
                     items = result.data.get("diagnostics", []) or []
             except Exception:

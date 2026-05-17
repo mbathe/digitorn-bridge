@@ -49,16 +49,22 @@ agents:
       - timeline
       - study_guide
       - audio_overview
+      - form
     brain:
+      # gpt-5-mini via the GitHub Copilot relay. The system_prompt
+      # heal in ``manager_v2/_chat.py`` guarantees ``messages[0]``
+      # carries the resolved Notes LM prompt on every turn. The
+      # ``placeholder`` api_key is hot-swapped at session start by
+      # the gateway resolver against the user's Copilot creds.
       provider: github_copilot
       backend: github_copilot
-      model: openai/gpt-5-mini
+      model: gpt-5-mini
       config:
         api_key: placeholder
       temperature: 0.3
       max_tokens: 8192
       context:
-        max_tokens: 200000
+        max_tokens: 131072
     system_prompt: '{{prompt.system}}'
 
 tools:
@@ -124,7 +130,7 @@ tools:
           - delete
 
 ui:
-  greeting: "Drop a source (URL, file, text) and I'll save it under `sources/`. Then ask any question — I'll read the relevant file(s) and cite the exact line range."
+  greeting: "Drop a source (URL, file, text) via the + button or the paperclip. Ask any question — I'll read the relevant file(s) and cite the exact line range."
   workspace:
     render_mode: react
     title: "Notes LM"

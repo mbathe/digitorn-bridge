@@ -560,6 +560,7 @@ async def push_config(
     _require_auth(authorization, state.shared_secret)
     body = await request.json()
     config: dict[str, Any] = body.get("config") or {}
+    app_id: str | None = body.get("app_id")
 
     if module not in state.hosted_modules:
         raise HTTPException(
@@ -580,11 +581,20 @@ async def push_config(
         )
 
     logger.info(
-        "worker_config_push module=%s keys=%s",
-        module, sorted(config.keys()),
+        "worker_config_push module=%s app=%s keys=%s",
+        module, app_id, sorted(config.keys()),
     )
     try:
-        await module_instance.on_config_update(config)
+        # Forward ``app_id`` when the module's signature accepts it.
+        # Modules that opt into per-app state (like LSP) use this to
+        # key their internal protocol / server maps; modules that
+        # don't keep their existing signature and we omit the kwarg.
+        import inspect as _inspect
+        sig = _inspect.signature(module_instance.on_config_update)
+        if app_id is not None and "app_id" in sig.parameters:
+            await module_instance.on_config_update(config, app_id=app_id)
+        else:
+            await module_instance.on_config_update(config)
     except Exception as exc:
         logger.exception(
             "worker_on_config_update_failed module=%s",

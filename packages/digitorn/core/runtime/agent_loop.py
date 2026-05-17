@@ -48,6 +48,7 @@ from digitorn.core.runtime.notifications import (
     _persist_to_memory,
 )
 from digitorn.core.runtime.streaming import _fire_token, emit_thinking, streaming_chat
+from digitorn.core.runtime.system_directive import inject_system_directive
 from digitorn.core.runtime.tool_exec import execute_tool, handle_approval, needs_approval
 from digitorn.core.runtime.tracking import SessionUsage, format_image_tool_result
 from digitorn.core.runtime.types import AgentContext, ToolCallInfo, TurnResult
@@ -365,26 +366,17 @@ def _strip_transient_from_past_messages(
 def _chat_messages_for_llm(
     ctx: Any, messages: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Convert session messages to LLM chat format, prepending the
-    optional one-turn template directive.
+    """Convert session messages to LLM chat format.
 
-    ``ctx.template_system_prompt`` is set by ``manager.chat()`` when the
-    incoming HTTP message carried ``template_id``. The directive lives
-    on the per-turn ctx copy only — once ``agent_turn`` returns and
-    that ctx is discarded, the next user message gets a fresh ctx
-    without the addendum (one-turn semantics, no session-state
-    cleanup required).
-
-    Called on EVERY LLM round-trip inside a single turn (initial call
-    + retry/fallback paths) so the directive applies through every
-    tool loop iteration, not just the first.
+    Per-turn addendums (``template_system_prompt`` from the iframe /
+    template flow) used to be re-prefixed at every LLM round-trip here.
+    They are now persisted as regular ``system_message`` events at the
+    start of the turn (see ``manager_v2/_chat.py``), which lands them
+    in the canonical timeline with their own seq. Replay restores them
+    in order, so no special re-prefix is needed.
     """
     pruned = _strip_transient_from_past_messages(messages)
-    out = to_chat_messages(pruned)
-    sys_prompt = getattr(ctx, "template_system_prompt", "") or ""
-    if sys_prompt:
-        return [{"role": "system", "content": sys_prompt}, *out]
-    return out
+    return to_chat_messages(pruned)
 
 
 # ── Public API ───────────────────────────────────────────────────────
@@ -667,7 +659,7 @@ async def _loop(
             logger.warning(_line.strip())
             return _now
 
-        _inject_turn_limit_warning(messages, turn, max_turns, guard.counter["tools"])
+        await _inject_turn_limit_warning(ctx, messages, turn, max_turns, guard.counter["tools"])
         # `session_start` fires once per session - on turn 0 only -
         # before the regular `turn_start`. Lets apps run per-session
         # setup hooks (hydrate context, send welcome notifications).
@@ -736,7 +728,14 @@ async def _loop(
                 _perf_prev = _perf("behavior.classify_turn", _perf_prev)
                 if _directive:
                     logger.info("behavior_directive_injected turn=%d len=%d", turn, len(_directive))
-                    messages.append({"role": "system", "content": _directive})
+                    await inject_system_directive(
+                        ctx,
+                        content=_directive,
+                        source="behavior_classifier",
+                        messages=messages,
+                        turn=turn,
+                        metadata={"length": len(_directive)},
+                    )
                     _bus = getattr(ctx, "event_bus", None) or getattr(ctx, "_event_bus", None)
                     if _bus is not None:
                         try:
@@ -801,9 +800,9 @@ async def _loop(
         content = await _run_after_middleware(ctx, messages, turn, content, tool_calls)
 
         if not tool_calls:
-            if _check_unfinished_work(ctx, messages):
+            if await _check_unfinished_work(ctx, messages):
                 continue
-            if _nudge_empty_response(ctx, messages, content, guard.counter["tools"]):
+            if await _nudge_empty_response(ctx, messages, content, guard.counter["tools"]):
                 continue
             # Append the assistant's final reply to ``messages`` BEFORE
             # the persist snapshot so save_messages writes the final
@@ -925,7 +924,7 @@ async def _loop(
                     ctx, messages, call_id, tool_name, result, ok, cb,
                     tool_args=tool_args if isinstance(tool_args, dict) else {},
                 )
-                _flush_behavior_notes(ctx, messages)
+                await _flush_behavior_notes(ctx, messages)
                 sm.record_tool_call(tool_name, _tool_ms, ok, err or "")
                 # AS16: also relay parallel-path tool calls. The
                 # parent coordinator keys on op_id + op_state to drive
@@ -987,7 +986,7 @@ async def _loop(
                     ctx, messages, call_id, tool_name, result, ok, cb,
                     tool_args=tool_args if isinstance(tool_args, dict) else {},
                 )
-                _flush_behavior_notes(ctx, messages)
+                await _flush_behavior_notes(ctx, messages)
 
                 sm.record_tool_call(tool_name, _tool_ms, ok, err or "")
 
@@ -1047,7 +1046,13 @@ async def _loop(
 
         deferred_notes.extend(check_delegation(tool_calls, guard.counter["tools"], ctx.tools))
         for note in deferred_notes:
-            messages.append({"role": "system", "content": note})
+            await inject_system_directive(
+                ctx,
+                content=note,
+                source="delegation_check",
+                messages=messages,
+                turn=turn,
+            )
 
         _call_memory_turn_end(ctx, messages, turn, collected_calls, tool_calls)
         await _run_hooks(cb.hook_runner, "turn_end", messages, turn, max_turns, guard.counter["tools"], ctx)
@@ -1109,12 +1114,20 @@ async def _loop(
 # ── Turn phases ──────────────────────────────────────────────────────
 
 
-def _inject_turn_limit_warning(
+async def _inject_turn_limit_warning(
+    ctx: AgentContext,
     messages: list[dict], turn: int, max_turns: int, tool_count: int,
 ) -> None:
     if turn == max_turns - 2 and tool_count > 0:
         from digitorn.core.runtime.system_directives import SYS_TURN_LIMIT_NEAR
-        messages.append({"role": "system", "content": SYS_TURN_LIMIT_NEAR})
+        await inject_system_directive(
+            ctx,
+            content=SYS_TURN_LIMIT_NEAR,
+            source="turn_limit_near",
+            messages=messages,
+            turn=turn,
+            metadata={"max_turns": max_turns, "tool_count": tool_count},
+        )
 
 
 def _intra_turn_terminal_reason(ctx: Any, guard: Any) -> tuple[str, str] | None:
@@ -1854,12 +1867,17 @@ async def _execute_single_tool(
     return result, tool_name, tool_args, call_id, ok, err
 
 
-def _flush_behavior_notes(ctx: AgentContext, messages: list[dict[str, Any]]) -> None:
+async def _flush_behavior_notes(ctx: AgentContext, messages: list[dict[str, Any]]) -> None:
     """Inject pending behavior notes into messages (after tool results)."""
     notes = getattr(ctx, "_pending_behavior_notes", None)
     if notes:
         for note in notes:
-            messages.append({"role": "system", "content": note})
+            await inject_system_directive(
+                ctx,
+                content=note,
+                source="behavior_pending",
+                messages=messages,
+            )
         ctx._pending_behavior_notes = []
 
 
@@ -2078,7 +2096,7 @@ async def _run_after_middleware(
 # ── Post-LLM checks ─────────────────────────────────────────────────
 
 
-def _check_unfinished_work(ctx: AgentContext, messages: list[dict[str, Any]]) -> bool:
+async def _check_unfinished_work(ctx: AgentContext, messages: list[dict[str, Any]]) -> bool:
     """Return True if we should continue the loop (unfinished work)."""
     if ctx.memory_module is None or ctx.completion_reminded:
         return False
@@ -2087,14 +2105,17 @@ def _check_unfinished_work(ctx: AgentContext, messages: list[dict[str, Any]]) ->
         return False
     ctx.completion_reminded = True
     from digitorn.core.runtime.system_directives import SYS_NUDGE_UNFINISHED_WORK
-    messages.append({
-        "role": "system",
-        "content": SYS_NUDGE_UNFINISHED_WORK.format(details=details),
-    })
+    await inject_system_directive(
+        ctx,
+        content=SYS_NUDGE_UNFINISHED_WORK.format(details=details),
+        source="nudge_unfinished_work",
+        messages=messages,
+        metadata={"details": details},
+    )
     return True
 
 
-def _nudge_empty_response(
+async def _nudge_empty_response(
     ctx: AgentContext, messages: list[dict[str, Any]], content: str | None, tool_count: int,
 ) -> bool:
     """Return True if we should continue (empty response nudge)."""
@@ -2102,7 +2123,13 @@ def _nudge_empty_response(
         return False
     ctx.nudged_response = True
     from digitorn.core.runtime.system_directives import SYS_NUDGE_EMPTY_RESPONSE
-    messages.append({"role": "system", "content": SYS_NUDGE_EMPTY_RESPONSE})
+    await inject_system_directive(
+        ctx,
+        content=SYS_NUDGE_EMPTY_RESPONSE,
+        source="nudge_empty_response",
+        messages=messages,
+        metadata={"tool_count": tool_count},
+    )
     return True
 
 

@@ -21,7 +21,7 @@ Add OPENAI_API_KEY in your app secrets (Settings → Secrets) and retry. The oth
 
 ### 1. Read the corpus
 
-`WsGlob("sources/**")` + `WsGlob("attachments/**")` → `WsRead` each (sample if >10 files).
+`WsGlob("attachments/**")` → `WsRead` each (sample if >10 files).
 
 ### 2. Generate the script as a workspace file
 

@@ -4,8 +4,7 @@ menu.
 
 Scope strict on (``request.state.user_id``, ``app_id``) — a user never
 sees / mutates another user's snippets, and the snippets they craft
-while talking to ``copilot-smoke`` are invisible inside
-``digitorn-code``.
+while talking to one app are invisible inside another.
 
 Endpoints:
 

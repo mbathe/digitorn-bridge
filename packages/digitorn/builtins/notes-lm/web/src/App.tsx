@@ -51,7 +51,7 @@ export function App() {
     () =>
       Array.from(files.keys())
         .filter(
-          (p) => p.startsWith("sources/") || p.startsWith("attachments/"),
+          (p) => p.startsWith("attachments/") || p.startsWith("forms/"),
         )
         .sort(),
     [files],
@@ -89,73 +89,107 @@ export function App() {
   }, [files, selection.kind]);
 
   // Toast + system-prompt hint every time a new source lands under
-  // sources/. The hint flows into the next user turn via the SDK's
-  // useChat -> system_addendum path, so the LLM is aware that the
-  // user just curated something new and can prioritise reading it.
+  // attachments/. Single bucket regardless of how the file was added:
+  // iframe "+" button, chat composer paperclip, or agent-side URL
+  // fetch all converge here.
   const { addHint } = usePendingHints();
-  useResourceLifecycle({
-    channel: "files",
-    match: "sources/",
-    fireForInitial: false,
-    onCreate: (e) => {
-      const name = e.id.slice("sources/".length);
-      requestToast(`Source added: ${name}`, "info");
-      addHint(
-        `The user just added a new source via the iframe sidebar: ` +
-        `\`${e.id}\`. Discover the full corpus with WsGlob and read this ` +
-        `file with WsRead when answering the next question.`,
-      );
-    },
-  });
-
-  // Mirror the hint path for attachments uploaded via the chat composer
-  // paperclip. They land under attachments/<name> via the daemon's
-  // register_attachment, the LLM has no other signal that something
-  // arrived. fireForInitial: false so existing attachments from prior
-  // turns don't re-trigger on every iframe mount.
   useResourceLifecycle({
     channel: "files",
     match: "attachments/",
     fireForInitial: false,
     onCreate: (e) => {
       const name = e.id.slice("attachments/".length);
-      requestToast(`Attachment added: ${name}`, "info");
+      requestToast(`Source added: ${name}`, "success");
       addHint(
-        `The user just uploaded a file via the chat composer paperclip: ` +
-        `\`${e.id}\`. The extracted text is in the workspace. Read it with ` +
-        `WsRead before answering the next question if it's relevant.`,
+        `The user just added a new source: \`${e.id}\`. ` +
+        `Read it with \`WsRead("${e.id}")\` BEFORE answering the next ` +
+        `question. It contains the content the user is about to ask about.`,
       );
     },
   });
 
-  return (
-    <div className="app-shell">
-      <aside className="pane">
-        <header className="pane-header">
-          <div className="pane-header-title">
-            <h2>Sources</h2>
-            <span className="count" aria-label="connection status">
-              <span
-                className={`status-dot ${connected ? "connected" : ""}`}
-                title={connected ? "Live" : "Disconnected"}
-              />{" "}
-              {sourceFiles.length}
-            </span>
-          </div>
-          <AddSourceButton
-            onAdded={(path) => setSelection({ kind: "file", path })}
-          />
-        </header>
-        <div className="pane-body">
-          <SourceList
-            files={files}
-            selection={selection}
-            onSelect={(path) => setSelection({ kind: "file", path })}
-          />
-        </div>
-      </aside>
+  // Forms — when the agent writes a new schema, toast + auto-select so
+  // the user sees the rendered form immediately.
+  useResourceLifecycle({
+    channel: "files",
+    match: "forms/",
+    fireForInitial: false,
+    onCreate: (e) => {
+      if (!e.id.toLowerCase().endsWith(".json")) return;
+      const name = e.id.slice("forms/".length);
+      requestToast(`Form ready: ${name}`, "success");
+      if (selectionRef.current.kind === "welcome") {
+        setSelection({ kind: "file", path: e.id });
+      }
+    },
+  });
 
-      <main className="pane">
+  // Form submissions — the FormViewer itself pushes a hint via
+  // ``usePendingHints``, but ALSO surface a toast here so the user
+  // sees their submission saved + the agent's next-turn awareness in
+  // sync.
+  useResourceLifecycle({
+    channel: "files",
+    match: "responses/",
+    fireForInitial: false,
+    onCreate: (e) => {
+      const name = e.id.slice("responses/".length);
+      requestToast(`Response saved: ${name}`, "info");
+    },
+  });
+
+  const [sourcesCollapsed, setSourcesCollapsed] = useState(false);
+  const [studioCollapsed, setStudioCollapsed] = useState(false);
+
+  const shellClass =
+    "app-shell" +
+    (sourcesCollapsed ? " sources-collapsed" : "") +
+    (studioCollapsed ? " studio-collapsed" : "");
+
+  return (
+    <div className={shellClass}>
+      {sourcesCollapsed ? (
+        <CollapsedStrip
+          label="Sources"
+          count={sourceFiles.length}
+          onExpand={() => setSourcesCollapsed(false)}
+          side="left"
+        />
+      ) : (
+        <aside className="pane pane-sources">
+          <header className="pane-header">
+            <div className="pane-header-title">
+              <h2>Sources</h2>
+              <span className="count" aria-label="connection status">
+                <span
+                  className={`status-dot ${connected ? "connected" : ""}`}
+                  title={connected ? "Live" : "Disconnected"}
+                />{" "}
+                {sourceFiles.length}
+              </span>
+            </div>
+            <div className="pane-header-actions">
+              <AddSourceButton
+                onAdded={(path) => setSelection({ kind: "file", path })}
+              />
+              <CollapseButton
+                side="left"
+                onClick={() => setSourcesCollapsed(true)}
+                label="Hide sources"
+              />
+            </div>
+          </header>
+          <div className="pane-body">
+            <SourceList
+              files={files}
+              selection={selection}
+              onSelect={(path) => setSelection({ kind: "file", path })}
+            />
+          </div>
+        </aside>
+      )}
+
+      <main className="pane pane-viewer">
         <Viewer
           files={files}
           selection={selection}
@@ -165,19 +199,88 @@ export function App() {
         />
       </main>
 
-      <aside className="pane">
-        <header className="pane-header">
-          <h2>Studio</h2>
-          <span className="count">{fileCount} files</span>
-        </header>
-        <div className="pane-body">
-          <Studio
-            files={files}
-            selection={selection}
-            onSelect={(id) => setSelection({ kind: "artefact", id })}
-          />
-        </div>
-      </aside>
+      {studioCollapsed ? (
+        <CollapsedStrip
+          label="Studio"
+          count={fileCount}
+          onExpand={() => setStudioCollapsed(false)}
+          side="right"
+        />
+      ) : (
+        <aside className="pane pane-studio">
+          <header className="pane-header">
+            <div className="pane-header-title">
+              <h2>Studio</h2>
+              <span className="count">{fileCount} files</span>
+            </div>
+            <CollapseButton
+              side="right"
+              onClick={() => setStudioCollapsed(true)}
+              label="Hide studio"
+            />
+          </header>
+          <div className="pane-body">
+            <Studio
+              files={files}
+              selection={selection}
+              onSelect={(id) => setSelection({ kind: "artefact", id })}
+            />
+          </div>
+        </aside>
+      )}
     </div>
+  );
+}
+
+function CollapseButton({
+  side,
+  onClick,
+  label,
+}: {
+  side: "left" | "right";
+  onClick: () => void;
+  label: string;
+}) {
+  // Chevron points TOWARD the edge the pane collapses to.
+  const symbol = side === "left" ? "‹" : "›";
+  return (
+    <button
+      type="button"
+      className="pane-collapse-btn"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+    >
+      {symbol}
+    </button>
+  );
+}
+
+function CollapsedStrip({
+  label,
+  count,
+  onExpand,
+  side,
+}: {
+  label: string;
+  count: number;
+  onExpand: () => void;
+  side: "left" | "right";
+}) {
+  // Chevron points AWAY from the edge (toward the center) to signal
+  // expansion. Mirror of the collapse direction.
+  const symbol = side === "left" ? "›" : "‹";
+  return (
+    <button
+      type="button"
+      className={`pane-collapsed-strip strip-${side}`}
+      onClick={onExpand}
+      title={`Expand ${label}`}
+      aria-label={`Expand ${label}`}
+    >
+      <span className="strip-chevron">{symbol}</span>
+      <span className="strip-label">{label}</span>
+      <span className="strip-count">{count}</span>
+    </button>
   );
 }

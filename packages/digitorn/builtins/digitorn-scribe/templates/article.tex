@@ -1,0 +1,86 @@
+% =====================================================================
+% Scribe — article template (single-file paper).
+% Canonical preamble: grouped by category, no deprecated patterns.
+% Replace {{TITLE}}, {{AUTHOR}}, {{DATE}}, {{ABSTRACT}} when scaffolding.
+% =====================================================================
+\documentclass[11pt,a4paper]{article}
+
+% ── 1. Encoding & language ──────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}           % swap to [french] for FR docs
+\usepackage{csquotes}                  % \enquote{...}
+
+% ── 2. Layout & typography ──────────────────────────────────────────
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{microtype}
+\usepackage{parskip}                   % blank-line paragraph breaks
+
+% ── 3. Math ─────────────────────────────────────────────────────────
+\usepackage{amsmath, amssymb, amsthm, mathtools}
+
+% ── 4. Graphics & tables ────────────────────────────────────────────
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+\usepackage{subcaption}
+\usepackage{booktabs}
+
+% ── 5. Refs & links (hyperref BEFORE cleveref) ──────────────────────
+\usepackage[colorlinks=true,
+            linkcolor=blue!50!black,
+            citecolor=blue!50!black,
+            urlcolor=blue!50!black]{hyperref}
+\usepackage[capitalize,noabbrev]{cleveref}
+
+% ── 6. Bibliography (biblatex + biber) ──────────────────────────────
+\usepackage[style=authoryear,backend=biber]{biblatex}
+\addbibresource{references.bib}
+
+% ── 7. Custom macros ────────────────────────────────────────────────
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\Z}{\mathbb{Z}}
+\DeclareMathOperator*{\argmin}{arg\,min}
+\DeclareMathOperator*{\argmax}{arg\,max}
+
+% ── Document metadata ──────────────────────────────────────────────
+\title{{{TITLE}}}
+\author{{{AUTHOR}}}
+\date{{{DATE}}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+{{ABSTRACT}}
+\end{abstract}
+
+\section{Introduction}
+\label{sec:introduction}
+
+% Hook + motivation + contributions list.
+
+\section{Related Work}
+\label{sec:related}
+
+% Survey of prior art with \cite{}.
+
+\section{Method}
+\label{sec:method}
+
+% Core idea, formalization, algorithms.
+
+\section{Experiments}
+\label{sec:experiments}
+
+% Setup, baselines, results with \cref{fig:...} / \cref{tab:...}.
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+% Summary + limitations + future work.
+
+\printbibliography
+
+\end{document}

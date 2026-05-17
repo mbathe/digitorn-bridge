@@ -116,7 +116,7 @@ class LspProtocol(FeedbackProtocol):
                 on_notification=self._on_notification,
             )
 
-            ws_uri = f"file://{Path(cwd).resolve()}" if cwd else "file:///tmp"
+            ws_uri = Path(cwd).resolve().as_uri() if cwd else "file:///tmp"
             await self._channel.request("initialize", {
                 "processId": None,
                 "capabilities": {
@@ -146,8 +146,16 @@ class LspProtocol(FeedbackProtocol):
         if not self._channel or self._channel.status != "connected":
             return
 
-        resolved = str(Path(path).resolve())
-        uri = f"file://{resolved}"
+        # ``Path.as_uri()`` builds a *valid* file:// URI for the host
+        # OS. The legacy ``f"file://{Path(path).resolve()}"`` shape
+        # produced ``file://C:\Users\...`` on Windows (backslashes,
+        # two slashes), which pyright / tsserver accept silently on
+        # didOpen but then can't match against hover / goto requests
+        # using normalised slashes. ``as_uri`` returns
+        # ``file:///C:/Users/...`` (three slashes, forward slashes) --
+        # the canonical RFC 8089 shape both servers expect.
+        resolved_path = Path(path).resolve()
+        uri = resolved_path.as_uri()
 
         if content is None:
             # Off-loop: ``Path.read_text`` is sync. Called for every
@@ -195,7 +203,7 @@ class LspProtocol(FeedbackProtocol):
             logger.debug("lsp_notify_error name=%s path=%s: %s", self._name, path, exc)
 
     def get_diagnostics(self, path: str) -> list[Diagnostic]:
-        uri = f"file://{Path(path).resolve()}"
+        uri = Path(path).resolve().as_uri()
         raw = self._cached.get(uri, [])
         return parse_lsp_diagnostics(raw, path)
 
@@ -282,10 +290,39 @@ class CompilerProtocol(FeedbackProtocol):
 
         cwd = self._cwd or str(Path(path).parent)
 
+        # Compose the argv. Project-wide compilers (``cargo check``,
+        # ``go vet``) walk the whole crate / module from their cwd and
+        # would choke on a bare file path. Single-file compilers
+        # (``tsc --noEmit``, ``javac``, ``gcc -fsyntax-only``) need the
+        # file appended explicitly -- without it, tsc returns no
+        # inputs and the audit reports zero diagnostics for an
+        # obviously broken .ts. We detect the project-wide tools by
+        # name and skip the append for them.
+        _PROJECT_WIDE = {"cargo", "go"}
+        first = (self._command[0] if self._command else "").lower()
+        first_base = first.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        # Strip a ``.exe`` suffix on Windows so the check fires for
+        # both ``cargo`` and ``cargo.exe``.
+        if first_base.endswith(".exe"):
+            first_base = first_base[:-4]
+        argv = list(self._command)
+        if first_base not in _PROJECT_WIDE:
+            argv.append(path)
+
+        # Windows: asyncio.create_subprocess_exec uses CreateProcessW
+        # which does NOT honour PATHEXT for ``.cmd`` / ``.bat`` wrappers
+        # (``tsc``, ``npm``, ``yarn`` ship as .cmd shims). shutil.which
+        # does honour PATHEXT, so we pre-resolve the full path here and
+        # let CreateProcessW load it directly. POSIX: shutil.which is a
+        # no-op when the binary is already absolute or on PATH.
+        _resolved_exe = shutil.which(argv[0])
+        if _resolved_exe:
+            argv[0] = _resolved_exe
+
         async with self._lock:
             try:
                 proc = await asyncio.create_subprocess_exec(
-                    *self._command,
+                    *argv,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=cwd,
@@ -306,6 +343,11 @@ class CompilerProtocol(FeedbackProtocol):
 
             except asyncio.TimeoutError:
                 logger.warning("compiler_timeout name=%s", self._name)
+            except FileNotFoundError:
+                logger.warning(
+                    "compiler_not_found name=%s cmd=%s",
+                    self._name, argv[0],
+                )
             except Exception as exc:
                 logger.warning("compiler_error name=%s: %s", self._name, exc)
 
@@ -382,20 +424,15 @@ class LinterProtocol(FeedbackProtocol):
 
         cwd = self._cwd or str(Path(path).parent)
 
-        def _dbg(stage: str, **kw: Any) -> None:
-            try:
-                from pathlib import Path as _P
-                logp = _P.home() / ".digitorn" / "logs" / "lsp_linter_debug.log"
-                logp.parent.mkdir(parents=True, exist_ok=True)
-                with open(logp, "a", encoding="utf-8") as f:
-                    f.write(
-                        f"[{stage}] name={self._name} path={path} cwd={cwd} "
-                        f"parts={parts} {kw}\n"
-                    )
-            except Exception:
-                pass
+        # Resolve the binary via shutil.which (honours PATHEXT for
+        # ``.cmd`` / ``.bat`` shims that asyncio.create_subprocess_exec
+        # would otherwise miss on Windows). Matches CompilerProtocol's
+        # behaviour; no-op when ``parts[0]`` is already an absolute
+        # path or on POSIX.
+        _resolved = shutil.which(parts[0])
+        if _resolved:
+            parts[0] = _resolved
 
-        _dbg("start")
         try:
             proc = await asyncio.create_subprocess_exec(
                 *parts,
@@ -410,22 +447,13 @@ class LinterProtocol(FeedbackProtocol):
             parser = get_parser(self._parser_name)
             diags = parser(stdout_str, stderr_str)
             self._cached[path] = diags
-            _dbg(
-                "done", returncode=proc.returncode,
-                stdout_len=len(stdout_str), stderr_len=len(stderr_str),
-                stdout_head=stdout_str[:300], stderr_head=stderr_str[:300],
-                diags=len(diags),
-            )
 
         except asyncio.TimeoutError:
             logger.warning("linter_timeout name=%s", self._name)
-            _dbg("timeout")
-        except FileNotFoundError as exc:
+        except FileNotFoundError:
             logger.warning("linter_not_found name=%s cmd=%s", self._name, parts[0])
-            _dbg("file_not_found", exc=repr(exc))
         except Exception as exc:
             logger.warning("linter_error name=%s: %s", self._name, exc)
-            _dbg("exception", exc=repr(exc), type=type(exc).__name__)
 
     def get_diagnostics(self, path: str) -> list[Diagnostic]:
         return self._cached.get(path, [])

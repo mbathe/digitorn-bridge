@@ -43,5 +43,5 @@ tags = ["builder", "react", "no-code", "lovable", "templates", "official"]
 
 [package.release]
 released_at = "2026-05-09"
-release_notes = "Initial release — fork of digitorn-react-sandbox with the new templates gallery: portfolio-minimal seeded, more starters incoming."
+release_notes = "Initial release with the new templates gallery: portfolio-minimal seeded, more starters incoming."
 breaking = false

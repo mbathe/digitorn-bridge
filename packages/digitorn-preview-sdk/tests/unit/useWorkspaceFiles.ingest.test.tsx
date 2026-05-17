@@ -97,7 +97,7 @@ describe("useWorkspaceFiles.ingestFile", () => {
     return handleRef.current!;
   }
 
-  it("POSTs multipart to /workspace/ingest-source with target_dir=sources", async () => {
+  it("POSTs multipart to /workspace/ingest-source with target_dir=attachments (default)", async () => {
     const h = await mount();
     const file = new File(["hello world"], "notes.md", { type: "text/markdown" });
     const result = await h.ingestFile(file);
@@ -105,20 +105,19 @@ describe("useWorkspaceFiles.ingestFile", () => {
     expect(captured).toHaveLength(1);
     expect(captured[0].method).toBe("POST");
     expect(captured[0].url).toMatch(/\/workspace\/ingest-source$/);
-    expect(captured[0].body?.get("target_dir")).toBe("sources");
+    expect(captured[0].body?.get("target_dir")).toBe("attachments");
     const sent = captured[0].body?.get("file");
     expect(sent).toBeInstanceOf(File);
     expect((sent as File).name).toBe("notes.md");
     expect(result.path).toBe("sources/test.md");
     expect(result.lines).toBe(42);
-    expect(result.target_dir).toBe("sources");
   });
 
-  it("forwards opts.targetDir to the daemon", async () => {
+  it("forwards opts.targetDir override to the daemon", async () => {
     const h = await mount();
     const file = new File(["x"], "x.pdf", { type: "application/pdf" });
-    await h.ingestFile(file, { targetDir: "attachments" });
-    expect(captured[0].body?.get("target_dir")).toBe("attachments");
+    await h.ingestFile(file, { targetDir: "sources" });
+    expect(captured[0].body?.get("target_dir")).toBe("sources");
   });
 
   it("uses opts.filename when provided (override)", async () => {

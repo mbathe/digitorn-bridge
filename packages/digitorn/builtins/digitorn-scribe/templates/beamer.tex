@@ -1,0 +1,98 @@
+% =====================================================================
+% Scribe — Beamer slides template.
+% Modern, no deprecated patterns. Theme: metropolis (install via tlmgr
+% if missing; fallback to default).
+% =====================================================================
+\documentclass[aspectratio=169,11pt]{beamer}
+
+% ── 1. Encoding & language ──────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+
+% ── 2. Theme & typography ───────────────────────────────────────────
+\usetheme{metropolis}                  % falls back gracefully if missing
+\usepackage{microtype}
+
+% ── 3. Math ─────────────────────────────────────────────────────────
+\usepackage{amsmath, amssymb, mathtools}
+
+% ── 4. Graphics ─────────────────────────────────────────────────────
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+
+% ── 5. Refs ─────────────────────────────────────────────────────────
+\usepackage[colorlinks=true,linkcolor=blue!60!black]{hyperref}
+
+% ── 6. Custom macros ────────────────────────────────────────────────
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+
+% ── Metadata ────────────────────────────────────────────────────────
+\title{{{TITLE}}}
+\subtitle{{{SUBTITLE}}}
+\author{{{AUTHOR}}}
+\institute{{{INSTITUTE}}}
+\date{{{DATE}}}
+
+\begin{document}
+
+\maketitle
+
+\begin{frame}{Outline}
+  \tableofcontents
+\end{frame}
+
+\section{Introduction}
+
+\begin{frame}{Motivation}
+  \begin{itemize}
+    \item Why does this problem matter?
+    \item What is the current state of the art?
+    \item What gap do we address?
+  \end{itemize}
+\end{frame}
+
+\section{Method}
+
+\begin{frame}{Approach}
+  Core idea in 3-5 bullets.
+  \begin{itemize}
+    \item First principle
+    \item Second principle
+    \item Concrete instantiation
+  \end{itemize}
+\end{frame}
+
+\begin{frame}{Formalization}
+  \[
+    \arg\min_{\theta \in \Theta}\; \E_{x \sim p(x)} \bigl[ \ell(f_\theta(x), y) \bigr]
+  \]
+\end{frame}
+
+\section{Experiments}
+
+\begin{frame}{Results}
+  \begin{figure}[ht]
+    \centering
+    % \includegraphics[width=0.7\linewidth]{plot.pdf}
+    \caption{Main result.}
+    \label{fig:main-result}
+  \end{figure}
+\end{frame}
+
+\section{Conclusion}
+
+\begin{frame}{Takeaways}
+  \begin{itemize}
+    \item Key finding 1
+    \item Key finding 2
+    \item Open question
+  \end{itemize}
+\end{frame}
+
+\begin{frame}[standout]
+  Questions?
+\end{frame}
+
+\end{document}

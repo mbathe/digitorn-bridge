@@ -42,7 +42,7 @@ Triggered by "study guide", "revision", "quiz me", "test myself", "key concepts"
 
    ## Sources
 
-   [^1]: sources/foo.md:L42-L42 — "verbatim quote"
+   [^1]: attachments/foo.md:L42-L42 — "verbatim quote"
    ````
 
 4. Reply ONE line: `Study guide written to study_guide.md (<N> concepts, <M> FAQ, 10 quiz questions).`

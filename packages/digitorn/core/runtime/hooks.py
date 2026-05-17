@@ -31,6 +31,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Awaitable
 
+from digitorn.core.runtime.system_directive import inject_system_directive
+
 logger = logging.getLogger(__name__)
 
 
@@ -486,18 +488,31 @@ async def _exec_compact_context(
     recent_messages_before = list(to_keep)  # freeze for tool-example extraction
 
     summary_text: str = ""
+    full_injected_note: str = ""
     if strategy == "truncate":
-        summary_text = _do_truncate(
+        summary_text, full_injected_note = _do_truncate(
             messages, system_msg, to_compact, to_keep, context_reminder,
         )
     elif strategy == "summarize":
-        summary_text = await _do_summarize(
+        summary_text, full_injected_note = await _do_summarize(
             state, messages, system_msg, to_compact, to_keep,
             provider=provider,
             context_builder=context_builder,
             summary_max_tokens=summary_max_tokens,
             summary_prompt=params.get("summary_prompt"),
             context_reminder=context_reminder,
+        )
+
+    # Persist the post-compaction system note as a durable event so it
+    # survives daemon restart with the canonical seq. The local mutation
+    # was already done by _do_truncate / _do_summarize; we only emit the
+    # event here for the timeline.
+    if full_injected_note:
+        await inject_system_directive(
+            state._agent_context,
+            content=full_injected_note,
+            source="compaction_summary",
+            metadata={"strategy": strategy, "compacted": len(to_compact)},
         )
 
     max_msg_chars = max((state.max_context_tokens // 10) * 4, 4000)
@@ -526,6 +541,66 @@ async def _exec_compact_context(
         "hook_compact: %s - %d msgs compacted, %d kept, pressure: %.1f%%",
         strategy, len(to_compact), len(to_keep), new_pressure * 100,
     )
+
+    # ── Durable persistence + metric counter ──────────────────────────
+    # Without this block the in-memory ``messages`` list shrinks but
+    # the SessionStore projection (built from ``user_message`` /
+    # ``assistant_message`` events) never drops. Next turn loads
+    # ``persisted_messages`` from the store, fills ``session.messages``
+    # back with the FULL history, and the same hook fires + compacts
+    # again — for the LLM call only, with zero durable effect. Mirror
+    # the trim into the store exactly like the reactive overflow
+    # path in ``agent_loop.py::agent_turn`` after
+    # ``emergency_compact``. Also bump the session metric counter so
+    # ``/context-breakdown`` reflects the work that happened instead
+    # of staying stuck at zero.
+    agent_ctx = state._agent_context
+    if agent_ctx is not None:
+        try:
+            from digitorn.core.runtime.session_store.bridge import (
+                get_default_bridge,
+            )
+            from digitorn.core.runtime.session_metrics import (
+                get_session_metrics,
+            )
+            bridge = get_default_bridge()
+            sid_for_compact = getattr(agent_ctx, "session_id", None)
+            if bridge is not None and sid_for_compact:
+                store_state = bridge.store.state(sid_for_compact)
+                if store_state is not None and store_state.messages:
+                    keep_count = len(to_keep)
+                    state_msgs = store_state.messages
+                    cutoff_idx = max(0, len(state_msgs) - keep_count)
+                    if cutoff_idx > 0:
+                        cutoff_seq = int(state_msgs[cutoff_idx - 1].seq)
+                        await bridge.store.compact_session(
+                            sid_for_compact,
+                            cutoff_seq=cutoff_seq,
+                            summary=(
+                                f"[Proactive hook {strategy}: "
+                                f"{len(to_compact)} older messages removed, "
+                                f"{int(tokens_before)} -> {int(tokens_after)} tokens]"
+                            ),
+                            strategy=strategy,
+                            tokens_estimate=int(tokens_after),
+                            model=str(getattr(agent_ctx, "model", "") or ""),
+                        )
+            try:
+                _app_id = getattr(agent_ctx, "app_id", "") or "default"
+                _agent_id = getattr(agent_ctx, "agent_id", "") or "main"
+                _sm = get_session_metrics(
+                    _app_id, sid_for_compact or "default", _agent_id,
+                )
+                _sm.context.compactions += 1
+            except Exception:
+                pass
+        except Exception as exc:
+            logger.warning(
+                "hook_compact: durable persist failed (%s); LLM call "
+                "still benefits from the in-memory trim but next turn "
+                "will reload the full history from the store",
+                exc,
+            )
 
     # Durable persistence: emit the compaction event with the full
     # snapshot payload so a later rebuild can resume from here without
@@ -731,11 +806,14 @@ def _do_truncate(
     to_compact: list[dict[str, Any]],
     to_keep: list[dict[str, Any]],
     context_reminder: str = "",
-) -> str:
+) -> tuple[str, str]:
     """Truncate strategy: drop old messages, inject a note + context reminder.
 
-    Returns the summary note (without the context reminder) so the caller
-    can persist it in the durable ``compaction`` event payload.
+    Returns ``(summary_note, full_injected_note)``: the bare summary is
+    used by the durable ``compaction`` event payload; the full string
+    (summary + context_reminder) is the exact text appended to the
+    chat as a system message and is persisted separately as a
+    ``system_message`` event so the directive lands at a canonical seq.
     """
     new_messages = []
     if system_msg:
@@ -748,15 +826,16 @@ def _do_truncate(
         note_parts.append("")
         note_parts.append(context_reminder)
 
+    full_injected_note = "\n".join(note_parts)
     new_messages.append({
         "role": "system",
-        "content": "\n".join(note_parts),
+        "content": full_injected_note,
     })
     new_messages.extend(to_keep)
 
     messages.clear()
     messages.extend(new_messages)
-    return summary_note
+    return summary_note, full_injected_note
 
 
 async def _do_summarize(
@@ -771,13 +850,15 @@ async def _do_summarize(
     summary_max_tokens: int = 1024,
     summary_prompt: str | None = None,
     context_reminder: str = "",
-) -> str:
+) -> tuple[str, str]:
     """Summarize strategy: use LLM to compress old messages.
 
-    Returns the LLM-generated summary text (without the context reminder)
-    so the caller can persist it in the durable ``compaction`` event
-    payload. On LLM failure falls back to :func:`_do_truncate` and returns
-    its note instead.
+    Returns ``(summary_text, full_injected_note)``: the bare summary is
+    used by the durable ``compaction`` event payload; the full string
+    (summary + context_reminder) is the exact text appended to the
+    chat as a system message and is persisted separately as a
+    ``system_message`` event. On LLM failure falls back to
+    :func:`_do_truncate`.
     """
     if provider is None:
         logger.warning("hook_compact: no provider for summarize, falling back to truncate")
@@ -856,21 +937,22 @@ async def _do_summarize(
         summary_parts.append("")
         summary_parts.append(context_reminder)
 
+    full_injected_note = "\n".join(summary_parts)
     new_messages = []
     if system_msg:
         new_messages.append(system_msg)
     new_messages.append({
         "role": "system",
-        "content": "\n".join(summary_parts),
+        "content": full_injected_note,
     })
     new_messages.extend(to_keep)
 
     messages.clear()
     messages.extend(new_messages)
-    return summary_text
+    return summary_text, full_injected_note
 
 
-@register_action("inject_message", params={"content": "required", "role": "optional", "placeholder": "optional"})
+@register_action("inject_message", params={"content": "required", "role": "optional", "placeholder": "optional", "strategy": "optional", "position": "optional"})
 async def _exec_inject_message(
     state: TurnState,
     params: dict[str, Any],
@@ -902,6 +984,8 @@ async def _exec_inject_message(
         logger.warning("hook_inject: no content specified")
         return
 
+    ctx = getattr(state, "_agent_context", None)
+
     if strategy in ("auto", "user"):
         # Append to the last user message - guaranteed visible to the LLM
         for i in range(len(state.messages) - 1, -1, -1):
@@ -918,20 +1002,48 @@ async def _exec_inject_message(
         for msg in state.messages:
             if msg.get("role") == "system" and isinstance(msg.get("content"), str):
                 msg["content"] = msg["content"] + f"\n\n{content}"
+                # Persist the NEW content as a separate system_message event
+                # so the directive survives daemon restart. On replay the
+                # injection appears as its own message in seq order rather
+                # than as an opaque mutation of an unpersisted base prompt.
+                await inject_system_directive(
+                    ctx,
+                    content=content,
+                    source="hook_inject_message",
+                    metadata={"strategy": "system", "merged_inflight": True},
+                )
                 logger.debug("hook_inject: appended to system prompt")
                 return
         # No system message - create one at the start
-        state.messages.insert(0, {"role": "system", "content": content})
+        await inject_system_directive(
+            ctx,
+            content=content,
+            source="hook_inject_message",
+            messages=state.messages,
+            position="prepend",
+            metadata={"strategy": "system", "created_new": True},
+        )
         logger.debug("hook_inject: created new system message")
         return
 
     # strategy == "new_message" - raw insert (may break alternation)
-    new_msg = {"role": role, "content": content}
-    if position == "end":
-        state.messages.append(new_msg)
+    if role == "system":
+        position_kind = "append" if position == "end" else "insert_before_last"
+        await inject_system_directive(
+            ctx,
+            content=content,
+            source="hook_inject_message",
+            messages=state.messages,
+            position=position_kind,
+            metadata={"strategy": "new_message"},
+        )
     else:
-        idx = max(len(state.messages) - 1, 0)
-        state.messages.insert(idx, new_msg)
+        new_msg = {"role": role, "content": content}
+        if position == "end":
+            state.messages.append(new_msg)
+        else:
+            idx = max(len(state.messages) - 1, 0)
+            state.messages.insert(idx, new_msg)
     logger.debug("hook_inject: inserted %s message at %s", role, position)
 
 
@@ -1144,10 +1256,16 @@ async def _exec_module_action_inject(
         if message_text is None:
             return  # Nothing to inject (no errors in "auto" mode)
 
-        # Inject as system message before the last message
-        msg = {"role": "system", "content": message_text}
-        idx = max(len(state.messages) - 1, 0)
-        state.messages.insert(idx, msg)
+        # Inject as system message before the last message. Persist as
+        # a ``system_message`` event so the diagnostics survive restart.
+        await inject_system_directive(
+            getattr(state, "_agent_context", None),
+            content=message_text,
+            source="hook_inject_message",
+            messages=state.messages,
+            position="insert_before_last",
+            metadata={"action": name, "via": "module_action_inject"},
+        )
 
         logger.info("hook_module_action_inject: %s → injected diagnostics", name)
 
@@ -1443,10 +1561,13 @@ async def _exec_shell(
             result.error,
         )
         if on_error == "inject":
-            state.messages.append({
-                "role": "system",
-                "content": f"[Hook shell blocked] {result.error}"[:500],
-            })
+            await inject_system_directive(
+                getattr(state, "_agent_context", None),
+                content=f"[Hook shell blocked] {result.error}"[:500],
+                source="hook_shell_blocked",
+                messages=state.messages,
+                metadata={"command": command, "error": str(result.error or "")},
+            )
         return
 
     data = result.data if isinstance(result.data, dict) else {}
@@ -1455,18 +1576,24 @@ async def _exec_shell(
     exit_code = int(data.get("exit_code", 0) or 0)
 
     if exit_code != 0 and on_error == "inject":
-        state.messages.append({
-            "role": "system",
-            "content": (
+        await inject_system_directive(
+            getattr(state, "_agent_context", None),
+            content=(
                 f"[Hook shell error] Command: {command}\n"
                 f"Exit: {exit_code}\n{stderr_str[:500]}"
             ),
-        })
+            source="hook_shell_error",
+            messages=state.messages,
+            metadata={"command": command, "exit_code": exit_code},
+        )
     elif inject and stdout_str:
-        state.messages.append({
-            "role": "system",
-            "content": f"[Hook shell] {stdout_str[:2000]}",
-        })
+        await inject_system_directive(
+            getattr(state, "_agent_context", None),
+            content=f"[Hook shell] {stdout_str[:2000]}",
+            source="hook_shell_stdout",
+            messages=state.messages,
+            metadata={"command": command, "stdout_len": len(stdout_str)},
+        )
     logger.info(
         "hook_shell: exit=%d stdout=%d stderr=%d",
         exit_code, len(stdout_str), len(stderr_str),
@@ -1568,7 +1695,13 @@ async def _exec_transform_result(
             tool_ctx.tool_result = str(tool_ctx.tool_result) + "\n" + append
 
     if note:
-        state.messages.append({"role": "system", "content": note})
+        await inject_system_directive(
+            getattr(state, "_agent_context", None),
+            content=note,
+            source="hook_summary",
+            messages=state.messages,
+            metadata={"action": "transform_result"},
+        )
 
 
 @register_action("chain", params={"actions": "required"})

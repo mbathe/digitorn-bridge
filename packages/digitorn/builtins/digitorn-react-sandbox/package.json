@@ -1,6 +1,0 @@
-{
-  "name": "digitorn-react-sandbox",
-  "version": "0.1.0",
-  "description": "Builtin Digitorn app: AI generates a React app, browser compiles it live with esbuild-wasm.",
-  "private": true
-}

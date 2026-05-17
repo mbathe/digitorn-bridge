@@ -6,8 +6,8 @@ Create Date: 2026-05-16
 
 Stores the prompt templates the chat composer's "Insert snippet" menu
 hands the user. Scoped per ``(user_id, app_id)`` so each agent has its
-own personal library — the snippets the user builds while talking to
-``copilot-smoke`` don't appear when they switch to ``digitorn-code``.
+own personal library — snippets built in one app don't appear when the
+user switches to another.
 
 Columns:
 

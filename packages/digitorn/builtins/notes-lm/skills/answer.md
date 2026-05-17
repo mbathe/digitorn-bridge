@@ -6,7 +6,7 @@ Default skill for ANY question that isn't a /briefing or /audio_overview etc.
 
 ### 1. Discover what's available
 
-Call `WsGlob("sources/**")` AND `WsGlob("attachments/**")`. Combine. If the combined list is empty, refuse:
+Call `WsGlob("attachments/**")`. If empty, refuse:
 
 `"No sources yet. Paste a URL or upload a file, then ask again."` (1 line)
 
@@ -30,7 +30,7 @@ Be CONSERVATIVE. Don't read every file every turn — it bloats the context.
 - Footnote block at the end:
 
   ```text
-  [^1]: sources/foo.md:L42-L46 — "verbatim quote"
+  [^1]: attachments/foo.md:L42-L46 — "verbatim quote"
   [^2]: attachments/report.pdf:p.14 — "verbatim quote"
   ```
 

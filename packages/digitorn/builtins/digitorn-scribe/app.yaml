@@ -1,0 +1,241 @@
+app:
+  app_id: digitorn-scribe
+  name: Scribe
+  short_name: Scribe
+  version: "1.0.0"
+  description: >-
+    Expert LaTeX writing assistant. Tight compile-feedback loop (tectonic),
+    LSP-aware refactoring (texlab), style hygiene (chktex), Supreme Coach
+    that calibrates strategy per request.
+  category: writing
+  icon: "📜"
+  color: "#8B5CF6"
+  author: Digitorn
+  tags:
+    - writing
+    - latex
+    - academic
+    - coach
+    - lsp
+  quick_prompts:
+    - label: Nouveau papier
+      icon: 📄
+      message: "Démarre un nouveau papier d'article LaTeX sur ce sujet : "
+    - label: Nouvelle thèse
+      icon: 📚
+      message: "Scaffold une structure de thèse multi-chapitre. Sujet : "
+    - label: Slides Beamer
+      icon: 🎓
+      message: "Crée une présentation Beamer de 10-15 slides sur : "
+    - label: Corrige les erreurs
+      icon: 🔧
+      message: "Compile main.tex et corrige toutes les erreurs tectonic + chktex."
+    - label: Renomme un label
+      icon: 🏷️
+      message: "Renomme tous les <fig:XXX> en <fig:YYY> et mets à jour toutes les refs."
+    - label: Ajoute une citation
+      icon: 📑
+      message: "Ajoute cette entrée BibTeX et insère la citation : "
+    - label: Passe de style
+      icon: ✨
+      message: "Fais une passe stylistique (chktex warnings, typographie, cohérence)."
+
+runtime:
+  mode: conversation
+  workdir_mode: auto
+  tool_injection: direct
+  direct_modules:
+    - workspace
+    - lsp
+    - memory
+  max_turns: 100
+  timeout: 1800
+  hooks:
+    # The LSP diagnose hook fires on every workspace mutation. It is
+    # the canonical wire from a write/edit to the agent's `lint` field
+    # so the compile-feedback loop is automatic — the agent never has
+    # to call lsp.diagnostics manually.
+    - id: lint-after-write
+      "on": tool_end
+      condition:
+        type: tool_name
+        match: ["workspace.write", "workspace.edit", "write", "edit"]
+      action:
+        type: lsp_diagnose
+        inject_result: true
+        publish: true
+        read_from_disk: false
+
+modules:
+  preview: {}
+  # web_preview: serves ``web/dist/index.html`` at
+  # ``/api/apps/digitorn-scribe/preview/`` via the daemon's
+  # auto_attach_bundled_dist on session start. Custom iframe with the
+  # LaTeX editor + PDF preview side-by-side.
+  web_preview: {}
+  workspace:
+    config:
+      # ``react`` is informational here -- the actual rendering is our
+      # static React bundle in web/dist. Anything other than ``code``
+      # makes the host show the preview iframe.
+      render_mode: react
+      entry_file: main.tex
+      title: "Scribe LaTeX project"
+      sync_to_disk: true
+      lint: true
+      instructions: |
+        You are editing a LaTeX project. All writes mirror to disk where
+        tectonic compiles them. After every write/edit, the response carries
+        a `lint` field with tectonic + chktex diagnostics — inspect it and
+        fix before continuing.
+      tool_instructions:
+        write: |
+          Always provide COMPLETE file content. Inspect the `lint` field of
+          the response: if `errors > 0`, fix root cause immediately (do NOT
+          delete content to silence errors). Preamble lives in main.tex
+          first half — keep it sorted by category (encoding → babel →
+          geometry → math → graphics → refs → biblio → custom macros).
+        edit: |
+          Surgical patches only. `old_string` must be unique. Same lint
+          inspection rule as write. For label renames, use replace_all=true
+          and pair with WsGrep across all .tex files first.
+        grep: |
+          BEFORE renaming a `\\label{X}` or a `\\newcommand{\\X}`: WsGrep
+          for `X` across the project to capture every `\\ref`, `\\autoref`,
+          `\\cref`, `\\cite`, or macro usage. Atomic batch replace prevents
+          dangling references after the edit.
+        read: |
+          Read main.tex first to learn the preamble + custom macros.
+          For multi-chapter projects, read the chapter file before editing
+          it — the rest of the doc may depend on its labels.
+  lsp:
+    config:
+      # Sprint 1: tectonic as the primary .tex protocol (compile mode).
+      # The LSP module currently routes one protocol per extension, so
+      # we pick the compile loop (the agent's most useful signal).
+      # texlab + chktex enrichment land in sprint 2 with a multi-protocol
+      # path so hover / goto / chktex warnings layer on top of tectonic.
+      servers:
+        tectonic:
+          command: "tectonic --keep-logs --print"
+          extensions: [".tex", ".bib", ".cls", ".sty"]
+          protocol: compiler
+          parser: tectonic
+  memory: {}
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      # github_copilot / gpt-5-mini relay (same config as notes-lm).
+      # The placeholder api_key is hot-swapped at session start by the
+      # gateway resolver against the user's Copilot creds. Tested
+      # working in the user's local setup -- the only known reliable
+      # provider in this env right now.
+      provider: github_copilot
+      backend: github_copilot
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+      temperature: 0.3
+      max_tokens: 8192
+      context:
+        max_tokens: 131072
+    system_prompt: "{{prompt.writer}}"
+
+security:
+  behavior:
+    profile: creative
+    classify_turns: true
+    brain:
+      # Same github_copilot relay as the writer agent -- the coach
+      # only runs once per turn (classification, small output) so
+      # using the same proven provider keeps the stack uniform.
+      provider: github_copilot
+      backend: github_copilot
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+      temperature: 0.1
+      max_tokens: 1024
+    classifier:
+      frequency: every_turn
+      skip_followups: true
+      timeout: 15
+      system_prompt: "{{prompt.coach}}"
+      context:
+        tool_inventory: true
+        session_state: true
+        workspace_info: true
+        recent_history: true
+        history_depth: 10
+      # LaTeX-specific archetypes (mapped onto the existing
+      # complexity / approach / risk taxonomy the engine expects).
+      complexity_levels:
+        - name: trivial
+          when: "1 sentence answer, no edit (e.g. 'how do I bold text?')"
+          behavior: "Reply in 1-3 sentences with a code snippet. NO tool calls."
+        - name: simple
+          when: "Single-file edit with clear target (add one paragraph, fix one tectonic error)"
+          behavior: "WsRead if context unclear → WsEdit → inspect lint → done."
+        - name: moderate
+          when: "Multi-section addition, scaffold from template, fix 3+ errors"
+          behavior: "WsRead the preamble + main.tex → state plan in 2-3 lines → WsWrite/WsEdit → compile → fix loop."
+        - name: complex
+          when: "Multi-file thesis change, package refactor, citation migration"
+          behavior: "WsGlob to enumerate files → WsRead key entry points → numbered plan in text → AskUser to validate → execute → verify with full compile."
+        - name: critical
+          when: "Class change (\\documentclass), preamble rewrite, mass label rename, delete chapter"
+          behavior: "MANDATORY AskUser before touching ANY file. Show exact diff plan. Snapshot mental state of what could break."
+      approaches:
+        - name: direct
+          label: Direct write
+          when: "Trivial/simple, well-scoped, single file"
+          behavior: "WsEdit/WsWrite immediately. Minimal text."
+        - name: read_first
+          label: Read then act
+          when: "Extending an existing doc or editing a file > 100 lines"
+          behavior: "WsRead the target + preamble → match style → edit. Preserves voice and macros."
+        - name: scaffold
+          label: Scaffold from template
+          when: "User asks for a NEW document (paper, thesis, slides)"
+          behavior: "WsRead templates/<class>.tex → WsWrite main.tex with substitutions → compile to verify."
+        - name: batch_replace
+          label: Atomic batch replace
+          when: "Renaming a label, macro, or citation key across the project"
+          behavior: "WsGrep target → WsEdit with replace_all=true on each file → recompile → verify zero 'undefined' warnings."
+        - name: iterate_compile
+          label: Tight compile loop
+          when: "Multiple errors in lint field, or unfamiliar package"
+          behavior: "Address ONE error at a time. After each WsEdit, re-read lint. Don't batch error fixes — root-cause each."
+        - name: explain_only
+          label: Explain, do not edit
+          when: "User asks 'why does X fail' or 'what's the right way to Y'"
+          behavior: "Answer in plain text with a minimal code snippet. NO writes until user explicitly asks."
+      risk_levels:
+        - name: none
+          when: "Read-only, questions, explanations"
+        - name: low
+          when: "Adding a paragraph, fixing a typo, adding a citation"
+        - name: medium
+          when: "Preamble changes, new \\usepackage, restructuring a section"
+          behavior: "State what is changing and why, in one sentence."
+        - name: high
+          when: "Class change, mass label rename, deleting >50 lines, dropping a package other content depends on"
+          behavior: "MUST AskUser with the exact target list. Explain breaking impact."
+      max_directives: 5
+      directive_prefix: "[SCRIBE COACH — {complexity} complexity, {risk} risk, approach: {approach_label}]"
+      high_risk_threshold: medium
+      high_risk_warning: "Risk: {risk}. AskUser before destructive / hard-to-reverse actions."
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: workspace
+      actions: [write, read, edit, glob, grep, delete]
+    - module: lsp
+      actions: [diagnostics, check, request, notify_change]
+    - module: memory
+      actions: [remember, set_goal, task_create, task_update]
+    - module: context_builder
+      actions: [ask_user]

@@ -163,7 +163,7 @@ function TextTab({
     e.preventDefault();
     if (!body.trim()) return;
     const slug = slugify(title.trim() || body.slice(0, 40));
-    const path = `sources/${slug}.md`;
+    const path = `attachments/${slug}.md`;
     const frontmatter = buildFrontmatter({
       title: title.trim() || slug,
       added_at: nowIso(),
@@ -346,9 +346,8 @@ function UrlTab({ close }: { close: () => void }) {
       />
       <p className="add-source-explainer">
         The agent fetches the page, extracts readable text, and saves it
-        to <code>sources/</code>. Watch the chat for progress and any
-        errors. You can keep typing other questions in the chat while
-        this runs.
+        as a source. Watch the chat for progress and any errors. You
+        can keep typing other questions while this runs.
       </p>
       <div className="add-source-actions">
         <button type="button" onClick={close} className="add-source-cancel">

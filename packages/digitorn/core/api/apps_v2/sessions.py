@@ -115,6 +115,33 @@ router = APIRouter(tags=["apps"])
 
 
 
+def _read_session_compactions(app_id: str, session_id: str) -> int:
+    """Return the cumulative number of compactions that fired on a
+    session, summing across the main agent + every sub-agent slot.
+
+    The agent_loop reactive path AND the proactive ``compact_context``
+    hook both increment ``SessionMetrics.context.compactions``. The
+    registry is keyed by ``{app_id}:{session_id}:{agent_id}`` so we
+    scan every entry that matches the session prefix to get the full
+    rollup. Fall back to 0 on any lookup failure so the endpoint
+    never 500s over a missing metric.
+    """
+    try:
+        from digitorn.core.runtime.session_metrics import _sessions
+    except Exception:
+        return 0
+    total = 0
+    for try_app in (app_id, "default"):
+        prefix = f"{try_app}:{session_id}:"
+        for key, entry in _sessions.items():
+            if key.startswith(prefix):
+                try:
+                    total += int(getattr(entry.context, "compactions", 0) or 0)
+                except Exception:
+                    pass
+    return total
+
+
 @router.post("/{app_id}/sessions", response_model=AppResponse)
 async def create_session(
     request: Request, app_id: str,
@@ -349,7 +376,7 @@ async def create_session(
             "total_estimated_tokens": total,
             "pressure": round(total / max(effective, 1), 4),
             "available_tokens": max(0, effective - total),
-            "compactions": 0,
+            "compactions": _read_session_compactions(app_id, session_id),
             "model": getattr(provider, "model", "") if provider else "",
         }
 
@@ -840,7 +867,7 @@ async def get_session(request: Request, app_id: str, session_id: str) -> AppResp
                     "total_estimated_tokens": total,
                     "pressure": round(total / max(effective, 1), 4),
                     "available_tokens": max(0, effective - total),
-                    "compactions": 0,
+                    "compactions": _read_session_compactions(app_id, session_id),
                 }
 
         data["context"] = ctx_snapshot
@@ -2939,6 +2966,12 @@ async def get_context_breakdown(
         "pressure": round(pressure, 4),
         "budget_remaining": max(0, effective - total),
         "will_overflow": total > effective,
+        # Cumulative count of compactions (proactive hook + reactive
+        # overflow recovery, summed across every agent slot in this
+        # session). Increments every time ``_exec_compact_context`` OR
+        # the agent_loop emergency_compact path finishes. Stays at 0
+        # until the first compaction fires.
+        "compactions": _read_session_compactions(app_id, session_id),
         "breakdown": {
             "system_prompt": sys_tokens,
             "tools_schema": tools_tokens,
