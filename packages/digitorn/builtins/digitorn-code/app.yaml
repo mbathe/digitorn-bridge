@@ -91,33 +91,22 @@ agents:
 - id: main
   role: coordinator
   brain:
-    provider: deepseek
-    model: deepseek-v4-pro
-    backend: openai_compat
-    credential:
-      ref: deepseek_main
-      scope: per_user
-      provider: deepseek
+    # github_copilot / gpt-5-mini relay (same proven config as
+    # digitorn-scribe). The placeholder api_key is hot-swapped at
+    # session start by the gateway resolver against the user's Copilot
+    # creds. Tested working in the user's local setup.
+    provider: github_copilot
+    backend: github_copilot
+    model: gpt-5-mini
     config:
-      api_key: '{{env.DEEPSEEK_API_KEY}}'
-      base_url: https://api.deepseek.com/v1
-    temperature: 0.1
+      api_key: placeholder
+    temperature: 0.3
     max_tokens: 8192
     context:
-      max_tokens: 1000000
+      max_tokens: 131072
       strategy: summarize
       keep_recent: 10
       auto_compact: true
-    fallback:
-      provider: ollama
-      model: qwen25-7b-gpu:latest
-      backend: openai_compat
-      config:
-        base_url: http://localhost:11434/v1
-        api_key: ollama
-        num_ctx: 131072
-      temperature: 0.1
-      max_tokens: 8192
   plan_first: false
   system_prompt: '{{prompt.system}}'
   pool:
@@ -126,50 +115,38 @@ agents:
   role: specialist
   specialty: Implementation - research, code, test, commit
   brain:
-    provider: deepseek
-    model: deepseek-v4-pro
-    backend: openai_compat
-    credential:
-      ref: deepseek_main
-      scope: per_user
-      provider: deepseek
+    # github_copilot relay (same proven config as the main agent).
+    # Placeholder api_key is hot-swapped at session start by the
+    # gateway resolver against the user's Copilot creds.
+    provider: github_copilot
+    backend: github_copilot
+    model: gpt-5-mini
     config:
-      api_key: '{{env.DEEPSEEK_API_KEY}}'
-      base_url: https://api.deepseek.com/v1
-    temperature: 0.1
+      api_key: placeholder
+    temperature: 0.3
     max_tokens: 8192
     context:
-      max_tokens: 1000000
+      max_tokens: 131072
       strategy: summarize
-      keep_recent: 8
+      keep_recent: 10
       auto_compact: true
-    fallback:
-      provider: ollama
-      model: qwen25-7b-gpu:latest
-      backend: openai_compat
-      config:
-        base_url: http://localhost:11434/v1
-        api_key: ollama
-        num_ctx: 131072
-      temperature: 0.1
-      max_tokens: 8192
   system_prompt: '{{prompt.worker}}'
 - id: explore
   role: specialist
   specialty: Fast read-only codebase exploration
   brain:
-    provider: deepseek
-    model: deepseek-v4-flash
-    backend: openai_compat
-    credential:
-      ref: deepseek_main
-      scope: per_user
-      provider: deepseek
+    provider: github_copilot
+    backend: github_copilot
+    model: gpt-5-mini
     config:
-      api_key: '{{env.DEEPSEEK_API_KEY}}'
-      base_url: https://api.deepseek.com/v1
+      api_key: placeholder
     temperature: 0.0
     max_tokens: 4096
+    context:
+      max_tokens: 131072
+      strategy: summarize
+      keep_recent: 8
+      auto_compact: true
   system_prompt: '{{prompt.explore}}'
   modules:
   - filesystem:
@@ -184,28 +161,18 @@ agents:
   role: specialist
   specialty: Architecture and implementation planning. Read-only.
   brain:
-    provider: deepseek
-    model: deepseek-v4-pro
-    backend: openai_compat
-    credential:
-      ref: deepseek_main
-      scope: per_user
-      provider: deepseek
+    provider: github_copilot
+    backend: github_copilot
+    model: gpt-5-mini
     config:
-      api_key: '{{env.DEEPSEEK_API_KEY}}'
-      base_url: https://api.deepseek.com/v1
+      api_key: placeholder
     temperature: 0.1
     max_tokens: 8192
-    fallback:
-      provider: ollama
-      model: qwen25-7b-gpu:latest
-      backend: openai_compat
-      config:
-        base_url: http://localhost:11434/v1
-        api_key: ollama
-        num_ctx: 131072
-      temperature: 0.1
-      max_tokens: 8192
+    context:
+      max_tokens: 131072
+      strategy: summarize
+      keep_recent: 10
+      auto_compact: true
   system_prompt: '{{prompt.plan}}'
   modules:
   - filesystem:
@@ -220,33 +187,18 @@ agents:
   role: specialist
   specialty: Adversarial testing - tries to break implementations
   brain:
-    provider: deepseek
-    model: deepseek-v4-pro
-    backend: openai_compat
-    credential:
-      ref: deepseek_main
-      scope: per_user
-      provider: deepseek
+    provider: github_copilot
+    backend: github_copilot
+    model: gpt-5-mini
     config:
-      api_key: '{{env.DEEPSEEK_API_KEY}}'
-      base_url: https://api.deepseek.com/v1
+      api_key: placeholder
     temperature: 0.0
     max_tokens: 8192
     context:
-      max_tokens: 1000000
+      max_tokens: 131072
       strategy: summarize
       keep_recent: 8
       auto_compact: true
-    fallback:
-      provider: ollama
-      model: qwen25-7b-gpu:latest
-      backend: openai_compat
-      config:
-        base_url: http://localhost:11434/v1
-        api_key: ollama
-        num_ctx: 131072
-      temperature: 0.0
-      max_tokens: 8192
   system_prompt: '{{prompt.verification}}'
   modules:
   - filesystem:
@@ -318,16 +270,14 @@ security:
     profile: '{{behavior.code}}'
     classify_turns: true
     brain:
-      provider: deepseek
-      model: deepseek-v4-flash
-      backend: openai_compat
-      credential:
-        ref: deepseek_main
-        scope: per_user
-        provider: deepseek
+      # github_copilot relay for the per-turn classifier (small,
+      # frequent call -- keep the brain uniform with the rest of the
+      # app so creds + quota are shared).
+      provider: github_copilot
+      backend: github_copilot
+      model: gpt-5-mini
       config:
-        api_key: '{{env.DEEPSEEK_API_KEY}}'
-        base_url: https://api.deepseek.com/v1
+        api_key: placeholder
       temperature: 0.2
       max_tokens: 2048
     classifier:

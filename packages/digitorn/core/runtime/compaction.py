@@ -230,7 +230,14 @@ async def emergency_compact(
                 agent_context=ctx,
                 recent_messages=to_keep,
             )
-            summary_text = _do_truncate(
+            # _do_truncate returns (summary_note, full_injected_note).
+            # ``summary_text`` (bare) goes into the durable compaction
+            # event payload. ``full_note`` (incl. context_reminder) is
+            # already in ``messages`` AND will be emitted as a separate
+            # ``system_message`` event below so the directive lands at
+            # its own canonical seq - same contract as the hook-driven
+            # compaction in ``hooks._exec_compact_context``.
+            summary_text, full_note = _do_truncate(
                 messages, system_msg, to_compact, to_keep, context_reminder,
             )
             logger.warning(
@@ -253,6 +260,9 @@ async def emergency_compact(
                 app_id=app_id,
                 session_id=session_id,
                 user_id=user_id,
+            )
+            await _emit_compaction_directive(
+                ctx, full_note, reason=reason, compacted=len(to_compact),
             )
             return {
                 "compacted": True,
@@ -285,7 +295,7 @@ async def emergency_compact(
         recent_messages=to_keep,
     )
 
-    summary_text = _do_truncate(
+    summary_text, full_note = _do_truncate(
         messages, system_msg, to_compact, to_keep, context_reminder,
     )
     truncate_oversized_messages(messages, cc.max_tokens)
@@ -307,7 +317,7 @@ async def emergency_compact(
         )
         messages.clear()
         messages.extend(messages_snapshot)
-        summary_text = _do_truncate(
+        summary_text, full_note = _do_truncate(
             messages, system_msg, to_compact, to_keep, "",
         )
         truncate_oversized_messages(messages, cc.max_tokens)
@@ -372,6 +382,9 @@ async def emergency_compact(
         session_id=session_id,
         user_id=user_id,
     )
+    await _emit_compaction_directive(
+        ctx, full_note, reason=reason, compacted=len(to_compact),
+    )
     return {
         "compacted": True,
         "tokens_before": tokens_before,
@@ -380,6 +393,37 @@ async def emergency_compact(
         "to_keep_count": len(to_keep),
         "reason": reason,
     }
+
+
+async def _emit_compaction_directive(
+    ctx: Any,
+    full_note: str,
+    *,
+    reason: str,
+    compacted: int,
+) -> None:
+    """Emit the post-compaction summary as a durable ``system_message``
+    event so the directive lands at its own canonical seq in
+    ``state.messages``. Mirrors what ``hooks._exec_compact_context`` does
+    for the hook-driven compaction path - keeps the two paths symmetric
+    so an emergency compaction is restored identically to a scheduled
+    one on cold reload.
+
+    No-op when ``full_note`` is empty (defensive - _do_truncate always
+    produces at least the bare SYS_CONTEXT_TRUNCATED line).
+    """
+    if not full_note:
+        return
+    try:
+        from digitorn.core.runtime.system_directive import inject_system_directive
+        await inject_system_directive(
+            ctx,
+            content=full_note,
+            source="compaction_summary",
+            metadata={"strategy": "truncate", "compacted": compacted, "reason": reason},
+        )
+    except Exception as exc:  # never block the compaction on emit failure
+        logger.debug("emergency_compact directive emit failed: %s", exc)
 
 
 def truncate_oversized_messages(

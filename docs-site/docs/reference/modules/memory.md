@@ -66,10 +66,12 @@ env vars matching `key`, `secret`, `password`, `token`,
 `auth`, `credential`, `private`, `jwt` are auto-scrubbed
 before storage.
 
-### `SetGoal` - `goal`
+### `memory.set_goal` - `goal`
+
+Called via FQN (`memory.set_goal`) — there is no `SetGoal` PascalCase alias.
 
 ```
-SetGoal(goal="Fix the authentication bug in src/auth/validate.py")
+memory.set_goal(goal="Fix the authentication bug in src/auth/validate.py")
 ```
 
 Appears at the top of the memory block. Usually called by the

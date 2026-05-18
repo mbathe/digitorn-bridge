@@ -90,7 +90,7 @@ is the standard chat scaffolding from the basic tutorials.
 
 ## Live transcript
 
-Real session against the daemon. The user asks the agent to run
+Sample transcript. The user asks the agent to run
 Bash; an SDK supervisor polls the approval queue and confirms.
 
 ### Step 1 - the agent attempts Bash
@@ -108,7 +108,7 @@ The agent issues the tool call and the security gate intercepts:
   "agent_id": "main",
   "user_id": "e11e6e81e6864de9b654e02d309cc28a",
   "app_id": "approval-bot",
-  "session_id": "test-c46d9f2a",
+  "session_id": "<sid>",
   "tool_name": "shell.bash",
   "tool_params": {
     "command": "echo \"hello world\"",

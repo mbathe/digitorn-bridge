@@ -44,16 +44,17 @@ from digitorn.testing import (
 from digitorn.testing import DevClient
 
 client = DevClient(
-    daemon_url="http://127.0.0.1:8000",   # default
+    daemon_url=None,                      # default: $DIGITORN_DEV_DAEMON_URL → $DIGITORN_DAEMON_URL → http://127.0.0.1:8000
     auto_approve=True,                    # auto-approves every pending capability prompt
-    timeout=30.0,                         # default request timeout
-    token=None,                           # explicit JWT (else read from ~/.digitorn/auth.token)
+    timeout=3600.0,                       # default request timeout (1 h)
+    token=None,                           # explicit JWT - none = anonymous; pair with .login() / .register()
 )
 ```
 
-The constructor reads the user's locally-stored auth token
-(`~/.digitorn/auth.token` or equivalent) when `token=None`. For CI
-or scripted environments, pass `token=` explicitly.
+The constructor does **not** auto-load a token from disk. Pass
+`token=` explicitly, or call `client.login(email, password)` /
+`DevClient.with_user(email, password)` to obtain one. For
+scripted CI, set `DIGITORN_DAEMON_URL` and pass `token=...`.
 
 ## Two flow shapes
 
@@ -168,10 +169,20 @@ client.resolve_approval(app_id, request_id, approved=True)
 
 ## Auth
 
-The client reads `~/.digitorn/auth.token` by default. You can
-also pass an explicit `token=` to the constructor or set the
-environment variable `DIGITORN_DEV_TOKEN`. In CI, mint a
-short-lived token via the auth API and pass it explicitly.
+Pass a JWT explicitly via `token=` to the constructor, or use
+the helpers:
+
+```python
+client = DevClient.with_token(token)
+client = DevClient.with_user(email, password)              # login
+client = DevClient.with_user(email, password, register_if_missing=True)
+```
+
+You can also call `client.login(email, password)` or
+`client.register(email, password)` on an existing anonymous
+client; both return the token dict and store the access token
+on the instance. In CI, mint a short-lived token via the auth
+API and pass it explicitly.
 
 ## Where scenarios live
 

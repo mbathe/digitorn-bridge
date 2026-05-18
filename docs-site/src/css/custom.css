@@ -500,15 +500,20 @@ table tr:hover td {
 .theme-admonition-danger { border-left-color: var(--digi-red); }
 
 /* ===========================================================
- * 9. Mermaid (dark-friendly fallbacks for the Steel palette)
+ * 9. Mermaid (always-dark cards, work on light + dark pages)
+ *    Mermaid itself is locked to the dark theme in both color
+ *    modes (docusaurus.config.js -> mermaid.theme). So we use
+ *    HARDCODED dark-palette values here, not CSS vars, because
+ *    --digi-* variables flip to light values in light mode and
+ *    would render dark text on a dark card = invisible.
  * =========================================================== */
 
 .docusaurus-mermaid-container {
   margin: 2rem 0;
   padding: 1.5rem;
   border-radius: 12px;
-  background: var(--digi-surface-alt);
-  border: 1px solid var(--digi-border);
+  background: #18202B;
+  border: 1px solid #232C3A;
   text-align: center;
 }
 
@@ -520,52 +525,69 @@ table tr:hover td {
 .docusaurus-mermaid-container svg foreignObject div,
 .docusaurus-mermaid-container svg foreignObject span,
 .docusaurus-mermaid-container svg foreignObject p {
-  color: var(--digi-text-bright) !important;
-  fill: var(--digi-text-bright) !important;
+  color: #E6E6E6 !important;
+  fill: #E6E6E6 !important;
 }
 
-.docusaurus-mermaid-container svg .edgeLabel rect {
-  fill: var(--digi-bg) !important;
+.docusaurus-mermaid-container svg .edgeLabel,
+.docusaurus-mermaid-container svg .edgeLabel rect,
+.docusaurus-mermaid-container svg .edgeLabel foreignObject {
+  background-color: #18202B !important;
+  fill: #18202B !important;
+}
+
+.docusaurus-mermaid-container svg .edgeLabel foreignObject div,
+.docusaurus-mermaid-container svg .edgeLabel foreignObject span,
+.docusaurus-mermaid-container svg .edgeLabel foreignObject p {
+  background-color: #18202B !important;
+  color: #E6E6E6 !important;
 }
 
 .docusaurus-mermaid-container svg .cluster text,
 .docusaurus-mermaid-container svg .cluster-label text {
-  fill: var(--digi-text-bright) !important;
+  fill: #E6E6E6 !important;
   font-weight: 600;
 }
 
 .docusaurus-mermaid-container svg .note text,
 .docusaurus-mermaid-container svg .messageText {
-  fill: var(--digi-text-bright) !important;
+  fill: #E6E6E6 !important;
 }
 
 .docusaurus-mermaid-container svg rect.actor,
 .docusaurus-mermaid-container svg .actor-top rect,
 .docusaurus-mermaid-container svg .actor-bottom rect,
 .docusaurus-mermaid-container svg g.actor rect {
-  fill: var(--digi-surface-alt) !important;
-  stroke: var(--digi-teal) !important;
+  fill: #1A1A1A !important;
+  stroke: #14B8A6 !important;
 }
 
 .docusaurus-mermaid-container svg .actor text,
 .docusaurus-mermaid-container svg g.actor text,
 .docusaurus-mermaid-container svg text.actor {
-  fill: var(--digi-text-bright) !important;
+  fill: #E6E6E6 !important;
 }
 
 .docusaurus-mermaid-container svg line.actor-line,
 .docusaurus-mermaid-container svg .actor-line {
-  stroke: var(--digi-border-hover) !important;
+  stroke: #313B4D !important;
 }
 
 .docusaurus-mermaid-container svg .messageLine0,
 .docusaurus-mermaid-container svg .messageLine1 {
-  stroke: var(--digi-text-muted) !important;
+  stroke: #BDC4CC !important;
 }
 .docusaurus-mermaid-container svg .messageText,
 .docusaurus-mermaid-container svg text.messageText {
-  fill: var(--digi-text-bright) !important;
+  fill: #E6E6E6 !important;
   stroke: none !important;
+}
+
+/* Belt-and-suspenders: ensure flowchart edge paths stay visible
+ * on the dark card in both modes. */
+.docusaurus-mermaid-container svg .flowchart-link,
+.docusaurus-mermaid-container svg path.path {
+  stroke: #7C7C8A !important;
 }
 
 .docusaurus-mermaid-container svg rect.labelBox,

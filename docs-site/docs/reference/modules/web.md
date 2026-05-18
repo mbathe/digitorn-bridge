@@ -22,7 +22,7 @@ default - no API key required.
 
 ## Design notes
 
-- **Free by default** - DuckDuckGo works out of the box.
+- **Free by default** - DuckDuckGo works without an API key.
 - **Clean content** - HTML → markdown-like text via `html2text`;
   scripts, ads, navigation, cookie banners stripped.
 - **Cached fetches** - 15 min default TTL, 100 URL capacity

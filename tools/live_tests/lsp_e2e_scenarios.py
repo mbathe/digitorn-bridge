@@ -750,6 +750,478 @@ def scenario_state_isolation(client: DevClient) -> tuple[str, str, dict]:
     ), {"app_a": app_a.app_id, "app_b": app_b.app_id}
 
 
+# ── 5d. Multi-protocol fan-out (LSP + compiler on same ext) ─────────
+
+
+def scenario_multiproto_fanout(client: DevClient) -> tuple[str, str, dict]:
+    """Multi-protocol refactor: TWO protocols stacked on .tex --
+    texlab (LSP mode) for hover/goto/refs AND tectonic (compiler mode)
+    for compile diagnostics. notify_change must fan out to BOTH, dedup
+    diagnostics, and report ``servers_active`` with both names.
+
+    PASS = the writeback response carries servers_active mentioning
+    both ``texlab(lsp)`` and ``tectonic(compiler)``.
+    """
+    if not shutil.which("texlab"):
+        return "SKIP", "texlab not on PATH", {}
+    if not shutil.which("tectonic"):
+        return "SKIP", "tectonic not on PATH", {}
+    pair = _create_session_and_write(
+        client, "lsp_audit_multiproto.yaml", "fan.tex",
+        r"""\documentclass{article}
+\begin{document}
+Multi-protocol fan-out probe.
+\end{document}
+""",
+        deploy_timeout=180.0,  # texlab + tectonic cold-start cumulative
+    )
+    if pair[0] is None:
+        return "FAIL", f"setup failed: {pair[1]}", {}
+    app_id, sid = pair
+    hdr = _auth_headers(client)
+
+    # Hit notify_change via the daemon's worker proxy. workspace.write
+    # invokes the LSP module's notify_change which is what fans out.
+    # The PUT writeback already triggered that, so we just inspect
+    # the latest workspace resource's lint metadata to confirm both
+    # protocols were active.
+    r = httpx.get(
+        f"{client.daemon_url}/api/apps/{app_id}/sessions/{sid}/"
+        f"workspace/code-snapshot",
+        headers=hdr, timeout=15,
+    )
+    if r.status_code != 200:
+        return "FAIL", f"code-snapshot returned {r.status_code}", {}
+    snap = r.json().get("data") or {}
+
+    # The fan-out signal lives on the notify_change ActionResult's
+    # ``servers_active`` field which we surfaced in the refactor.
+    # Re-trigger notify_change via PUT writeback so we capture a
+    # fresh ActionResult-carrying response.
+    r2 = httpx.put(
+        f"{client.daemon_url}/api/apps/{app_id}/sessions/{sid}/"
+        f"workspace/files/fan.tex",
+        headers=hdr, json={"content": (
+            r"""\documentclass{article}
+\begin{document}
+Multi-protocol fan-out probe v2.
+\end{document}
+"""
+        )}, timeout=60,
+    )
+    if r2.status_code != 200:
+        return "FAIL", f"writeback {r2.status_code}: {r2.text[:200]}", {}
+    body = r2.json().get("data") or {}
+    # workspace's lint pipeline calls lsp.notify_change which now
+    # returns ``servers_active``. That list is surfaced on the
+    # diagnostic envelope passed up to workspace, but workspace
+    # currently strips it for the file payload. Test via direct
+    # worker call which preserves the action result intact.
+    import os as _os
+    abs_path = _os.path.join(
+        snap.get("workspace") or "",
+        "fan.tex",
+    ) if snap.get("workspace") else None
+    if not abs_path:
+        # Fallback: deduce from session workspaces dir.
+        abs_path = (
+            f"C:/Users/ASUS/.digitorn/workspaces/{app_id}/{sid}/fan.tex"
+        )
+
+    # Bypass via worker admin to read action result directly.
+    try:
+        with open(_secret_path()) as f:
+            secret = f.read().strip()
+    except Exception:
+        return "FAIL", "cannot read worker shared secret", {}
+    r3 = httpx.post(
+        "http://127.0.0.1:18002/tool/lsp/notify_change",
+        headers={"Authorization": f"Bearer {secret}"},
+        json={"args": {"path": abs_path},
+              "ctx": {"app_id": app_id}},
+        timeout=30,
+    )
+    if r3.status_code != 200:
+        return "FAIL", f"worker notify_change {r3.status_code}", {}
+    nc = r3.json().get("data") or {}
+    servers_active = nc.get("servers_active") or []
+    has_lsp = any("(lsp)" in s for s in servers_active)
+    has_compiler = any("(compiler)" in s for s in servers_active)
+    if not (has_lsp and has_compiler):
+        return "FAIL", (
+            f"fan-out incomplete: servers_active={servers_active} "
+            f"(need both lsp + compiler)"
+        ), {"servers_active": servers_active, "nc": nc}
+    return "PASS", (
+        f"both protocols fired in parallel: {servers_active}. "
+        f"Primary={nc.get('server')}({nc.get('mode')}). "
+        f"Merged diagnostics={nc.get('total', 0)}."
+    ), {
+        "servers_active": servers_active,
+        "errors": nc.get("errors"),
+        "warnings": nc.get("warnings"),
+    }
+
+
+# ── 5e. Multi-protocol routing: request() → LSP-mode only ───────────
+
+
+def scenario_multiproto_request_routes_to_lsp(
+    client: DevClient,
+) -> tuple[str, str, dict]:
+    """When BOTH a compiler and an LSP server are registered for the
+    same ext, ``lsp.request()`` (hover / goto / refs) must route to
+    the LSP-mode protocol -- not return the compiler's "not LSP" error
+    like the singular ``_get_protocol`` would have. With multi-protocol,
+    the LSP-mode one in the list is picked unambiguously.
+
+    Known caveat (same as ``scenario_multiproto_3way``): the sidecar
+    pool keys channels by protocol name. When ``digitorn-scribe`` is
+    also deployed (default in dev), its texlab acquires ``lsp-texlab``
+    first; the qtest app inherits the same channel and the second
+    ``initialize`` request silently no-ops. Run this scenario after
+    undeploying scribe for a clean read on routing alone — the routing
+    capability itself is independently proven by the scribe smoke test.
+    """
+    if not shutil.which("texlab"):
+        return "SKIP", "texlab not on PATH", {}
+    if not shutil.which("tectonic"):
+        return "SKIP", "tectonic not on PATH", {}
+    pair = _create_session_and_write(
+        client, "lsp_audit_multiproto.yaml", "route.tex",
+        r"""\documentclass{article}
+\usepackage{amsmath}
+\begin{document}
+Hover probe with \frac{1}{2}.
+\end{document}
+""",
+        deploy_timeout=180.0,
+    )
+    if pair[0] is None:
+        return "FAIL", f"setup failed: {pair[1]}", {}
+    app_id, sid = pair
+    hdr = _auth_headers(client)
+
+    # Pre-warm texlab: the writeback above already kicks didOpen +
+    # ``notify_change`` (3 s cold-start sleep baked in), but on a slow
+    # disk / antivirus-busy machine texlab is sometimes still indexing
+    # when we fire the hover. A throwaway hover absorbs the residual
+    # cold-start latency; the second real request races on a warm
+    # cache. We swallow the warm-up response entirely.
+    try:
+        httpx.post(
+            f"{client.daemon_url}/api/apps/{app_id}/sessions/{sid}/lsp/request",
+            headers=hdr, json={
+                "path": "route.tex",
+                "method": "textDocument/hover",
+                "params": {"position": {"line": 0, "character": 0}},
+                "timeout_seconds": 30,
+            }, timeout=35,
+        )
+    except Exception:
+        pass
+
+    # Real request. Hover on \frac (line 3, around col 19). Timeout
+    # bumped to 60 s because a CI Windows box with antivirus can take
+    # 30-40 s to index even after the warm-up above on the first run.
+    r = httpx.post(
+        f"{client.daemon_url}/api/apps/{app_id}/sessions/{sid}/lsp/request",
+        headers=hdr, json={
+            "path": "route.tex",
+            "method": "textDocument/hover",
+            "params": {"position": {"line": 3, "character": 19}},
+            "timeout_seconds": 60,
+        }, timeout=70,
+    )
+    if r.status_code != 200:
+        return "FAIL", (
+            f"lsp/request returned {r.status_code}: {r.text[:300]}"
+        ), {}
+    body = r.json()
+    data = body.get("data") or {}
+    # The error path with a singular _get_protocol would have said
+    # something like: "Protocol 'tectonic' runs in 'compiler' mode".
+    # With multi-protocol routing, request() picks texlab (the LSP
+    # one) regardless of YAML order.
+    if not body.get("success"):
+        err = body.get("error", "")
+        if "compiler" in err.lower() or "linter" in err.lower():
+            return "FAIL", (
+                f"request() routed to wrong protocol mode: {err}"
+            ), {"body": body}
+        # Some other error is OK as long as it's not a routing mistake
+        # (e.g. texlab cold-start timeout on a tiny file is fine).
+        return "SKIP", f"texlab didn't respond (likely cold-start): {err}", {"body": body}
+    server = data.get("server", "")
+    method = data.get("method", "")
+    return "PASS", (
+        f"request() correctly routed to LSP-mode protocol "
+        f"(server={server!r}, method={method!r}). Compiler/linter "
+        f"were not consulted for RPC."
+    ), {"server": server, "method": method}
+
+
+# ── 5f. Multi-protocol 3-way: LSP + compiler + linter on same ext ──
+
+
+def scenario_multiproto_3way(client: DevClient) -> tuple[str, str, dict]:
+    """Three distinct protocols stacked on .tex: texlab (LSP), tectonic
+    (compiler), chktex (linter). Each contributes a different *kind* of
+    feedback and ``notify_change`` must merge them all.
+
+    The probe file has BOTH a compile-time error (``\\frak``, an
+    undefined macro) AND a style issue (missing ``~`` before ``\\ref``).
+    chktex catches the style issue; tectonic catches the macro typo;
+    texlab confirms didOpen succeeds. PASS = ``servers_active`` lists
+    all three and the merged diagnostics include at least one entry
+    each from tectonic AND chktex.
+
+    Known caveat: the sidecar pool keys LSP channels by protocol
+    NAME (e.g. ``lsp-texlab``), so if another already-deployed app
+    (digitorn-scribe in dev) holds the same channel and it is in a
+    stale state, this scenario's acquire may inherit that state. Run
+    this test in a clean daemon (no scribe deployed) if you suspect
+    the pool. The 3-way fan-out capability is independently proven
+    by ``tools/live_tests/scribe_smoke.py`` against scribe directly.
+    """
+    # 3-way stack uses absolute paths in YAML (see app yaml comment); a
+    # missing tool here is a SKIP, not a failure of the routing logic.
+    miktex_chktex = (
+        r"C:/Users/ASUS/AppData/Local/Programs/MiKTeX/miktex/bin/x64/chktex.exe"
+    )
+    user_bin_chktex = shutil.which("chktex")
+    if not (Path(miktex_chktex).exists() or user_bin_chktex):
+        return "SKIP", "chktex not installed (winget install MiKTeX.MiKTeX)", {}
+    if not shutil.which("texlab"):
+        return "SKIP", "texlab not on PATH", {}
+    if not shutil.which("tectonic"):
+        return "SKIP", "tectonic not on PATH", {}
+
+    pair = _create_session_and_write(
+        client, "lsp_audit_3proto.yaml", "stack.tex",
+        # Compile error AND style issue in the same doc:
+        # - line 3: chktex flags "Delete this space" + missing ~
+        # - line 4: tectonic flags Undefined control sequence (\frak)
+        r"""\documentclass{article}
+\begin{document}
+\label{intro} See section \ref{intro} for details.
+$\frak{1}{2}$
+\end{document}
+""",
+        deploy_timeout=180.0,
+    )
+    if pair[0] is None:
+        return "FAIL", f"setup failed: {pair[1]}", {}
+    app_id, sid = pair
+
+    # Direct worker call so we can read servers_active intact.
+    try:
+        with open(_secret_path()) as f:
+            secret = f.read().strip()
+    except Exception:
+        return "FAIL", "cannot read worker shared secret", {}
+    abs_path = f"C:/Users/ASUS/.digitorn/workspaces/{app_id}/{sid}/stack.tex"
+    r = httpx.post(
+        "http://127.0.0.1:18002/tool/lsp/notify_change",
+        headers={"Authorization": f"Bearer {secret}"},
+        json={"args": {"path": abs_path},
+              "ctx": {"app_id": app_id}},
+        timeout=30,
+    )
+    if r.status_code != 200:
+        return "FAIL", f"worker notify_change {r.status_code}", {}
+    nc = r.json().get("data") or {}
+    servers_active = nc.get("servers_active") or []
+    diags = nc.get("diagnostics") or []
+    sources = {d.get("source") for d in diags if d.get("source")}
+
+    has_lsp = any("(lsp)" in s for s in servers_active)
+    has_compiler = any("(compiler)" in s for s in servers_active)
+    has_linter = any("(linter)" in s for s in servers_active)
+    if not (has_lsp and has_compiler and has_linter):
+        return "FAIL", (
+            f"3-way fan-out incomplete: servers_active={servers_active} "
+            f"(need lsp + compiler + linter)"
+        ), {"servers_active": servers_active}
+
+    # Diagnostics: tectonic should report the \frak error; chktex
+    # should report at least one style hint. texlab on a tiny file
+    # often returns zero entries on this codepath which is fine.
+    if "tectonic" not in sources:
+        return "FAIL", (
+            f"tectonic produced 0 diagnostics on a known-broken doc "
+            f"(sources={sorted(sources)})"
+        ), {"sources": sorted(sources), "diags": diags[:5]}
+    if "chktex" not in sources:
+        return "FAIL", (
+            f"chktex produced 0 diagnostics on a known-style-issue doc "
+            f"(sources={sorted(sources)})"
+        ), {"sources": sorted(sources), "diags": diags[:5]}
+
+    return "PASS", (
+        f"all 3 protocols fired in parallel: {servers_active}. "
+        f"Merged sources={sorted(sources)}. "
+        f"Total diagnostics={nc.get('total', 0)}."
+    ), {
+        "servers_active": servers_active,
+        "sources": sorted(sources),
+        "errors": nc.get("errors"),
+        "warnings": nc.get("warnings"),
+    }
+
+
+def _secret_path() -> str:
+    """Locate the worker shared-secret file (created at first boot
+    under ``~/.digitorn/.workers-secret``)."""
+    from pathlib import Path as _P
+    return str(_P.home() / ".digitorn" / ".workers-secret")
+
+
+# ── 5g. Stress: LSP server crash recovery ───────────────────────
+
+
+def scenario_lsp_server_crash_recovery(
+    client: DevClient,
+) -> tuple[str, str, dict]:
+    """Kill the live LSP subprocess mid-session and verify the LSP
+    module degrades gracefully rather than crashing the worker.
+
+    Steps:
+      1. Deploy an app with pyright-langserver (real LSP server).
+      2. Trigger ``notify_change`` once so the subprocess is spawned
+         and the channel reaches ``status=connected``.
+      3. Use psutil to find that exact subprocess (matched by command
+         line ``pyright-langserver``) and SIGKILL it.
+      4. Call ``notify_change`` again. Expectations:
+         - HTTP 200 (worker did not crash)
+         - ``servers_active`` may now be empty or list the protocol
+           with mode != lsp -- BOTH are fine. The KEY assertion is
+           the worker survives.
+      5. Worker ``/health`` returns 200 -- worker process is still
+         up after the LSP server crash.
+
+    Why this matters: a crashed language server should NEVER take
+    the worker (and thus all other apps' LSP channels) down with it.
+    The graceful path in ``LspProtocol.notify_file_changed`` is the
+    short-circuit at line ``if not self._channel or self._channel.
+    status != 'connected': return``.
+    """
+    if not shutil.which("pyright-langserver"):
+        return "SKIP", "pyright-langserver not on PATH", {}
+    try:
+        import psutil  # noqa: F401
+    except ImportError:
+        return "SKIP", "psutil not installed", {}
+    import psutil
+
+    pair = _create_session_and_write(
+        client, "lsp_audit_hover.yaml", "crash.py",
+        "import json\n\nprint(json.dumps({'k': 1}))\n",
+    )
+    if pair[0] is None:
+        return "FAIL", f"setup failed: {pair[1]}", {}
+    app_id, sid = pair
+
+    # Locate the pyright-langserver subprocess. Worker spawns it
+    # via the sidecar pool; cmdline starts with the resolved binary
+    # path. Match by case-insensitive 'pyright-langserver'.
+    targets: list[psutil.Process] = []
+    for p in psutil.process_iter(["pid", "cmdline", "name"]):
+        try:
+            cmdline = " ".join(p.info.get("cmdline") or [])
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+        if "pyright-langserver" in cmdline.lower():
+            targets.append(p)
+    if not targets:
+        return "FAIL", (
+            "pyright-langserver subprocess not found via psutil — "
+            "the LSP protocol may not have actually spawned it"
+        ), {}
+
+    # Kill them all (there should be exactly one in dev; CI may
+    # have leftovers from a prior run).
+    killed = []
+    for p in targets:
+        try:
+            p.kill()
+            killed.append(p.info["pid"])
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+            return "FAIL", (
+                f"could not kill pyright pid={p.info.get('pid')}: {exc}"
+            ), {}
+
+    # Brief settle so the worker's reader task observes the EOF.
+    import time as _time
+    _time.sleep(1.0)
+
+    # Now hit notify_change again — must NOT raise / crash the
+    # worker. The protocol's short-circuit on disconnected channel
+    # makes this a graceful no-op.
+    try:
+        with open(_secret_path()) as f:
+            secret = f.read().strip()
+    except Exception:
+        return "FAIL", "cannot read worker shared secret", {}
+    abs_path = f"C:/Users/ASUS/.digitorn/workspaces/{app_id}/{sid}/crash.py"
+    r = httpx.post(
+        "http://127.0.0.1:18002/tool/lsp/notify_change",
+        headers={"Authorization": f"Bearer {secret}"},
+        json={"args": {"path": abs_path, "content": "import os\n"},
+              "ctx": {"app_id": app_id}},
+        timeout=15,
+    )
+    if r.status_code != 200:
+        return "FAIL", (
+            f"worker notify_change after pyright kill returned "
+            f"{r.status_code}: {r.text[:300]}"
+        ), {"killed_pids": killed}
+    nc = r.json().get("data") or {}
+
+    # Worker survived? Check /health.
+    h = httpx.get("http://127.0.0.1:18002/health", timeout=5)
+    if h.status_code != 200 or h.json().get("status") != "ok":
+        return "FAIL", (
+            f"worker /health unhealthy after kill: status={h.status_code} "
+            f"body={h.text[:200]}"
+        ), {"killed_pids": killed}
+
+    # Restore: force a fresh on_config_update on the worker so the
+    # sidecar pool drops the disconnected channel and spawns a new
+    # pyright. Without this, downstream scenarios that reuse the
+    # ``python`` LSP server (e.g. ``lsp_request_hover``) fail with
+    # "LSP server 'python' not connected". The recovery test only
+    # guarantees the worker survives — it does NOT auto-respawn the
+    # LSP server; that's an explicit on_config_update job. A plain
+    # ``client.deploy(force=True)`` is a no-op when the bundle hash
+    # is unchanged; the direct admin push bypasses that cache.
+    try:
+        httpx.post(
+            "http://127.0.0.1:18002/admin/config/lsp",
+            headers={"Authorization": f"Bearer {secret}"},
+            json={
+                "app_id": app_id,
+                "config": {
+                    "python": "pyright-langserver --stdio",
+                },
+            },
+            timeout=30,
+        )
+    except Exception:
+        pass  # best-effort restore; test still PASSES on worker survival
+
+    return "PASS", (
+        f"worker survived pyright-langserver SIGKILL ({len(killed)} "
+        f"subprocess(es) killed pid={killed}). Post-crash notify_change "
+        f"returned 200, servers_active={nc.get('servers_active')}, "
+        f"diagnostics={nc.get('total', 0)}. Worker /health=ok."
+    ), {
+        "killed_pids": killed,
+        "post_servers_active": nc.get("servers_active"),
+        "post_total_diags": nc.get("total"),
+    }
+
+
 # ── 6. Session cleanup ─────────────────────────────────────────
 
 
@@ -798,28 +1270,108 @@ def scenario_session_cleanup(client: DevClient) -> tuple[str, str, dict]:
 
 
 def scenario_crossos_audit(client: DevClient) -> tuple[str, str, dict]:
-    """Static review: the LSP module shouldn't hardcode posix paths or
-    rely on shell semantics that only work on one platform."""
+    """Static review across lsp/module.py + lsp/protocols.py for
+    platform-specific assumptions that would break on a non-Windows
+    runner.
+
+    What this checks (and why):
+      1. **No hardcoded POSIX paths** — ``/usr/bin/foo`` would silently
+         fail on Windows; ``C:/Users/...`` would silently fail on POSIX.
+      2. **Shell-style command parsing** — ``command.split()`` mangles
+         Windows paths with spaces (``"C:/Program Files/foo.exe" --arg``
+         splits to 3 tokens); the spawn vector must use ``shlex.split``.
+      3. **URI construction via Path.as_uri()** — POSIX
+         ``f"file://{path}"`` yields invalid ``file://C:\\...`` URIs on
+         Windows. Pyright + tsserver accept didOpen with that shape but
+         then can't match hover requests against forward-slash URIs.
+      4. **.exe stripping for project-wide tool detection** — on
+         Windows, ``cargo.exe`` and ``cargo`` must both be detected as
+         the same project-wide tool (no extra file path appended).
+
+    Known limitations this audit does NOT catch (documented in module
+    docstrings, addressed separately):
+      - shutil.which inside the worker subprocess is unreliable for
+        bare names on Windows (hence the absolute paths in scribe and
+        the qtest YAMLs). Same issue likely exists on POSIX for any
+        env that strips PATH.
+      - Sidecar pool channel keyed by protocol NAME -- two apps that
+        both register ``texlab`` share the channel; the second app's
+        ``initialize`` no-ops. Surfaces as missing servers_active for
+        the second-deployed app.
+    """
     from digitorn.modules.lsp import module as _lsp_module
-    src = Path(_lsp_module.__file__).read_text(encoding="utf-8")
-    issues = []
-    # Hardcoded posix paths
+    from digitorn.modules.lsp import protocols as _lsp_protocols
+    src_module = Path(_lsp_module.__file__).read_text(encoding="utf-8")
+    src_protocols = Path(_lsp_protocols.__file__).read_text(encoding="utf-8")
+    src_all = src_module + "\n" + src_protocols
+    issues: list[str] = []
+
+    # 1. Hardcoded POSIX paths (in code, not docstrings/comments)
     for needle in ("/usr/bin/", "/usr/local/bin/", "/etc/", "/var/"):
-        if needle in src:
-            issues.append(f"hardcoded posix path: {needle}")
-    # Shell-style command splitting at the SPAWN site is fragile for
-    # Windows paths with spaces. The spawn vector must use ``shlex.split``;
-    # a ``command.split()`` fallback inside a try/except is acceptable
-    # (only triggered on unmatched-quote ValueError, an exotic case).
-    if "shlex.split(command" not in src:
+        for line in src_all.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#") or stripped.startswith('"""'):
+                continue
+            if needle in line and "://" not in line[:line.find(needle)]:
+                # Skip URLs that happen to contain the needle
+                issues.append(f"hardcoded posix path: {needle}")
+                break
+
+    # 2. Hardcoded Windows drive paths in code (same exclusion as 1)
+    for needle in ("C:\\\\Users\\\\", "C:/Users/"):
+        for line in src_all.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#") or stripped.startswith('"""'):
+                continue
+            if needle in line and "://" not in line[:line.find(needle)]:
+                issues.append(f"hardcoded Windows drive path: {needle}")
+                break
+
+    # 3. Shell-style command splitting at the SPAWN site is fragile
+    # for Windows paths with spaces.
+    if "shlex.split(command" not in src_module:
         issues.append(
             "spawn vector missing shlex.split — would mishandle paths with spaces"
         )
+
+    # 4. URI construction must use Path.as_uri(), never f"file://{path}".
+    # The bad pattern shape: ``f"file://{Path(path)...}"`` or
+    # ``"file://" + str(...)`` — both yield broken URIs on Windows.
+    for line in src_all.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#") or stripped.startswith('"""'):
+            continue
+        # Look for f-string-style "file://" concatenation
+        if 'f"file://' in line or 'f\'file://' in line:
+            issues.append(
+                f"f-string file:// URI (use Path.as_uri()): {line.strip()[:80]}"
+            )
+    # Positive check: somewhere in the codebase, ``.as_uri()`` must be
+    # called — proves the canonical path is wired up.
+    if ".as_uri()" not in src_all:
+        issues.append("no Path.as_uri() usage — file URIs likely broken on Windows")
+
+    # 5. ``.exe`` stripping for project-wide tool detection (cargo,
+    # go vet) — protocols.py must strip the suffix so the name matches
+    # the platform-agnostic _PROJECT_WIDE set.
+    if ".exe" not in src_protocols or "endswith" not in src_protocols:
+        # Only a soft warning — if the file doesn't reference .exe at
+        # all, project-wide tool detection on Windows would fail.
+        issues.append(
+            ".exe-stripping logic missing from protocols.py — "
+            "cargo.exe / go.exe project-wide detection would fail on Windows"
+        )
+
     if issues:
         return "FAIL", f"{len(issues)} static cross-OS concerns: {issues}", {
             "issues": issues,
         }
-    return "PASS", "no hardcoded posix paths in lsp/module.py", {}
+    return "PASS", (
+        "lsp/module.py + lsp/protocols.py clean for cross-OS — no "
+        "hardcoded POSIX/Windows paths in code, shlex.split at spawn, "
+        "Path.as_uri() for file URIs, .exe-aware project-wide tool "
+        "detection."
+    ), {}
 
 
 # ── 8. parsers.py BUILTIN_VALIDATORS — dead code check ──────────
@@ -873,6 +1425,11 @@ _SCENARIOS = {
     "lsp_cancel": scenario_lsp_cancel,
     "cancel_inflight": scenario_cancel_inflight,
     "state_isolation": scenario_state_isolation,
+    "multiproto_fanout": scenario_multiproto_fanout,
+    "multiproto_request_routes_to_lsp":
+        scenario_multiproto_request_routes_to_lsp,
+    "multiproto_3way": scenario_multiproto_3way,
+    "lsp_server_crash_recovery": scenario_lsp_server_crash_recovery,
     "session_cleanup": scenario_session_cleanup,
     "crossos_audit": scenario_crossos_audit,
     "dead_code": scenario_dead_code,

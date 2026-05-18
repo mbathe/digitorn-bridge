@@ -4,23 +4,17 @@ title: "Advanced 18 - Composing hook primitives around a tool"
 sidebar_label: "Advanced 18: Hook composition"
 ---
 
-The Hooks V2 engine
-([`packages/digitorn/core/runtime/hooks.py`](https://github.com/digitorn-ai/hooks.py))
-exposes a small set of primitive actions that compose into
-non-trivial workflows without writing any middleware. This
-tutorial wires two primitives around a single tool surface
-(`shell.bash`):
+The Hooks V2 engine exposes a small set of primitive actions
+that compose into non-trivial workflows without writing any
+middleware. This tutorial wires two primitives around a single
+tool surface (`shell.bash`):
 
 - **`transform_params`** on `tool_start` to inject a default
   parameter (`timeout: 10`) when the agent omits it.
 - **`transform_result`** on `tool_end` to add a system note
   visible to the agent on its next turn.
 
-Live-tested end-to-end: app `tuto-hook-chain`, session
-`test-ca934902`, brain `openai/gpt-5-mini`. Total: 33.3s, 2
-successful bash calls, both hooks fired on each.
-
-## What you will see work
+## What you build
 
 | Hook | Event | Action | Observable evidence |
 |---|---|---|---|
@@ -125,12 +119,12 @@ digitorn dev deploy tuto-hook-chain.yaml
 digitorn dev chat tuto-hook-chain -m 'Run echo "hello digitorn" via the bash tool. Then paste the EXACT tool output you received.'
 ```
 
-## Real session evidence (session `test-ca934902`)
+## Sample flow
 
 **Hook 1: `transform_params` injects `timeout: 10`.**
 
 The user did not mention timeout. The agent's tool call
-captured at seq 61 nonetheless includes it:
+nonetheless includes it:
 
 ```json
 {
@@ -151,13 +145,12 @@ Right after each `tool_result` event for bash, a
 `system_message` event appears with the configured note:
 
 ```
-seq=61  tool_call       Bash(...)
-seq=64  system_message  "Last bash command was traced by the hook chain (timeout default 10s applied)."
+tool_call       Bash(...)
+system_message  "Last bash command was traced by the hook chain (timeout default 10s applied)."
 ```
 
 The agent sees this system message on its next turn,
-identical to a `system_prompt` segment. Two bash calls in
-the same session → two notes injected (seq 64 + seq 123).
+identical to a `system_prompt` segment.
 
 ## Choosing between `inject_note` and `append_to_result`
 
@@ -168,23 +161,12 @@ the same session → two notes injected (seq 64 + seq 123).
 | `inject_note: "..."` | Adds a `system_message` event to the conversation | Any tool, any result shape |
 | `append_to_result: "..."` | Converts the tool result to `str(result) + "\n" + value` | Tools whose result is already a string |
 
-`append_to_result` is convenient for MCP tools that return
-plain text. For Digitorn natives that return structured
-dicts (bash, workspace, filesystem), the string concatenation
-serialises the dict into a less parseable form. Empirically
-on `gpt-5-mini` this causes the model to emit malformed
-follow-up tool calls (`name: ""`) until the loop guard
-fires. `inject_note` sidesteps the issue entirely.
-
-## What we proved
-
-| Claim | Status |
-|---|---|
-| Hooks under `runtime.hooks` fire as documented | verified, seq 64 + 123 |
-| `transform_params.set` mutates tool params before execution | verified, `timeout: 10` present in agent's tool call |
-| `transform_result.inject_note` posts a system message visible next turn | verified, two system_message events captured |
-| `'on': tool_start` and `'on': tool_end` route to the right phase | verified, params hook ran pre-call, note hook ran post-call |
-| Bash with `transform_result.append_to_result` triggered model loop on dict results | verified by negative test (12 empty tool_calls + loop_guard_hard_kill) |
+`append_to_result` is convenient for tools that return plain
+text. For tools that return structured dicts (bash, workspace,
+filesystem), the string concatenation serialises the dict into
+a less parseable form. On smaller tool-calling models this can
+cause malformed follow-up tool calls; `inject_note` sidesteps
+the issue entirely.
 
 ## Other primitives in the toolbox
 
@@ -192,17 +174,10 @@ The Hooks V2 engine ships 13 action types. The ones not
 exercised in this tutorial:
 
 - **`chain`** runs a list of actions sequentially. Useful when
-  you want several side effects on one event; less robust
-  than declaring N separate hooks since a failure in one
-  child can silently break the chain.
+  you want several side effects on one event.
 - **`pipe`** routes the current tool's output into another
-  tool. Documented at
-  [`hooks.py:1826`](https://github.com/digitorn-ai/digitorn-bridge/blob/main/packages/digitorn/core/runtime/hooks.py#L1826).
-  Example pattern: pipe every `bash` result into
-  `memory.remember` for an auto-trace. (We tested this in
-  isolation and hit a daemon-side stability issue when piping
-  to a memory action that internal=True; documented as a
-  known issue, fix tracked separately.)
+  tool. Example pattern: pipe every `bash` result into
+  `memory.remember` for an auto-trace.
 - **`gate`** blocks the tool call with a reason. The behavior
   engine's `action: block` is a higher-level version of the
   same idea; see [Advanced 17](advanced-17-gate-destructive.md).
@@ -212,7 +187,7 @@ exercised in this tutorial:
   for the inline workspace-side equivalent.
 - **`compact_context`**, **`module_action`**,
   **`module_action_inject`**, **`shell`**, **`log`**,
-  **`notify`**: covered in the [Hooks reference](../reference/runtime/hooks-v2.md).
+  **`notify`**: covered in the [Hooks reference](../reference/runtime/hooks.md).
 
 ## When to reach for this
 

@@ -95,7 +95,7 @@ Don't confuse `dev.skills` with `ui.slash_commands`
 | Block | Purpose | Loaded by | Reach |
 |-------|---------|-----------|-------|
 | `dev.skills` | Reusable workflow MD files the **agent** loads via `use_skill`. | Compiler embeds the file. The agent calls `use_skill('/cmd')`. | Server-side. The agent reads the markdown and follows the steps. |
-| `ui.slash_commands` | Pure client-side `/` palette entries. | Flutter / web client renders the palette; the chosen command's `template:` becomes the message sent to the agent. | Client-side. The agent never knows the slash palette existed - it just sees a normal user message. |
+| `ui.slash_commands` | Pure client-side `/` palette entries. | the chat client / web client renders the palette; the chosen command's `template:` becomes the message sent to the agent. | Client-side. The agent never knows the slash palette existed - it just sees a normal user message. |
 
 A typical app declares both: the slash command exposes a typed form
 to the user; the resulting message tells the agent to invoke

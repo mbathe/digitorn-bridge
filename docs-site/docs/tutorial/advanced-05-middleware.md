@@ -99,7 +99,7 @@ middleware, the model sees a transformed input.
 
 ## Live - mask_secrets
 
-Real session captured against the daemon.
+Sample transcript.
 
 ```text
 > Echo this verbatim: my api_key=sk-abc123def456 and my password=hunter2

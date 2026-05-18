@@ -1,0 +1,63 @@
+app:
+  app_id: qtest-lsp-3proto
+  name: "LSP 3-protocol stack on .tex (texlab + tectonic + chktex)"
+
+# Verifies the multi-protocol-per-extension scaling beyond 2: THREE
+# distinct protocols stacked on .tex. lsp.notify_change must fan out to
+# all three in parallel and report servers_active with all three
+# entries. The fallout for downstream consumers (workspace lint
+# pipeline, agent self-correction loop) is that they get a single
+# merged diagnostic list combining hover/goto context (texlab), real
+# compile verdicts (tectonic), and style hints (chktex) with the
+# source tag preserved for each.
+#
+# Uses absolute paths because the worker subprocess's shutil.which
+# is unreliable for bare names like ``texlab`` / ``chktex`` on
+# Windows even when ``where texlab`` resolves cleanly. Same workaround
+# as digitorn-scribe's app.yaml. POSIX users override locally.
+modules:
+  preview: {}
+  workspace:
+    config:
+      sync_to_disk: true
+      lint: true
+  lsp:
+    config:
+      servers:
+        texlab:
+          command: "C:/Users/ASUS/bin/texlab.exe"
+          extensions: [".tex"]
+          protocol: lsp
+          parser: fallback
+        tectonic:
+          command: "C:/Users/ASUS/bin/tectonic.exe --keep-logs --print"
+          extensions: [".tex", ".bib"]
+          protocol: compiler
+          parser: tectonic
+        chktex:
+          command: "C:/Users/ASUS/AppData/Local/Programs/MiKTeX/miktex/bin/x64/chktex.exe -q"
+          extensions: [".tex"]
+          protocol: linter
+          parser: chktex
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 1024
+    system_prompt: "Test agent."
+
+execution:
+  mode: conversation
+  max_turns: 2
+  timeout: 30
+
+capabilities:
+  default_policy: auto

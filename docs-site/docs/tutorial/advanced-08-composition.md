@@ -155,7 +155,7 @@ a meta-action. Granting it explicitly puts it back in.
 
 ## Live transcript
 
-Real session against the daemon, with both apps deployed:
+Sample transcript, with both apps deployed:
 
 ```text
 > Translate to French: "The world is changing fast."
@@ -249,6 +249,3 @@ do based on the error message.
 - The `context_builder` module that exposes `call_app` plus
   the discovery meta-tools:
   [context_builder reference](../reference/modules/context_builder.md).
-- For the inverse pattern - making your app callable as an
-  **MCP server** so non-Digitorn agents can invoke it:
-  [App-as-MCP-server](../language/16-app-as-mcp-server.md).

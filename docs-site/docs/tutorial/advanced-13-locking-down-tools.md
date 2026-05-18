@@ -263,11 +263,10 @@ These tests aren't proving the docs - they're proving the
 **daemon really enforces what the YAML declares**, end to
 end:
 
-1. **Schema filtering is honest.** `allowed_actions` and
+1. **Schema filtering is effective.** `allowed_actions` and
    `deny` actually remove the tool from the schema sent to
-   the LLM. We confirmed this by asking the LLM to enumerate
-   its tools - the masked tools were absent from its own
-   reported list.
+   the LLM. Asking the LLM to enumerate its tools confirms
+   the masked tools are absent from its reported list.
 2. **Bypasses are blocked.** A clever LLM trying to invoke a
    denied tool through `background_run` gets refused at the
    dispatch layer. The deny isn't just cosmetic.

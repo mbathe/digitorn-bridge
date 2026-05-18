@@ -191,6 +191,7 @@ class _ChatMixin:
         correlation_id: str | None = None,
         client_message_id: str | None = None,
         template_system_prompt: str = "",
+        mode_id: str | None = None,
     ) -> TurnResult:
         """Process a single conversation message within a session.
 
@@ -389,6 +390,7 @@ class _ChatMixin:
                 correlation_id=correlation_id,
                 client_message_id=client_message_id,
                 template_system_prompt=template_system_prompt,
+                mode_id=mode_id,
             )
             return result
         finally:
@@ -434,9 +436,11 @@ class _ChatMixin:
         correlation_id: str | None = None,
         client_message_id: str | None = None,
         template_system_prompt: str = "",
+        mode_id: str | None = None,
     ) -> "TurnResult":
         """Inner chat logic, called under per-session lock."""
         from digitorn.core.runtime.agent_loop import agent_turn
+        from digitorn.core.runtime.mode_merge import resolve_mode
 
         from digitorn.core.runtime.types import WORKSPACE_PLACEHOLDER
         yaml_ws = getattr(deployed.compiled.execution, "workspace", "") or ""
@@ -1452,12 +1456,38 @@ class _ChatMixin:
             ctx.session_store = self._session_store  # type: ignore[attr-defined]
         except Exception:
             pass
+        # Resolve the composer mode for this turn. ``mode_id`` is the
+        # client-supplied selection (None / empty falls back to the
+        # default-policy: ``auto`` if declared, else first declared,
+        # else no mode at all). The dispatcher reads
+        # ``ctx.effective_turn`` at turn start to inject the
+        # mode-switch system_message and arm the tool guard. When the
+        # app declares no modes at all, ``effective.active_mode_id`` is
+        # None and the agent loop's mode block becomes a no-op.
+        try:
+            _effective = resolve_mode(deployed.compiled, mode_id)
+            ctx.effective_turn = _effective  # type: ignore[attr-defined]
+        except Exception as _exc:
+            logger.debug("resolve_mode_failed: %s", _exc)
+        # Per-turn caps honour the active mode's overrides (ModeDef.max_turns
+        # / ModeDef.timeout) when set, falling back to the app's runtime
+        # values when the mode does not narrow them or no mode is active.
+        # ``ctx.effective_turn`` was stamped earlier by ``resolve_mode``.
+        _eff = getattr(ctx, "effective_turn", None)
+        _eff_max_turns = (
+            getattr(_eff, "max_turns", None)
+            or deployed.compiled.execution.max_turns
+        )
+        _eff_timeout = (
+            getattr(_eff, "timeout", None)
+            or deployed.compiled.execution.timeout
+        )
         try:
             _turn_coro = agent_turn(
                 ctx,
                 session.messages,
-                max_turns=deployed.compiled.execution.max_turns,
-                timeout=deployed.compiled.execution.timeout,
+                max_turns=_eff_max_turns,
+                timeout=_eff_timeout,
                 on_tool_call=_on_tool_call,
                 on_tool_start=_on_tool_start_bus,
                 on_tool_call_streaming=_on_tool_call_streaming,
@@ -1903,12 +1933,23 @@ class _ChatMixin:
             hook_runner.on_hook_event = on_hook_event
             _had_hook_cb = True
 
+        # Per-turn caps honour the active mode's overrides when present
+        # (same plumbing as the primary chat path above).
+        _eff = getattr(ctx, "effective_turn", None)
+        _eff_max_turns = (
+            getattr(_eff, "max_turns", None)
+            or deployed.compiled.execution.max_turns
+        )
+        _eff_timeout = (
+            getattr(_eff, "timeout", None)
+            or deployed.compiled.execution.timeout
+        )
         try:
             result = await agent_turn(
                 ctx,
                 session.messages,
-                max_turns=deployed.compiled.execution.max_turns,
-                timeout=deployed.compiled.execution.timeout,
+                max_turns=_eff_max_turns,
+                timeout=_eff_timeout,
                 on_tool_call=_on_tool_call,
                 hook_runner=hook_runner,
             )

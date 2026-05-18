@@ -116,7 +116,7 @@ Buckets created in `server.py`:
 | MCP surface | `rate_limit_rpm // 2` | Fixed `__admin_mcp__`. |
 | Modules surface | `rate_limit_rpm // 2` | Fixed `__admin_modules__`. |
 | Deploy surface | `rate_limit_rpm // 2` | Fixed `__admin_deploy__`. |
-| Everything else | None | No catch-all (removed because legitimate Flutter polling kept hitting 429). |
+| Everything else | None | No catch-all (removed because legitimate the chat client polling kept hitting 429). |
 
 When a bucket trips, the daemon returns `429` with `Retry-After`
 and `retry_after` in the JSON body (`server.py`).
@@ -193,28 +193,21 @@ security:
 ## Serialisation safety
 
 Every backend store (Redis, DiskCache, KV) uses **JSON-only**
-serialisation. The CI `security` job at
-`.github/workflows/ci.yml:130-177` greps the entire codebase
-on every push:
-
-```bash
-grep -rn "import pickle\|pickle\.loads\|pickle\.dumps" packages/digitorn/
-# zero hits → CI passes
-```
+serialisation. The CI `security` job greps the entire codebase
+on every push to ensure no `pickle` import or call slips in.
 
 Unknown dataclass types degrade to plain dicts - there is no
 code-execution path through deserialisation.
 
 ## CI security pipeline
 
-`.github/workflows/ci.yml:130-185`. The `security` job runs on
-every push and PR to `main`:
+The `security` job runs on every push and PR to `main`:
 
 | Step | What it checks |
 |------|----------------|
 | Dependency audit | `pip-audit --strict --desc` against the locked dependency tree (warning, not error). |
 | Hardcoded secrets | Greps source for credential-shaped strings. Errors out on hits. |
-| Zero pickle | `grep -rn "import pickle\|pickle\.loads\|pickle\.dumps" packages/digitorn/`. Errors on any hit. |
+| Zero pickle | Errors on any pickle import or call across the codebase. |
 | Safe YAML | Greps for `yaml.load(` (without `safe_`). Errors on any hit. |
 
 Plus the unit-test suite under `tests/security/` (~70 tests) that

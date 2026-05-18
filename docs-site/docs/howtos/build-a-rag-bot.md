@@ -35,7 +35,7 @@ unchanged.
 Three markdown files in a single directory.
 
 ```bash
-mkdir -p /c/tmp/digitorn-tutorials/rag-data
+mkdir -p ./rag-data
 ```
 
 `rag-data/pricing.md`:
@@ -137,7 +137,7 @@ digitorn dev deploy rag-bot.yaml
 digitorn dev chat rag-bot
 ```
 
-Pick `C:\tmp\digitorn-tutorials\rag-data` as the workspace when
+Pick `./rag-data` as the workspace when
 the dev CLI prompts.
 
 ## Live transcript
@@ -149,11 +149,11 @@ answered two follow-up questions with citations.
 ### Turn 1 - index the folder
 
 ```text
-> Index everything under C:\tmp\digitorn-tutorials\rag-data into
+> Index everything under ./rag-data into
   a knowledge base called 'docs'.
 
 Done! I've indexed everything under
-`C:\tmp\digitorn-tutorials\rag-data` into the **docs** knowledge
+`./rag-data` into the **docs** knowledge
 base. It found 3 documents (markdown files) and created 3 chunks.
 You can now ask me questions about the content and I'll retrieve
 answers from the knowledge base.

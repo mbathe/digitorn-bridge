@@ -108,6 +108,15 @@ class SessionState:
     workdir: str = ""
     interrupted: bool = False
     interrupted_at: str | None = None
+    # Active composer mode id ("" / None = no mode in effect).
+    # Read on every POST /messages: when the client-supplied
+    # ``body.mode`` differs from this stored value, the dispatcher
+    # treats it as a mode switch and injects a fresh ``system_message``
+    # describing the new mode's directive + allowed / blocked tools
+    # before the LLM call. Surviving across restarts is important so
+    # the cold-load path doesn't re-inject the directive on every
+    # resume of an already-active mode.
+    active_mode_id: str | None = None
 
     pinned: bool = False
     last_accessed_at: float = field(default_factory=time.monotonic)

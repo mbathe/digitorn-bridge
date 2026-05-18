@@ -27,6 +27,7 @@ from digitorn.modules.lsp.parsers import (
     parse_ruff,
     parse_generic_json,
     parse_fallback,
+    parse_chktex,
     parse_lsp_diagnostics,
 )
 
@@ -202,6 +203,58 @@ class TestParsers:
         assert diags[0].file == "src/app.py"
         assert diags[0].line == 42
         assert diags[0].severity == "error"
+
+    def test_parse_fallback_two_args(self):
+        """The linter / compiler protocols call every parser with
+        ``(stdout, stderr)``. parse_fallback historically took one arg;
+        the signature now accepts both with stderr scanned alongside
+        stdout so tools that emit to stderr (cargo, gcc, latexmk) are
+        not silently dropped."""
+        stdout = ""
+        stderr = "src/app.py:42:10: error: undefined name 'foo'"
+        diags = parse_fallback(stdout, stderr)
+        assert len(diags) == 1
+        assert diags[0].file == "src/app.py"
+
+    def test_parse_chktex(self):
+        """chktex emits a three-line block per diagnostic — header, the
+        source context line, then a caret line pointing at the issue."""
+        stdout = (
+            "Warning 24 in C:/proj/main.tex line 3: "
+            "Delete this space to maintain correct pagereferences.\n"
+            "\\label{intro}  \n"
+            "^\n"
+            "Warning 2 in C:/proj/main.tex line 4: "
+            "Non-breaking space (`~') should have been used.\n"
+            "Voir la section \\ref{intro}.\n"
+            "               ^\n"
+        )
+        diags = parse_chktex(stdout, "")
+        assert len(diags) == 2
+        assert diags[0].file == "C:/proj/main.tex"
+        assert diags[0].line == 3
+        assert diags[0].column == 1
+        assert diags[0].severity == "warning"
+        assert diags[0].code == "24"
+        assert diags[0].source == "chktex"
+        assert diags[1].line == 4
+        assert diags[1].column == 16  # caret at 16th position of context line
+        assert diags[1].code == "2"
+
+    def test_parse_chktex_ignores_miktex_update_noise(self):
+        """The MiKTeX build of chktex prints ``chktex: major issue: So
+        far, you have not checked for MiKTeX updates`` to stderr on
+        every invocation. The parser must ignore that noise and pick
+        the real diagnostics from stdout."""
+        stdout = (
+            "Warning 24 in main.tex line 3: Delete this space.\n"
+            "\\label{intro}  \n"
+            "^\n"
+        )
+        stderr = "chktex: major issue: So far, you have not checked for MiKTeX updates.\n"
+        diags = parse_chktex(stdout, stderr)
+        assert len(diags) == 1
+        assert diags[0].code == "24"
 
     def test_parse_lsp_diagnostics(self):
         raw = [{

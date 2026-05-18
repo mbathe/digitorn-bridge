@@ -55,8 +55,8 @@ tools:
 The `filesystem:` key is your local ID for this server (it
 appears in tool prefixes). `path:` is the shorthand for the
 official `@modelcontextprotocol/server-filesystem` package -
-the catalog (`packages/digitorn/modules/mcp/catalog.py`) maps
-it to `npx -y @modelcontextprotocol/server-filesystem <path>`.
+the daemon catalog maps it to
+`npx -y @modelcontextprotocol/server-filesystem <path>`.
 
 `sandbox:` is mandatory whenever the app declares any
 capabilities block. `process.exec` lets the daemon spawn the
@@ -99,8 +99,7 @@ For production, replace `{{env.X}}` with the
 
 Each entry resolves to the official npm/pip package with the
 right `command`, `args`, `env`, transport, and (when
-applicable) OAuth flow. The full pre-baked list lives in
-`packages/digitorn/modules/mcp/catalog.py`.
+applicable) OAuth flow.
 
 For a server **not** in the catalog, declare the full config
 yourself:
@@ -134,10 +133,10 @@ catalog override.
 
 ## Live transcript
 
-Real session captured against the daemon. The setup:
+Sample transcript. The setup:
 
 - App: [`mcp-bot`](#) - DeepSeek primary, one MCP server
-  (`filesystem`) pointed at `C:/tmp/digitorn-tutorials/mcp-sandbox`
+  (`filesystem`) pointed at `./mcp-sandbox`
 - Sandbox contents: `greeting.txt` ("hello from mcp"),
   `notes.md` (3 lines)
 
@@ -151,7 +150,7 @@ asks the server which paths it's allowed to touch:
 ```text
 [tool_call] McpFilesystemListAllowedDirectories({})
    → "Allowed directories:
-      C:\tmp\digitorn-tutorials\mcp-sandbox"
+      ./mcp-sandbox"
 ```
 
 Then lists the directory:
@@ -173,12 +172,12 @@ Then reads the file:
 And replies:
 
 ```text
-The workspace at `C:\tmp\digitorn-tutorials\mcp-sandbox`
+The workspace at `./mcp-sandbox`
 contains:
 
-- **`.digitorn/`** — a directory
-- **`greeting.txt`** — contains: `hello from mcp`
-- **`notes.md`** — a markdown file
+- **`.digitorn/`** - a directory
+- **`greeting.txt`** - contains: `hello from mcp`
+- **`notes.md`** - a markdown file
 ```
 
 `tool_calls.total: 3, success: 3, failed: 0`. End-to-end:
@@ -233,9 +232,4 @@ servers you can't audit*.
   OAuth flow):
   [mcp module](../reference/modules/mcp.md).
 - The catalog of pre-configured servers (GitHub, Notion,
-  Slack, …):
-  [`catalog.py`](https://github.com/anthropics/digitorn-bridge/blob/main/packages/digitorn/modules/mcp/catalog.py).
-- For exposing **your own Digitorn app** as an MCP server (so
-  other tools - Claude Desktop, Cursor, etc. - can call into
-  it):
-  [App as MCP server](../language/16-app-as-mcp-server.md).
+  Slack, ...) is bundled with the daemon.

@@ -64,7 +64,7 @@ to the fork and vice versa.
 
 ## Live transcript
 
-Real session captured against the daemon. The setup uses
+Sample transcript. The setup uses
 `memory-bot` from [tutorial 2](02-conversation-with-memory.md):
 an agent with the memory module, configured to remember facts
 the user shares.
@@ -87,7 +87,7 @@ client.fork_session(session)
 # returned:
 # {
 #   "session_id": "d05d9166-7adb-4f53-b147-cdee07c5a282",
-#   "source_session_id": "test-94a8135d",
+#   "source_session_id": "<sid>",
 #   "forked": True,
 #   "message_count": 3
 # }

@@ -1,0 +1,110 @@
+app:
+  app_id: sonnet47-test
+  name: "Claude Code Smoke Test"
+  short_name: "Claude Code"
+  version: 0.3.0
+  description: >-
+    Small probe app pointing at the gateway alias ``claude-sonnet-4-6``
+    via the ``claude_code`` provider (OAuth Claude Max). Use this to
+    validate the OAuth token still works + the alias resolves correctly
+    + the Anthropic upstream answers.
+  icon: "🧪"
+  color: "#A78BFA"
+  category: general
+  tags: [test, sonnet, claude-code, probe]
+  quick_prompts:
+    - label: Identity check
+      icon: 🔍
+      message: "Which exact model are you? Reply in one short sentence with the version string."
+    - label: Reasoning probe
+      icon: 🧠
+      message: |-
+        Trois trains partent de gares différentes à 8h, 8h15 et 8h40. Ils
+        convergent vers la même gare centrale et arrivent simultanément à
+        11h12. Sachant que le premier roule à 90 km/h, le second à 105 km/h
+        et le troisième à 130 km/h, calcule la distance de chaque gare de
+        départ. Montre ton raisonnement étape par étape.
+    - label: Code one-liner
+      icon: 💻
+      message: "Write a single Python expression that returns the longest word in a string s (ties: pick the first one)."
+    - label: Tool use
+      icon: 🛠️
+      message: "Fetch https://example.com and summarise what's on the homepage in 2 sentences."
+
+runtime:
+  mode: conversation
+  workdir_mode: auto
+  max_turns: 20
+  timeout: 600
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      # provider=claude_code matches the gateway provider slug, so the
+      # daemon's gateway_resolver builds the gateway alias
+      # "claude_code/claude-sonnet-4-7" which resolves via the
+      # synthesize_model path to the catalog row we have in
+      # gateway_models. The api_key + base_url below are deploy-time
+      # stubs; the gateway resolver hot-swaps them at session start.
+      provider: claude_code
+      backend: openai_compat
+      model: claude-sonnet-4-6
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0.5
+      max_tokens: 8192
+      context:
+        max_tokens: 200000
+        strategy: summarize
+        keep_recent: 10
+        auto_compact: true
+    system_prompt: |
+      You are a smoke-test assistant running on Anthropic Claude via the
+      Digitorn gateway (claude_code provider, OAuth Claude Max). The
+      gateway alias and real upstream model are both
+      ``claude-sonnet-4-6``.
+
+      Identity: when asked which model you are, answer honestly with
+      your true version string ("Claude Sonnet 4.6"). Do not pretend
+      to be GPT or another model.
+
+      Keep responses short and direct. This app is for probing model +
+      routing health, not for long-form conversation.
+
+      Tools: use web.search / web.fetch when you genuinely need fresh
+      information. Don't call tools for things you can answer from
+      training.
+
+tools:
+  modules:
+    memory:
+      config:
+        working_memory: true
+    web:
+      config:
+        search_backend: duckduckgo
+    context_builder: {}
+  capabilities:
+    default_policy: auto
+    grant:
+      - module: memory
+        actions:
+          - set_goal
+          - remember
+      - module: web
+        actions:
+          - search
+          - fetch
+
+ui:
+  layout: lovable
+  density: compact
+  composer:
+    quick_prompts_visible: true
+  greeting: |
+    Sonnet 4.7 smoke test. Pose-moi n'importe quoi pour vérifier que
+    la cred Claude Code + l'alias claude-sonnet-4-7 routent correctement
+    via la gateway. Les quick-prompts en haut testent identité, raisonnement,
+    code et tool-use.

@@ -15,8 +15,8 @@ recommended.
 
 | Need | Use |
 |------|-----|
-| Log in from a script | [Python testing SDK](../reference/client-sdks/python-testing.md) - `DevClient` reads the token from `~/.digitorn/auth.token` automatically |
-| Log in from the terminal | `digitorn login` (CLI) |
+| Log in from a script | [Python testing SDK](../reference/client-sdks/python-testing.md) - `DevClient.with_user(email, password)` or pass `token=` explicitly |
+| Log in from the terminal | `digitorn auth login` (CLI) |
 | Pair a daemon with a hosted Digitorn account | `digitorn install-local` (one-time) |
 
 For direct HTTP integration outside of the SDKs, contact your

@@ -7,12 +7,11 @@ title: Concepts
 
 The mental models behind Digitorn. Read these to understand *why*
 the framework looks the way it does; for *what* each field does,
-go to [Reference](../reference/) or [Language](../language/).
+go to [Reference](/docs/reference/) or [Language](/docs/language/).
 
 | Concept | Why it matters |
 |---------|---------------|
 | [App packages](app-packages.md) | The canonical packaging format (`package.toml` + `app.yaml`), how versioning works, how the Hub resolves dependencies. |
-| [Preview](preview.md) | The two preview modes (static bundle vs Vite dev server) and when each one applies. |
 | [Widgets](widgets.md) | End-to-end wiring of declarative UI: where the tree lives, how bindings resolve, how actions dispatch back to the agent. |
 
 ## Cross-cutting ideas

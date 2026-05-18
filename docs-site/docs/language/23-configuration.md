@@ -23,9 +23,9 @@ file with the highest priority of the three YAMLs.) See
 Every field on this page maps to a real Pydantic field; entries
 are cited with file + line.
 
-## The 19 sub-blocks
+## The 20 sub-blocks
 
-`Settings` (`config.py`) groups configuration into 19 nested
+`Settings` (`config.py`) groups configuration into 20 nested
 sub-models:
 
 | Block | Pydantic class | Source line | Covers |
@@ -46,9 +46,10 @@ sub-models:
 | `websocket` | `WebSocketConfig` | `config.py` | Socket.IO / WS server tuning. |
 | `discovery` | `DiscoveryConfig` | `config.py` | Tool discovery (semantic + keyword index). |
 | `images` | `ImageConfig` | `config.py` | Multimodal image handling (max size, aging policy). |
+| `web_preview` | `WebPreviewConfig` | `config.py` | Vite preview server defaults (port range, idle timeout). |
 | `transcribe` | `TranscribeConfig` | `config.py` | Voice transcription (model selection, fallback). |
 | `hub` | `HubConfig` | `config.py` | Hub registry integration. |
-| `session_queue` | `SessionQueueConfig` | `config.py` | Background-mode activation queue. |
+| `workers` | `WorkersConfig` | `config.py` | Out-of-process module workers (optional; empty = legacy in-process). |
 
 > **Note**. The daemon's `sandbox` sub-block (`config.py`) is
 > the OS sandbox toggle and pool size for **all** deployed apps -

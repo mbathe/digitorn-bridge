@@ -169,7 +169,7 @@ A named adapter instance.
 
 ### Module-level config
 
-`ChannelsModuleConfig` (`module.py`):
+`ChannelsConfig` (`module.py`):
 
 | Field | Default | Bounds |
 |-------|---------|--------|
@@ -195,14 +195,14 @@ tools:
 
 ## Template variables
 
-`channels/template.py`. Pure `str.replace` - no eval, no
-Jinja2.
+`channels/template.py`. Single-pass regex substitution - no
+eval, no Jinja2.
 
 ### Compile-time scopes
 
 | Variable | Source | Example |
 |----------|--------|---------|
-| `{{credential.X}}` *(preferred)* | Credentials vault | `{{secret.SLACK_WEBHOOK_URL}}` |
+| `{{credential.PROVIDER.FIELD}}` *(preferred)* | Credentials vault | `{{credential.slack_alerts.webhook_url}}` |
 | `{{secret.X}}` (legacy) | Encrypted secret store | `{{secret.WEBHOOK_SECRET}}` |
 | `{{env.VAR}}` | Daemon env (whitelist enforced) | `{{env.SUPPORT_EMAIL}}` |
 | `{{sys.hostname / date / timestamp / platform / user}}` | System info | `{{sys.date}}` |
@@ -244,7 +244,7 @@ substituted once when the YAML loads. Runtime tokens
 
 | Guard | Source | Behaviour |
 |-------|--------|-----------|
-| No eval / exec / Jinja2 | `template.py` | Pure `str.replace`. |
+| No eval / exec / Jinja2 | `template.py` | Single-pass regex substitution. |
 | `{{secret.*}}` / `{{env.*}}` blocked at runtime | `template.py` | Resolved at compile time only - runtime attempts logged as warnings. |
 | Single-pass substitution | `template.py` | `{{{{nested}}}}` → `{{nested}}`, never recursed. Blocks template-injection attacks. |
 | 256 KB output cap | `template.py` | Prevents expansion bombs from large variables. |
@@ -300,7 +300,9 @@ activation:
   prepare:
     - action: database.fetch_results
       params:
-        query: "SELECT * FROM clients WHERE phone = '{{event.source}}'"
+        connection_id: main
+        query: "SELECT * FROM clients WHERE phone = :p0"
+        params: ["{{event.source}}"]
       as: caller
 
     - action: rag.query
@@ -311,15 +313,23 @@ activation:
 
     - action: database.fetch_results
       params:
+        connection_id: main
         query: |
           SELECT id, title, status FROM tickets
-          WHERE client_id = {{caller.id}}
+          WHERE client_id = :p0
           ORDER BY created_at DESC LIMIT 5
+        params: ["{{caller.rows.0.id}}"]
       as: recent_tickets
 ```
 
 Steps execute sequentially; each can reference results of
-earlier steps (`{{caller.id}}` after `as: caller`).
+earlier steps. The result stored under `as:` is the action's
+`data` field, so `database.fetch_results` results are accessed
+as `{{caller.rows.0.id}}` (rows is a list of row dicts), `rag.query`
+results as `{{procedure.results.0.text}}`, etc. Always pass user-
+controlled values through bind parameters (`:p0`, `:p1`, ...)
+instead of interpolating them into the query string, otherwise a
+crafted `event.source` is a SQL injection.
 
 > **Same security gates apply.** Prepare steps go through the
 > ServiceBus - every permission, rate limit, and audit
@@ -415,6 +425,15 @@ In-memory deduplication seen-set capped at 10 000 entries.
 `adapters/webhook.py`. Inbound POST listener + outbound POST
 delivery.
 
+> **Inbound routing status.** Outbound (`url`, `headers`,
+> `channels.send_message`) works end-to-end. Inbound HMAC and
+> sanitisation logic is implemented in the adapter, but the
+> daemon does not yet expose the configured `inbound_path` as a
+> real HTTP route. Until that wiring lands, exercise inbound
+> handling with `channels.simulate_event` from the agent, or use
+> the legacy `runtime.triggers.http` (separate port,
+> path `/trigger/<id>`) when you need a real public endpoint.
+
 ```yaml
 providers:
   # Inbound only
@@ -479,7 +498,7 @@ providers:
 | 1 | Payload size enforced **before** JSON parsing. |
 | 2 | Content-Type whitelist: `application/json`, `application/x-www-form-urlencoded`, `text/plain` (else 415). |
 | 3 | Payload sanitisation strips prototype-pollution keys (`__proto__`, `__class__`, `constructor`, `__*`, `$$*`). Limits: depth 10, string 10 000, dict 200 keys, list 500 items. |
-| 4 | Sensitive header stripping: `Authorization`, `Cookie`, `X-API-Key`, `X-Signature-*`. |
+| 4 | Sensitive header stripping from `event.metadata.headers`: `Authorization`, `Cookie`, `X-API-Key`, `X-Signature-256`, `X-Hub-Signature-256`. |
 
 ### `email` - IMAP + SMTP (bidirectional)
 
@@ -990,21 +1009,21 @@ agents:
       backend: anthropic
       config: { api_key: "{{secret.ANTHROPIC_API_KEY}}" }
     system_prompt: |
-      Tu es la réceptionniste du support IT.
-      Tu accueilles les demandes, identifies le besoin, résous les cas
-      simples. Pour les cas complexes, tu transfères au bon spécialiste.
-      Tu peux envoyer des alertes Slack pour les problèmes critiques.
+      You are the IT support receptionist.
+      You greet inbound requests, identify the need, resolve simple
+      cases. Hand complex cases off to the right specialist.
+      Send Slack alerts for critical issues.
 
   - id: vip_support
     role: specialist
     brain:
       provider: anthropic
-      model: claude-opus-4-20250514
+      model: claude-opus-4-7
       backend: anthropic
       config: { api_key: "{{secret.ANTHROPIC_API_KEY}}" }
     system_prompt: |
-      Support VIP premium. Service proactif, accès complet aux ressources.
-      Temps de réponse prioritaire. Consulte toujours l'historique client.
+      Premium VIP support. Proactive service, full access to resources.
+      Priority response time. Always check the client history first.
 
   - id: network_expert
     role: specialist
@@ -1013,7 +1032,7 @@ agents:
       model: claude-sonnet-4-5
       backend: anthropic
       config: { api_key: "{{secret.ANTHROPIC_API_KEY}}" }
-    system_prompt: "Expert réseau. Diagnostique VPN, DNS, firewall, connectivité."
+    system_prompt: "Network expert. Diagnoses VPN, DNS, firewall, connectivity issues."
 
   - id: software_expert
     role: specialist
@@ -1022,7 +1041,7 @@ agents:
       model: claude-sonnet-4-5
       backend: anthropic
       config: { api_key: "{{secret.ANTHROPIC_API_KEY}}" }
-    system_prompt: "Expert logiciel. Installation, configuration, dépannage."
+    system_prompt: "Software expert. Installation, configuration, troubleshooting."
 
   - id: reporter
     role: worker
@@ -1031,7 +1050,7 @@ agents:
       model: claude-sonnet-4-5
       backend: anthropic
       config: { api_key: "{{secret.ANTHROPIC_API_KEY}}" }
-    system_prompt: "Génère des rapports IT quotidiens. Envoie sur Slack."
+    system_prompt: "Generates daily IT reports. Sends them to Slack."
 
 tools:
   modules:
@@ -1048,6 +1067,9 @@ tools:
         - action: create_knowledge_base
           params:
             name: it_procedures
+        - action: ingest_directory
+          params:
+            knowledge_base: it_procedures
             path: ./docs/procedures/
 
     channels:
@@ -1071,25 +1093,29 @@ tools:
               prepare:
                 - action: database.fetch_results
                   params:
-                    query: "SELECT * FROM clients WHERE phone = '{{event.source}}'"
+                    connection_id: main
+                    query: "SELECT * FROM clients WHERE phone = :p0"
+                    params: ["{{event.source}}"]
                   as: caller
                 - action: database.fetch_results
                   params:
+                    connection_id: main
                     query: |
                       SELECT id, title, status FROM tickets
-                      WHERE client_id = {{caller.id}}
+                      WHERE client_id = :p0
                       ORDER BY created_at DESC LIMIT 5
+                    params: ["{{caller.rows.0.id}}"]
                   as: recent_tickets
               route:
-                field: caller.plan
+                field: caller.rows.0.plan
                 rules:
                   - { match: premium, agent: vip_support }
                   - { default: true,  agent: receptionist }
               session: "wa-{{event.source}}"
               context: |
-                Canal: WhatsApp
-                Client: {{caller.name}} (plan {{caller.plan}}, depuis {{caller.created_at}})
-                Tickets récents: {{recent_tickets}}
+                Channel: WhatsApp
+                Client: {{caller.rows.0.name}} (plan {{caller.rows.0.plan}}, since {{caller.rows.0.created_at}})
+                Recent tickets: {{recent_tickets.rows}}
               reply: auto
 
           # ── Email via Gmail ───────────────────────────────
@@ -1113,12 +1139,14 @@ tools:
               prepare:
                 - action: database.fetch_results
                   params:
-                    query: "SELECT * FROM clients WHERE email = '{{event.source}}'"
+                    connection_id: main
+                    query: "SELECT * FROM clients WHERE email = :p0"
+                    params: ["{{event.source}}"]
                   as: sender
               session: "email-{{event.source}}"
               context: |
-                Canal: Email
-                Contact: {{sender.name}} ({{sender.plan}})
+                Channel: Email
+                Contact: {{sender.rows.0.name}} ({{sender.rows.0.plan}})
               reply: auto
 
           # ── GLPI webhook (ticketing) ──────────────────────
@@ -1134,7 +1162,9 @@ tools:
               prepare:
                 - action: database.fetch_results
                   params:
-                    query: "SELECT * FROM clients WHERE glpi_id = {{event.payload.users_id}}"
+                    connection_id: main
+                    query: "SELECT * FROM clients WHERE glpi_id = :p0"
+                    params: ["{{event.payload.users_id}}"]
                   as: requester
                 - action: rag.query
                   params:
@@ -1144,15 +1174,15 @@ tools:
               route:
                 field: event.payload.itilcategories_name
                 rules:
-                  - { match: Reseau,   agent: network_expert }
-                  - { match: Logiciel, agent: software_expert }
+                  - { match: Network,  agent: network_expert }
+                  - { match: Software, agent: software_expert }
                   - { default: true,   agent: receptionist }
               session: "ticket-{{event.payload.id}}"
               context: |
                 Ticket GLPI #{{event.payload.id}}
-                Client: {{requester.name}} ({{requester.plan}})
-                Catégorie: {{event.payload.itilcategories_name}}
-                Procédure suggérée: {{procedure}}
+                Client: {{requester.rows.0.name}} ({{requester.rows.0.plan}})
+                Category: {{event.payload.itilcategories_name}}
+                Suggested procedure: {{procedure.results.0.text}}
               message: |
                 {{event.payload.name}}
 

@@ -114,7 +114,7 @@ front-loading every schema.
 ## Live transcript
 
 The user asks the agent to **find a tool** without running it.
-Real session captured against the daemon.
+Sample transcript.
 
 ```text
 > Find a tool that can grep file contents and tell me what it

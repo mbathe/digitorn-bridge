@@ -12,24 +12,17 @@ as a normal message). Both flavours are declared under
 `ui.slash_commands:` in the same YAML list, picked apart by
 the presence of an `action:` block.
 
-Live-tested end-to-end: app `tuto-slash-commands`, session
-`bbc939bb`, brain `openai/gpt-5-mini`. Both flavours fired
-cleanly; `/help` dispatched in 20ms with no LLM cost, the
-`/greet` template flow finished a normal LLM turn.
-
 ## The two flavours at a glance
 
 | Flavour | Declared with | Dispatched by | LLM cost | Persisted in history |
 |---|---|---|---|---|
-| Builtin | `action: {type: builtin, name: ...}` | Daemon HTTP layer ([`slash_dispatch.py`](https://github.com/digitorn-ai/digitorn-bridge/blob/main/packages/digitorn/core/api/apps_v2/slash_dispatch.py)) | 0 (synthetic) | No (SSE only) |
+| Builtin | `action: {type: builtin, name: ...}` | Daemon HTTP layer | 0 (synthetic) | No (SSE only) |
 | Template | `template: "...{{var}}..."` | Chat client (renders + sends rendered text) | 1 normal turn | Yes (as user + assistant message) |
 
-The builtin handlers v1 ships are:
-`help`, `compact_session`, `undo_session`.
-Adding a new builtin = adding a Python function to
-`BUILTIN_HANDLERS` in `slash_dispatch.py`. Template
-commands do not require any Python change — they live
-entirely in the YAML.
+The builtin handlers shipped today:
+`help`, `compact_session`, `undo_session`. Template commands
+do not require any Python change: they live entirely in the
+YAML.
 
 ## The YAML
 
@@ -128,7 +121,7 @@ Three things to know:
   declared value is the default; the chat client supplies
   the real value when the user fills the form. Without the
   declaration the compiler rejects the YAML with
-  *"placeholder '{{var}}' references undefined variable"*.
+  `placeholder '{{var}}' references undefined variable`.
 - **Variable values are strings.** `dev.variables.name: "there"`
   works; `name: {description: ..., default: ...}` fails with
   *"schema error at 'dev.variables.name': Input should be a
@@ -150,7 +143,7 @@ curl -sS -H "Authorization: Bearer $TOKEN" \
 
 Captured output:
 
-```
+```text
 "/help - List every command declared by this app."
 "/compact - Trim older messages to free context window."
 "/undo - Undo the last turn (restore previous state)."
@@ -158,7 +151,7 @@ Captured output:
 "/summarise - One-paragraph summary of a piece of text."
 ```
 
-## Live test 1: builtin `/help` (server-side dispatch)
+## Sample flow: builtin `/help` (server-side dispatch)
 
 Send the slash command as a plain user message; the daemon
 intercepts it before the agent loop:
@@ -171,26 +164,14 @@ curl -sS -X POST \
   http://127.0.0.1:8000/api/apps/tuto-slash-commands/sessions/<sid>/messages
 ```
 
-Response time: **20 milliseconds**. No LLM call,
-`tools.total_calls: 0` for that turn. The event log shows
-the synthetic dispatch:
+Response time: ~20 milliseconds. No LLM call. The handler's
+response (the formatted help text listing every declared
+command) streams via the `token` SSE channel so the chat UI
+renders it like a normal assistant message. The text is NOT
+persisted in the session message history (builtins are
+stateless UI sugar).
 
-```
-seq=57 user_message     corr=slash-c94657b8ab42  "/help"
-seq=58 message_started  corr=slash-c94657b8ab42
-seq=60 message_done     corr=slash-c94657b8ab42  slash_synthetic: true
-seq=61 turn_terminal    corr=slash-c94657b8ab42  status=completed
-```
-
-The handler's response (the formatted help text listing
-every declared command) streams via the `token` SSE
-channel so the chat UI renders it like a normal assistant
-message. The text is **NOT** persisted in the session
-message history (by design: builtins are stateless UI
-sugar). If you fetch `/sessions/<sid>/history`'s
-`messages` array, you will not see the `/help` exchange.
-
-## Live test 2: template `/greet` (client-side fill)
+## Sample flow: template `/greet` (client-side fill)
 
 When the user types `/greet Paul` in the chat composer,
 the client looks up the template, fills `{{name}}` with
@@ -209,10 +190,9 @@ curl -sS -X POST \
   http://127.0.0.1:8000/api/apps/tuto-slash-commands/sessions/<sid>/messages
 ```
 
-The agent runs a normal turn and replies. Captured from
-session `bbc939bb`:
+The agent runs a normal turn and replies:
 
-```
+```text
 [user] Reply with a short greeting for Paul in three
        different languages. One line per language, format:
        `<language>: <greeting>`.
@@ -226,44 +206,31 @@ session `bbc939bb`:
 Both the user and assistant turns are persisted in the
 session message history, exactly like any other turn.
 
-## What we proved
-
-| Claim | Status |
-|---|---|
-| `slash_commands` registered at compile time and exposed via `/api/apps/<id>` | verified, 5 commands listed in summary |
-| Builtin `/help` dispatches in milliseconds with `slash_synthetic: true` | verified, 20 ms round-trip, no LLM call |
-| Builtin response is NOT persisted in session messages | verified, no `/help` exchange in `messages[]` array |
-| Template `/greet` is fully persisted as a normal turn | verified, `msg[3]` + `msg[4]` of session history |
-| Compiler enforces variable declarations for template placeholders | verified by negative test (omitting `dev.variables` failed with clear error) |
-
 ## When to reach for each flavour
 
 **Builtin** when the action does not need the LLM at all:
 help text, session housekeeping (`/compact`, `/undo`),
 state inspection, manual `/abort`-style controls. Cheap and
-fast (no model call), but limited to handlers shipped in
-`slash_dispatch.BUILTIN_HANDLERS`.
+fast (no model call), limited to handlers shipped in the
+daemon.
 
 **Template** when the LLM is doing the work but the prompt
 follows a stable pattern: `/commit <msg>`, `/translate <lang> <text>`,
 `/code-review <file>`, `/explain <symbol>`. The client
 form-fills the variables before sending; the agent gets a
-clean instruction without the user having to type the
-boilerplate every time.
+clean instruction without the user typing the boilerplate.
 
-The two flavours are **independent**: a command cannot be
-both a builtin and a template. If you give it an `action:`
-block, the daemon runs the builtin and ignores any
-`template:` field.
+The two flavours are independent: a command cannot be both
+a builtin and a template. If you give it an `action:` block,
+the daemon runs the builtin and ignores any `template:` field.
 
 ## Going further
 
-- Add a custom builtin: implement an async handler in
-  `slash_dispatch.py`, register it in `BUILTIN_HANDLERS`,
-  declare it in your YAML.
+- Add a custom builtin: implement an async handler in the
+  daemon's slash dispatch and declare it in your YAML.
 - Combine with skills: declare an app skill under
   `skills:` and invoke it via the framework's
-  `/use_skill <name>` shortcut (different mechanism — see
+  `/use_skill <name>` shortcut (different mechanism, see
   [Advanced 2](advanced-02-bundle-skills.md)).
 - Let users author their own templates per-app: set
   `dev.allow_user_skills: true` so the chat composer's

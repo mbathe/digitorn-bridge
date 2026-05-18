@@ -39,6 +39,10 @@ ui:
 | `render_mode` | string | `"auto"` | One of: `auto`, `react`, `html`, `markdown`, `slides`, `code`, `latex`, `builder`. `auto` detects from the first file written. |
 | `entry_file` | string \| null | `null` | Main file the client opens by default. If omitted, a render-mode-specific default is used. |
 | `title` | string \| null | `null` | Optional title shown in the workspace toolbar. |
+| `position` | string | `"right"` | Layout: `right`, `bottom`, `hidden`, `overlay`. |
+| `width_pct` | int [10, 90] | `50` | Workspace pane width as a percentage of the split. Ignored when `position` is `hidden` / `overlay`. |
+| `auto_open_on_first_tool` | bool | `true` | Open the pane on the agent's first file write or workbench event. |
+| `default_open` | bool | `false` | Open the pane immediately on session mount (Lovable-style; bypasses `auto_open_on_first_tool`). |
 
 > **Distinct from `runtime.workdir`.** `ui.workspace` is the
 > in-memory virtual filesystem and the renderer hint. `runtime.workdir`
@@ -131,24 +135,23 @@ tools:
     web_preview: {}            # no config required
     workspace:                 # optional, for the file-edit loop
       config:
-        sync_to_disk: true     # required for PreviewStatic to find paths
+        sync_to_disk: true     # required so the build can read agent-written files from disk
 ```
 
-### The 4 tools the agent gets
+### The 3 tools the agent gets
 
 | Short alias | FQN | Purpose |
 |-------------|-----|---------|
 | `PreviewProxy` | `web_preview.proxy` | Proxy the iframe to a running dev server on a port. |
-| `PreviewStatic` | `web_preview.static` | Serve a directory under the session workspace as static files. |
+| `PreviewPublish` | `web_preview.publish` | Build the project once and serve the static output same-origin. |
 | `PreviewDetach` | `web_preview.detach` | Drop a previously-registered attachment by name. |
-| `PreviewList` | `web_preview.list` | List the active attachments for the current session. |
 
 ### Three preview regimes
 
 | Regime | Trigger | What the agent does | Resource cost |
 |--------|---------|---------------------|---------------|
 | **Live dev server** | "Build me an app, I want HMR" | `Bash("npm run dev", run_in_background=true)` → wait until bound → `PreviewProxy(port=5173)` | One Node process per attached session |
-| **Built static** | "Build the app, deploy it" | `Bash("npm run build")` → `PreviewStatic(path="dist")` | Zero process; daemon reads from disk per request |
+| **Built static** | "Build the app, deploy it" | `PreviewPublish()` runs the build + serves `dist/` same-origin | Zero process; daemon serves from disk per request |
 | **Declarative ship** | App pre-ships `web/dist/` and the iframe just consumes it | None - fall-through resolution serves `web/dist/` automatically | Zero process |
 
 ### Routing resolution order
@@ -160,7 +163,7 @@ tools:
 2. The app's install dir contains a `web/dist/index.html` → serve
    the file directly (declarative case, no LLM action required).
 3. `404 Not Found`, with a hint pointing at `PreviewProxy` /
-   `PreviewStatic`.
+   `PreviewPublish`.
 
 ### Multi-attach by name
 
@@ -179,9 +182,9 @@ The iframe URL picks one via `?name=`:
 
 | Stage | What happens |
 |-------|--------------|
-| **Daemon boot** | Nothing. No dev servers spawned, no `npm install`. The `web_preview` module just registers its 4 tools. |
+| **Daemon boot** | Nothing. No dev servers spawned, no `npm install`. The `web_preview` module just registers its 3 tools. |
 | **Session start** | Same: nothing happens preview-side until the LLM acts. |
-| **Agent attaches** | `PreviewProxy` / `PreviewStatic` registers `(session_id, name)` in the in-memory registry. Health check on proxy is best-effort. |
+| **Agent attaches** | `PreviewProxy` / `PreviewPublish` registers `(session_id, name)` in the in-memory registry. Health check on proxy is best-effort. |
 | **Per request** | The route looks up the attachment by `(session_id, name)` and serves accordingly. Static reads disk live, so rebuilds are visible on the next page load with no re-attach needed. |
 | **Session end** | `cleanup_session(sid)` drops all attachments for that session. Background bash tasks are killed by the shell module's own cleanup. |
 
@@ -223,7 +226,7 @@ automatically.
 |------|------|
 | Agent writes files; client renders them; no real bundler. | `ui.workspace` only. |
 | Agent writes files **and** they need to flow through Vite/Next/... HMR. | `ui.workspace` + `tools.modules.web_preview` (agent calls `PreviewProxy` on the dev server it spawned). |
-| Agent builds the app and serves the bundle. | `ui.workspace` + `tools.modules.web_preview` (agent calls `PreviewStatic` after `npm run build`). |
+| Agent builds the app and serves the bundle. | `ui.workspace` + `tools.modules.web_preview` (agent calls `PreviewPublish`, which runs the build + serves it same-origin). |
 | App pre-ships `web/dist/` and just consumes session state in the iframe. | Neither block - the routing fall-through serves it automatically. |
 | The app generates LaTeX / slides / a React mini-app dynamically per session. | `ui.workspace` with the matching `render_mode`. |
 | The app is conversation-only (no visible artifacts). | Neither. |

@@ -586,7 +586,23 @@ class LegacySessionStoreAdapter:
             row: dict[str, Any] = {"role": m.role, "content": m.content}
             tcs = getattr(m, "tool_calls", None) or []
             if tcs:
-                row["tool_calls"] = tcs
+                # Defensive: stored tool_calls from older events / some
+                # provider streams arrive without a ``type`` field. The
+                # OpenAI / LiteLLM API rejects the shape with HTTP 400
+                # ("Invalid type for 'messages[N].tool_calls[0].type'").
+                # Force the canonical ``"function"`` value so the LLM
+                # call always carries a valid shape, regardless of how
+                # the event was originally captured.
+                fixed_tcs = []
+                for tc in tcs:
+                    if isinstance(tc, dict):
+                        tc_copy = dict(tc)
+                        if not tc_copy.get("type"):
+                            tc_copy["type"] = "function"
+                        fixed_tcs.append(tc_copy)
+                    else:
+                        fixed_tcs.append(tc)
+                row["tool_calls"] = fixed_tcs
             out.append(row)
             if m.role == "assistant" and tcs:
                 for tc in tcs:

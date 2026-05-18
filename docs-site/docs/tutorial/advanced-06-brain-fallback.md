@@ -101,7 +101,7 @@ if not, another 300 s of fallback usage kicks in.
 
 ## Live - the YAML compiles and the primary works
 
-Real session captured against the daemon, with both primary and
+Sample transcript, with both primary and
 fallback declared:
 
 ```text

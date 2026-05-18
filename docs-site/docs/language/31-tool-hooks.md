@@ -1,5 +1,5 @@
 ---
-id: 31-tool-hooks
+id: tool-hooks
 ---
 
 # Hooks

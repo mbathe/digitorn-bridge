@@ -12,7 +12,7 @@ metadata, uploaded files), the routing keys their triggers should
 match, and the activation history.
 
 This page documents what the daemon actually stores, how it routes
-activations, and how a Flutter / web client wires the user-facing
+activations, and how a the chat client / web client wires the user-facing
 form. Every behaviour and field maps to real code; entries are
 cited with file + line.
 
@@ -291,7 +291,7 @@ Other recognised keys: `label`, `required`, `default`,
 }
 ```
 
-The Flutter / web client uses this to grey out the *Activate
+The the chat client / web client uses this to grey out the *Activate
 session* button until the form is complete.
 
 ### Where the schema is exposed

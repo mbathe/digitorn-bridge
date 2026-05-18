@@ -124,7 +124,7 @@ the rule fires on either.
 ## Live transcript
 
 User explicitly asks the agent to write inside `secrets/`. Real
-session captured against the daemon.
+transcript.
 
 ```text
 > Write a file at /tmp/secrets/api.key with content "test-key-12345".

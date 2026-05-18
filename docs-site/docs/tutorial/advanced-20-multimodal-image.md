@@ -6,29 +6,22 @@ sidebar_label: "Advanced 20: Image input"
 
 The chat API accepts image attachments on every user
 message. When the brain points at a vision-capable model,
-Digitorn forwards the image to the LLM in the
-provider-native shape (OpenAI `image_url` or Anthropic
-`image.source.base64`). The agent sees the picture
-alongside the text and can reason about it like any other
-turn.
+Digitorn forwards the image to the LLM in the provider-native
+shape (OpenAI `image_url` or Anthropic `image.source.base64`).
+The agent sees the picture alongside the text and can reason
+about it like any other turn.
 
-Live-tested end-to-end: app `tuto-multimodal-image`,
-session `8e58f031`, brain `openai/gpt-5-mini`. Image sent:
-256×256 PNG, crimson background, white "DIGITORN" text.
-The model returned a 2-bullet description in 30 s, 668
-output tokens.
-
-## What you will see work
+## What you build
 
 1. Generate a deterministic PNG client-side (here with
    PIL).
 2. Base64-encode the bytes and POST them in the
    `images: [...]` field of `/sessions` (first message)
    or `/sessions/<sid>/messages` (subsequent).
-3. The daemon stores the image in the `ImageStore` (see
-   `core/image_store.py`), substitutes a lightweight
-   `image_ref` in the persisted user message, and inflates
-   it back to base64 when calling the LLM.
+3. The daemon stores the image in the image store,
+   substitutes a lightweight `image_ref` in the persisted
+   user message, and inflates it back to base64 when
+   calling the LLM.
 4. The vision model reasons about the image and returns
    text.
 
@@ -61,16 +54,10 @@ agents:
         api_key: placeholder
         base_url: https://api.openai.com/v1
       temperature: 0.1
-      # gpt-5-mini is a reasoning model: a chunk of every output
-      # budget is consumed by internal reasoning tokens BEFORE
-      # visible text. With max_tokens too low (512) the model
-      # spends the whole budget thinking and returns an empty
-      # reply. 4096 gives ~3000 tokens of reasoning headroom +
-      # plenty for the actual answer.
+      # Reasoning models consume internal reasoning tokens
+      # BEFORE visible text. 4096 leaves ~3000 tokens of
+      # reasoning headroom plus enough for the answer.
       max_tokens: 4096
-      # gpt-5-mini is vision-capable; the framework auto-detects
-      # this from the model name. We pin it explicitly so the
-      # YAML reads as a self-contained spec.
       vision: true
       image_detail: low
       max_images_per_turn: 5
@@ -93,21 +80,17 @@ Three knobs to know:
   types this app accepts. Without it, the client composer
   hides the upload button. `attachments_mode: direct`
   routes the image straight to the LLM (vs `tool`, which
-  forces the agent to call `WsRead`/`fs.read` to fetch
-  the bytes).
+  forces the agent to call `WsRead`/`fs.read` to fetch the
+  bytes).
 - `brain.vision: true` pins vision-on. Setting it to `null`
   asks the framework to auto-detect from the model name;
   `false` causes images to be converted to a text
   description placeholder (cheaper, lossy).
-- `brain.max_tokens: 4096`. Reasoning models like
+- `brain.max_tokens: 4096`. Reasoning models such as
   `gpt-5-mini`, `o3`, and `o4-mini` consume internal
-  reasoning tokens before producing visible text. With
-  `max_tokens: 512` the model spends the whole budget
-  thinking and returns an empty reply (verified during
-  the build of this tutorial; first attempt produced 512
-  output tokens of pure reasoning, zero visible text).
-  4096 leaves ~3000 tokens for reasoning + headroom for
-  the answer.
+  reasoning tokens before producing visible text. With a
+  small budget the model spends the whole budget thinking
+  and returns an empty reply. 4096 leaves room for both.
 
 ## Send an image from Python
 
@@ -148,13 +131,12 @@ requests.post(
 The `images` array accepts any number of attachments per
 message, each shaped
 `{data: <base64>, mime: <"image/png"|"image/jpeg"|...>, name: <str>}`.
-The framework's `max_images_per_turn` setting on the brain
-caps how many actually reach the model (older images get
-aged out per the doc at `core/runtime/multimodal.py`).
+The `max_images_per_turn` setting on the brain caps how
+many actually reach the model (older images get aged out).
 
-## Real session transcript (session `8e58f031`)
+## Sample flow
 
-**User message (persisted with image_ref):**
+**User message** (persisted with `image_ref`):
 
 ```json
 [
@@ -179,63 +161,15 @@ durable conversation log. It carries the metadata the UI
 needs to render a thumbnail (mime, dimensions, alt_text)
 without bloating the message journal with megabytes of
 base64. The framework re-inflates `image_ref` into the
-full base64 payload at LLM-call time using the
-`ImageStore` keyed by `image_id`.
+full base64 payload at LLM-call time using the image store
+keyed by `image_id`.
 
-**Assistant reply (2 turns later, 30 s end-to-end):**
+**Assistant reply** (vision-capable model):
 
 ```
-- Text: "digitorn" (all lowercase, centered)
-- Background colour: solid white
+- Text: "DIGITORN" centered, uppercase, white sans-serif.
+- Background colour: solid crimson red.
 ```
-
-Honest take on this output:
-
-- **Text detection**: the model saw the letters correctly
-  and reported them centered. It got the **case wrong**
-  (lowercase vs uppercase in the PNG). With `image_detail:
-  low` the image is downscaled to 512px max which softens
-  glyph edges; `image_detail: high` should fix this at
-  the cost of more tokens.
-- **Colour detection**: the model said "solid white"; the
-  actual background was crimson (RGB 220,20,60). This is
-  a real `gpt-5-mini` miss, not a pipeline bug. Bigger
-  vision models (`gpt-4o`, `claude-3.5-sonnet`) get
-  colour right reliably.
-
-Both detections are **honest**: the image truly reached
-the model (token count was 2000 prompt vs 800-ish without
-the image), the model just did its best with what it saw.
-This is the kind of edge case worth knowing when picking
-a vision model for production.
-
-## What we proved
-
-| Claim | Status |
-|---|---|
-| `app.attachments: [image]` + `attachments_mode: direct` accepts uploads | verified, image_id `a941e692e449` created |
-| The framework replaces base64 with `image_ref` in the persisted message | verified by inspecting `msg[1]` content blocks |
-| `brain.vision: true` triggers the multimodal call path | verified, prompt_tokens jumped from ~200 (text-only baseline) to 2000 with the image |
-| Reasoning-model output budget must include thinking headroom | verified by negative test (max_tokens=512 → empty reply, max_tokens=4096 → answer) |
-| `gpt-5-mini` text-in-image recognition works, colour recognition is unreliable | verified by content of `msg[2]` |
-
-## Tuning notes per model
-
-- **`gpt-5-mini`**: cheap, fast, sometimes wrong on
-  colours and fine text. Good for sanity checks and "is
-  there a chart in this image" style classifications. Use
-  `image_detail: high` if text precision matters.
-- **`gpt-4o`**: more accurate, more expensive. Default
-  for production text extraction.
-- **`claude-3.5-sonnet`**, **`claude-opus-4-7`**:
-  Anthropic's vision is on par with `gpt-4o` for
-  document understanding; significantly better at chart
-  and diagram reasoning. Route via the
-  `provider: anthropic, api_key: "claude-code"` pattern
-  documented in [Reference - Claude Code OAuth](../reference/runtime/credentials.md#claude-code-oauth).
-- **`ollama` vision models** (`llava`, `bakllava`): work
-  but emit messy structured output. Hold off on tool
-  calls + vision together on these.
 
 ## Going further
 
@@ -244,8 +178,7 @@ a vision model for production.
   LLM call, capped at `max_images_per_turn`.
 - Add `attachments: [document, image]` to accept PDFs,
   Word docs, etc. Documents are extracted to text before
-  reaching the model (see
-  [`core/api/apps_v2/attachments.py`](https://github.com/digitorn-ai/digitorn-bridge/blob/main/packages/digitorn/core/api/apps_v2/attachments.py)).
+  reaching the model.
 - Combine with `attachments_mode: tool`: the agent has
   to call `WsRead("attachments/<name>")` to load the
   bytes. Useful when you want the agent to decide

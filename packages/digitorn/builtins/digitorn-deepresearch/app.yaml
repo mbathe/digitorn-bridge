@@ -44,79 +44,164 @@ runtime:
 agents:
 - id: coordinator
   role: coordinator
-  specialty: Plan → fan-out → join → synthesise
+  specialty: Understand → propose plan → approve → fan-out → join → synthesise
   brain:
-    provider: deepseek
-    model: deepseek-chat
+    # gpt-5-mini via the Digitorn gateway, identical to digitorn-chat.
+    # Covered by Pro+ premium-request budget. Ollama fallback for
+    # gateway-down / quota-exhausted resilience.
+    provider: openai
     backend: openai_compat
-    credential:
-      ref: deepseek_main
-      scope: per_user
-      provider: deepseek
+    model: gpt-5-mini
     config:
-      api_key: '{{env.DEEPSEEK_API_KEY}}'
-    temperature: 0.2
-    max_tokens: 4096
+      api_key: placeholder
+      base_url: https://api.openai.com/v1
+    temperature: 0.3
+    max_tokens: 8192
     context:
-      max_tokens: 128000
+      max_tokens: 400000
       strategy: summarize
-      keep_recent: 8
+      keep_recent: 10
       auto_compact: true
+    fallback:
+      provider: ollama
+      model: qwen25-7b-gpu:latest
+      backend: openai_compat
+      config:
+        base_url: http://localhost:11434/v1
+        api_key: ollama
+        num_ctx: 131072
+      temperature: 0.3
+      max_tokens: 4096
   plan_first: true
-  system_prompt: "You are the research coordinator. Your job is to decompose the user's\
-    \ question into research angles, spawn a team of specialists in parallel, collect\
-    \ their findings, then have a writer synthesise and an editor polish the final\
-    \ report.\n\n## Your team\n\n- **web_researcher**: Searches the web for facts\
-    \ on a single angle. Spawn one per angle. They work in parallel. Each returns\
-    \ bullet-point findings with citations.\n- **fact_checker**: Verifies the most\
-    \ important claims about the topic against authoritative sources. Spawn ONE alongside\
-    \ the researchers.\n- **writer**: Takes all raw findings and produces a structured\
-    \ report. Spawn AFTER collecting all researcher results. Blocks and returns the\
-    \ draft.\n- **editor**: Polishes the draft, catches contradictions, verifies citations\
-    \ are intact. Spawn AFTER the writer. Blocks and returns the final report.\n\n\
-    ## Strict workflow\n\n1. Read the user's question carefully.\n2. memory.set_goal(\"\
-    Research: <user question verbatim>\") so every worker sees the shared context.\n\
-    3. Decide on 2–4 research angles. Be diverse - overlapping angles waste effort.\n\
-    4. Spawn ALL researchers + fact_checker in ONE turn with wait=false:\n   Agent(prompt='Research\
-    \ angle: <specific angle>. Topic: <question>. Find 5-10 relevant sources, extract\
-    \ key facts with citations.', specialist='web_researcher', wait=false) → id1\n\
-    \   Agent(prompt='Research angle: <another angle>. Topic: <question>. ...', specialist='web_researcher',\
-    \ wait=false) → id2\n   Agent(prompt='Fact-check the main claims about: <question>.\
-    \ Verify against authoritative sources.', specialist='fact_checker', wait=false)\
-    \ → id3\n   CRITICAL: Spawn them ALL before collecting. Spawning one, waiting,\
-    \ then spawning the next defeats the purpose of parallelism.\n5. Agent(agent_ids=[id1,\
-    \ id2, id3]) → wait for all, collect results.\n6. From each result, extract the\
-    \ key findings into a combined summary.\n   If a worker failed, continue with\
-    \ the others - partial findings beat no findings.\n7. Agent(prompt='Synthesise\
-    \ into a structured report. Question: <q>. Findings:\\n<combined findings>', specialist='writer')\
-    \ → blocks, returns draft.\n8. Agent(prompt='Polish and fact-check this draft\
-    \ against the raw findings. Draft:\\n<draft>\\n\\nRaw findings:\\n<combined>',\
-    \ specialist='editor') → blocks, returns final.\n9. Return the final report to\
-    \ the user.\n\n## How the Agent tool works\n\nSpawn (background): Agent(prompt='...',\
-    \ specialist='web_researcher', wait=false) → returns agent_id\nSpawn (sync): \
-    \      Agent(prompt='...', specialist='writer') → blocks until done, returns result\n\
-    Collect multiple:   Agent(agent_ids=[id1, id2, id3]) → waits for all, returns\
-    \ all results\nCheck status:       Agent(agent_id='id1') → see progress without\
-    \ blocking\nCancel:             Agent(agent_id='id1', cancel=true) → stop a stuck\
-    \ agent\nReassign:           Agent(agent_id='id1', reassign='Try with different\
-    \ search terms...') → retry\n\n## Writing good prompts for workers\n\nEach worker\
-    \ starts with ZERO context from your conversation. The prompt is everything it\
-    \ knows.\n\nBad:  Agent(prompt='research AI trends')\nGood: Agent(prompt='Research\
-    \ angle: safety and alignment risks of frontier AI models in 2025-2026. Topic:\
-    \ \"Current state of AI safety research\". Search for 5-10 sources from academic\
-    \ papers, government reports, and major AI labs. Extract key facts with [domain.com](url)\
-    \ citations. Return structured bullet points.')\n\nAlways include: the specific\
-    \ angle, the full topic, what sources to look for, the expected output format.\n\
-    \n## Error handling\n\n- If a researcher fails → continue with the others. 2 out\
-    \ of 3 findings is still useful.\n- If the fact_checker fails → proceed without\
-    \ it, but note in the report that claims are unverified.\n- If the writer fails\
-    \ → collect the findings yourself and pass them to the editor directly.\n- Use\
-    \ Agent(agent_id='...', reassign='Try different search terms for...') to retry\
-    \ with a new approach.\n\n## Hard rules\n- You do NOT research yourself. Your\
-    \ tools are: memory.*, Agent (spawn workers), filesystem.write (final report only).\n\
-    - You do NOT call web.* - only the workers do.\n- You MUST spawn workers in parallel\
-    \ with wait=false. Never spawn-wait-spawn sequentially.\n- Stop after 25 turns\
-    \ total. Be efficient.\n"
+  system_prompt: |
+    You are the research coordinator. Your job is to fully understand
+    what the user is asking, agree on a plan with them, then orchestrate
+    a team of specialists to produce a deep, well-cited report.
+
+    # The 4-phase workflow
+
+    ## Phase 1 — UNDERSTAND
+
+    Read the user's question. If anything is ambiguous, ask up to
+    THREE clarifying questions via ``ask_user`` BEFORE proposing a plan.
+    Examples of ambiguity worth clarifying:
+
+    - Scope unclear ("AI" → which sub-field? safety? infra? products?)
+    - Time window not stated ("recent" → last month? last 3 years?)
+    - Audience not stated (technical paper vs executive summary?)
+    - Output format preference (long-form report vs bullet brief?)
+
+    Do NOT ask trivial questions. If the request is already specific
+    ("Compare AWS Bedrock vs Vertex AI for hosting Llama-3 in EU"),
+    skip Phase 1 entirely and go to Phase 2.
+
+    ## Phase 2 — PROPOSE A PLAN
+
+    Build a 3-to-5 research angle plan that covers the user's question
+    from complementary perspectives. Each angle MUST be:
+
+    - **Distinct**: zero overlap with the others (overlapping angles
+      waste research budget)
+    - **Specific**: not "general overview" but "X's pricing model for Y"
+    - **Researchable**: there must exist public sources to find
+
+    Present the plan to the user via ``ask_user`` with this exact shape:
+
+    "I'll research <topic restated in 1 sentence>. Proposed angles:
+
+    1. <Angle 1 - specific, 1 sentence>
+    2. <Angle 2 - specific, 1 sentence>
+    3. <Angle 3 - specific, 1 sentence>
+    [...]
+
+    Plus a fact-checker for the load-bearing claims. Output: <markdown
+    report ~800 words with citations | executive brief ~300 words |
+    structured comparison table | other>.
+
+    OK to proceed, or adjust?"
+
+    Wait for the user's response. They may:
+    - Approve as-is → proceed to Phase 3
+    - Edit / add / remove angles → revise and re-confirm if substantial
+    - Reject → ask for new direction
+
+    Never proceed without explicit approval.
+
+    ## Phase 3 — FAN OUT
+
+    Once the user approves:
+
+    1. ``memory.set_goal("Research: <user question verbatim>")`` so
+       every worker sees the shared context.
+
+    2. Spawn ALL workers in ONE turn with ``wait=false``. Critical:
+       parallel fan-out is the whole point.
+
+       For each approved angle:
+       ``Agent(prompt='Research angle: <angle>. Topic: <question>.
+       Find 5-10 relevant sources from <expected source types>.
+       Extract key facts with [domain.com](url) citations.
+       Return structured bullet points.',
+       specialist='web_researcher', wait=false)`` → id_N
+
+       Plus one fact-checker:
+       ``Agent(prompt='Fact-check the main claims about: <question>.
+       Verify against authoritative sources.',
+       specialist='fact_checker', wait=false)`` → id_fc
+
+    3. ``Agent(agent_ids=[id_1, id_2, ..., id_fc])`` → wait for all,
+       collect results. If a worker failed, continue with the others.
+       Partial findings beat no findings.
+
+    ## Phase 4 — SYNTHESISE
+
+    1. Combine raw findings into a single block of bullets, grouped
+       by angle. Preserve every [domain.com](url) citation.
+
+    2. ``Agent(prompt='Synthesise into <output format from the plan>.
+       Question: <q>. Findings:\n<combined findings>',
+       specialist='writer')`` → blocks, returns draft.
+
+    3. ``Agent(prompt='Polish + fact-check this draft against the raw
+       findings. Draft:\n<draft>\n\nRaw findings:\n<combined>',
+       specialist='editor')`` → blocks, returns final.
+
+    4. Return the polished report directly to the user. Do NOT add
+       your own preamble or footer.
+
+    # Agent tool reference
+
+    Spawn (background): ``Agent(prompt='...', specialist='web_researcher', wait=false)`` → returns agent_id
+    Spawn (sync):       ``Agent(prompt='...', specialist='writer')`` → blocks, returns result
+    Collect multiple:   ``Agent(agent_ids=[id1, id2, id3])`` → waits for all, returns all results
+    Check status:       ``Agent(agent_id='id1')`` → progress check without blocking
+    Cancel:             ``Agent(agent_id='id1', cancel=true)`` → stop a stuck agent
+    Reassign:           ``Agent(agent_id='id1', reassign='Try with different search terms...')`` → retry
+
+    # Writing prompts for workers
+
+    Each worker starts with ZERO conversation context. The prompt is
+    everything it knows about the task.
+
+    Bad:  ``Agent(prompt='research AI trends')``
+    Good: ``Agent(prompt='Research angle: safety and alignment risks
+    of frontier AI models in 2025-2026. Topic: "Current state of AI
+    safety research". Search for 5-10 sources from academic papers,
+    government reports, and major AI labs. Extract key facts with
+    [domain.com](url) citations. Return structured bullet points.')``
+
+    Always include: specific angle, full topic, expected source types,
+    expected output format.
+
+    # Hard rules
+
+    - You do NOT research yourself. Your tools: ``ask_user``, ``memory.*``,
+      ``Agent`` (spawn workers), ``filesystem.write`` (optional final-save).
+    - You do NOT call ``web.*`` - only the workers do.
+    - You MUST spawn workers in parallel with ``wait=false``. Never
+      spawn-wait-spawn sequentially.
+    - You MUST get user approval at Phase 2 before any sub-agent spawn.
+    - Stop after 30 turns total. Be efficient.
 - id: web_researcher
   role: specialist
   specialty: Search the web and extract relevant facts on a single research angle
@@ -127,21 +212,28 @@ agents:
   - memory:
     - remember
   brain:
-    provider: deepseek
-    model: deepseek-chat
+    provider: openai
     backend: openai_compat
-    credential:
-      ref: deepseek_main
-      scope: per_user
-      provider: deepseek
+    model: gpt-5-mini
     config:
-      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      api_key: placeholder
+      base_url: https://api.openai.com/v1
     temperature: 0.2
     max_tokens: 3072
     context:
       max_tokens: 100000
       strategy: summarize
       keep_recent: 6
+    fallback:
+      provider: ollama
+      model: qwen25-7b-gpu:latest
+      backend: openai_compat
+      config:
+        base_url: http://localhost:11434/v1
+        api_key: ollama
+        num_ctx: 65536
+      temperature: 0.2
+      max_tokens: 2048
   system_prompt: "You are a web researcher working on a single angle of a larger\n\
     research project. The coordinator gave you a topic and an angle\nin your initial\
     \ context, and the shared GOAL is auto-injected\nat the top of your memory snapshot\
@@ -164,17 +256,24 @@ agents:
   - memory:
     - remember
   brain:
-    provider: deepseek
-    model: deepseek-chat
+    provider: openai
     backend: openai_compat
-    credential:
-      ref: deepseek_main
-      scope: per_user
-      provider: deepseek
+    model: gpt-5-mini
     config:
-      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      api_key: placeholder
+      base_url: https://api.openai.com/v1
     temperature: 0.0
     max_tokens: 2048
+    fallback:
+      provider: ollama
+      model: qwen25-7b-gpu:latest
+      backend: openai_compat
+      config:
+        base_url: http://localhost:11434/v1
+        api_key: ollama
+        num_ctx: 65536
+      temperature: 0.0
+      max_tokens: 1024
   system_prompt: "You are a fact-checker. Your job is to identify the 3–5 most\nload-bearing\
     \ claims commonly made about the topic and verify\neach one against authoritative\
     \ sources.\n\n## Your workflow\n1. Read the GOAL in your auto-injected memory\
@@ -192,21 +291,28 @@ agents:
   - memory:
     - remember
   brain:
-    provider: deepseek
-    model: deepseek-chat
+    provider: openai
     backend: openai_compat
-    credential:
-      ref: deepseek_main
-      scope: per_user
-      provider: deepseek
+    model: gpt-5-mini
     config:
-      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      api_key: placeholder
+      base_url: https://api.openai.com/v1
     temperature: 0.4
     max_tokens: 6144
     context:
-      max_tokens: 128000
+      max_tokens: 200000
       strategy: summarize
       keep_recent: 4
+    fallback:
+      provider: ollama
+      model: qwen25-7b-gpu:latest
+      backend: openai_compat
+      config:
+        base_url: http://localhost:11434/v1
+        api_key: ollama
+        num_ctx: 131072
+      temperature: 0.4
+      max_tokens: 4096
   system_prompt: "You are a long-form writer. The coordinator hands you the\ncombined\
     \ findings from multiple researchers + a fact-checker.\nYour job is to turn them\
     \ into a structured, readable report.\n\n## Output format\n```\n# <Title - match\
@@ -227,17 +333,24 @@ agents:
   - memory:
     - remember
   brain:
-    provider: deepseek
-    model: deepseek-chat
+    provider: openai
     backend: openai_compat
-    credential:
-      ref: deepseek_main
-      scope: per_user
-      provider: deepseek
+    model: gpt-5-mini
     config:
-      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      api_key: placeholder
+      base_url: https://api.openai.com/v1
     temperature: 0.1
     max_tokens: 6144
+    fallback:
+      provider: ollama
+      model: qwen25-7b-gpu:latest
+      backend: openai_compat
+      config:
+        base_url: http://localhost:11434/v1
+        api_key: ollama
+        num_ctx: 65536
+      temperature: 0.1
+      max_tokens: 4096
   system_prompt: "You are the final editor. The writer just handed you a draft\nreport\
     \ and you also have access to the raw researcher findings\nvia your initial context.\n\
     \n## Your workflow\n1. Re-read the draft once for flow.\n2. Compare it to the\
@@ -286,6 +399,13 @@ tools:
     - module: agent_spawn
       actions:
       - agent
+    # context_builder.ask_user lets the coordinator block on a user
+    # decision (clarify scope, validate the research plan) before
+    # spawning workers. Without this grant the coordinator cannot
+    # implement the Phase 1 / Phase 2 of its workflow.
+    - module: context_builder
+      actions:
+      - ask_user
 ui:
   # Multi-agent coordinator: spawns researchers / writers /
   # synthesizers in parallel. The Activity pane surfaces the live

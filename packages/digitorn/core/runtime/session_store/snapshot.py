@@ -87,6 +87,7 @@ def build_snapshot(state: SessionState) -> dict[str, Any]:
         "workdir": state.workdir,
         "interrupted": state.interrupted,
         "interrupted_at": state.interrupted_at,
+        "active_mode_id": state.active_mode_id,
     }
 
 

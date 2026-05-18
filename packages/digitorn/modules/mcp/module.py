@@ -657,10 +657,19 @@ class MCPModule(BaseModule):
         daemon_entry = self._daemon_pool.get_server(server_id)
         if daemon_entry is not None:
             try:
+                # ``_connect_kwargs`` stores transport_type alongside the
+                # transport-specific args (see connections.py:137). We
+                # already pass ``daemon_entry.transport_type`` positionally
+                # below, so drop the duplicate to avoid
+                # ``connect() got multiple values for argument 'transport_type'``.
+                _kw = {
+                    k: v for k, v in (daemon_entry._connect_kwargs or {}).items()
+                    if k != "transport_type"
+                }
                 entry = await self._daemon_pool.acquire(
                     server_id, self._app_id,
                     daemon_entry.transport_type,
-                    **daemon_entry._connect_kwargs,
+                    **_kw,
                 )
                 self._pool._servers[server_id] = entry
                 self._daemon_server_ids.add(server_id)

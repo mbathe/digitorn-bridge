@@ -11,12 +11,7 @@ combined with the parallel-spawn mode of the `Agent` tool
 ([Advanced 10](advanced-10-run-parallel.md) is the
 tool-level analogue).
 
-This tutorial is **live-tested end-to-end** against the daemon.
-Every YAML field, system prompt, tool call and response below was
-captured from a real session: app `tuto-parallel-spawn`, session
-id `test-05f3257d`, brain `openai/gpt-5-mini` via the gateway.
-
-## What you will see work
+## What you build
 
 1. A coordinator agent (role `coordinator`) emits three
    `Agent(specialist='analyst', wait=true)` tool calls.
@@ -26,8 +21,6 @@ id `test-05f3257d`, brain `openai/gpt-5-mini` via the gateway.
    report inline in the tool result.
 4. The coordinator collects the three reports and writes a
    synthesis in the chat.
-
-Total run: 58.9s end-to-end, 3 successful sub-agents, 0 failures.
 
 ## The YAML
 
@@ -133,10 +126,9 @@ tools:
 Three details that matter:
 
 - **`role: coordinator`** on the main agent is required.
-  Without it the daemon's bootstrap does not wire the
-  `agent_spawn` module's `_coordinator_provider`, and any
-  spawn that omits `specialist=` falls back to "ad-hoc" mode
-  and fails with `"No coordinator provider configured"`.
+  Without it any spawn that omits `specialist=` falls back to
+  "ad-hoc" mode and fails with
+  `"No coordinator provider configured"`.
 - **`role: specialist`** plus a non-empty `specialty:` registers
   the analyst as a callable target for `specialist='analyst'`.
 - **`max_risk_level: medium`** is required because
@@ -150,23 +142,15 @@ digitorn dev deploy tuto-parallel-spawn.yaml
 digitorn dev chat tuto-parallel-spawn -m "Compare PostgreSQL, MongoDB, and Redis on 3 angles: data model, consistency guarantees, and operational complexity. Spawn one analyst per stack with specialist='analyst', wait=true. Then write the synthesis: one section per stack plus an Overall verdict."
 ```
 
-The exact prompt used in the captured session asked the agent
-explicitly to make three `Agent(specialist='analyst', wait=true)`
-calls. We had to spell that out because `gpt-5-mini` does not
-auto-discover the `specialist` field from the registered analyst
-listing in its tool schema. With a larger model (Claude Sonnet,
-Opus, or `gpt-5`) the natural prompt
-*"compare X / Y / Z by spawning analysts"* would route correctly
-without explicit hand-holding.
+The prompt asks the agent explicitly to make three
+`Agent(specialist='analyst', wait=true)` calls. With a larger
+model the natural prompt *"compare X / Y / Z by spawning
+analysts"* routes correctly without explicit hand-holding.
 
-## Real session transcript (session `test-05f3257d`)
+## Sample analyst output
 
-**Turn 1: coordinator emits the three spawns.**
-
-Each spawn was a `Agent(prompt='Topic: <stack> on the 3 angles', specialist='analyst', wait=true)`.
-The runtime returned the analyst's full report inline in the tool
-result. Sample (PostgreSQL analyst, msg index 2 of its own
-turn):
+Each spawn returns the analyst's full report inline in the tool
+result. Example (PostgreSQL analyst):
 
 ```
 ### Performance
@@ -193,10 +177,7 @@ partitioning, autovacuum, pooling, and monitoring are essential
 for PostgreSQL performance.
 ```
 
-The MongoDB and Redis analysts returned similarly structured
-five-to-eight-bullet reports.
-
-**Turn 2: coordinator synthesises.**
+## Sample coordinator synthesis
 
 ```
 Overall verdict
@@ -206,14 +187,9 @@ Overall verdict
   schema and where correctness matters.
 - MongoDB: best when you need a flexible document model for
   hierarchical/variable data, fast developer iteration, and
-  high write/ingest throughput; you can get strong consistency
-  but it's configurable and operationally different from a
-  relational DB.
+  high write/ingest throughput.
 - Redis: best as an ultra-low-latency, in-memory data plane
   (cache, counters, queues, leaderboards, ephemeral state).
-  Not typically a drop-in replacement for a durable primary
-  database unless you accept tradeoffs and configure
-  persistence/replication carefully.
 
 PostgreSQL
 - Data model
@@ -224,53 +200,23 @@ PostgreSQL
     indexing (B-tree, GiST, GIN, BRIN), materialized views,
     partitioning - so you can model semi-structured data
     (JSONB) while keeping relational integrity.
-[...truncated for brevity, full synthesis ~3000 chars]
+[...]
 ```
 
-## Are the spawns actually parallel?
+## Parallel vs sequential execution
 
-This is the question that bites first-time multi-agent users.
-**The runtime can run them in parallel; whether it does depends
-on the LLM.**
+The runtime can run multiple sub-agent spawns in parallel
+through `asyncio.gather`. When **every** tool_call in a single
+assistant message is a sub-agent spawn, the loop fires them
+concurrently and total time is roughly `max(individual times)`.
 
-The agent_loop's
-[`_READ_ONLY_ACTIONS`](https://github.com/digitorn-ai/digitorn-bridge/blob/main/packages/digitorn/core/runtime/agent_loop.py)
-set includes `agent` and `agent_spawn.agent`. When **every**
-tool_call in a single assistant message is in that set, the loop
-fires them concurrently with `asyncio.gather`. So three
-`Agent(specialist='analyst', wait=true)` calls **emitted in the
-same assistant message** would run in parallel and total time
-would be roughly `max(individual times)`.
+Whether the model emits all spawns in one message or one per
+round-trip depends on its tool-calling discipline. Models that
+batch multiple tool calls per assistant message parallelise the
+workload; models that emit one tool per round-trip serialise it.
 
-The captured session, however, ran sequentially. Event
-timestamps for the three spawns:
-
-```
-seq=12  01:21:30.475  tool_start  PostgreSQL
-seq=18  01:21:40.848  tool_call   PostgreSQL  (10.4s)
-seq=25  01:21:40.864  assistant_message            <- new LLM round-trip
-seq=32  01:21:42.010  tool_start  MongoDB           (1.16s gap)
-seq=41  01:21:53.618  tool_call   MongoDB     (11.6s)
-seq=36  01:21:42.034  assistant_message            <- new LLM round-trip
-seq=52  01:21:54.602  tool_start  Redis
-seq=62  01:22:05.711  tool_call   Redis       (11.1s)
-```
-
-The `assistant_message` event between each spawn confirms
-`gpt-5-mini` does a **new LLM round-trip per tool call**: emit
-one tool, wait for the result, then decide what to emit next.
-The runtime never sees three calls in one message, so it never
-gets the chance to gather them.
-
-Claude Sonnet, Claude Opus, and other models that natively
-batch multiple tool calls per assistant message **will**
-parallelise the same workload. Same YAML, same coordinator
-system prompt: with a batching model the three analyst calls
-fire in one message, the gather runs them in parallel, and
-total time drops from ~35s of spawning to ~12s.
-
-If you want guaranteed parallelism on a non-batching model, the
-alternative pattern is the `wait=false` + collect flow:
+If you want guaranteed parallelism on a non-batching model, use
+the `wait=false` + collect flow:
 
 ```
 Agent(prompt='...', specialist='analyst', wait=false) -> id_1
@@ -283,20 +229,7 @@ Agent(agent_ids=[id_1, id_2, id_3])   # blocks until all done
 `wait=false` returns the `agent_id` immediately while the
 analyst runs in the background. A subsequent
 `Agent(agent_ids=[...])` waits for all of them in a single
-call. This pattern requires the coordinator to remember the IDs
-across turns, which is fragile on `gpt-5-mini` (it tends to put
-agent IDs in the wrong field). It works reliably on larger
-models.
-
-## What we proved
-
-| Claim | Status |
-|---|---|
-| `role: coordinator` enables specialist routing | verified, app deploys + spawns succeed |
-| `specialist='analyst'` re-runs the gateway resolver per sub-agent | verified, 0 auth fails in session `test-05f3257d` |
-| Sub-agents run real LLM turns with their own system prompt | verified, analyst output is structured per its prompt |
-| Coordinator synthesises real content from collected results | verified, ~3000 char synthesis with stack-specific bullets |
-| Parallel execution requires a batching LLM | verified by timestamp inspection |
+call.
 
 ## When to reach for this pattern
 
@@ -310,8 +243,3 @@ models.
 
 For lighter-weight parallel reads (search, fetch, grep), prefer
 [Advanced 10](advanced-10-run-parallel.md)'s `run_parallel`.
-For richer multi-agent orchestration patterns, see the
-production builtin
-[`digitorn-deepresearch`](https://github.com/digitorn-ai/digitorn-bridge/blob/main/packages/digitorn/builtins/digitorn-deepresearch/app.yaml),
-which adds a `fact_checker`, `writer`, and `editor` to the
-coordinator + researcher core.

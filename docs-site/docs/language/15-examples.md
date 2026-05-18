@@ -106,7 +106,8 @@ tools:
 ```
 
 ```bash
-digitorn run hello-oneshot.yaml "Say hello in 3 languages"
+digitorn app run hello-oneshot.yaml
+digitorn dev chat hello-oneshot -m "Say hello in 3 languages"
 ```
 
 ## 3 · Smart chat with context management

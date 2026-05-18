@@ -21,18 +21,17 @@ All core components implemented and tested (62/62 tests pass):
 
 ## Overview
 
-Support for images at every level of the framework :
-- **User → Agent** : l'utilisateur envoie des images (upload, paste, URL)
-- **Tool → Agent** : un outil produit une image (screenshot, diagram, chart)
-- **Agent → User** : les images sont affichées dans le chat
+Support for images at every level of the framework:
+- **User -> Agent**: the user sends images (upload, paste, URL).
+- **Tool -> Agent**: a tool produces an image (screenshot, diagram, chart).
+- **Agent -> User**: images are rendered in the chat.
 
-## State of the Art
+## Ecosystem reference
 
-### Claude Code (limites actuelles)
-- Cmd+V pour coller un screenshot dans le chat - fonctionne
-- Le Read tool ne peut PAS lire les images depuis le filesystem
-- L'agent ne peut pas prendre de screenshots lui-même
-- C'est une limitation reconnue par Anthropic (issues #30925, #35866)
+### Claude Code (current capabilities)
+- Cmd+V pastes a screenshot into the chat.
+- The Read tool does NOT read images from the filesystem.
+- The agent cannot capture screenshots on its own.
 
 ### Anthropic API (Claude)
 ```json
@@ -46,10 +45,10 @@ Support for images at every level of the framework :
   ]
 }
 ```
-- Formats : JPEG, PNG, GIF, WebP
-- Max : 8000x8000 px, 100 images par requête (200K context)
-- **Best practice** : utiliser la Files API pour les images récurrentes
-  (upload une fois, référencer par `file_id` ensuite)
+- Formats: JPEG, PNG, GIF, WebP.
+- Max: 8000x8000 px, 100 images per request (200K context).
+- **Best practice**: use the Files API for recurring images
+  (upload once, reference by `file_id` after).
 
 ### OpenAI API (GPT-4o)
 ```json
@@ -63,49 +62,53 @@ Support for images at every level of the framework :
   ]
 }
 ```
-- Formats : PNG, JPEG, WebP, GIF non-animé
-- Max : 50MB payload, 500 images par requête
-- `detail: "low"` (512px) ou `"high"` (natif) pour le coût
+- Formats: PNG, JPEG, WebP, non-animated GIF.
+- Max: 50MB payload, 500 images per request.
+- `detail: "low"` (512px) or `"high"` (native) trades cost vs quality.
 
 ### DeepSeek
-- DeepSeek-chat (V3) : PAS de vision
-- DeepSeek-VL : modèle séparé avec vision (7B, 1.3B)
-- L'API standard deepseek-chat ne supporte pas les images
+- DeepSeek-chat (V3): no vision.
+- DeepSeek-VL: separate vision model (7B, 1.3B).
+- The standard deepseek-chat API does NOT accept images.
 
 ---
 
 ## Architecture
 
-### Principes de design
+### Design principles
 
-1. **Les images ne vivent PAS dans les messages** - elles sont stockées sur disque
-   et référencées par un `image_id`. Injectées en base64 uniquement au moment
-   de l'appel LLM (dernier tour seulement pour les anciennes images).
+1. **Images do NOT live in the messages** - they are stored on
+   disk and referenced by an `image_id`. Inflated to base64
+   only at LLM-call time (most recent turn only for older
+   images).
 
-2. **Format unifié** - un `ContentBlock` abstrait les différences entre providers.
-   La conversion Anthropic/OpenAI se fait dans le provider, pas dans l'agent loop.
+2. **Unified format** - a `ContentBlock` abstracts differences
+   between providers. Anthropic/OpenAI conversion happens in
+   the provider, not the agent loop.
 
-3. **Les tools peuvent retourner des images** - le `ActionResult` supporte
-   des blocs image dans `metadata`. L'agent loop les injecte dans les messages.
+3. **Tools can return images** - `ActionResult` supports image
+   blocks in `metadata`. The agent loop injects them into the
+   messages.
 
-4. **Le client reçoit les images via Socket.IO** - pas besoin de routes séparées,
-   les images sont inline (base64) dans les events sur le namespace `/events`.
+4. **The client receives images over Socket.IO** - no separate
+   routes needed; images are inline (base64) in events on the
+   `/events` namespace.
 
 ---
 
-## 1. Image Store (stockage)
+## 1. Image store (disk storage)
 
-### Nouveau composant : `ImageStore`
+### New component: `ImageStore`
 
 ```python
 class ImageStore:
-    """Stocke les images sur disque, retourne des références légères."""
+    """Store images on disk, return lightweight references."""
     
     def __init__(self, base_dir: Path):
         self._base_dir = base_dir  # ~/.digitorn/images/
     
     async def store(self, data: bytes, mime: str, session_id: str) -> ImageRef:
-        """Stocke une image, retourne une référence."""
+        """Store an image, return a reference."""
         image_id = uuid4().hex[:12]
         ext = {"image/png": ".png", "image/jpeg": ".jpg", ...}[mime]
         path = self._base_dir / session_id / f"{image_id}{ext}"
@@ -121,15 +124,15 @@ class ImageStore:
         )
     
     async def get(self, image_id: str, session_id: str) -> bytes | None:
-        """Récupère les bytes d'une image."""
+        """Fetch the bytes of an image."""
         ...
     
     async def get_base64(self, image_id: str, session_id: str) -> str | None:
-        """Récupère en base64 (pour injection LLM)."""
+        """Fetch as base64 (for LLM injection)."""
         ...
     
     def cleanup_session(self, session_id: str):
-        """Supprime toutes les images d'une session."""
+        """Delete every image for a session."""
         ...
 
 @dataclass
@@ -142,21 +145,21 @@ class ImageRef:
     height: int = 0
 ```
 
-### Pourquoi pas base64 dans les messages ?
+### Why not base64 inside messages?
 
-Un screenshot PNG = 500KB-2MB en base64. Sur 10 tours avec 3 images chacun :
-- Base64 dans messages = 30MB en mémoire × envoyé à chaque appel LLM
-- Référence + injection on-demand = quelques KB en mémoire
+A PNG screenshot is 500KB-2MB base64. Over 10 turns with 3 images each:
+- Base64 inside messages = 30MB in memory, re-sent on every LLM call.
+- Reference + injection on-demand = a few KB in memory.
 
-### Stratégie d'injection
+### Injection strategy
 
-| Tour | Images du tour | Images des tours précédents |
+| Turn | Current-turn images | Previous-turn images |
 |------|:-:|:-:|
-| Tour actuel | base64 complet (haute résolution) | - |
-| Tour N-1 | base64 basse résolution (resized 512px) | - |
-| Tour N-2+ | Texte : "[Image: screenshot of login page, 1920x1080]" | - |
+| Current turn | full base64 (high resolution) | - |
+| Turn N-1 | low-resolution base64 (resized to 512px) | - |
+| Turn N-2+ | Text: "[Image: screenshot of login page, 1920x1080]" | - |
 
-Ça garde le contexte léger tout en donnant au LLM la vision sur les images récentes.
+Keeps the context light while still giving the LLM vision over recent images.
 
 ---
 
@@ -169,32 +172,32 @@ Un screenshot PNG = 500KB-2MB en base64. Sur 10 tours avec 3 images chacun :
 class ContentBlock:
     type: str  # "text", "image", "image_ref"
     
-    # Pour type="text"
+    # For type="text"
     text: str = ""
     
-    # Pour type="image" (inline base64)
+    # For type="image" (inline base64)
     image_data: str = ""  # base64
     media_type: str = ""  # "image/png"
     
-    # Pour type="image_ref" (référence à l'image store)
+    # For type="image_ref" (reference into the image store)
     image_id: str = ""
-    alt_text: str = ""  # description textuelle pour le contexte
+    alt_text: str = ""  # text description used for context
 ```
 
-### Messages multimodaux
+### Multimodal messages
 
 ```python
-# Avant (texte seul)
+# Before (text only)
 {"role": "user", "content": "Fix this bug"}
 
-# Après (multimodal)
+# After (multimodal)
 {"role": "user", "content": [
     {"type": "text", "text": "Fix this bug, here's the screenshot:"},
     {"type": "image_ref", "image_id": "abc123", "alt_text": "Screenshot of error page"}
 ]}
 ```
 
-Le `content` peut être soit un `str` (backward compatible) soit une `list[ContentBlock]`.
+The `content` is either a `str` (backward compatible) or a `list[ContentBlock]`.
 
 ---
 
@@ -218,23 +221,23 @@ JSON shape (handled by the SDK):
 }
 ```
 
-### Limites
+### Limits
 
-| Paramètre | Valeur | Configurable |
+| Setting | Value | Configurable |
 |-----------|--------|:---:|
-| Max images par message | 10 | Oui (`images.max_per_message`) |
-| Max taille par image | 10MB | Oui (`images.max_size_bytes`) |
-| Formats acceptés | PNG, JPEG, WebP, GIF | Non |
-| Max total images par session | 100 | Oui (`images.max_per_session`) |
+| Max images per message | 10 | Yes (`images.max_per_message`) |
+| Max size per image | 10MB | Yes (`images.max_size_bytes`) |
+| Accepted formats | PNG, JPEG, WebP, GIF | No |
+| Max total images per session | 100 | Yes (`images.max_per_session`) |
 
 ---
 
-## 4. LLM Provider - Conversion multimodale
+## 4. LLM provider - multimodal conversion
 
 ### Anthropic Provider
 
 ```python
-# Convertir les content blocks au format Anthropic
+# Convert content blocks to Anthropic format
 def _build_content(blocks: list[ContentBlock]) -> list[dict]:
     result = []
     for block in blocks:
@@ -250,7 +253,7 @@ def _build_content(blocks: list[ContentBlock]) -> list[dict]:
                 }
             })
         elif block.type == "image_ref":
-            # Résoudre la référence → base64
+            # Resolve the reference -> base64
             data = image_store.get_base64(block.image_id)
             if data:
                 result.append({
@@ -262,7 +265,7 @@ def _build_content(blocks: list[ContentBlock]) -> list[dict]:
                     }
                 })
             else:
-                # Image expirée → injecter description textuelle
+                # Expired image -> inject a text description
                 result.append({"type": "text", "text": f"[Image: {block.alt_text}]"})
     return result
 ```
@@ -300,11 +303,11 @@ def _build_content(blocks: list[ContentBlock]) -> list[dict]:
     return [{"type": "text", "text": "\n".join(texts)}]
 ```
 
-Le provider détecte automatiquement si le modèle supporte la vision.
+The provider auto-detects whether the model supports vision.
 
 ---
 
-## 5. Tools - Images en entrée et en sortie
+## 5. Tools - images as input and output
 
 ### Filesystem : Read image
 
@@ -360,13 +363,13 @@ async def screenshot(self, params: ScreenshotParams) -> ActionResult:
 
 ### Agent Loop - Injection automatique
 
-Dans `_append_tool_result`, quand le résultat contient une image :
+In `_append_tool_result`, when the result contains an image:
 
 ```python
 def _append_tool_result(ctx, messages, call_id, tool_name, result, ok, cb):
-    # ... sérialisation texte normale ...
+    # ... normal text serialisation ...
     
-    # Si le résultat contient une image, l'injecter comme content block
+    # If the result has an image, inject it as a content block
     meta = getattr(result, "metadata", {}) or {}
     if "image_data" in meta:
         # Ajouter un message avec l'image pour que le LLM la voie
@@ -387,9 +390,9 @@ def _append_tool_result(ctx, messages, call_id, tool_name, result, ok, cb):
 
 ## 6. Socket.IO Events - Images vers le client
 
-Le daemon émet les events images sur le namespace Socket.IO `/events`, room
+The daemon emits image events on the Socket.IO `/events` namespace, in the room
 `session:{session_id}`. Les images arrivent dans les envelopes `tool_call`
-avec `image_data` (base64) + `image_mime` ajoutés au payload.
+with `image_data` (base64) + `image_mime` added to the payload.
 
 ### Dans tool_call event
 
@@ -410,7 +413,7 @@ avec `image_data` (base64) + `image_mime` ajoutés au payload.
 }
 ```
 
-### Nouveau event : image_message (pour les images dans les réponses)
+### New event: image_message (for images embedded in replies)
 
 ```json
 {
@@ -433,7 +436,7 @@ avec `image_data` (base64) + `image_mime` ajoutés au payload.
 
 ### Session history avec images
 
-`GET /sessions/{sid}/history` retourne les images comme références :
+`GET /sessions/{sid}/history` returns images as references:
 
 ```json
 {
@@ -461,16 +464,16 @@ history. The exact route shape is not documented publicly.
 
 ## 8. Optimisation du contexte
 
-### Problème
+### Problem
 
-Une image base64 de 1920x1080 PNG ≈ 1-2MB ≈ 500K tokens estimés.
+A 1920x1080 PNG base64 weighs ~1-2MB ~= 500K estimated tokens.
 Si chaque message a une image, le contexte explose en 3 tours.
 
 ### Solution : Image Aging
 
 ```python
 class ImageContextManager:
-    """Gère quelles images sont injectées en base64 dans les messages LLM."""
+    """Decides which images get inflated to base64 in the LLM messages."""
     
     def prepare_messages_for_llm(self, messages, current_turn):
         result = []
@@ -487,10 +490,10 @@ class ImageContextManager:
                     age = current_turn - block.get("turn", 0)
                     
                     if age == 0:
-                        # Tour actuel → haute résolution
+                        # Current turn -> high resolution
                         blocks.append(_resolve_full(block))
                     elif age <= 2:
-                        # 1-2 tours → basse résolution (512px)
+                        # 1-2 turns ago -> low resolution (512px)
                         blocks.append(_resolve_low_res(block))
                     else:
                         # 3+ tours → texte seulement
@@ -503,22 +506,22 @@ class ImageContextManager:
         return result
 ```
 
-### Tailles estimées
+### Estimated sizes
 
-| Stratégie | Taille par image | Tokens estimés |
+| Strategy | Size per image | Estimated tokens |
 |-----------|:---:|:---:|
-| Haute résolution (1920px) | 1-2 MB | ~300K |
-| Basse résolution (512px) | 50-100 KB | ~30K |
+| High resolution (1920px) | 1-2 MB | ~300K |
+| Low resolution (512px) | 50-100 KB | ~30K |
 | Texte description | 50-100 chars | ~25 |
 
 Avec image aging : 1 image full + 2 low-res + N descriptions = ~360K tokens max.
-Sans : N images full = N × 300K = explosion.
+Without aging: N full images = N x 300K, context explosion.
 
 ---
 
 ## 9. Config
 
-Nouveaux paramètres dans `~/.digitorn/config.yaml` :
+New settings in `~/.digitorn/config.yaml`:
 
 ```yaml
 images:
@@ -527,9 +530,9 @@ images:
   max_per_session: 100          # Max images par session
   storage_dir: ""               # Vide = ~/.digitorn/images/
   low_res_size: 512             # Taille pour les images anciennes (px)
-  aging_full_turns: 1           # Tours avec image haute résolution
-  aging_low_turns: 2            # Tours avec image basse résolution
-  cleanup_after_days: 7         # Supprimer les images après N jours
+  aging_full_turns: 1           # Turns kept at high resolution
+  aging_low_turns: 2            # Turns kept at low resolution
+  cleanup_after_days: 7         # Delete images after N days
 ```
 ---
 
@@ -540,34 +543,34 @@ agents:
   - id: main
     brain:
       provider: anthropic
-      model: claude-sonnet-4-20250514
-      vision: true              # Activer le support vision (défaut: auto-detect)
+      model: claude-sonnet-4-5
+      vision: true              # Enable vision support (default: auto-detect)
 ```
-Si `vision: false` ou modèle sans vision → les images sont converties en
+If `vision: false` or the model lacks vision -> images are converted to
 descriptions textuelles automatiquement.
 
 ---
 
-## 11. Compatibilité providers
+## 11. Provider compatibility
 
 | Provider | Vision | Format |
 |----------|:---:|--------|
 | Claude (Anthropic) | Oui | `{"type": "image", "source": {"type": "base64", ...}}` |
 | GPT-4o (OpenAI) | Oui | `{"type": "image_url", "image_url": {"url": "data:..."}}` |
-| GPT-4o-mini | Oui | Même format |
+| GPT-4o-mini | Yes | Same format |
 | DeepSeek-chat (V3) | Non | Converti en texte `[Image: ...]` |
 | DeepSeek-VL | Oui | Format OpenAI-compat |
-| Ollama (llava) | Oui | `{"images": ["base64..."]}` (format spécial) |
+| Ollama (llava) | Yes | `{"images": ["base64..."]}` (special format) |
 | Ollama (text-only) | Non | Converti en texte |
 
-La détection est automatique via le provider. Chaque provider sait
-si son modèle supporte la vision.
+Detection is automatic via the provider. Each provider knows
+whether its model supports vision.
 
 ---
 
-## 12. Implémentation - Ordre de priorité
+## 12. Implementation - priority order
 
-### Phase 1 (V1 - démo)
+### Phase 1 (V1 - demo)
 1. Route `/messages` accepte des images (multipart + JSON base64)
 2. ImageStore basique (stockage disque)
 3. Anthropic provider : injection base64 dans les messages
@@ -584,7 +587,7 @@ si son modèle supporte la vision.
 10. Browser.screenshot → image dans le contexte
 11. Presentation module → slides as images
 12. Image generation tools (DALL-E, Stable Diffusion via MCP)
-13. Files API Anthropic (upload une fois, référence par file_id)
+13. Anthropic Files API (upload once, reference by file_id)
 
 ---
 
@@ -596,7 +599,7 @@ si son modèle supporte la vision.
 | Read image from disk | Non (bug) | Oui (filesystem.read) |
 | Agent screenshot | Non | Oui (browser.screenshot) |
 | Image in tool results | Non | Oui (metadata.image_data) |
-| Multi-image par message | Limité | 10 images max |
+| Multi-image per message | Limited | 10 images max |
 | Image aging (context) | Non | Oui (full → low-res → text) |
 | Provider fallback sans vision | Non | Oui (texte automatique) |
 | Image persistence | Non | Oui (ImageStore + `/images/<id>`) |

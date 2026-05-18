@@ -1419,7 +1419,13 @@ def _litellm_model_from_compat(
     if compat == "openai_compat":
         return f"openai/{real_model_id}"
     if compat == "anthropic":
-        return real_model_id
+        # Always prefix with ``anthropic/`` so LiteLLM routes correctly
+        # even on model IDs not yet in its static catalogue (newer
+        # Claude releases, claude_code OAuth lane, custom names).
+        # LiteLLM accepts both the prefixed and bare forms for legacy
+        # models that ARE in the catalogue, so existing routes keep
+        # working unchanged.
+        return f"anthropic/{real_model_id}"
     if slug == "openai" and compat == "openai":
         return real_model_id
     return f"{slug}/{real_model_id}"

@@ -165,7 +165,7 @@ injected into built-in app YAMLs at deploy time.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `provider` | string | `"anthropic"` | LLM provider: `anthropic`, `deepseek`, `openai`, `ollama`, etc. |
-| `model` | string | `"claude-sonnet-4-20250514"` | Model name/ID |
+| `model` | string | `"claude-sonnet-4-5"` | Model name/ID |
 | `backend` | string | `""` | Backend override: `openai_compat`, etc. Empty = auto-detect. |
 | `api_key` | string | `"claude-code"` | API key. Special: `claude-code` (OAuth token), `env:VAR_NAME` (env var), or literal key. |
 | `base_url` | string | `""` | Base URL override for the API |
@@ -308,7 +308,7 @@ agent_spawn:
 
 default_model:
   provider: anthropic
-  model: claude-sonnet-4-20250514
+  model: claude-sonnet-4-5
   api_key: "claude-code"
   context_window: 200000
 

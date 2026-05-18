@@ -9,18 +9,18 @@ This section is the alphabetical, exhaustive surface of every API
 the daemon exposes. It is the source of truth for fields, types,
 defaults, and runtime behaviour. The text under each entry assumes
 you already know *why* you are reaching for that primitive; for the
-mental model, see [Concepts](../concepts/), and for guided learning
-paths see [Tutorial](../tutorial/).
+mental model, see [Concepts](/docs/concepts/), and for guided learning
+paths see [Tutorial](/docs/tutorial/).
 
 ## Sections
 
 | Section | What it documents |
 |---------|-------------------|
-| [Modules](modules/) | Every module shipped under (23 modules). One page per module, listing every `@action`, params model, return shape, and constraint spec. |
-| [Runtime](runtime/) | Cross-cutting subsystems that aren't a single module: hooks, middleware, credentials vault, multimodal images, voice, configuration, tool chaining. |
-| [HTTP API](api/) | REST endpoints (`/api/...`) plus the Socket.IO event protocol and the DAP debug-adapter protocol. |
-| [CLI](cli/) | Every `digitorn ...` sub-command, its flags, and a worked example. |
-| [Client SDKs](client-sdks/) | Flutter chat client, React preview SDK, Python testing SDK, web client spec. |
+| [Modules](/docs/reference/modules/) | Every module shipped under (23 modules). One page per module, listing every `@action`, params model, return shape, and constraint spec. |
+| [Runtime](/docs/reference/runtime/) | Cross-cutting subsystems that aren't a single module: hooks, middleware, credentials vault, multimodal images, voice, configuration, tool chaining. |
+| [HTTP API](/docs/reference/api/) | REST endpoints (`/api/...`) plus the Socket.IO event protocol and the DAP debug-adapter protocol. |
+| [CLI](/docs/reference/cli/) | Every `digitorn ...` sub-command, its flags, and a worked example. |
+| [Client SDKs](/docs/reference/client-sdks/) | chat client, React preview SDK, Python testing SDK, web client spec. |
 
 ## Where things actually live
 
@@ -43,9 +43,9 @@ Hooks ([Hooks](runtime/hooks.md)) fire around the call as configured.
 ## How to navigate this section
 
 - **Looking for a specific module?** Open
-  [reference/modules/](modules/) and pick by name.
+  [reference/modules/](/docs/reference/modules/) and pick by name.
 - **Looking for an HTTP endpoint?** Open [reference(daemon API).md](api/rest.md).
 - **Looking for a Socket.IO event?** Open
   [reference(daemon API).md](api/socketio.md).
 - **Trying to figure out what a YAML field does?** That's not here -
-  the YAML language is documented in [Language](../language/).
+  the YAML language is documented in [Language](/docs/language/).

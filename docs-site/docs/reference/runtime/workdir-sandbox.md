@@ -14,8 +14,8 @@ single primitive: `PathPolicy`.
 
 ## TL;DR
 
-- Source of truth: `packages/digitorn/core/path_policy.py` +
-  `packages/digitorn/core/mcp_path_guard.py`.
+- One enforcement primitive: `PathPolicy`, plus a parallel
+  MCP path guard for MCP tool args.
 - Every session gets one `PathPolicy` instance, built by
   `apply_workspace_override` from the workdir + per-module
   `constraints`.
@@ -109,8 +109,8 @@ tests).
 
 ### `mcp`
 
-- `_enforce_path_sandbox` runs before every MCP tool dispatch and
-  walks the args via `core/mcp_path_guard.py`:
+- A sandbox check runs before every MCP tool dispatch and
+  walks the call's arguments:
   - **Schema-driven**: fields named `path`, `file_path`, `cwd`,
     `source`, `target`, ..., fields with `format: path`, fields whose
     description mentions "absolute path" / "file path".
@@ -160,6 +160,6 @@ explosion. One primitive, one rule.
 
 ## See also
 
-- [Credentials](./credentials.md) — secrets the sandbox protects.
-- [Hooks](./hooks.md) — observability around tool calls.
-- [Middleware](./middleware.md) — pluggable wrappers (module level).
+- [Credentials](./credentials.md) - secrets the sandbox protects.
+- [Hooks](./hooks.md) - observability around tool calls.
+- [Middleware](./middleware.md) - pluggable wrappers (module level).

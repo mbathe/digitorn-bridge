@@ -140,15 +140,79 @@ export function App() {
 
   const [sourcesCollapsed, setSourcesCollapsed] = useState(false);
   const [studioCollapsed, setStudioCollapsed] = useState(false);
+  // Mobile overlay state: "none" | "sources" | "studio". When set, the
+  // corresponding pane slides in over the viewer. Tap-outside / Escape
+  // / route-change closes it.
+  const [mobileDrawer, setMobileDrawer] = useState<"none" | "sources" | "studio">("none");
+
+  // Detect mobile so we can short-circuit the desktop "collapsed" state.
+  // Below 880px both panes are off-canvas drawers — the strip renderer
+  // has no role to play.
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" &&
+    window.matchMedia("(max-width: 880px)").matches,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 880px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  // On mobile the desktop "collapsed" toggles are irrelevant - force
+  // both panes to render so the drawer can reveal them.
+  const effectiveSourcesCollapsed = isMobile ? false : sourcesCollapsed;
+  const effectiveStudioCollapsed = isMobile ? false : studioCollapsed;
+
+  // Close mobile drawer on Escape and when viewport grows past mobile.
+  useEffect(() => {
+    if (mobileDrawer === "none") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileDrawer("none");
+    };
+    const mq = window.matchMedia("(min-width: 881px)");
+    const onMq = () => {
+      if (mq.matches) setMobileDrawer("none");
+    };
+    window.addEventListener("keydown", onKey);
+    mq.addEventListener("change", onMq);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      mq.removeEventListener("change", onMq);
+    };
+  }, [mobileDrawer]);
+
+  // Auto-close the drawer once the user picks something from it - the
+  // intent is fulfilled, free the viewport.
+  const closeDrawer = () => setMobileDrawer("none");
 
   const shellClass =
     "app-shell" +
-    (sourcesCollapsed ? " sources-collapsed" : "") +
-    (studioCollapsed ? " studio-collapsed" : "");
+    (effectiveSourcesCollapsed ? " sources-collapsed" : "") +
+    (effectiveStudioCollapsed ? " studio-collapsed" : "") +
+    (mobileDrawer !== "none" ? " mobile-drawer-open" : "") +
+    (mobileDrawer === "sources" ? " mobile-sources-open" : "") +
+    (mobileDrawer === "studio" ? " mobile-studio-open" : "");
 
   return (
     <div className={shellClass}>
-      {sourcesCollapsed ? (
+      <MobileTopBar
+        sourceCount={sourceFiles.length}
+        artefactCount={fileCount}
+        connected={connected}
+        onOpenSources={() => setMobileDrawer("sources")}
+        onOpenStudio={() => setMobileDrawer("studio")}
+      />
+      {mobileDrawer !== "none" && (
+        <div
+          className="mobile-backdrop"
+          onClick={closeDrawer}
+          aria-hidden="true"
+        />
+      )}
+      {effectiveSourcesCollapsed ? (
         <CollapsedStrip
           label="Sources"
           count={sourceFiles.length}
@@ -177,13 +241,17 @@ export function App() {
                 onClick={() => setSourcesCollapsed(true)}
                 label="Hide sources"
               />
+              <DrawerCloseButton onClose={closeDrawer} label="Close sources" />
             </div>
           </header>
           <div className="pane-body">
             <SourceList
               files={files}
               selection={selection}
-              onSelect={(path) => setSelection({ kind: "file", path })}
+              onSelect={(path) => {
+                setSelection({ kind: "file", path });
+                closeDrawer();
+              }}
             />
           </div>
         </aside>
@@ -199,7 +267,7 @@ export function App() {
         />
       </main>
 
-      {studioCollapsed ? (
+      {effectiveStudioCollapsed ? (
         <CollapsedStrip
           label="Studio"
           count={fileCount}
@@ -213,22 +281,82 @@ export function App() {
               <h2>Studio</h2>
               <span className="count">{fileCount} files</span>
             </div>
-            <CollapseButton
-              side="right"
-              onClick={() => setStudioCollapsed(true)}
-              label="Hide studio"
-            />
+            <div className="pane-header-actions">
+              <CollapseButton
+                side="right"
+                onClick={() => setStudioCollapsed(true)}
+                label="Hide studio"
+              />
+              <DrawerCloseButton onClose={closeDrawer} label="Close studio" />
+            </div>
           </header>
           <div className="pane-body">
             <Studio
               files={files}
               selection={selection}
-              onSelect={(id) => setSelection({ kind: "artefact", id })}
+              onSelect={(id) => {
+                setSelection({ kind: "artefact", id });
+                closeDrawer();
+              }}
             />
           </div>
         </aside>
       )}
     </div>
+  );
+}
+
+function MobileTopBar({
+  sourceCount,
+  artefactCount,
+  connected,
+  onOpenSources,
+  onOpenStudio,
+}: {
+  sourceCount: number;
+  artefactCount: number;
+  connected: boolean;
+  onOpenSources: () => void;
+  onOpenStudio: () => void;
+}) {
+  return (
+    <header className="mobile-topbar" role="toolbar" aria-label="Notes LM navigation">
+      <button
+        type="button"
+        className="mobile-icon-btn"
+        onClick={onOpenSources}
+        aria-label="Open sources"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <line x1="3" y1="18" x2="21" y2="18" />
+        </svg>
+        {sourceCount > 0 && <span className="mobile-badge">{sourceCount}</span>}
+      </button>
+      <div className="mobile-title">
+        <span
+          className={`status-dot ${connected ? "connected" : ""}`}
+          title={connected ? "Live" : "Disconnected"}
+          aria-hidden="true"
+        />
+        <span>Notes LM</span>
+      </div>
+      <button
+        type="button"
+        className="mobile-icon-btn"
+        onClick={onOpenStudio}
+        aria-label="Open studio"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="3" width="7" height="7" rx="1.5" />
+          <rect x="14" y="3" width="7" height="7" rx="1.5" />
+          <rect x="3" y="14" width="7" height="7" rx="1.5" />
+          <rect x="14" y="14" width="7" height="7" rx="1.5" />
+        </svg>
+        {artefactCount > 0 && <span className="mobile-badge">{artefactCount}</span>}
+      </button>
+    </header>
   );
 }
 
@@ -252,6 +380,32 @@ function CollapseButton({
       aria-label={label}
     >
       {symbol}
+    </button>
+  );
+}
+
+function DrawerCloseButton({
+  onClose,
+  label,
+}: {
+  onClose: () => void;
+  label: string;
+}) {
+  // Only shown on mobile via CSS - on desktop the chevron CollapseButton
+  // is the canonical way to hide a pane (and the desktop layout has
+  // no drawer to close anyway).
+  return (
+    <button
+      type="button"
+      className="drawer-close-btn"
+      onClick={onClose}
+      aria-label={label}
+      title={label}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <line x1="18" y1="6" x2="6" y2="18" />
+        <line x1="6" y1="6" x2="18" y2="18" />
+      </svg>
     </button>
   );
 }

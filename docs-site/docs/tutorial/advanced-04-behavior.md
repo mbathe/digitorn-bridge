@@ -92,16 +92,16 @@ security:
 The new piece is `security.behavior.profile: coding`. That single
 line activates 14 rules tuned to code-editing workflows.
 `classify_turns: false` keeps the optional **classifier brain**
-off (we'll cover that below).
+off (covered below).
 
 ## Setup
 
 Create a workspace with one tiny Python file:
 
 ```bash
-mkdir -p /c/tmp/digitorn-tutorials/behavior-ws
+mkdir -p ./behavior-ws
 printf 'def add(a, b):\n    return a + b\n' \
-  > /c/tmp/digitorn-tutorials/behavior-ws/code.py
+  > ./behavior-ws/code.py
 ```
 
 Now ask the agent to **edit without reading**, on purpose, to

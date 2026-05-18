@@ -176,5 +176,3 @@ modes.
   [Multi-Agent](12-multi-agent.md)
 - Declarative orchestration graph (richer than pipeline):
   [Flows](07-flows.md)
-- Future "App-as-MCP-Server" composition (planned):
-  [App-as-MCP-Server](16-app-as-mcp-server.md)

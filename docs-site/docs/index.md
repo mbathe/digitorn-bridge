@@ -41,20 +41,20 @@ the documentation is layers added on top of this same shape.
 
 ## Where to start
 
-If you are new to Digitorn, work through the [Tutorial](tutorial/);
+If you are new to Digitorn, work through the [Tutorial](/docs/tutorial/);
 it walks from a hello-world to something close to a real app, in
 order.
 
-When you are writing a YAML, the [Language reference](language/) is
+When you are writing a YAML, the [Language reference](/docs/language/) is
 the v1 grammar, frozen.
 
-When you need a specific tool, the [Module reference](reference/modules/)
+When you need a specific tool, the [Module reference](/docs/reference/modules/)
 has one page per shipped module (23 of them).
 
-For UI clients, see [Client SDKs](reference/client-sdks/) (Flutter,
-React, Python testing). For [Deployment](deployment/), [How-tos](howtos/)
-and the architecture rationale, [Concepts](concepts/) and the
-[glossary](concepts/glossary.md) are the entry points.
+For UI clients, see [Client SDKs](/docs/reference/client-sdks/) (web,
+React, Python testing). For [Deployment](/docs/deployment/), [How-tos](/docs/howtos/)
+and the architecture rationale, [Concepts](/docs/concepts/) and the
+[glossary](/docs/concepts/glossary) are the entry points.
 
 ---
 
@@ -110,13 +110,9 @@ default-value policy) lives in [versioning.md](versioning.md).
 
 ---
 
-## Source
-
-Source: [github.com/digitorn/digitorn-bridge](https://github.com/)
-
 License: MIT
 
 The daemon is a Python 3.12 FastAPI / Uvicorn process. The
-front-end clients (Flutter, Next.js) are separate repos that
+front-end clients (web, Next.js) are separate repos that
 talk to the daemon over REST + Socket.IO; they are documented
-under [Client SDKs](reference/client-sdks/).
+under [Client SDKs](/docs/reference/client-sdks/).

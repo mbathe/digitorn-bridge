@@ -129,7 +129,7 @@ ui:
     width_pct: 50                  # 10..90 split ratio
     auto_open_on_first_tool: true  # open on first file write
     default_open: false            # open immediately on session mount
-    # View routing — which tab opens, which tabs are reachable
+    # View routing - which tab opens, which tabs are reachable
     default_view: auto             # auto|code|preview|changes|activity
     hidden_views: []               # subset of [code, preview, changes, activity]
     # Preview iframe chrome (toolbar above the live preview)

@@ -116,11 +116,19 @@ async def require_user(
     try:
         return client.verify(credentials.credentials)
     except InvalidToken as exc:
-        # On a kid-miss, attempt one async refresh and retry. Keeps
-        # the path responsive across key rotations without forcing a
-        # restart of the consuming service.
+        # On a kid-miss, FORCE a JWKS refresh (bypass the TTL cache).
+        # ``maybe_refresh_jwks`` skips when the cache is "fresh", but a
+        # kid-miss IS the proof that the cache is stale - the auth
+        # service rotated keys after our last fetch. Forcing the
+        # refresh closes a 24h window where the daemon would 401 every
+        # newly-issued token until the next scheduled refresh.
         if "kid" in str(exc).lower():
-            await client.maybe_refresh_jwks()
+            try:
+                await client.refresh_jwks()
+            except Exception:
+                # Refresh itself may fail (network); fall through to
+                # the second verify which will surface the right error.
+                pass
             try:
                 return client.verify(credentials.credentials)
             except InvalidToken as exc2:
@@ -282,6 +290,17 @@ class RemoteAuthMiddleware(BaseHTTPMiddleware):
 
                 await db.execute(
                     text(
+                        # INSERT-if-not-exists. The local row exists only
+                        # as an FK target ("users.id" referenced by daemon-
+                        # owned tables). The auth service at
+                        # ``{{auth_url}}`` is the authoritative source of
+                        # user identity / email / display_name — the daemon
+                        # doesn't try to keep its copy fresh. First request
+                        # for a user_id creates the row; every subsequent
+                        # request skips silently. Simpler than the previous
+                        # UPSERT, no write contention, no stale-data drift
+                        # concerns since the daemon never displays this
+                        # local copy (it reads JWT claims for that).
                         f"INSERT INTO {schema}users "
                         "(id, external_id, provider, email, display_name, "
                         " phone, avatar_url, attributes, is_active, "
@@ -290,12 +309,7 @@ class RemoteAuthMiddleware(BaseHTTPMiddleware):
                         " :display_name, :phone, :avatar_url, "
                         f" {attr_expr}, :is_active, "
                         f" {now_fn}, {now_fn}, {now_fn}) "
-                        "ON CONFLICT (id) DO UPDATE SET "
-                        f"  last_seen_at = {now_fn}, "
-                        f"  email = COALESCE(EXCLUDED.email, {schema}users.email), "
-                        "  display_name = COALESCE(EXCLUDED.display_name, "
-                        f"                         {schema}users.display_name), "
-                        "  is_active = EXCLUDED.is_active"
+                        "ON CONFLICT (id) DO NOTHING"
                     ),
                     {
                         "id": remote_user.get("id"),

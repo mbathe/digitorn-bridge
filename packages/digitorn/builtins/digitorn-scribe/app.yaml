@@ -110,17 +110,46 @@ modules:
           it — the rest of the doc may depend on its labels.
   lsp:
     config:
-      # Sprint 1: tectonic as the primary .tex protocol (compile mode).
-      # The LSP module currently routes one protocol per extension, so
-      # we pick the compile loop (the agent's most useful signal).
-      # texlab + chktex enrichment land in sprint 2 with a multi-protocol
-      # path so hover / goto / chktex warnings layer on top of tectonic.
+      # Sprint 2: full multi-protocol stack on .tex. The LSP module
+      # now fans out ``notify_change`` to every registered protocol
+      # in parallel, and routes ``request()`` (hover/goto/refs) to
+      # the LSP-mode one. So all three protocols layer cleanly:
+      #   texlab    — LSP server: hover on \frac{}, goto-definition
+      #               on \newcommand, find-references on \label,
+      #               completion of \cite{} keys.
+      #   tectonic  — compiler: produces main.pdf + structured
+      #               errors (Undefined control sequence, etc.).
+      #   chktex    — linter: stylistic warnings (~ before \ref,
+      #               \\ at paragraph end, eqnarray, etc.).
+      #
+      # Each save fires all three in parallel; their diagnostics are
+      # merged with dedup before reaching the agent.
+      # Note: command paths are absolute below as a Windows workaround.
+      # The lsp module's _start_server calls ``shutil.which(cmd_parts[0])``
+      # on the worker subprocess; under our worker spawn flow on Windows
+      # that lookup intermittently fails for bare names like ``texlab``
+      # or ``chktex`` even though ``where texlab`` resolves cleanly from
+      # the same shell. Tracked as a runtime bug; for now, absolute paths
+      # bypass the lookup. The cmd_parts[0] is consumed verbatim by
+      # asyncio.create_subprocess_exec which handles .exe + .cmd directly
+      # given a full path. Override in your local fork if your toolchain
+      # lives elsewhere.
       servers:
+        texlab:
+          command: "C:/Users/ASUS/bin/texlab.exe"
+          extensions: [".tex"]
+          protocol: lsp
+          parser: fallback
         tectonic:
-          command: "tectonic --keep-logs --print"
+          command: "C:/Users/ASUS/bin/tectonic.exe --keep-logs --print"
           extensions: [".tex", ".bib", ".cls", ".sty"]
           protocol: compiler
           parser: tectonic
+        chktex:
+          command: "C:/Users/ASUS/AppData/Local/Programs/MiKTeX/miktex/bin/x64/chktex.exe -q"
+          extensions: [".tex"]
+          protocol: linter
+          parser: chktex
   memory: {}
 
 agents:
@@ -152,7 +181,16 @@ security:
     # classifier, et interdit explicitement les "menu replies"
     # (préférez-vous A/B/C) qui étaient la cause de la
     # réinitialisation observée sur les messages courts.
-    classify_turns: true
+    #
+    # DISABLED 2026-05-18 for prod-test stability — Coach gpt-5-mini via
+    # github_copilot adds 10-15 s per turn AND occasionally event-loop
+    # stalls the daemon under concurrent load. The writer prompt already
+    # carries enough discipline (compile-feedback loop, lint-driven fixes,
+    # WsGrep-before-rename) that durable rules from Coach were rarely
+    # firing anyway. Flip back to true only if you observe the writer
+    # drifting on a specific project and want a SESSION-level pinning
+    # rule from Coach.
+    classify_turns: false
     brain:
       # Same github_copilot relay as the writer agent -- the coach
       # only runs once per turn (classification, small output) so
@@ -230,7 +268,7 @@ security:
           when: "Class change, mass label rename, deleting >50 lines, dropping a package other content depends on"
           behavior: "MUST AskUser with the exact target list. Explain breaking impact."
       max_directives: 5
-      directive_prefix: "[SCRIBE COACH — {complexity} complexity, {risk} risk, approach: {approach_label}]"
+      directive_prefix: "[Scribe project rule]"
       high_risk_threshold: medium
       high_risk_warning: "Risk: {risk}. AskUser before destructive / hard-to-reverse actions."
 

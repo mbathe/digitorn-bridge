@@ -118,9 +118,10 @@ literal absolute path, or define `dev.variables.MY_DIR` in the YAML
 and use `{{MY_DIR}}` (compile-time substitution).
 
 Polling implementation (`background.py`): the daemon scans
-each glob pattern every `runtime.watch_poll_interval` seconds (default
-5) and fires the trigger for every file appearing in the result set
-that wasn't there last tick.
+each glob pattern every `watch_poll_interval` seconds (default
+5, set via the daemon-level `~/.digitorn/config.yaml`, not the
+app YAML) and fires the trigger for every file appearing in the
+result set that wasn't there last tick.
 
 **Substituted in the trigger `message` at fire time:**
 

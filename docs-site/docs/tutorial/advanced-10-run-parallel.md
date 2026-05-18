@@ -13,7 +13,7 @@ them** - there's a lighter primitive: **`run_parallel`**.
 The agent passes a list of `{name, params}` tuples; the runtime
 fires every call concurrently with `asyncio.gather`, collects
 the results, and returns them as a single bundle. One tool call
-in the agent's view, N parallel calls under the hood.
+in the agent's view, N parallel calls internally.
 
 ## When to use it
 
@@ -94,7 +94,7 @@ named.
 ## Live transcript
 
 The user asks the agent to fire three Bash echos in parallel.
-Real session captured against the daemon:
+Sample transcript:
 
 ```text
 > Use run_parallel to fire THREE Bash calls at once:
@@ -189,7 +189,7 @@ operation with cleanup semantics".
 | **`Agent` (spawn)**   | True parallel; full agent loop | Independent context, isolated brain | Specialists with different prompts / brains            |
 | **Sequential calls**  | Serial            | One turn, await each | When call B depends on call A's result                |
 
-The first three all use `asyncio.gather` under the hood; the
+The first three all use `asyncio.gather` internally; the
 difference is what each call **carries**. `run_parallel` carries
 just a tool call. `background_run` carries a tool call **plus a
 handle** so it can outlive the turn. `Agent` carries an entire
@@ -206,6 +206,6 @@ the smallest and the cheapest.
 - The companion `background_run` primitive for long-running
   fire-and-forget calls:
   [Advanced 9 - background_run](advanced-09-background-run.md).
-- For a more sophisticated parallel pattern with isolated
+- For a richer parallel pattern with isolated
   sub-agents:
   [Tutorial 4 - Multi-agent team](04-multi-agent.md).

@@ -35,7 +35,7 @@ agents:
     role: coordinator
     brain:
       provider: anthropic
-      model: claude-sonnet-4-20250514
+      model: claude-sonnet-4-5
       backend: anthropic
       config:
         api_key: "claude-code"
@@ -124,12 +124,12 @@ modes dispatched by params (`agent_spawn/params.py`
 | 7. Reassign | `agent_id` + `reassign: <new prompt>` | Cancel + respawn the same id with a new task. |
 | 8. List | `list_agents=true` | All current spawns and their status. |
 
-Verified at `agent_spawn/module.py` (mode dispatch) and
-the private `_mode_*` helpers (lines 373-765).
+All eight modes route through the same `Agent()` tool; the
+mode is picked from the param set.
 
 ### `AgentParams`
 
-`agent_spawn/params.py`. Visible to the LLM unless marked
+Visible to the LLM unless marked
 hidden.
 
 | Field | Type | Default | Description |

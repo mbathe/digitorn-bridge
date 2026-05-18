@@ -1,5 +1,5 @@
 ---
-id: 04b-builtin-tools
+id: builtin-tools
 ---
 
 # Built-in Tools
@@ -166,9 +166,8 @@ session.
 | Short | FQN | Purpose |
 |-------|-----|---------|
 | `PreviewProxy` | `web_preview.proxy` | Proxy the iframe to a TCP port the agent's dev server is listening on. |
-| `PreviewStatic` | `web_preview.static` | Serve a directory under the session workspace as static files. |
+| `PreviewPublish` | `web_preview.publish` | Build the project once and serve the static output same-origin under `/api/apps/{id}/sessions/{sid}/published/`. |
 | `PreviewDetach` | `web_preview.detach` | Drop a previously-registered attachment by name. |
-| `PreviewList` | `web_preview.list` | List the active attachments for the current session. |
 
 The agent is responsible for spawning dev servers itself
 (`Bash(run_in_background=true)`) and resolving port conflicts. The
@@ -184,11 +183,11 @@ module is loaded:
 
 | Short | FQN | Module |
 |-------|-----|--------|
-| `Read`, `Write`, `Edit`, `Grep`, `Glob`, `Ls` | `filesystem.<name>` | `filesystem` |
-| `Bash` | `shell.bash` | `shell` (5 modes via params) |
-| `WebSearch`, `WebFetch` | `web.search`, `web.fetch` | `web` |
+| `Read`, `Write`, `Edit`, `Grep`, `Glob` | `filesystem.<name>` | `filesystem` (5 actions; use `Bash` for `ls` / `mv` / `cp` / `rm`) |
+| `Bash` | `shell.bash` | `shell` |
+| `WebSearch`, `WebFetch` | `web.search`, `web.fetch` | `web` (4 actions; the 2 unaliased - `extract`, `download` - are called via FQN) |
 | `LintCheck`, `LintFile` | `lsp.diagnostics`, `lsp.check` | `lsp` |
-| `DbConnect`, `DbDisconnect`, `DbList`, `DbQuery`, `DbTransaction`, `DbBulkInsert`, `DbSchema`, `DbBrowse`, `DbRelations`, `DbSearch` | `database.<name>` | `database` (10 actions) |
+| `DbConnect`, `DbDisconnect`, `DbList`, `DbQuery`, `DbTransaction`, `DbBulkInsert`, `DbSchema`, `DbBrowse`, `DbRelations`, `DbSearch` | `database.<name>` (high-level aliases) | `database` (16 actions total; the 6 lower-level ones - `execute_query`, `fetch_results`, `list_tables`, `introspect`, `describe`, `extract_for_index` - are called via FQN) |
 
 The full mapping (single source of truth) is in the runtime tool
 catalog.

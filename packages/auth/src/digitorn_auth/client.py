@@ -374,12 +374,23 @@ class RemoteAuthClient:
         )
 
     async def maybe_refresh_jwks(self) -> None:
-        """Best-effort background refresh — call from a periodic task or
-        after a verify() raised InvalidToken with a kid-miss."""
+        """Best-effort background refresh — call from a periodic task.
+        Skips when the TTL cache is still fresh."""
         try:
             await self._refresh_jwks(force=False)
         except Exception:
             pass
+
+    async def refresh_jwks(self) -> None:
+        """Force-refresh the JWKS cache, bypassing the TTL guard.
+
+        Use after a ``verify()`` raised ``InvalidToken`` with a
+        kid-miss: the miss itself proves the cache is stale, so the
+        TTL-based ``maybe_refresh_jwks`` skip is exactly wrong. We
+        still respect the lock so concurrent kid-misses don't fan-out
+        N HTTP fetches.
+        """
+        await self._refresh_jwks(force=True)
 
     async def fetch_me(self, token: str) -> dict | None:
         """Call the canonical ``GET /auth/me`` endpoint with the bearer

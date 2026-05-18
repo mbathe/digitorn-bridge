@@ -12,7 +12,6 @@ integrations, and the credentials manifest endpoints are
 Public clients use the SDKs and CLI:
 
 - **Python testing SDK** - [`digitorn.testing`](../reference/client-sdks/python-testing.md)
-- **Flutter chat client** - [client-sdks/flutter](../reference/client-sdks/flutter.md)
 - **React Preview SDK** - [preview-sdk](47-preview-sdk.md)
 - **CLI** - [cli reference](../reference/cli/)
 

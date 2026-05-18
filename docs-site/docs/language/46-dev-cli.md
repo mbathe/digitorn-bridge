@@ -6,7 +6,7 @@ id: dev-cli
 
 `digitorn dev *` is the command-line workflow for testing apps
 against a running daemon. It hits the same HTTP endpoints the
-Flutter / web client uses, so every behavior rule, sub-agent,
+chat client / web client uses, so every behavior rule, sub-agent,
 tool call, and approval flow runs in production mode - no
 mocks.
 
@@ -46,13 +46,15 @@ the init flow). When auth is disabled on the daemon
 ```bash
 digitorn dev deploy path/to/app.yaml \
   [--daemon http://127.0.0.1:8000] \
-  [--force/--no-force]
+  [--force/--no-force] \
+  [--scope system|user]
 ```
 
 | Flag | Default | Effect |
 |------|---------|--------|
 | `--daemon`, `-d` | `http://127.0.0.1:8000` | Daemon URL. |
 | `--force` / `--no-force` | `--force` (true) | Overwrite an existing deployment with the same `app_id`. |
+| `--scope`, `-s` | `system` | Install scope. `system` requires admin; `user` deploys a private copy visible only to your JWT identity. |
 
 The CLI calls the daemon's deploy endpoint with
 `{yaml_path: <abs>, force: true|false}`. The daemon compiles
@@ -169,8 +171,8 @@ can exercise destructive actions without a human stopping it).
 
 > **Don't use `digitorn dev chat` for production demos** that
 > rely on the approval gate as a safety net. The auto-approval
-> is part of the testing contract; production clients (Flutter,
-> web) keep the gate strict.
+> is part of the testing contract; production clients keep
+> the gate strict.
 
 For sane testing without auto-approval, deploy an app with
 `tools.capabilities.default_policy: auto` (no approval needed

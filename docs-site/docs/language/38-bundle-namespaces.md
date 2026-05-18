@@ -239,7 +239,7 @@ reference: [Behavior Engine](43-behavior.md).
 
 ## `{{asset.X}}` - asset URLs
 
-Returns a client-fetchable URL. The Flutter / web client GETs
+Returns a client-fetchable URL. The the chat client / web client GETs
 `/api/apps/<app_id>/assets/<path>`.
 
 ```yaml

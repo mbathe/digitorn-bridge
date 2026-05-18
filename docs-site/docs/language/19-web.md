@@ -37,14 +37,12 @@ The full `ModuleBlock` shape (`config`, `setup`, `constraints`,
 
 ## The 4 LLM-exposed actions
 
-Verified `@action` decorators in `web/module.py`.
-
-| Action | Short alias | Source | Purpose |
-|--------|-------------|--------|---------|
-| `web.search` | `WebSearch` | `module.py` | Web search via the configured backend. |
-| `web.fetch` | `WebFetch` | `module.py` | Fetch a web page and return clean readable text. |
-| `web.extract` | - | `module.py` | Extract structured data (links, headings, tables, ...) from HTML. |
-| `web.download` | - | `module.py` | Download a file to disk. |
+| Action | Short alias | Purpose |
+|--------|-------------|---------|
+| `web.search` | `WebSearch` | Web search via the configured backend. |
+| `web.fetch` | `WebFetch` | Fetch a web page and return clean readable text. |
+| `web.extract` | - | Extract structured data (links, headings, tables, ...) from HTML. |
+| `web.download` | - | Download a file to disk. |
 
 Short aliases come from ### `web.search`
 

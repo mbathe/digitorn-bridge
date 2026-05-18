@@ -443,6 +443,10 @@ class InMemorySessionStore:
         state.interrupted_at = (
             str(snap["interrupted_at"]) if snap.get("interrupted_at") else None
         )
+        _amid = snap.get("active_mode_id")
+        state.active_mode_id = (
+            str(_amid) if isinstance(_amid, str) and _amid else None
+        )
 
         state.messages = [
             Message.from_dict(m)

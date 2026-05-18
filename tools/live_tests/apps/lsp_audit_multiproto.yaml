@@ -1,0 +1,52 @@
+app:
+  app_id: qtest-lsp-multiproto
+  name: "LSP audit - multi-protocol fan-out on .tex (texlab + tectonic)"
+
+# Verifies the multi-protocol-per-extension refactor: TWO protocols
+# stacked on .tex (texlab in LSP mode for hover/goto/refs, tectonic
+# in compiler mode for compile diagnostics). notify_change fans out
+# to both in parallel; request() routes to texlab only.
+modules:
+  preview: {}
+  workspace:
+    config:
+      sync_to_disk: true
+      lint: true
+  lsp:
+    config:
+      # Absolute paths: see digitorn-scribe/app.yaml for the rationale
+      # — the worker subprocess's shutil.which() is unreliable for
+      # bare names like ``texlab`` on Windows. POSIX users override.
+      servers:
+        texlab:
+          command: "C:/Users/ASUS/bin/texlab.exe"
+          extensions: [".tex"]
+          protocol: lsp
+          parser: fallback
+        tectonic:
+          command: "C:/Users/ASUS/bin/tectonic.exe --keep-logs --print"
+          extensions: [".tex", ".bib"]
+          protocol: compiler
+          parser: tectonic
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 1024
+    system_prompt: "Test agent."
+
+execution:
+  mode: conversation
+  max_turns: 2
+  timeout: 30
+
+capabilities:
+  default_policy: auto
