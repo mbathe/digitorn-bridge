@@ -1,13 +1,13 @@
 app:
   app_id: digitorn-lovable
-  name: Digitorn Lovable
-  short_name: Lovable
+  name: Digitorn Craft
+  short_name: Craft
   version: 0.1.0
   description: "Build websites and apps from a single prompt. Pick a starter template or describe what you want — the AI ships a working preview in seconds."
-  icon: "💖"
-  color: "#FF4D8B"
+  icon: "🧱"
+  color: "#14B8A6"
   category: development
-  tags: [ai, builder, react, lovable, no-code]
+  tags: [ai, builder, react, no-code]
 
 runtime:
   mode: conversation
@@ -58,32 +58,42 @@ agents:
   - id: builder
     role: coordinator
     brain:
-      # DeepSeek-V4-Pro via the doubleword endpoint, routed through
-      # the Digitorn gateway. The ``deepseek-ai/DeepSeek-V4-Pro``
-      # alias resolves to ``provider=doubleword`` upstream. Test
-      # configuration switched on 2026-05-15 (was previously
-      # ``copilot-claude-sonnet-4-5``) to evaluate code-gen quality
-      # at lower cost.
-      #
-      # The ``openai_compat`` backend + placeholder ``api_key`` /
-      # ``base_url`` are the standard "deploy-time stub" that the
-      # gateway resolver swaps at session start. No ``credential:``
-      # block here — the doubleword token lives in the daemon's
-      # credential store under the system-scope ``doubleword`` slot
-      # and is held by the gateway, not by every app YAML.
-      provider: doubleword
+      # gpt-5-mini via the Digitorn gateway, identical to digitorn-chat.
+      # ~400 k input / ~16 k output, native tool-calling discipline,
+      # included in the Pro+ premium-request budget. The gateway resolver
+      # (``gateway_resolver.py``) swaps this brain for a gateway-bound
+      # ``OpenAICompatProvider`` at session start for every authenticated
+      # user; ``api_key`` + ``base_url`` below are placeholders ignored
+      # on the gateway path and only used by the bootstrap to instantiate
+      # the initial provider. No ``credential:`` block - that would only
+      # matter for BYOK-ON users.
+      provider: openai
       backend: openai_compat
-      model: deepseek-ai/DeepSeek-V4-Pro
+      model: gpt-5-mini
       config:
         api_key: placeholder
         base_url: https://api.openai.com/v1
-      temperature: 0.2
+      temperature: 0.7
       max_tokens: 16384
       context:
-        max_tokens: 128000
+        max_tokens: 400000
         strategy: summarize
-        keep_recent: 12
+        keep_recent: 10
         auto_compact: true
+      # Local Ollama Qwen 7B fallback. Triggered on 402 / quota /
+      # gateway-unreachable errors so the builder keeps working even
+      # when the gateway budget is empty or the gateway is offline.
+      # Local provider, never proxied (KEEP-deployed).
+      fallback:
+        provider: ollama
+        model: qwen25-7b-gpu:latest
+        backend: openai_compat
+        config:
+          base_url: http://localhost:11434/v1
+          api_key: ollama
+          num_ctx: 131072
+        temperature: 0.7
+        max_tokens: 4096
     plan_first: false
     system_prompt: |
       You are Digitorn Lovable — production-grade React app builder.
@@ -910,7 +920,7 @@ tools:
       config:
         render_mode: react
         entry_file: src/App.tsx
-        title: Digitorn Lovable
+        title: Digitorn Craft
         # Mirror every mutation to disk so the build picks up the
         # changes when the agent re-publishes.
         sync_to_disk: true
@@ -966,7 +976,7 @@ ui:
   workspace:
     render_mode: react
     entry_file: src/App.tsx
-    title: Digitorn Lovable
+    title: Digitorn Craft
     position: right
     width_pct: 75
     # Open the workspace pane IMMEDIATELY when the user opens the

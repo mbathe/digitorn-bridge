@@ -225,6 +225,11 @@ and `group` (repeating arrays, data nested as `[{...}, {...}]`).
 ### Hard rules
 
 - Output MUST be valid JSON. The iframe's `JSON.parse` fails fast.
+- **If `WsWrite` returns a non-empty `lint` field with errors on a
+  `forms/*.json` write, rewrite the file IMMEDIATELY in the same turn
+  to fix every reported error. Do NOT reply "Form ready" until the
+  next `WsWrite` lands with `lint: []`. The user must never see
+  "Couldn't parse this form".**
 - `id` MUST be kebab-case and match the file slug. Field ids
   `[a-z0-9_]`, unique across the whole form.
 - NEVER include `<html>`, `<form>`, `<script>`, `<style>` tags in your

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scribe</title>
+    <style>
+      html, body, #root { margin: 0; padding: 0; height: 100%; }
+      body {
+        font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+        background: var(--bg, #0b0f14);
+        color: var(--text, #e6e8eb);
+        font-size: 14px;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      * { box-sizing: border-box; }
+      ::-webkit-scrollbar { width: 8px; height: 8px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb {
+        background: color-mix(in oklab, currentColor 14%, transparent);
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: color-mix(in oklab, currentColor 22%, transparent);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -103,7 +103,12 @@ tools:
         entry_file: briefing.md
         sync_to_disk: false
         auto_approve: true
-        lint: false
+        # Built-in content validators (JSON, YAML, TOML, Python) run on
+        # every WsWrite/WsEdit. The validator output is returned to the
+        # agent as a ``lint: [...]`` field on the tool result so it can
+        # self-correct broken JSON forms in the same turn instead of
+        # leaving the iframe stuck on "Couldn't parse this form".
+        lint: true
     context_builder: {}
   capabilities:
     default_policy: auto
