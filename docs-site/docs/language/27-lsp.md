@@ -1,5 +1,5 @@
 ---
-id: 27-lsp
+id: lsp
 ---
 
 # LSP - Real-Time Code Diagnostics

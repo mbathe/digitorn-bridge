@@ -224,8 +224,8 @@ bash scripts/check-preview-cloud.sh https://daemon.digitorn.cloud preview.digito
   unguessable handle - they're scoped per session and rotated via
   attach.
 - For sensitive workloads (private codebases, internal APIs), have
-  the agent's app validate the token (the SDK already does, see
-  ``packages/digitorn-preview-sdk``).
+  the agent's app validate the token (the Digitorn Preview SDK
+  already does this).
 - The nginx config above doesn't add auth. If you want only
   logged-in users to reach previews, add an `auth_request`
   directive pointing at the daemon's auth-verify endpoint

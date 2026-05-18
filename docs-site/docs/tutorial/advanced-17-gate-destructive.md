@@ -4,22 +4,16 @@ title: "Advanced 17 - Block destructive commands with a custom behavior rule"
 sidebar_label: "Advanced 17: Gate destructive"
 ---
 
-The behavior engine ([`packages/digitorn/modules/behavior/`](https://github.com/digitorn-ai/digitorn-bridge/tree/main/packages/digitorn/modules/behavior))
-intercepts every tool call **before** it executes and runs the
-app's rules against it. A rule with `action: block` stops the
-call cold and pushes its `message:` into the agent's next
-observation, so the model sees exactly why it was blocked and
-can re-route.
+The behavior engine intercepts every tool call **before** it
+executes and runs the app's rules against it. A rule with
+`action: block` stops the call cold and pushes its `message:`
+into the agent's next observation, so the model sees exactly
+why it was blocked and can re-route.
 
 This tutorial wires one custom rule that pattern-matches
 `bash` command params and blocks the classic irreversible
 patterns (`rm -rf`, `git reset --hard`, `git push --force`,
 `dd of=`, `mkfs`, SQL `drop table` / `truncate table`).
-
-Live-tested end-to-end: app `tuto-gate-destructive`, session
-`test-6c75e5e4`, brain `openai/gpt-5-mini`. Total: 15.2s, 1
-tool call attempted, 1 blocked, agent re-routed with 6 safe
-alternatives.
 
 ## The rule shape
 
@@ -35,8 +29,7 @@ The modern declarative form lives under
 | `condition` | A typed condition (`param_matches`, `param_contains`, `target_in_set`, `result_has_lint_errors`, ...) |
 | `message` | The text the agent receives. Supports `{param:name}` interpolation |
 
-Full list of valid condition keys (from the compiler error
-message when you mistype):
+Valid condition keys:
 `all`, `any`, `consecutive_gte`, `counter_gte`,
 `first_tool_this_turn`, `flag_is`, `no_text_before_tools`,
 `not`, `param_contains`, `param_matches`,
@@ -117,9 +110,9 @@ security:
 Three pitfalls when writing the YAML:
 
 - `condition.param_matches` is a **nested object** with
-  `param:` and `pattern:` keys. Writing `condition: {param: command, matches: <regex>}`
-  fails compilation with *"unknown condition key 'matches'"*
-  (run into in round 1 of building this tutorial).
+  `param:` and `pattern:` keys. Writing
+  `condition: {param: command, matches: <regex>}` fails
+  compilation with *"unknown condition key 'matches'"*.
 - `trigger:` accepts both short tool names (`bash`) and the
   fully-qualified module form (`shell.bash`). List both for
   forward-compatibility.
@@ -135,15 +128,14 @@ digitorn dev chat tuto-gate-destructive -m "Execute rm -rf ./build NOW via the b
 ```
 
 The explicit *"do not ask for confirmation, call the tool
-directly"* in the message is needed because modern OpenAI
-models are safety-trained to confirm before destructive
-commands. With a vague *"please rm -rf the build folder"*,
-`gpt-5-mini` asks the user for permission and never reaches
-the tool call, so the gate never fires. The point of the
+directly"* in the message is needed because modern safety-trained
+models will confirm before destructive commands. With a vague
+*"please rm -rf the build folder"* the model asks the user for
+permission and never reaches the tool call. The point of the
 gate is to catch the agent **after** it decides to run the
 command, when the runtime is the last line of defense.
 
-## Real session transcript (session `test-6c75e5e4`)
+## Sample flow
 
 **Turn 1: agent calls Bash with the destructive command.**
 
@@ -195,13 +187,14 @@ alternatives I can run for you (pick one):
    Commands:
    - tar -czf build-backup-$(date +%Y%m%d%H%M%S).tar.gz ./build
    - rm -rf ./build
-   (Both run sequentially; you keep a backup tarball.)
 
 3) Move the directory to /tmp (recoverable)
    Command: mv ./build /tmp/build-$(date +%Y%m%d%H%M%S)
 
-4) Move to the desktop/trash (if trash-cli or gio available)
-   ...
+4) Move to the trash (if trash-cli or gio available)
+   Command (trash-cli): trash-put ./build
+   or
+   Command (GNOME): gio trash ./build
 
 5) Remove only the contents (not the directory)
    Command: rm -rf ./build/* ./build/.[!.]* ./build/..?*
@@ -211,37 +204,8 @@ alternatives I can run for you (pick one):
    Command: git clean -fd ./build
 ```
 
-Session totals: 1 tool call, 0 succeeded, 1 failed (blocked).
-End-to-end 15.2s.
-
-Two things to note about the agent's recovery:
-
-- The agent did NOT retry `rm -rf` (which would hit the same
-  gate). It actually re-routed to safer alternatives.
-- Alternative #2 chains `tar` + `rm -rf` as a single step,
-  and that **would also be blocked** by the rule (the regex
-  matches `rm\s+-rf` anywhere in the command). The agent
-  doesn't predict this; the gate will catch it again if it
-  tries.
-
-## How the engine evaluates the rule
-
-[`packages/digitorn/modules/behavior/rules.py`](https://github.com/digitorn-ai/digitorn-bridge/blob/main/packages/digitorn/modules/behavior/rules.py)
-runs `_check_custom_condition` for each tool call whose name
-matches `trigger`. For `param_matches`:
-
-```python
-def _check_custom_condition(condition, params, state):
-    if "param_matches" in condition:
-        cfg = condition["param_matches"]
-        value = str(params.get(cfg["param"], ""))
-        return bool(re.search(cfg["pattern"], value))
-```
-
-The regex is `re.search`-style (not `match`), so the
-destructive substring can appear anywhere in the command
-(useful for catching `cd build && rm -rf .` or shell
-pipelines).
+The agent does NOT retry `rm -rf` (which would hit the same
+gate). It re-routes to safer alternatives.
 
 ## Variants
 
@@ -258,27 +222,11 @@ tool runs but the agent gets a behavioral nudge to ask.
 entries with different patterns. They all run; the first
 that matches with `action: block` stops the call.
 
-## What we proved
+## How `param_matches` works
 
-| Claim | Status |
-|---|---|
-| `rule_definitions` with `param_matches` compiles correctly | verified after fixing condition shape |
-| `pre_tool` + `action: block` stops the tool from executing | verified, `tools.failed=1, success=0` |
-| Gate message is delivered as both tool_result error AND system message | verified in event log + messages array |
-| `{param:command}` interpolates the offending value into the message | verified, message contained `'rm -rf ./build'` |
-| Agent reads the gate and re-routes to safer commands | verified, 6-option recovery in session reply |
-
-## Limitations to know about
-
-- `condition.param_matches` only looks at the literal command
-  string. It does not expand shell variables, follow
-  command substitution, or read environment. `$(rm -rf .)`
-  would also be caught (literal substring), but
-  `eval "$RM_CMD"` where `RM_CMD="rm -rf ."` would not.
-- The gate prevents the DAEMON from running the command. It
-  does not stop a subprocess the agent already spawned via
-  another route (e.g. a Python script writing files).
-- Safety-trained models may still ask for confirmation before
-  ever attempting the command, in which case the gate
-  doesn't fire because there's no tool call to gate. The
-  gate is the LAST line of defense, not the first.
+The condition uses `re.search`-style matching (not `re.match`),
+so the destructive substring can appear anywhere in the command
+(useful for catching `cd build && rm -rf .` or shell pipelines).
+The regex is matched against the literal command string only:
+shell variables, command substitution, and environment
+expansion are not expanded.

@@ -1,0 +1,58 @@
+\documentclass[a4paper,11pt]{article}
+
+% Encodage et langue
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[french]{babel}
+\usepackage{csquotes}
+
+% Typographie et mise en page
+\usepackage{microtype}
+\usepackage[a4paper, margin=2.5cm]{geometry}
+
+% Math
+\usepackage{amsmath,amssymb,amsthm}
+
+% Graphiques (au cas où)
+\usepackage{graphicx}
+
+% Liens et références
+\usepackage[colorlinks=true, linkcolor=blue!50!black, citecolor=blue!50!black, urlcolor=blue!50!black]{hyperref}
+\usepackage[capitalize,noabbrev]{cleveref}
+
+% Commandes personnalisées (exemples)
+\newcommand{\N}{\mathbb{N}}
+\newcommand{\Z}{\mathbb{Z}}
+% commentaire ponctuel ajouté pour recompiler.
+
+\title{Les nombres premiers de Mersenne}
+\author{Paul}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Cet article court présente la définition des nombres de Mersenne et donne deux exemples classiques. Nous définissons $M_p$ par une formule simple et calculons $M_3$ et $M_7$.
+\end{abstract}
+
+\section{D\'efinition}
+Les nombres de Mersenne sont les entiers de la forme
+\[
+M_p = 2^{p} - 1,
+\]
+o\`u $p$ est un entier positif. On appelle "nombre de Mersenne premier" un nombre de Mersenne qui est lui-m\^eme premier. Il est clair que si $M_p$ est premier, alors $p$ doit \^etre premier; la r\'eciproque n'est pas toujours vraie.
+
+\section{Exemples: $M_3$ et $M_7$}
+Calculons deux exemples simples :
+\begin{align*}
+M_3 &= 2^{3} - 1 = 8 - 1 = 7, \\%
+M_3 &= 7 \quad(\text{qui est premier}),
+\\
+M_7 &= 2^{7} - 1 = 128 - 1 = 127, \\%
+M_7 &= 127 \quad(\text{qui est aussi premier}).
+\end{align*}
+Ces deux valeurs sont des exemples historiques de nombres de Mersenne premiers.
+
+\end{document}

@@ -25,7 +25,7 @@ auto-indexing into the agent's tool catalogue.
 
 Digitorn's MCP catalog is curated like an App Store: each entry
 declares not only what the user fills, but also what **Digitorn**
-provides on their behalf — shared API keys for free-tier search
+provides on their behalf - shared API keys for free-tier search
 backends, hosted infrastructure URLs (e.g. a public Cloudflare
 Worker bridge), and the OAuth client ids registered once for the
 whole user base.
@@ -81,7 +81,7 @@ field" experience:
 3. **Wait for the daemon's 5 min cache to refresh** (or hit
    `POST /api/mcp/registry/refresh` on the daemon for an immediate
    pull).
-4. Users now see Brave Search install with **no fields** — just a
+4. Users now see Brave Search install with **no fields** - just a
    single **Install** button.
 
 If the shared credential isn't provisioned yet, the entry still
@@ -105,14 +105,14 @@ The MCP module accepts servers from two complementary places:
    fill any personal credential the server needs (your GitHub PAT,
    your Notion key, …) and the daemon registers it once for every
    app on this machine. Your `app.yaml` then references it by short
-   name — see [Referencing installed servers](#referencing-installed-servers).
+   name - see [Referencing installed servers](#referencing-installed-servers).
 2. **Inline custom config in YAML** (power-user path). For servers
    that aren't (yet) in the Hub catalog or have very specific needs,
    provide the full transport / command / env block under
    `modules.mcp.config.servers.<id>` in your `app.yaml`. The daemon
    installs the package, registers the server, and connects.
 
-Both paths converge on the same module surface — once registered,
+Both paths converge on the same module surface - once registered,
 your agent calls the server's tools through the same interface
 regardless of how it got there.
 
@@ -123,7 +123,7 @@ Catalog UI or the CLI), your `app.yaml` doesn't need to repeat any
 of its configuration. Three shorthand forms are accepted:
 
 ```yaml
-# Form 1 — list of names
+# Form 1 - list of names
 modules:
   mcp:
     config:
@@ -131,7 +131,7 @@ modules:
         - github
         - notion
 
-# Form 2 — dict with empty config
+# Form 2 - dict with empty config
 modules:
   mcp:
     config:
@@ -139,7 +139,7 @@ modules:
         github: {}
         notion: {}
 
-# Form 3 — mix of references + inline overrides
+# Form 3 - mix of references + inline overrides
 modules:
   mcp:
     config:
@@ -155,12 +155,12 @@ modules:
 
 How the daemon resolves a bare reference at module init time:
 
-1. **Live pool** — if the server is already connected, the app shares
+1. **Live pool** - if the server is already connected, the app shares
    that connection (zero re-init cost).
-2. **Managed store** — read the row from `managed_mcp_servers`
+2. **Managed store** - read the row from `managed_mcp_servers`
    (resolved package, command, env including credentials).
-3. **Built-in catalog** — fall back to the catalog entry's defaults
-   (no credentials — useful for no-auth servers like `filesystem`,
+3. **Built-in catalog** - fall back to the catalog entry's defaults
+   (no credentials - useful for no-auth servers like `filesystem`,
    `fetch`, `memory`).
 
 If none of the three resolve, the module logs an actionable error
@@ -263,13 +263,13 @@ Three rules to know:
 
 1. **Bare references get the standard sandbox**: writing
    `- fetch` (list form) or `fetch: {}` (dict-empty form) is
-   shorthand for *"trust the daemon's curated install"* — the
+   shorthand for *"trust the daemon's curated install"* - the
    module auto-injects `permissions: [process.exec, net.http]`
    so the call isn't blocked at dispatch time with the cryptic
    ``mcp_sandbox_blocked`` error. If you need a tighter
    sandbox, spell the block out (rule #2 below).
 2. **Explicit `sandbox:` always wins**: any block you write
-   under a server is preserved verbatim — bare or not.
+   under a server is preserved verbatim - bare or not.
 3. **Custom inline servers must declare sandbox**: when you
    provide `transport` / `command` / `url` for a server not
    in the daemon's managed catalog, the compiler requires an
@@ -333,7 +333,7 @@ that blocks calls until manually `mcp.reconnect`-ed.
 
 Every shape under `modules.mcp.config.servers` resolves to the
 same internal form `{server_id: server_config}`. Pick the form
-that fits the install you're describing — they are equivalent
+that fits the install you're describing - they are equivalent
 end results, only the syntax differs.
 
 ```yaml
@@ -341,21 +341,21 @@ modules:
   mcp:
     config:
       servers:
-        # 1. Bare list — references daemon-managed installs.
+        # 1. Bare list - references daemon-managed installs.
         #    Default sandbox auto-injected (process.exec + net.http).
         - github
         - filesystem
 
-        # 2. Bare dict (empty value) — same semantics as form 1.
+        # 2. Bare dict (empty value) - same semantics as form 1.
         #    Default sandbox auto-injected.
         notion: {}
 
-        # 3. Dict with a custom field — still treated as a reference
+        # 3. Dict with a custom field - still treated as a reference
         #    but with an override (rate limit, middleware, sandbox).
         linear:
           rate_limit_rpm: 30
 
-        # 4. Inline custom server — full config the user owns end-to-end.
+        # 4. Inline custom server - full config the user owns end-to-end.
         #    The compiler REQUIRES an explicit sandbox block here.
         my_internal:
           transport: stdio
@@ -388,9 +388,9 @@ for Node.js; the system Python for venvs; `uv` if installed):
 
 | Runtime tool | Required for | Install (one of) |
 |---|---|---|
-| `node` + `npm` / `npx` | npm-based MCP servers | [nodejs.org](https://nodejs.org/) — Linux: `apt install nodejs npm` — macOS: `brew install node` |
+| `node` + `npm` / `npx` | npm-based MCP servers | [nodejs.org](https://nodejs.org/) - Linux: `apt install nodejs npm` - macOS: `brew install node` |
 | `python3` | pip-based MCP servers via stdlib `venv` | usually already present |
-| `uv` / `uvx` | faster pip installs **and** servers using `uvx` as their entry point | Linux: `curl -LsSf https://astral.sh/uv/install.sh \| sh` — macOS: `brew install uv` — Windows: `powershell -c "irm https://astral.sh/uv/install.ps1 \| iex"` |
+| `uv` / `uvx` | faster pip installs **and** servers using `uvx` as their entry point | Linux: `curl -LsSf https://astral.sh/uv/install.sh \| sh` - macOS: `brew install uv` - Windows: `powershell -c "irm https://astral.sh/uv/install.ps1 \| iex"` |
 
 After installing a runtime tool, **restart the daemon** so it
 picks up the new `PATH`. Without restart, an MCP install that
@@ -410,14 +410,14 @@ dashboard surfaces in the install / connect dialogs.
 | `HTTP 401 Unauthorized at <url>` | 401 | Remote server requires auth not yet supplied | Configure the server's `auth:` block (env-token or OAuth) and reconnect |
 | `HTTP 403 Forbidden at <url>` | 403 | Credentials present but lacking the required scope | Mint a new token with broader scope, re-attach |
 | `HTTP 404 Not Found at <url>` | 404 | Endpoint path is wrong or has been retired | Verify the URL with the publisher; for stdio, re-install |
-| `HTTP 404 ... (SDK reports "Session terminated")` | 404 | SDK relabels any 404 on the JSON-RPC POST as "Session terminated" — usually the URL is incorrect or the server moved | Same as 404 — re-check the URL |
-| `MCP error -32603: Invalid response format` | server-side | Transport mismatch (server speaks legacy HTTP+SSE but the client opened `streamable_http`, or vice versa) | Switch `transport:` to the form the server actually speaks — try `sse` if you had `streamable_http` |
+| `HTTP 404 ... (SDK reports "Session terminated")` | 404 | SDK relabels any 404 on the JSON-RPC POST as "Session terminated" - usually the URL is incorrect or the server moved | Same as 404 - re-check the URL |
+| `MCP error -32603: Invalid response format` | server-side | Transport mismatch (server speaks legacy HTTP+SSE but the client opened `streamable_http`, or vice versa) | Switch `transport:` to the form the server actually speaks - try `sse` if you had `streamable_http` |
 | `Command not found: <tool>` | -1 | A runtime (`npx`, `uvx`, `pipx`) referenced by the server config isn't on the daemon's `PATH` | Install the missing runtime per the table above, restart the daemon |
 | `'uvx' is not on PATH` (specific) | -1 | The server uses `uvx` (Astral's tool runner) but `uv` isn't installed | Install `uv` (see prerequisites), restart |
 | `MCP server '<id>' has no sandbox permissions declared` | -1 | Custom inline server without an explicit `sandbox:` block (bare references auto-inject the default) | Add `sandbox: {permissions: [process.exec, net.http]}` to the server config in YAML |
 | `Server '<id>' is already installed (status=ready)` | 400 | Re-running install on an existing row | Uninstall first (`DELETE /api/mcp/servers/<id>`) then re-install |
 
-## Reasoning models — token budget
+## Reasoning models - token budget
 
 Reasoning models (OpenAI `gpt-5*`, `o1`, `o3`) consume part
 of their `max_tokens` budget on internal reasoning **before**
@@ -437,7 +437,7 @@ agents:
       config:
         api_key: placeholder
         base_url: https://api.openai.com/v1
-      max_tokens: 4096      # was 1024 — too tight for reasoning
+      max_tokens: 4096      # was 1024 - too tight for reasoning
 ```
 
 Non-reasoning models (Claude Haiku/Sonnet, GPT-4o, DeepSeek
@@ -456,7 +456,7 @@ The provider auto-strips any `format` value not in
 ipv6, uuid}` before sending the schema to OpenAI. No
 configuration needed; the sanitisation is transparent. If
 you see a `400 BadRequest` mentioning a `format` value, file
-an issue — that's a regression in the sanitiser, not a YAML
+an issue - that's a regression in the sanitiser, not a YAML
 configuration problem.
 
 ## Live testing
@@ -471,7 +471,7 @@ chat. Run after any change touching the module:
 py -3.12 tools/live_tests/mcp_e2e_scenarios.py
 ```
 
-Scenarios check `tool_call.payload.success == True` —
+Scenarios check `tool_call.payload.success == True` -
 the assertion fires only when the tool actually executed,
 not when the LLM merely emitted a `tool_call` event.
 

@@ -245,6 +245,13 @@ def build_assistant_message(
         serialized = []
         for tc in tool_calls:
             tc_copy = dict(tc)
+            # OpenAI / litellm reject tool_calls without a non-null
+            # ``type`` field. Some upstream paths (provider streaming
+            # delta, projection replay from older events) end up with
+            # ``type: null`` or missing entirely. Force the canonical
+            # value here so the LLM call always carries a valid shape.
+            if not tc_copy.get("type"):
+                tc_copy["type"] = "function"
             fn = tc_copy.get("function", {})
             if isinstance(fn.get("arguments"), dict):
                 fn = dict(fn)

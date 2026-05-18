@@ -5,15 +5,15 @@ title: Voice transcription
 
 # Voice transcription
 
-The daemon ships a voice-transcription pipeline. The Flutter
+The daemon ships a voice-transcription pipeline. The chat client
 mic button records audio, the daemon runs Whisper, the
-client gets back the text. The Flutter client falls back to
+client gets back the text. The chat client falls back to
 attaching the raw audio to the next chat message if any
 step fails (404, 413, 422, 500), so the feature degrades
 gracefully.
 
 The HTTP endpoint that backs this pipeline is not documented
-publicly - public clients use the Flutter client (or any
+publicly - public clients use the chat client (or any
 client built on the [Python testing SDK](../client-sdks/python-testing.md))
 which abstracts the route.
 
@@ -93,7 +93,7 @@ the value.
 
 ## Client fallback behaviour
 
-The Flutter client gracefully degrades if the transcribe
+The chat client gracefully degrades if the transcribe
 endpoint returns 404, 413, 422, or 500: it shows a toast and
 attaches the raw audio file to the next message instead. So
 enabling / disabling transcription at any time is safe - no

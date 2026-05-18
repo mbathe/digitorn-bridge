@@ -71,6 +71,32 @@ async def list_public_apps(request: Request) -> AppResponse:
         a.setdefault("install_status", "installed")
         public_apps.append(a)
 
+    # Filter out hidden system apps. Anonymous callers NEVER see
+    # hidden apps - there is no ``include_hidden`` override on this
+    # public endpoint. Single bulk query against ``applications``.
+    if public_apps:
+        try:
+            from sqlalchemy import select as _select
+            from digitorn.core.database import get_session_factory as _gsf
+            from digitorn.core.models import Application as _App
+            _sf = _gsf()
+            _app_ids = [a.get("app_id") or "" for a in public_apps]
+            _app_ids = list({a for a in _app_ids if a})
+            if _app_ids:
+                async with _sf() as _s:
+                    _stmt = _select(_App.app_id).where(
+                        _App.app_id.in_(_app_ids),
+                    ).where(_App.scope == "system").where(_App.hidden == True)  # noqa: E712
+                    _r = await _s.execute(_stmt)
+                    _hidden_ids = {row.app_id for row in _r.all()}
+                if _hidden_ids:
+                    public_apps = [
+                        a for a in public_apps
+                        if (a.get("app_id") or "") not in _hidden_ids
+                    ]
+        except Exception:
+            pass  # defensive: don't break the public listing on filter failure
+
     return AppResponse(success=True, data=public_apps)
 
 

@@ -46,6 +46,13 @@ class BehaviorModule(BaseModule):
         self._classifier_provider: Any = None
         self._classifier_config: dict[str, Any] = {}
         self._profile_name: str = ""
+        # Snapshot of the YAML config so ``set_active_profile`` can
+        # re-resolve rules without losing the user's overrides.
+        self._original_config: dict[str, Any] = {}
+        # Active profile override applied by the composer mode system.
+        # Empty = use the YAML-declared ``security.behavior.profile``
+        # (i.e. ``self._profile_name``).
+        self._active_profile_override: str = ""
 
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest.from_module(self).model_copy(update={
@@ -58,6 +65,11 @@ class BehaviorModule(BaseModule):
 
     async def on_config_update(self, config: dict[str, Any]) -> None:
         await super().on_config_update(config)
+        # Snapshot config so a later ``set_active_profile`` swap can
+        # rebuild rule definitions with the same per-app overrides
+        # (rule_definitions, custom rules, tracking config).
+        self._original_config = dict(config) if isinstance(config, dict) else {}
+        self._active_profile_override = ""
         self._engine = BehaviorEngine(config)
         self._classify_enabled = config.get("classify_turns", False)
         self._profile_name = config.get("profile", "")
@@ -113,6 +125,59 @@ class BehaviorModule(BaseModule):
             getattr(provider, "provider_hint", "?"),
             getattr(provider, "model", "?"),
         )
+
+    # ── Composer mode integration ────────────────────────────────
+    #
+    # The mode system (``runtime.modes`` in app.yaml) can override the
+    # behavior profile on a per-mode basis via ``ModeDef.behavior_profile``.
+    # When the agent loop detects that the active mode declares a profile
+    # different from the currently-applied one, it calls this method to
+    # swap the engine's active rule set. The swap preserves the per-
+    # session state (``_sessions``) so counters / sets / flags survive
+    # the profile change.
+    def set_active_profile(self, profile_name: str) -> None:
+        """Swap the engine's active behavioural profile.
+
+        Pass ``""`` to revert to the YAML-declared
+        ``security.behavior.profile``. Idempotent: a call with the same
+        profile that's already active is a no-op.
+
+        Mutates ``self._engine._rules`` and ``self._engine._rule_defs``.
+        Per-session state (counters, sets, flags, recent_tools, ...)
+        stays intact across the swap so a mid-session profile change
+        does not zero the agent's track record.
+        """
+        if self._engine is None:
+            return
+        target = (profile_name or "").strip()
+        if target == self._active_profile_override:
+            return  # already on the right profile
+
+        from digitorn.modules.behavior.profiles import resolve_profile
+
+        # When target is empty, fall back to the YAML profile.
+        effective_profile = target or self._profile_name
+        rule_overrides = self._original_config.get("rules") or {}
+        new_rules = resolve_profile(effective_profile, rule_overrides)
+
+        # Re-build rule definitions with a config copy that swaps the
+        # profile field. Keeps ``rule_definitions`` + ``custom`` from
+        # the YAML intact.
+        cfg = dict(self._original_config)
+        cfg["profile"] = effective_profile
+        self._engine._rules = new_rules
+        self._engine._rule_defs = self._engine._build_rule_definitions(cfg)
+        self._active_profile_override = target
+        logger.info(
+            "behavior_profile_override target=%s effective=%s rules=%d",
+            target or "<yaml-default>",
+            effective_profile or "<none>",
+            len(self._engine._rule_defs),
+        )
+
+    @property
+    def active_profile_override(self) -> str:
+        return self._active_profile_override
 
     # ── Prompt injection ─────────────────────────────────────────
 

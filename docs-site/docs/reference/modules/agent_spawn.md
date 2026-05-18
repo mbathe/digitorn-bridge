@@ -48,6 +48,7 @@ Visible params:
 | `prompt` | string | `null` | The task. Must be **self-contained** - the sub-agent cannot see the parent's conversation. |
 | `description` | string | `""` | Short label shown in the UI (e.g. "Search API endpoints"). |
 | `wait` | bool | `false` | Block until the agent finishes. |
+| `specialist` | string \| null | `null` | Predefined agent id from `agents[]` (e.g. `web_researcher`, `writer`). Required so the coordinator can dispatch to the right specialist instead of a generic worker. |
 
 Hidden params:
 
@@ -58,10 +59,9 @@ Hidden params:
 | `cancel` | bool | Cancel a running agent (requires `agent_id`). |
 | `reassign` | string | New task for a failed / cancelled agent (requires `agent_id`). |
 | `list_agents` | bool | List all agents with their status. |
-| `specialist` | string | Predefined agent type from `agents[]`. |
 | `system_prompt` | string | Custom system prompt for ad-hoc agents. |
 | `max_turns` | int | Default `100`, max `10000`. |
-| `timeout` | float | Default `1800` s, max `7200` s. |
+| `timeout` | float | Default `3600.0` s, max `7200` s. |
 
 ### Mode 1 - Spawn background (default)
 

@@ -110,6 +110,7 @@ async def list_apps(
     request: Request,
     include_disabled: bool = False,
     include_installed: bool = True,
+    include_hidden: bool = False,
 ) -> AppResponse:
     """List apps visible to the caller - unified view.
 
@@ -263,6 +264,43 @@ async def list_apps(
                     seen_ids.add(pkg_id)
             except Exception as exc:
                 logger.warning("list_installed_packages failed: %s", exc, exc_info=True)
+
+    # Filter out hidden apps unless the caller explicitly requested
+    # them (admin section). Scope-aware: a row hidden at scope='system'
+    # excludes the app from every user's list; hidden at scope='user'
+    # only excludes that specific owner. Single bulk query against the
+    # ``applications`` table -- O(N) over the small returned list.
+    if not include_hidden and apps:
+        try:
+            from sqlalchemy import select as _select
+            from digitorn.core.database import get_session_factory as _gsf
+            from digitorn.core.models import Application as _App
+            _sf = _gsf()
+            _app_ids = [str(a.get("app_id") or "") for a in apps if isinstance(a, dict)]
+            _app_ids = list({a for a in _app_ids if a})
+            if _app_ids:
+                async with _sf() as _s:
+                    _stmt = _select(
+                        _App.app_id, _App.scope, _App.owner_user_id,
+                    ).where(_App.app_id.in_(_app_ids)).where(_App.hidden == True)  # noqa: E712
+                    _r = await _s.execute(_stmt)
+                    _hidden_keys: set[tuple[str, str, str]] = set()
+                    for row in _r.all():
+                        _hidden_keys.add((row.app_id, row.scope, row.owner_user_id or ""))
+                if _hidden_keys:
+                    apps = [
+                        a for a in apps
+                        if not (
+                            isinstance(a, dict)
+                            and (
+                                a.get("app_id") or "",
+                                a.get("scope") or "system",
+                                a.get("owner_user_id") or "",
+                            ) in _hidden_keys
+                        )
+                    ]
+        except Exception as exc:
+            logger.warning("list_apps_hidden_filter_failed: %s", exc, exc_info=True)
 
     return AppResponse(success=True, data=apps)
 
@@ -1042,6 +1080,177 @@ async def enable_app(
     return AppResponse(success=True, data={
         **result,
         "message": f"App '{app_id}' re-enabled.",
+    })
+
+
+@router.post("/{app_id}/hide", response_model=AppResponse)
+async def hide_app(
+    request: Request,
+    app_id: str,
+    scope: str | None = None,
+    owner_user_id: str | None = None,
+) -> AppResponse:
+    """Hide an app from non-admin listings without disabling it.
+
+    Sets ``applications.hidden = True`` on the row matching
+    ``(app_id, scope, owner_user_id)``. The app stays deployed and
+    fully functional - only its visibility in ``GET /api/apps``
+    and ``GET /api/public/apps`` changes:
+
+    - Hidden at ``scope=system`` → invisible to every user
+    - Hidden at ``scope=user`` → invisible to the targeted owner only
+
+    Permission model: same as disable. Non-admins can only hide their
+    own user-scope install. Admins can target any scope.
+
+    Reversible via ``POST /api/apps/{id}/show``.
+    """
+    _validate_id(app_id)
+
+    caller_user_id = _caller_user_id(request) or None
+    perms = list(getattr(request.state, "permissions", []) or [])
+    is_admin = "*" in perms
+
+    if scope == "system" and not is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Only administrators can target the system scope.",
+        )
+    if owner_user_id and not is_admin and owner_user_id != caller_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Only administrators can hide other users' installs.",
+        )
+
+    if scope == "system":
+        target_user_id: str | None = None
+        target_scope = "system"
+    else:
+        target_user_id = owner_user_id if (is_admin and owner_user_id) else caller_user_id
+        target_scope = "user" if target_user_id else "system"
+
+    from digitorn.core.database import get_session_factory
+    from datetime import datetime as _dt, timezone as _tz
+    from sqlalchemy import text as _sql_text
+
+    try:
+        sf = get_session_factory()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=f"DB not initialised: {exc}")
+
+    async with sf() as session:
+        async with session.begin():
+            r = await session.execute(
+                _sql_text(
+                    "UPDATE applications "
+                    "SET hidden = :h, hidden_at = :t "
+                    "WHERE app_id = :a AND scope = :s AND owner_user_id = :o"
+                ),
+                {
+                    "h": True, "t": _dt.now(_tz.utc),
+                    "a": app_id, "s": target_scope,
+                    "o": target_user_id or "",
+                },
+            )
+            if r.rowcount == 0:
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        f"App '{app_id}' (scope={target_scope}, "
+                        f"owner={target_user_id!r}) not found"
+                    ),
+                )
+
+    logger.info(
+        "app_hidden app=%s scope=%s owner=%r",
+        app_id, target_scope, target_user_id,
+    )
+    return AppResponse(success=True, data={
+        "app_id": app_id,
+        "scope": target_scope,
+        "owner_user_id": target_user_id,
+        "hidden": True,
+        "message": f"App '{app_id}' hidden (scope={target_scope}). Use POST /api/apps/{app_id}/show to reverse.",
+    })
+
+
+@router.post("/{app_id}/show", response_model=AppResponse)
+async def show_app(
+    request: Request,
+    app_id: str,
+    scope: str | None = None,
+    owner_user_id: str | None = None,
+) -> AppResponse:
+    """Un-hide an app. Inverse of POST /{app_id}/hide.
+
+    Same permission model as hide. Sets ``hidden = False`` +
+    ``hidden_at = NULL`` on the matching row.
+    """
+    _validate_id(app_id)
+
+    caller_user_id = _caller_user_id(request) or None
+    perms = list(getattr(request.state, "permissions", []) or [])
+    is_admin = "*" in perms
+
+    if scope == "system" and not is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="Only administrators can target the system scope.",
+        )
+    if owner_user_id and not is_admin and owner_user_id != caller_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Only administrators can show other users' installs.",
+        )
+
+    if scope == "system":
+        target_user_id: str | None = None
+        target_scope = "system"
+    else:
+        target_user_id = owner_user_id if (is_admin and owner_user_id) else caller_user_id
+        target_scope = "user" if target_user_id else "system"
+
+    from digitorn.core.database import get_session_factory
+    from sqlalchemy import text as _sql_text
+
+    try:
+        sf = get_session_factory()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=f"DB not initialised: {exc}")
+
+    async with sf() as session:
+        async with session.begin():
+            r = await session.execute(
+                _sql_text(
+                    "UPDATE applications "
+                    "SET hidden = :h, hidden_at = NULL "
+                    "WHERE app_id = :a AND scope = :s AND owner_user_id = :o"
+                ),
+                {
+                    "h": False,
+                    "a": app_id, "s": target_scope,
+                    "o": target_user_id or "",
+                },
+            )
+            if r.rowcount == 0:
+                raise HTTPException(
+                    status_code=404,
+                    detail=(
+                        f"App '{app_id}' (scope={target_scope}, "
+                        f"owner={target_user_id!r}) not found"
+                    ),
+                )
+
+    logger.info(
+        "app_shown app=%s scope=%s owner=%r",
+        app_id, target_scope, target_user_id,
+    )
+    return AppResponse(success=True, data={
+        "app_id": app_id,
+        "scope": target_scope,
+        "owner_user_id": target_user_id,
+        "hidden": False,
+        "message": f"App '{app_id}' is now visible.",
     })
 
 

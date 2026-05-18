@@ -11,7 +11,7 @@ description: User-authored skills, the `/use_skill` composer command, and the tu
 App-declared skills (the YAML `dev.skills`) are **agent-facing**:
 the LLM decides to call `use_skill(command="/commit")` and gets the
 markdown body as a tool result. That works for "self-help" recipes
-the agent reaches for on its own, but it can't be **forced** —
+the agent reaches for on its own, but it can't be **forced** -
 the LLM may ignore the skill the user wanted applied.
 
 User skills close that gap. They are **user-facing**:
@@ -30,24 +30,20 @@ bundle / `dev.skills` model see [Skills](../../language/21-skills.md).
 
 ## TL;DR
 
-- Source of truth (daemon):
-  - Flag: `dev.allow_user_skills: bool` in
-    `packages/digitorn/core/app/schema.py`
-    ([`DevBlock`](https://github.com/digitorn/digitorn-bridge/blob/main/packages/digitorn/core/app/schema.py))
-  - Table: `user_skills` (migration
-    `packages/digitorn/core/migrations/versions/0010_user_skills.py`)
-  - ORM: `UserSkill` in `packages/digitorn/core/models.py`
-  - CRUD router:
-    `packages/digitorn/core/api/apps_v2/skills.py`
-  - Parser + injection:
-    `packages/digitorn/core/api/apps_v2/messages.py`
-    (search `/use_skill`)
+- Opt-in flag: `dev.allow_user_skills: bool` on the app's
+  `dev:` block.
+- Storage: a `user_skills` table on the daemon, keyed by
+  `(user_id, app_id, name)`.
+- CRUD: a REST router under `/api/apps/{app_id}/skills`.
+- Parser: every user message that starts with
+  `/use_skill <name> <rest>` is intercepted before the agent
+  loop fires.
 - Injection reuses the **same slot** as `template_id`:
-  `ctx.template_system_prompt`. The agent loop prepends it on every
-  LLM round-trip inside the turn
-  (`runtime/agent_loop.py::_chat_messages_for_llm`).
+  `ctx.template_system_prompt`. The agent loop prepends it on
+  every LLM round-trip inside the turn.
 - Two sources, one lookup order: user table first, app-declared
-  fallback. A user skill named `commit` shadows an app skill `/commit`.
+  fallback. A user skill named `commit` shadows an app skill
+  `/commit`.
 
 ## YAML opt-in
 
@@ -134,7 +130,7 @@ Always allowed. Returns three things in one payload:
   stays daemon-internal; the picker never needs it.
 - `user_skills` ships the full row including `instructions` so the
   editor can show the body when the user clicks "Edit".
-- `allow_user_skills` mirrors the YAML flag — used by the web client
+- `allow_user_skills` mirrors the YAML flag - used by the web client
   to toggle the "+ New skill" UI.
 
 ### `POST /api/apps/{app_id}/skills`
@@ -159,7 +155,7 @@ Always allowed. Returns three things in one payload:
 ### `PATCH /api/apps/{app_id}/skills/{id}`
 
 Partial update. Pydantic's `model_fields_set` distinguishes
-"omitted" from "explicitly null" — fields not in the request body
+"omitted" from "explicitly null" - fields not in the request body
 are left untouched. Renames trigger a `409` if the new name
 collides.
 
@@ -176,17 +172,17 @@ Hard delete. Same authentication / 403 / 404 rules.
 
 ## The `/use_skill` parser
 
-Detection lives in `session_send_message` in
-`packages/digitorn/core/api/apps_v2/messages.py`, immediately after
-the `template_id` block. The regex (case-insensitive):
+The daemon detects the `/use_skill` prefix on every incoming
+user message, immediately after the `template_id` block. The
+regex (case-insensitive):
 
 ```python
 ^\s*/use_skill\s+/?([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$
 ```
 
-- Group 1 — the skill `name`. The leading slash is optional, so
+- Group 1 - the skill `name`. The leading slash is optional, so
   both `/use_skill commit` and `/use_skill /commit` work.
-- Group 2 — the user's actual prompt, may be multi-line, may be
+- Group 2 - the user's actual prompt, may be multi-line, may be
   empty (the skill alone can answer for itself).
 
 Lookup order:
@@ -200,21 +196,21 @@ Resolution outcomes:
 
 | Result | HTTP |
 |---|---|
-| Found in either source | 200 — dispatch continues normally |
+| Found in either source | 200 - dispatch continues normally |
 | Not found | 404 `skill not found` |
-| Pre-flight error (app missing, …) | 404 / 503 — see standard helpers |
+| Pre-flight error (app missing, …) | 404 / 503 - see standard helpers |
 
 On a hit the daemon:
 
 1. **Strips the dispatch prefix** from `body.message`. The chat
-   history stores only the user's real prompt — never the dispatch
-   command — so a follow-up message reading the past turns won't
+   history stores only the user's real prompt - never the dispatch
+   command - so a follow-up message reading the past turns won't
    show a leaked `/use_skill commit` line.
 2. **Wraps the skill body** in a mandatory framing line so the LLM
    treats it as authoritative:
 
    ```text
-   # MANDATORY DIRECTIVE — Skill: /<name>
+   # MANDATORY DIRECTIVE - Skill: /<name>
 
    Follow the instructions below to handle the user's next message.
    They take precedence over your default behaviour for this turn only.
@@ -227,16 +223,15 @@ On a hit the daemon:
    carries a `template_id`, the template directive comes first, the
    skill directive second, separated by `---`. Otherwise the skill
    directive stands alone.
-4. **Continues the normal dispatch** — the queue, the dispatcher,
-   the manager all receive the slot via the existing
-   `template_system_prompt` plumbing
-   (`message_queue.py`, `_dispatch.py`, `manager_v2/_chat.py`).
+4. **Continues the normal dispatch** - the queue, the dispatcher,
+   and the manager all receive the slot via the existing
+   `template_system_prompt` plumbing.
 
 ## Turn-scoped injection
 
 `ctx.template_system_prompt` is set on the **per-turn** context copy.
-`runtime/agent_loop.py::_chat_messages_for_llm` reads it on every
-LLM round-trip inside that single turn:
+The agent loop reads it on every LLM round-trip inside that
+single turn:
 
 ```python
 def _chat_messages_for_llm(ctx, messages):
@@ -261,38 +256,36 @@ If the user wants the directive to persist they re-send
 
 ## Web composer integration
 
-UI lives in `digitorn_web/src/components/chat/premium-composer.tsx`:
+The web client's chat composer exposes the feature:
 
-- **Palette** — a new `Use skill` entry in the `+` menu (icon
+- **Palette** - a new `Use skill` entry in the `+` menu (icon
   `Sparkles`). Click opens `SkillsMenu`.
-- **`SkillsMenu`** — two sections:
+- **`SkillsMenu`** - two sections:
   - **App skills**: read-only rows, pulled from
     `manifest.appSkills` / the daemon GET response.
   - **My skills**: CRUD rows, edit + delete icons on hover. Only
     rendered when the GET response says
     `allow_user_skills: true`.
-- **Pick** — inserts `/use_skill <name> ` into the textarea and
+- **Pick** - inserts `/use_skill <name> ` into the textarea and
   parks the caret at the end. The user types their prompt and hits
   Enter. POST `/messages` carries the message verbatim; the daemon
   parses.
-- **Editor** — name (live-slugified), description, markdown
+- **Editor** - name (live-slugified), description, markdown
   instructions textarea, plus a **"📄 Pick .md file"** button. The
   button opens a hidden `<input type="file" accept=".md,.markdown">`;
   the file is read client-side via `FileReader.text()` and dropped
   into the instructions field. If the name input is empty, the
   filename (minus extension, slugified) is used as the default.
 
-The hooks (`useSkills`, `useCreateSkill`, `useUpdateSkill`,
-`useDeleteSkill`) live in
-`digitorn_web/src/hooks/use-skills.ts`. They use TanStack Query;
-mutations invalidate the `["skills", appId]` key so the menu always
-reflects the latest server state without polling.
+The web client exposes hooks (`useSkills`, `useCreateSkill`,
+`useUpdateSkill`, `useDeleteSkill`) backed by TanStack Query.
+Mutations invalidate the `["skills", appId]` key so the menu
+always reflects the latest server state without polling.
 
 ## Manifest surface
 
-The daemon's `summary()`
-(`packages/digitorn/core/app/manager_v2/_models.py`) exposes the two
-fields the web client needs:
+The daemon's app summary exposes the two fields the web client
+needs:
 
 ```json
 {
@@ -303,9 +296,8 @@ fields the web client needs:
 }
 ```
 
-The web manifest parser
-(`digitorn_web/src/models/app-manifest.ts`) maps them to
-`AppManifest.appSkills` and `AppManifest.allowUserSkills`.
+The web client maps them to `AppManifest.appSkills` and
+`AppManifest.allowUserSkills`.
 
 ## Worked example
 
@@ -348,7 +340,7 @@ The user sends:
 Server-side, the daemon:
 
 1. Parses → `name=tone-witty`, `prompt=rewrite the changelog so my mum would laugh at it`.
-2. Looks up `tone-witty` in `user_skills` for `(user, my-bot)` — hit.
+2. Looks up `tone-witty` in `user_skills` for `(user, my-bot)` - hit.
 3. Wraps the body in the MANDATORY DIRECTIVE frame.
 4. Sets `_template_system_prompt` to the wrapped body.
 5. Rewrites `body.message` to just
@@ -381,7 +373,7 @@ second.
   query time. Bootstrap runs migrations on startup.
 - **Slug case**. The parser lowercases the captured name before
   lookup. Two skills `Commit` and `commit` cannot coexist for the
-  same (user, app) — the unique index is case-sensitive but the
+  same (user, app) - the unique index is case-sensitive but the
   lookup is not, so the second insert would still succeed and the
   first one would shadow it. The slug regex prevents uppercase at
   the API boundary anyway.
@@ -391,7 +383,7 @@ second.
   workspace").
 - **Combining with `template_id`**. Both can fire on the same
   message. Order: template directive first, skill directive second.
-  Use sparingly — a 5 KB combined system prompt eats tokens.
+  Use sparingly - a 5 KB combined system prompt eats tokens.
 - **Daemon-internal `use_skill` tool is unchanged**. The agent can
   still call `use_skill(command="/foo")` to load an app skill on
   its own initiative. The user-facing `/use_skill` and the
@@ -400,8 +392,8 @@ second.
 
 ## See also
 
-- [Skills](../../language/21-skills.md) — the app-author side
+- [Skills](../../language/21-skills.md) - the app-author side
   (`dev.skills`, .md bundle, `use_skill` tool).
-- [Workdir Sandbox](./workdir-sandbox.md) — the other "single
+- [Workdir Sandbox](./workdir-sandbox.md) - the other "single
   primitive, many call sites" pattern.
-- [Configuration](./configuration.md) — runtime knobs.
+- [Configuration](./configuration.md) - runtime knobs.

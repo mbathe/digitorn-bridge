@@ -122,7 +122,7 @@ Three things happen at compile time:
   `prompts/system.md`. The system prompt the LLM sees is the
   expanded version, not the placeholder.
 - The `dev.skills` list registers `/review` with the bundled
-  procedure. The Flutter / web client's slash menu picks this up
+  procedure. The the chat client / web client's slash menu picks this up
   and shows it.
 - The compiler walks for any other `{{namespace.X}}` references;
   the alias pass and Pydantic validate the resolved YAML.
@@ -130,7 +130,7 @@ Three things happen at compile time:
 ## Live transcript
 
 The user types a slash command followed by a code snippet. Real
-session captured against the daemon.
+transcript.
 
 ```text
 > /review

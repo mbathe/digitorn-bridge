@@ -119,7 +119,7 @@ agent's own decision.
 
 ## Live transcript
 
-Real session against the daemon:
+Sample transcript:
 
 ```text
 > Run Bash: echo "hello pipe demo"

@@ -4,8 +4,7 @@ Digitorn streams all runtime events via Socket.IO. This is the only streaming
 transport - the legacy SSE endpoints have been removed.
 
 > **See also**:
-> - [Flutter Socket.IO Integration](../client-sdks/flutter.md) - the Flutter / Dart pattern.
-> - [API Integration → Real-time](../../language/14-api-integration.md) - full REST + Socket.IO surface.
+> - [API Integration -> Real-time](../../language/14-api-integration.md) - full REST + Socket.IO surface.
 > - [preview module](../modules/preview.md) - `preview:*` events.
 > - [widget module](../modules/widget.md) - `widget:*` events.
 

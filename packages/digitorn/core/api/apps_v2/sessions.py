@@ -725,6 +725,19 @@ async def get_session(request: Request, app_id: str, session_id: str) -> AppResp
     # is_active: True if an agent turn is in progress right now
     data["is_active"] = manager.is_session_active(app_id, session_id)
 
+    # Composer mode currently bound to this session, exposed so the
+    # client can rehydrate its picker on session reload. Comes from
+    # ``SessionState.active_mode_id`` which is updated on every mode
+    # switch by the agent_loop. None / empty when the session has not
+    # seen a mode-aware turn yet (default-policy applies client-side).
+    try:
+        from digitorn.core.runtime.session_store import get_default_bridge
+        _state = get_default_bridge().store.state(session_id)
+        if _state is not None:
+            data["active_mode_id"] = getattr(_state, "active_mode_id", None)
+    except Exception:
+        pass
+
     # Live metrics from SessionMetrics (populated by agent_loop).
     # The agent_loop may store metrics under app_id="default" if ctx.app_id
     # is not set, so we try both the real app_id and "default".

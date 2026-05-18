@@ -168,6 +168,49 @@ def _short_tool_name(fqn: str, tool: IndexedTool) -> str:
     return to_short(fqn)
 
 
+def _schema_has_open_dict(schema: Any) -> bool:
+    """True when the schema contains an ``additionalProperties: <schema>``
+    pattern anywhere (the JSON-schema form Pydantic emits for
+    ``dict[str, X]``). OpenAI strict mode rejects that pattern.
+
+    Walks the same sub-schema locations as ``normalize_strict_schema``.
+    """
+    if not isinstance(schema, dict):
+        return False
+    ap = schema.get("additionalProperties")
+    # ``additionalProperties: <schema>`` (dict[str, X]) AND
+    # ``additionalProperties: true`` (dict[str, Any]) both break
+    # OpenAI strict mode. Both Pydantic emissions count as "open".
+    if isinstance(ap, dict):
+        return True
+    if ap is True:
+        return True
+    for key in ("properties", "patternProperties", "$defs", "definitions",
+                "dependentSchemas"):
+        block = schema.get(key)
+        if isinstance(block, dict):
+            for v in block.values():
+                if _schema_has_open_dict(v):
+                    return True
+    for key in ("anyOf", "oneOf", "allOf", "prefixItems"):
+        block = schema.get(key)
+        if isinstance(block, list):
+            for v in block:
+                if _schema_has_open_dict(v):
+                    return True
+    for key in ("not", "if", "then", "else", "contains", "propertyNames"):
+        if _schema_has_open_dict(schema.get(key)):
+            return True
+    items = schema.get("items")
+    if isinstance(items, dict) and _schema_has_open_dict(items):
+        return True
+    if isinstance(items, list):
+        for it in items:
+            if _schema_has_open_dict(it):
+                return True
+    return False
+
+
 def build_direct_tools(
     index: ToolIndex,
     *,
@@ -203,6 +246,14 @@ def build_direct_tools(
         if inject_intent:
             schema = inject_intent_field(schema)
 
+        # Detect open-dict patterns (``additionalProperties: true`` or
+        # ``additionalProperties: {schema}``, both emitted by Pydantic for
+        # ``dict[str, X]`` fields) BEFORE normalize_strict_schema mutates
+        # them. The post-normalize schema has all open-dict markers wiped
+        # to ``additionalProperties: false`` so checking after returns a
+        # false negative.
+        has_open_dict = _schema_has_open_dict(schema)
+
         # Enforce strict schema - no extra properties allowed (like Claude Code)
         schema["additionalProperties"] = False
         # OpenAI strict mode requires EVERY property to appear in ``required``,
@@ -222,8 +273,15 @@ def build_direct_tools(
             "parameters": schema,
         }
 
-        # Mark tool as strict for providers that support it (Anthropic)
-        func_def["strict"] = True
+        # Mark tool as strict for providers that support it (Anthropic).
+        # OpenAI strict mode rejects ``additionalProperties: <schema>``
+        # (the ``dict[str, X]`` Pydantic translation, e.g. MCP's
+        # ``arguments: dict[str, Any]``), with a confusing
+        # ``Extra required key 'X' supplied`` 400. Detect that pattern
+        # in the raw schema (see ``has_open_dict`` above) and drop strict
+        # for the offending tool only; other tools keep the stricter
+        # contract.
+        func_def["strict"] = not has_open_dict
 
         tools.append({
             "type": "function",

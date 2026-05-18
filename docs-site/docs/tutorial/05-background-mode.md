@@ -19,7 +19,7 @@ Same daemon and credential as the previous tutorials.
 ## The YAML
 
 Save this as `daily-monitor.yaml`. The app fires on a cron at 09:00
-on weekdays; for testing we'll fire it manually from the API.
+on weekdays; for testing, fire it manually from the API.
 
 ```yaml
 app:

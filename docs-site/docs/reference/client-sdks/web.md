@@ -5,9 +5,8 @@ title: Web client
 
 # Web client
 
-The official web client lives at
-[`digitorn_web`](https://github.com/) (Next.js + React 19 +
-TypeScript). It is the reference UI consumers see at
+The official Digitorn web client (Next.js + React 19 +
+TypeScript) is the reference UI consumers see at
 `https://app.digitorn.ai`.
 
 The web client connects to the daemon and:

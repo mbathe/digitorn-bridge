@@ -1,5 +1,5 @@
 ---
-id: 04c-primitives
+id: primitives
 ---
 
 # Execution Primitives

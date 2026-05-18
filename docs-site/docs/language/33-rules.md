@@ -1,5 +1,5 @@
 ---
-id: 33-rules
+id: rules
 ---
 
 # Project Memory (formerly "Rules")

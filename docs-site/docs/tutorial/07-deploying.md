@@ -135,7 +135,7 @@ every tool call. The profile is read-only safe; for code-editing
 apps you'd pick `coding` instead.
 
 **`security.credentials_schema`** declares which credentials the
-app needs to run. The Flutter / web client uses this to render a
+app needs to run. The the chat client / web client uses this to render a
 "Connect your DeepSeek account" form when the user installs the
 app. The compiler also uses it to validate every `credential.ref`
 in the YAML, catching typos at compile time rather than at the

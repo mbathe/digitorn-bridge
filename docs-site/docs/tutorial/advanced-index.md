@@ -78,9 +78,8 @@ The four primitives layer cleanly:
   filesystem.write but the auditor specialist sees only
   filesystem.read.
 
-The full integrated shape lives in the in-product Builder app and
-the Code app under `packages/digitorn/builtins/`. Read those to
-see what a polished version looks like.
+The full integrated shape lives in the in-product Builder and
+Code apps. Read those to see what a polished version looks like.
 
 ## Going further
 

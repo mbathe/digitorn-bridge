@@ -37,20 +37,17 @@ tools:
         limits: {}                 # caps on todos, facts, episodes (advanced)
 ```
 
-`MemoryModuleConfig` is at `module.py` (`extra: allow` because
-the module tolerates forward-compatible knobs declared in
-`memory/store.py::MemoryConfig`).
+The memory module's config schema uses `extra: allow` so it
+tolerates forward-compatible knobs.
 
 ## The 4 LLM-exposed actions
 
-Verified `@action` decorators in `module.py`, 378, 439, 458`:
-
-| Action | Short alias | Source | What it does |
-|--------|-------------|--------|--------------|
-| `memory.task_create` | `TaskCreate` | `module.py` | Create a task in the todo list. Surfaces in the dedicated client panel. |
-| `memory.task_update` | `TaskUpdate` | `module.py` | Update a task's status. |
-| `memory.set_goal` | - | `module.py` | Set or replace the session goal. |
-| `memory.remember` | `Remember` | `module.py` | Store a fact that survives context compaction. |
+| Action | Short alias | What it does |
+|--------|-------------|--------------|
+| `memory.task_create` | `TaskCreate` | Create a task in the todo list. Surfaces in the dedicated client panel. |
+| `memory.task_update` | `TaskUpdate` | Update a task's status. |
+| `memory.set_goal` | - | Set or replace the session goal. |
+| `memory.remember` | `Remember` | Store a fact that survives context compaction. |
 
 The short aliases above are the names exposed to the LLM.
 Anything else (`set_plan`, `update_plan_step`, `add_todo`,

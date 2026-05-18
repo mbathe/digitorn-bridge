@@ -23,12 +23,15 @@ plus the modules.
 | `digitorn credentials *` | The centralised vault. List, set, grant, test. | [Credentials](../runtime/credentials.md) |
 | `digitorn mcp *` | Install and manage MCP server bundles. | [MCP servers](../../language/04d-mcp.md) |
 | `digitorn middleware *` | Install and list middleware packages. | [Middleware](../runtime/middleware.md) |
-| `digitorn modules *` | Module catalog management. | [Modules](../modules/) |
+| `digitorn modules *` | Module catalog management. | [Modules](/docs/reference/modules/) |
 | `digitorn hub *` | Browse, install, publish to the Hub. | [Hub](#hub) |
 | `digitorn package *` | Build and inspect `.dtpkg` app bundles. | [Packages](../../concepts/app-packages.md) |
 | `digitorn db *` | Database admin commands. | [Database admin](#database-admin) |
 | `digitorn requires *` | Module external requirements - list and install OS / runtime dependencies. | [Requires](#requires) |
 | `digitorn install-local` | Pair this daemon to a central Digitorn account (one-time). | [Install-local](#install-local) |
+| `digitorn auth *` | CLI auth against the central Digitorn account: `login`, `logout`, `whoami`. | - |
+| `digitorn supervise` | Run the daemon under a restart-on-crash supervisor. | - |
+| `digitorn windows-setup` | One-shot setup for local Windows dev. | - |
 | `digitorn init` / `doctor` | First-run wizard, environment doctor. | [Setup](#setup) |
 
 Run any command with `--help` for the full flag list.

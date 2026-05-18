@@ -2953,6 +2953,7 @@ from digitorn.core.cli.mcp_cli import mcp_cli  # noqa: E402
 from digitorn.core.cli.middleware_cli import middleware_cli  # noqa: E402
 from digitorn.core.cli.dev import dev_cli  # noqa: E402
 from digitorn.core.cli.install import install_cli  # noqa: E402
+from digitorn.core.cli.auth import auth_cli  # noqa: E402
 from digitorn.core.cli.db import db_cli  # noqa: E402
 
 cli.command(name="init")(init_command)
@@ -2969,6 +2970,7 @@ cli.add_typer(package_cli)
 cli.add_typer(hub_cli)
 cli.add_typer(dev_cli)
 cli.add_typer(install_cli)
+cli.add_typer(auth_cli)
 cli.add_typer(db_cli)
 
 

@@ -29,9 +29,8 @@ the howto would just be a copy. Follow the links instead.
 | Debug an app (logs, dev CLI, tracing)           | [Dev CLI](../language/46-dev-cli.md), [Observability](../language/24-observability.md)           |
 | Use the credentials vault                       | [Credentials](../reference/runtime/credentials.md)                                               |
 | Migrate from legacy v1 YAML                     | [Language - migration table](/docs/language/#migration-from-the-legacy-flat-shape)               |
-| Deploy to production                            | [Production deployment](../language/36-production.md), [Deployment](../deployment/)              |
+| Deploy to production                            | [Production deployment](../language/36-production.md), [Deployment](/docs/deployment/)           |
 | Build a multi-agent team                        | [Tutorial - Multi-agent team](../tutorial/04-multi-agent.md)                                     |
-| Expose an app as an MCP server                  | [App-as-MCP-server](../language/16-app-as-mcp-server.md)                                         |
 
 ## When to write a howto
 
@@ -45,4 +44,4 @@ Write a howto when:
 
 A howto is **NOT** the place for new conceptual material. If the
 recipe needs a paragraph of "why", that paragraph belongs in
-[Concepts](../concepts/) and the howto links to it.
+[Concepts](/docs/concepts/) and the howto links to it.

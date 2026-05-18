@@ -96,7 +96,7 @@ tools:
 
 ## Aliases (FR / EN)
 
-`vector` ships extensive aliases for international agents.
+`vector` ships aliases for international agents.
 A few examples:
 
 | Action | Aliases |

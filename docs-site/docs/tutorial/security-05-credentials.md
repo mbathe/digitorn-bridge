@@ -119,7 +119,7 @@ the first LLM call.
 ## The schema's other job
 
 `credentials_schema` is also the contract the **client renders as
-a form**. When a user installs the app, the Flutter / web client
+a form**. When a user installs the app, the the chat client / web client
 pulls the schema and shows a typed input for every required
 field:
 

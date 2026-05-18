@@ -9,7 +9,7 @@ sidebar_label: dev_tools
 Three tools for testing and building Digitorn apps against
 a live daemon. Same design as `shell` (one `Bash`, many
 modes): `dev_tools` exposes three tools whose hidden params
-cover everything a Flutter / web client can do, plus what
+cover everything a the chat client / web client can do, plus what
 the Builder agent needs to write and validate apps.
 
 | Property | Value |

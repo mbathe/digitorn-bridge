@@ -16,7 +16,7 @@ Same as step 2 (running daemon, authenticated user, DeepSeek
 credential `deepseek_main` provisioned). For this step the agent
 also needs a **workspace** - a real directory on disk it can read
 from. Anything works; this tutorial points at
-`C:\tmp\digitorn-tutorials\workspace` containing a single file
+`./workspace` containing a single file
 called `notes.md`.
 
 ## A sample workspace
@@ -24,9 +24,9 @@ called `notes.md`.
 Create the directory and put one short file in it. On Windows:
 
 ```bash
-mkdir -p /c/tmp/digitorn-tutorials/workspace
+mkdir -p ./workspace
 printf 'shopping list\n- pasta\n- tomatoes\n- olive oil\n- basil\n' \
-  > /c/tmp/digitorn-tutorials/workspace/notes.md
+  > ./workspace/notes.md
 ```
 
 The file content is a plain four-item shopping list.

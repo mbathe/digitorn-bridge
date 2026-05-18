@@ -46,8 +46,8 @@ future deployment-targeting options.
 | Action | FQN | Short name | Purpose |
 |--------|-----|-----------|---------|
 | Attach | `web_preview.proxy` | `PreviewProxy` | Register an iframe target on a port the agent has spawned. |
+| Publish | `web_preview.publish` | `PreviewPublish` | Build the project once and serve the static output same-origin under `/api/apps/{id}/sessions/{sid}/published/`. Right for cloud / multi-tenant deploys. |
 | Detach | `web_preview.detach` | (no short alias) | Drop a registered attachment. |
-| List | `web_preview.list` | (no short alias) | List active attachments for the current session. |
 
 ### `PreviewProxy(port, [name], [path], [bash_task_id])`
 
@@ -77,16 +77,24 @@ Effect: emits `web_preview:attached` on the session's Socket.IO
 room with `{name, url, host, port, path}`. The client connects the
 iframe to that URL.
 
+### `PreviewPublish(install?, build_script?, output_dir?, name?)`
+
+Build the project once (via `npm install` + `npm run build`,
+or the script you set in `build_script`) and copy the static
+output (`output_dir`, default `dist/`) to
+`~/.digitorn/published/<app_id>/<session_id>/`. Register a
+`published` attachment and emit `web_preview:attached` so the
+iframe reloads at the new same-origin URL.
+
+Use `PreviewPublish` when the daemon is cloud-hosted (no port
+to expose), for shareable demo URLs, or any deploy where a live
+dev server per session is too expensive. Use `PreviewProxy`
+instead when you have a live Vite/HMR loop on a local machine.
+
 ### `web_preview.detach(name="default")`
 
 Drops the attachment registered under `name` for the current
 session. The matching bash task (if any) is killed (best-effort).
-
-### `web_preview.list`
-
-Returns the full list of active attachments for the current
-session, each with its `name`, `type` (`proxy` or `bundled`),
-`port`, `host`, `path`, and `created_at`/`last_hit_at` timestamps.
 
 ## Limits
 

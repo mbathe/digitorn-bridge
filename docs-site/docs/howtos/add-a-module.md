@@ -17,7 +17,7 @@ and constraint specs, see the [Module reference index](../reference/modules/).
 ## Layout
 
 ```text
-packages/digitorn/modules/my_module/
+my_module/
 ├── __init__.py
 ├── digitorn-module.toml         # catalogue metadata
 ├── module.py                    # BaseModule subclass

@@ -176,6 +176,25 @@ class Application(Base):
         comment="Optional free-text reason supplied by the caller.",
     )
 
+    # ── Hidden support (visual only, app stays running) ──────────
+    # When `hidden=True`, the app is filtered out of list_apps for
+    # non-admin callers (respecting scope: a system-scope hide excludes
+    # everyone, a user-scope hide excludes that user only). UNLIKE
+    # ``disabled``, the app stays DEPLOYED and FUNCTIONAL - hide is
+    # cosmetic. Used to declutter the user-facing dashboard while
+    # keeping the app reachable for admin or programmatic flows (e.g.
+    # the in-chat ``digitorn-builder`` is needed for deploy-from-chat
+    # but doesn't have to clutter every user's app list). Reversible
+    # via POST /api/apps/{id}/show.
+    hidden: Mapped[bool] = mapped_column(
+        default=False, server_default="0", nullable=False,
+        comment="True = app filtered out of non-admin lists. App stays deployed.",
+    )
+    hidden_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="When the app was hidden (UTC).",
+    )
+
     # Cross-table relationships joined on ``app_id``. There is no
     # DB-level FK between these children and ``applications`` because
     # ``applications.app_id`` is composite-unique (see __table_args__),

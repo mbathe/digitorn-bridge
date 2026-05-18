@@ -2,7 +2,7 @@
   "$defs": {
     "ActivityPanelBlock": {
       "additionalProperties": false,
-      "description": "``ui.activity:`` block \u2014 opt-in observability pane for sub-agents.\n\nSurfaces the live sub-agent fan-out, background tasks, and recent\nterminal events as a dedicated workspace mode (web) / shell pane\n(Flutter). Pure display: the daemon never inspects this; both\nclients consume the field through the manifest summary and gate\nthe Activity mode entry on its presence.\n\n**Opt-in contract**: when this block is omitted (default), the\nActivity mode is HIDDEN from the workspace mode menu and the\npanel is not rendered. A simple chat app that never spawns\nsub-agents shouldn't see it. Apps that orchestrate fan-out\n(coordinator, dev assistant, multi-agent research) opt in.\n\nExample YAML::\n\n    ui:\n      activity:\n        enabled: true\n        position: right\n        title: \"Activity\"\n        show_running: true\n        show_recent: true\n        show_stats: true\n        show_bg_tasks: true\n        max_recent: 50\n        auto_open_on_spawn: false",
+      "description": "``ui.activity:`` block \u2014 opt-in observability pane for sub-agents.\n\nSurfaces the live sub-agent fan-out, background tasks, and recent\nterminal events as a dedicated workspace mode (any client). Pure display: the daemon never inspects this; both\nclients consume the field through the manifest summary and gate\nthe Activity mode entry on its presence.\n\n**Opt-in contract**: when this block is omitted (default), the\nActivity mode is HIDDEN from the workspace mode menu and the\npanel is not rendered. A simple chat app that never spawns\nsub-agents shouldn't see it. Apps that orchestrate fan-out\n(coordinator, dev assistant, multi-agent research) opt in.\n\nExample YAML::\n\n    ui:\n      activity:\n        enabled: true\n        position: right\n        title: \"Activity\"\n        show_running: true\n        show_recent: true\n        show_stats: true\n        show_bg_tasks: true\n        max_recent: 50\n        auto_open_on_spawn: false",
       "properties": {
         "auto_open_on_spawn": {
           "default": false,
@@ -164,7 +164,7 @@
             }
           ],
           "default": null,
-          "description": "Model identifier (e.g. 'deepseek-chat', 'claude-sonnet-4-20250514').",
+          "description": "Model identifier (e.g. 'deepseek-chat', 'claude-sonnet-4-5').",
           "title": "Model"
         },
         "native_tool_use": {
@@ -1449,7 +1449,7 @@
     },
     "CredentialFieldConfig": {
       "additionalProperties": false,
-      "description": "One field inside a credential provider (e.g. ``api_key``, ``bot_token``).\n\nDirectly mapped to the form widget the Flutter client renders.",
+      "description": "One field inside a credential provider (e.g. ``api_key``, ``bot_token``).\n\nDirectly mapped to the form widget the client renders.",
       "properties": {
         "default": {
           "default": null,
@@ -1661,7 +1661,7 @@
     },
     "CredentialsSchemaConfig": {
       "additionalProperties": false,
-      "description": "Declarative credentials schema for a Digitorn app.\n\nWhen set, the Flutter client fetches this from\n``GET /api/apps/{id}/credentials/schema`` and renders a typed\nform for each provider. The daemon's resolver also uses it to\nknow what's expected so it can fail with a clean \"credential\nmissing\" error rather than a cryptic compile-time secret miss.\n\nExample::\n\n    credentials_schema:\n      required: true\n      providers:\n        - name: openai\n          label: OpenAI\n          type: api_key\n          scope: per_user\n          fields:\n            - name: api_key\n              type: secret\n              required: true\n              validation_regex: \"^sk-[A-Za-z0-9_-]{20,}$\"\n        - name: notion\n          type: oauth2\n          oauth_provider: notion\n          scope: per_user\n          oauth_scopes: [read_content, update_content]\n        - name: notion_mcp\n          type: mcp_server\n          transport: stdio\n          command: [\"npx\", \"-y\", \"@modelcontextprotocol/server-notion\"]\n          env_template:\n            NOTION_API_KEY: \"{{field.api_key}}\"\n          fields:\n            - name: api_key\n              type: secret\n              required: true",
+      "description": "Declarative credentials schema for a Digitorn app.\n\nWhen set, the client fetches this from\n``GET /api/apps/{id}/credentials/schema`` and renders a typed\nform for each provider. The daemon's resolver also uses it to\nknow what's expected so it can fail with a clean \"credential\nmissing\" error rather than a cryptic compile-time secret miss.\n\nExample::\n\n    credentials_schema:\n      required: true\n      providers:\n        - name: openai\n          label: OpenAI\n          type: api_key\n          scope: per_user\n          fields:\n            - name: api_key\n              type: secret\n              required: true\n              validation_regex: \"^sk-[A-Za-z0-9_-]{20,}$\"\n        - name: notion\n          type: oauth2\n          oauth_provider: notion\n          scope: per_user\n          oauth_scopes: [read_content, update_content]\n        - name: notion_mcp\n          type: mcp_server\n          transport: stdio\n          command: [\"npx\", \"-y\", \"@modelcontextprotocol/server-notion\"]\n          env_template:\n            NOTION_API_KEY: \"{{field.api_key}}\"\n          fields:\n            - name: api_key\n              type: secret\n              required: true",
       "properties": {
         "providers": {
           "description": "Declared credential providers.",
@@ -2570,7 +2570,7 @@
     },
     "PayloadFieldConfig": {
       "additionalProperties": false,
-      "description": "One declared field on a background app's session payload metadata.\n\nThe list of these is what the Flutter dashboard uses to render a\ntyped form for the user instead of a generic key/value editor.",
+      "description": "One declared field on a background app's session payload metadata.\n\nThe list of these is what the client dashboard uses to render a\ntyped form for the user instead of a generic key/value editor.",
       "properties": {
         "default": {
           "default": null,
@@ -2719,7 +2719,7 @@
     },
     "PayloadSchemaConfig": {
       "additionalProperties": false,
-      "description": "Declarative description of the user-pre-filled session payload.\n\nWhen set on a background app, the Flutter dashboard renders a typed\nform (instead of the generic key/value editor) and the daemon can\nenforce validation before letting the cron fire on an empty\nsession. See ``ExecutionConfig.payload_schema``.\n\nExample::\n\n    execution:\n      mode: background\n      payload_schema:\n        required: true\n        prompt:\n          required: true\n          label: \"What should I look for?\"\n          placeholder: \"Find me remote Python jobs paying 80k+\"\n          min_length: 20\n        metadata:\n          - name: location\n            type: string\n            required: true\n            label: \"City\"\n          - name: min_salary\n            type: integer\n            min: 0\n            default: 60000\n          - name: remote_only\n            type: boolean\n            default: true\n        files:\n          - name: cv\n            label: \"Your CV\"\n            required: true\n            mime: [application/pdf]\n            max_size_mb: 5\n          - name: portfolio\n            required: false\n            mime: [application/pdf, image/*]\n            max_count: 5",
+      "description": "Declarative description of the user-pre-filled session payload.\n\nWhen set on a background app, the client dashboard renders a typed\nform (instead of the generic key/value editor) and the daemon can\nenforce validation before letting the cron fire on an empty\nsession. See ``ExecutionConfig.payload_schema``.\n\nExample::\n\n    execution:\n      mode: background\n      payload_schema:\n        required: true\n        prompt:\n          required: true\n          label: \"What should I look for?\"\n          placeholder: \"Find me remote Python jobs paying 80k+\"\n          min_length: 20\n        metadata:\n          - name: location\n            type: string\n            required: true\n            label: \"City\"\n          - name: min_salary\n            type: integer\n            min: 0\n            default: 60000\n          - name: remote_only\n            type: boolean\n            default: true\n        files:\n          - name: cv\n            label: \"Your CV\"\n            required: true\n            mime: [application/pdf]\n            max_size_mb: 5\n          - name: portfolio\n            required: false\n            mime: [application/pdf, image/*]\n            max_count: 5",
       "properties": {
         "files": {
           "description": "File slots with mime/size/count constraints.",
@@ -2819,7 +2819,8 @@
     },
     "RuntimeBlock": {
       "additionalProperties": false,
-      "description": "Lifecycle + execution policy: how the app actually runs.\n\nHolds every field that controls the daemon's per-turn behaviour:\nmode, max_turns, triggers, hooks, sandbox/security gates, context\nwindow, and the orchestration extensions (middleware, pipeline,\nflow).\n\nFields formerly named under ``execution:`` keep their semantics\nhere unchanged. Two renames for unambiguity:\n\n-  ``execution.workspace``      ->  ``runtime.workdir``\n-  ``execution.workspace_mode`` ->  ``runtime.workdir_mode``\n\nThe renames disambiguate from ``ui.workspace`` (the Flutter\nrenderer block) which is a completely different concept.",
+      "description": "Lifecycle + execution policy: how the app actually runs.\n\nHolds every field that controls the daemon's per-turn behaviour:\nmode, max_turns, triggers, hooks, sandbox/security gates, context\nwindow, and the orchestration extensions (middleware, pipeline,\nflow).\n\nFields formerly named under ``execution:`` keep their semantics\nhere unchanged. Two renames for unambiguity:\n\n-  ``execution.workspace``      ->  ``runtime.workdir``\n-  ``execution.workspace_mode`` ->  ``runtime.workdir_mode``\n\nThe renames disambiguate from ``ui.workspace`` (the client
+renderer block) which is a completely different concept.",
       "properties": {
         "context": {
           "$ref": "#/$defs/ContextConfig",
@@ -3703,7 +3704,7 @@
     },
     "UIBlock": {
       "additionalProperties": false,
-      "description": "How the client renders the app: pure display, daemon never reads.\n\nHolds the Flutter / web client manifest extensions. Theme, feature\ntoggles, declarative widgets, the workspace renderer, slash\ncommands, quick prompts, and the welcome greeting.",
+      "description": "How the client renders the app: pure display, daemon never reads.\n\nHolds the client manifest extensions. Theme, feature\ntoggles, declarative widgets, the workspace renderer, slash\ncommands, quick prompts, and the welcome greeting.",
       "properties": {
         "activity": {
           "anyOf": [
@@ -3739,7 +3740,7 @@
           "additionalProperties": {
             "type": "boolean"
           },
-          "description": "UI feature toggles consumed by the Flutter client. Missing keys default to true (feature visible).",
+          "description": "UI feature toggles consumed by the client. Missing keys default to true (feature visible).",
           "title": "Features",
           "type": "object"
         },
@@ -3861,7 +3862,7 @@
             }
           ],
           "default": null,
-          "description": "Declarative UI widgets rendered by the Flutter client."
+          "description": "Declarative UI widgets rendered by the client."
         },
         "workspace": {
           "anyOf": [
@@ -4155,7 +4156,7 @@
     },
     "WidgetsConfig": {
       "additionalProperties": false,
-      "description": "Top-level ``widgets:`` block in app.yaml.\n\nStructure mirrors the Flutter spec v1: one optional chat_side\npanel, an array of workspace_tabs, a dict of named modals, and a\ndict of named inline widgets that the agent can push via\n``widget.render`` with a ``ref:``.\n\nExternal widget files under ``./widgets/*.yaml`` in the bundle\ndir are loaded by the compiler and merged into the ``inline``\nmap (keyed by file stem) - same pattern as skills.",
+      "description": "Top-level ``widgets:`` block in app.yaml.\n\nStructure mirrors the client spec v1: one optional chat_side\npanel, an array of workspace_tabs, a dict of named modals, and a\ndict of named inline widgets that the agent can push via\n``widget.render`` with a ``ref:``.\n\nExternal widget files under ``./widgets/*.yaml`` in the bundle\ndir are loaded by the compiler and merged into the ``inline``\nmap (keyed by file stem) - same pattern as skills.",
       "properties": {
         "chat_side": {
           "anyOf": [

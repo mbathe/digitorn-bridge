@@ -146,6 +146,48 @@ async def _execute_tool_inner(
 
     logger.debug("execute_tool: tool_name=%r args_keys=%s", tool_name, list(tool_args.keys()))
 
+    # Composer-mode tool guard. When the active mode narrows the
+    # capability grant (``effective.tool_grants`` non-empty), the agent
+    # loop stores the allowed short-name set on ``ctx.allowed_tool_names``
+    # before dispatching the turn. Tools that don't appear in that set
+    # are rejected synthetically here so the LLM gets a clear
+    # "blocked in mode X, ask the user to switch" answer instead of
+    # silently executing a tool the YAML mode forbade.
+    #
+    # Defense in depth: the LLM never sees blocked tools in its schema
+    # (filtered at ``_call_llm``), so a blocked call typically means
+    # the model hallucinated the name from memory of a previous mode.
+    # ``allowed_tool_names is None`` -> mode does not narrow grants ->
+    # passthrough (no extra round-trip).
+    _allowed = getattr(ctx, "allowed_tool_names", None)
+    if _allowed is not None and tool_name not in _allowed:
+        # Try the FQN form too -- the LLM may emit ``filesystem.write``
+        # when the short list contains ``Write``. Reverse-lookup keeps
+        # the guard agnostic to which name shape the model picked.
+        from digitorn.core.runtime.tool_names import to_fqn, to_short
+        _fqn = to_fqn(tool_name)
+        _short = to_short(_fqn) if _fqn != tool_name else tool_name
+        if _short not in _allowed and _fqn not in _allowed:
+            _mode_label = getattr(ctx, "active_mode_label", "") or "current"
+            _allowed_str = ", ".join(sorted(_allowed)) or "(none)"
+            logger.info(
+                "tool_blocked_by_mode tool=%s mode=%s sid=%s",
+                tool_name, _mode_label, ctx.session_id,
+            )
+            return {
+                "success": False,
+                "error": (
+                    f"Tool '{tool_name}' is blocked in mode "
+                    f"'{_mode_label}'. Allowed tools: {_allowed_str}. "
+                    "Ask the user to switch to a mode that allows "
+                    "this tool. Do not retry this call."
+                ),
+                "metadata": {
+                    "blocked_by_mode": True,
+                    "mode": _mode_label,
+                },
+            }
+
     if ctx.session_id and hasattr(cb, "_session_id"):
         cb._session_id = ctx.session_id
 

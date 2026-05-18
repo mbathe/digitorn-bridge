@@ -414,6 +414,12 @@ class TurnEntry:
     # the queue to the dispatcher. Set when the original request had
     # a ``template_id`` field. Empty string => no template attached.
     template_system_prompt: str = ""
+    # Composer mode selected by the client for THIS turn. Forwarded
+    # into ``manager.chat(mode_id=...)``; the runtime's ``resolve_mode``
+    # treats ``""`` / ``None`` as "apply the default-policy choice"
+    # (auto > first > none). Stays a turn-scoped value, never sticky
+    # on the session beyond the duration of the turn it travelled with.
+    mode_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -693,6 +699,7 @@ async def dispatch_turn(
                 correlation_id=entry.correlation_id or None,
                 client_message_id=entry.client_message_id or None,
                 template_system_prompt=entry.template_system_prompt,
+                mode_id=entry.mode_id or None,
             )
         except asyncio.CancelledError:
             interrupted = True

@@ -1,5 +1,5 @@
 ---
-id: 04d-mcp
+id: mcp
 ---
 
 # MCP - Model Context Protocol

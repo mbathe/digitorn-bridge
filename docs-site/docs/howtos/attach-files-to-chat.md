@@ -8,8 +8,8 @@ The chat composer ships with a paperclip menu that lets the
 user drag-drop or pick files for the current message. The
 daemon parses each file, indexes it into a per-session
 knowledge base, and surfaces the extracted text to the agent
-via one of three strategies. This page covers the end-to-end
-pipeline and how to pick a strategy.
+via one of two strategies (`direct` or `tool`). This page
+covers the end-to-end pipeline and how to pick a strategy.
 
 ## End-user flow
 
@@ -73,9 +73,9 @@ The next turn picks up the manifest of indexed files and
 applies the strategy declared by
 [`app.attachments_mode`](../language/02-app-config.md#appattachments_mode---how-the-agent-sees-attached-files).
 
-## The three strategies
+## The two strategies
 
-### Mode `inject` - prepend full text
+### Mode `direct` - prepend full text (default)
 
 Best for chat apps without a workspace. The daemon prepends
 a `[Attached files context]` block to the user message
@@ -87,7 +87,7 @@ app:
   app_id: simple-chat
   name: Simple Chat
   attachments: [document]
-  attachments_mode: inject
+  attachments_mode: direct
 
 runtime:
   mode: conversation
@@ -184,19 +184,21 @@ the agent from reading app-private workspace files via `..`
 or absolute paths. See
 [workspace module reference](../reference/modules/workspace.md#agent_root---scope-lock-for-attachments-mode).
 
-### Mode `hybrid` - inject AND mirror
+### Combining both: `direct` + workspace loaded
 
-The default-recommended setup for mixed workflows: small
-docs are injected (so the agent has the content without a
-tool call) AND mirrored into the workspace (so the agent can
-re-read sections, edit, or grep across them).
+The `digitorn-chat` production setup uses `direct` mode but
+ALSO loads the workspace module — the daemon mirrors
+attachments under `attachments/` so the agent can re-read
+specific sections via `WsRead` when it needs precise quotes,
+while still having the full text in the user message for
+immediate Q&A.
 
 ```yaml
 app:
   app_id: chat
   name: Chat
   attachments: [image, document]
-  attachments_mode: hybrid
+  attachments_mode: direct
 
 runtime:
   mode: conversation
@@ -247,8 +249,7 @@ upload, preview owns the workspace channel) and are not
 agent-callable. `memory` is granted because the agent should
 be able to record facts the user mentions during the chat.
 
-This is exactly the shape `digitorn-chat` ships with
-(`packages/digitorn/builtins/digitorn-chat/app.yaml`).
+This is exactly the shape `digitorn-chat` ships with.
 
 ## The citation format the LLM is taught to emit
 
@@ -257,7 +258,7 @@ tells the model exactly how to cite. The format is:
 
 | Citation | When it appears |
 |----------|-----------------|
-| `[filename]` | Inject and hybrid modes (the whole file is in context). |
+| `[filename]` | Direct mode (the whole file is in context). |
 | `[filename · page N]` | RAG fallback path when a PDF / DOCX / PPTX excerpt has page metadata. |
 | `[filename · section X]` | RAG fallback when the excerpt carries a section anchor (Markdown headers, ODT sections). |
 | `[filename · lines A-B]` | Tool mode, when the agent reads a slice with `WsRead(offset, limit)`. |
@@ -294,10 +295,10 @@ Check, in order:
    crashed: the message contains the parser exception (a
    broken PDF, an unsupported DOCX feature, etc.).
 
-2. **Is the right module loaded?** Inject mode needs only
-   `rag` in `tools.modules`. Tool and hybrid modes also need
+2. **Is the right module loaded?** `direct` mode needs only
+   `rag` in `tools.modules`. `tool` mode also needs
    `workspace` and `preview`. A missing `workspace` silently
-   downgrades `tool` / `hybrid` to `inject`.
+   downgrades `tool` to `direct`.
 
 3. **Is the agent allowed to read attachments?** In tool or
    hybrid mode the agent must have `workspace.read` granted

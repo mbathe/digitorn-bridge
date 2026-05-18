@@ -237,7 +237,7 @@ async def session_send_message(
 
     _user_id = getattr(request.state, "user_id", None)
     _workspace = body.workspace
-    _active_mode = body.mode  # NOTE: received only - merge layer pending
+    _active_mode = body.mode
     if _active_mode:
         logger.info(
             "messages_mode_received app=%s sid=%s mode=%s",
@@ -1365,6 +1365,7 @@ async def session_send_message(
                 queue_row_id=_active_queue_row_id or "",
                 position=_active_position,
                 template_system_prompt=_template_system_prompt,
+                mode_id=_active_mode or "",
             ),
             user_id=_user_id or "local",
             source=TurnSource.FAST,

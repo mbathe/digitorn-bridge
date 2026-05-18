@@ -17,7 +17,6 @@ build against.
 | | |
 |---|---|
 | **Package** | `@digitorn/preview-sdk` |
-| **Source** | `packages/digitorn-preview-sdk/src/` |
 | **Peers** | `react ≥ 18`, `socket.io-client ≥ 4.7` |
 | **Entry** | `<DigiPreview>` provider - wraps the app, opens the WebSocket, fetches the snapshot |
 
@@ -274,8 +273,6 @@ flowchart LR
 ---
 
 ## `<DigiPreview>` - the root provider
-
-Defined in `packages/digitorn-preview-sdk/src/DigiPreview.tsx`.
 
 ```tsx
 <DigiPreview maxReconnectMs={10_000} session={overrideSession}>
@@ -966,8 +963,7 @@ from `daemon_workspace`** - those are internal state.
 
 ## Host ↔ iframe protocol
 
-Defined in `packages/digitorn-preview-sdk/src/host.ts`. All messages
-are namespaced with the `digi:` prefix.
+All host messages are namespaced with the `digi:` prefix.
 
 ### Host pushes (theme, locale, abort, resize)
 
@@ -999,7 +995,7 @@ notifyReady();                                // call once when the iframe is re
 ```
 
 `HostBoundMessage` is the union of every message the iframe can send.
-The host (Digitorn workbench, Flutter app, custom integrator) decides
+The host (Digitorn workbench, client app, custom integrator) decides
 which ones to honour.
 
 ### Theme bootstrap from URL

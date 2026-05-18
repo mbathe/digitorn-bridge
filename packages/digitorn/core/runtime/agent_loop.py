@@ -682,6 +682,94 @@ async def _loop(
 
         _last_msg = messages[-1] if messages else {}
         _is_fresh_user_turn = _last_msg.get("role") == "user"
+
+        # ── Composer mode: detect switch + inject directive + arm guard ──
+        # When ``body.mode`` was forwarded into ``ctx.effective_turn``
+        # at chat dispatch time, we (1) compute the allowed / blocked
+        # tool partition for this turn, (2) compare the resolved mode
+        # id with the session's stored ``active_mode_id``, and (3) on
+        # change, inject a durable ``system_message`` describing the
+        # new mode (directive text from YAML + auto-generated
+        # allowed / blocked tool lists). Same persistence pattern as
+        # the coach: ``inject_system_directive`` emits a
+        # ``system_message`` event, the projection appends to
+        # ``state.messages``, the next turn's prompt rebuild keeps it.
+        _effective = getattr(ctx, "effective_turn", None)
+        if _effective is not None and _is_fresh_user_turn:
+            from digitorn.core.runtime.mode_merge import (
+                build_mode_switch_message,
+                compute_tool_partition,
+            )
+            # Short tool names the LLM is exposed to via ctx.tools.
+            _all_short: list[str] = []
+            if ctx.tools:
+                for _t in ctx.tools:
+                    _fn_name = _t.get("function", {}).get("name", "")
+                    if _fn_name:
+                        _all_short.append(_fn_name)
+            _allowed_names, _blocked_names = compute_tool_partition(
+                _effective.tool_grants, _all_short,
+            )
+            # ``allowed_tool_names`` stays ``None`` when the mode does
+            # not narrow grants -- the tool_exec guard treats None as
+            # passthrough, so the dispatch fast-path is unaffected.
+            ctx.allowed_tool_names = (
+                _allowed_names if _effective.tool_grants is not None else None
+            )
+            ctx.active_mode_label = (
+                _effective.mode_label or _effective.active_mode_id or ""
+            )
+
+            # Detect mode change against the session's stored value.
+            _prev_mode: str | None = None
+            _state_ref = None
+            try:
+                from digitorn.core.runtime.session_store import get_default_bridge
+                _sid = getattr(ctx, "session_id", "") or ""
+                if _sid:
+                    _bridge = get_default_bridge()
+                    _state_ref = _bridge.store.state(_sid)
+                    if _state_ref is not None:
+                        _prev_mode = getattr(_state_ref, "active_mode_id", None)
+            except Exception as _exc:
+                logger.debug("mode_state_read_failed: %s", _exc)
+
+            if (_effective.active_mode_id or None) != (_prev_mode or None):
+                _msg = build_mode_switch_message(
+                    _effective, _allowed_names, _blocked_names,
+                )
+                if _msg:
+                    logger.info(
+                        "mode_switch sid=%s prev=%s new=%s allowed=%d blocked=%d",
+                        getattr(ctx, "session_id", ""),
+                        _prev_mode, _effective.active_mode_id,
+                        len(_allowed_names), len(_blocked_names),
+                    )
+                    await inject_system_directive(
+                        ctx,
+                        content=_msg,
+                        source="mode_switch",
+                        messages=messages,
+                        turn=turn,
+                        metadata={
+                            "mode_id": _effective.active_mode_id or "",
+                            "mode_label": _effective.mode_label or "",
+                            "allowed": sorted(_allowed_names),
+                            "blocked": sorted(_blocked_names),
+                        },
+                    )
+                if _state_ref is not None:
+                    _state_ref.active_mode_id = _effective.active_mode_id
+
+            # Apply the active mode's behavior_profile override (if any).
+            # Idempotent on the behavior module side -- a re-call with the
+            # same profile is a no-op. Empty profile string falls back to
+            # the YAML-declared ``security.behavior.profile``.
+            if _beh is not None and hasattr(_beh, "set_active_profile"):
+                try:
+                    _beh.set_active_profile(_effective.behavior_profile or "")
+                except Exception as _exc:
+                    logger.debug("behavior_profile_override_failed: %s", _exc)
         if (
             _beh is not None
             and hasattr(_beh, "classify_turn")
@@ -1195,6 +1283,17 @@ async def _call_llm(
             pass
 
     api_tools = ctx.tools if (ctx.native_tool_use and ctx.tools) else None
+    # Composer-mode tool filtering: when the active mode narrows the
+    # grant list, hide the blocked tools from the LLM's schema so it
+    # doesn't even know they exist on this turn. The dispatcher guard
+    # in ``tool_exec.py`` catches the rare hallucinated retry by name.
+    if api_tools is not None:
+        _allowed = getattr(ctx, "allowed_tool_names", None)
+        if _allowed is not None:
+            api_tools = [
+                _t for _t in api_tools
+                if (_t.get("function", {}).get("name") or "") in _allowed
+            ]
     chat_messages = _chat_messages_for_llm(ctx, messages)
 
     # Debug: trace message count and approximate size per LLM call
@@ -1670,6 +1769,30 @@ async def _execute_single_tool(
         tool_args = parse_tool_args(tool_args)
     if not isinstance(tool_args, dict):
         tool_args = {}
+
+    # Defensive: a tool_call with an empty function.name is unrunnable
+    # (the dispatch table is keyed by name). Pre-Phase-13 this slipped
+    # through and produced 12 cascade failures before the loop guard
+    # killed the turn (BUG-068). Synthesise a clean error result + log
+    # the call_id so the LLM sees a deterministic feedback message and
+    # can self-correct, instead of pummelling _dispatch with garbage.
+    if not tool_name:
+        logger.warning(
+            "tool_call_skipped_empty_name call_id=%s args_keys=%s",
+            call_id, list((tool_args or {}).keys())[:5],
+        )
+        err_msg = (
+            "Tool call ignored: function.name was empty. Re-emit the "
+            "call with a valid tool name from the available tools."
+        )
+        return (
+            {"success": False, "error": err_msg},
+            "unknown",
+            tool_args,
+            call_id,
+            False,
+            err_msg,
+        )
 
     if cb.on_tool_start is not None:
         try:

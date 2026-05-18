@@ -13,7 +13,7 @@ also declare arbitrary servers inline in YAML.
 
 This page covers both paths end-to-end.
 
-## Path 1 — Install from the Hub Catalog
+## Path 1 - Install from the Hub Catalog
 
 This is the right path for **95% of cases**. It's the "App Store"
 experience: pre-configured by Digitorn, only personal credentials
@@ -29,15 +29,15 @@ asked.
 4. The install dialog opens with three flavours depending on the
    server:
    - **No auth needed** (`filesystem`, `fetch`, `memory`, `time`,
-     `sequential_thinking`, `git`, `everything`) — just click
+     `sequential_thinking`, `git`, `everything`) - just click
      **Install server**.
    - **Personal token** (`github`, `notion`, `linear`, `clickup`,
-     `stripe`, `vercel`, `cloudflare`, `apify`, ...) — paste your
+     `stripe`, `vercel`, `cloudflare`, `apify`, ...) - paste your
      token in the single field, click **Install**. The dialog
      points to the exact provider settings page where the token
      can be generated.
    - **OAuth** (`gmail`, `google_drive`, `google_calendar`, `slack`,
-     `notion`) — click **Connect with X**, finish the browser
+     `notion`) - click **Connect with X**, finish the browser
      round-trip, you're done.
 5. After install the dialog probes the server, populates its tool
    list in the **Installed** tab, and the server is now visible
@@ -64,7 +64,7 @@ digitorn mcp install notion --config token=secret_xxxxxxxxxx
 digitorn mcp test github
 ```
 
-## Path 2 — Inline custom server in `app.yaml`
+## Path 2 - Inline custom server in `app.yaml`
 
 For servers that aren't (yet) in the Hub catalog or that have very
 specific needs (private internal server, forked package, custom
@@ -132,16 +132,16 @@ Bare references (`- github`) and empty-dict references
 `permissions: [process.exec, net.http]` so the runtime
 doesn't reject the call at dispatch time. **Inline custom
 servers** (with `transport:` / `command:` / `url:`) must
-declare their `sandbox:` block explicitly — the compiler
+declare their `sandbox:` block explicitly - the compiler
 refuses the deploy otherwise.
 :::
 
 The daemon resolves a bare reference in three steps:
 
-1. **Live pool** — already connected? Share the connection.
-2. **Managed store** — `managed_mcp_servers` table (the install
+1. **Live pool** - already connected? Share the connection.
+2. **Managed store** - `managed_mcp_servers` table (the install
    from Path 1, with your saved credentials).
-3. **Built-in catalog** — defaults from the baked-in catalog
+3. **Built-in catalog** - defaults from the baked-in catalog
    (no credentials).
 
 If none match, the module logs an actionable error pointing at
@@ -151,13 +151,13 @@ simply aren't exposed.
 ## Discovering what's referenceable
 
 ```bash
-# Daemon endpoint — returns every server_id ready to reference
+# Daemon endpoint - returns every server_id ready to reference
 curl -s https://your-daemon/api/mcp/available | jq
 
 # Or in the dashboard: Admin → MCP Servers → "Installed" tab.
 ```
 
-## Reasoning models — bump `max_tokens`
+## Reasoning models - bump `max_tokens`
 
 If your agent uses an OpenAI reasoning model (`gpt-5*`,
 `o1`, `o3`), keep `max_tokens` ≥ `4096`. These models burn
@@ -175,7 +175,7 @@ agents:
 ```
 
 Non-reasoning models (Claude, GPT-4o, DeepSeek v3, Llama)
-are unaffected — `1024` is fine.
+are unaffected - `1024` is fine.
 
 ## When the install fails
 
@@ -188,7 +188,7 @@ Common cases and their fixes:
 | `npm install failed: 404` | Upstream package was removed or renamed | Pick a different catalog entry or use Path 2 with the correct package name |
 | `HTTP 401 Unauthorized` | Server requires auth not yet provided | Edit the server: dashboard → Installed → card → Configure |
 | `HTTP 404 ... (SDK reports "Session terminated")` | The MCP endpoint URL is incorrect or has been retired | Verify the URL with the publisher; remove + reinstall with the correct address |
-| `MCP error -32603: Invalid response format` | Transport mismatch — server speaks legacy HTTP+SSE but client opened `streamable_http` (or vice versa) | Switch `transport:` to the form the server actually speaks (`sse` ↔ `streamable_http`) |
+| `MCP error -32603: Invalid response format` | Transport mismatch - server speaks legacy HTTP+SSE but client opened `streamable_http` (or vice versa) | Switch `transport:` to the form the server actually speaks (`sse` ↔ `streamable_http`) |
 | `MCP server '<id>' has no sandbox permissions declared` | Inline custom server in YAML without an explicit `sandbox:` block | Add `sandbox: {permissions: [process.exec, net.http]}` to the server config (bare references auto-inject the default) |
 | `Server X is already installed` | A previous install succeeded but the row is still there | Uninstall via the card then reinstall, or use the existing row as-is |
 

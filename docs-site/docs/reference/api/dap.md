@@ -501,7 +501,7 @@ A minimal runtime needs to implement:
    - `filesystem.read` → read file, return content
    - `filesystem.write` → write content to file
    - `filesystem.edit` → read, find/replace, write
-   - `filesystem.ls` → list directory
+   - `filesystem.glob` → list directory by pattern
    - `shell.bash` → spawn process, capture output
 
 That is approximately:

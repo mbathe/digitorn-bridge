@@ -5,47 +5,28 @@ sidebar_label: "Advanced 16: Self-correct loop"
 ---
 
 The workspace module ships a small set of built-in **content
-validators** for the languages Digitorn ships out of the box.
+validators** for the most common file formats.
 When you set `lint: true` on the workspace, every `WsWrite` and
 `WsEdit` response carries a `lint` field with the diagnostics
 the validators produced. An agent prompted to read that field
 and re-edit on errors gets a free self-correction loop without
 any external LSP server, linter, or compiler installed.
 
-This tutorial is **live-tested end-to-end**: app
-`lsp-py-selfcorrect`, session `test-c8c09bfe`, brain
-`openai/gpt-5-mini` via the gateway. Total run: 11.8s, 2 turns,
-1 deliberate syntax error fixed.
+## Languages with built-in validators
 
-## What the workspace lints out of the box
-
-[`packages/digitorn/modules/workspace/module.py:390`](https://github.com/digitorn-ai/digitorn-bridge/blob/main/packages/digitorn/modules/workspace/module.py#L390)
-registers a validator per extension. No external dependency:
-
-| Extension | Validator | Catches |
-|---|---|---|
-| `.py`, `.pyi` | `compile()` | Python syntax errors with line + column + message |
-| `.json`, `.jsonc` | `json.loads` | Decoder errors with line + column |
-| `.yaml`, `.yml` | `yaml.safe_load_all` | PyYAML parse errors with `problem_mark` |
-| `.toml` | `tomllib.loads` | TOML parser errors with line number |
-| `.tex`, `.latex` | brace + environment matcher | Unmatched `{}`, mismatched `\begin{}/\end{}` |
+| Extension | Catches |
+|---|---|
+| `.py`, `.pyi` | Python syntax errors with line + column + message |
+| `.json`, `.jsonc` | JSON decoder errors with line + column |
+| `.yaml`, `.yml` | PyYAML parse errors |
+| `.toml` | TOML parser errors with line number |
+| `.tex`, `.latex` | Unmatched `{}`, mismatched `\begin{}/\end{}` |
 
 Each returns a list of `{line, column, severity, message, source}`
-diagnostics. Resolution order in
-[`_run_lint`](https://github.com/digitorn-ai/digitorn-bridge/blob/main/packages/digitorn/modules/workspace/module.py#L1628):
-
-1. If a separate `lsp:` module is wired AND has a real LSP
-   server for this extension, the workspace forwards
-   `notify_change` to it and uses the server's output.
-2. If the LSP path returns nothing, the built-in validator
-   fires.
-3. If neither yields a diagnostic, the `lint` field is omitted
-   from the tool result entirely (no false positive).
-
-Built-in validators are the **always-available** floor. They
-catch the class of bugs that block file loading (syntax errors).
-They do not catch type errors, undefined names, lint style, or
-anything that requires a real LSP server.
+diagnostics. Built-in validators are the always-available floor.
+They catch syntax errors that block file loading. They do not
+catch type errors, undefined names, lint style, or anything that
+requires a real LSP server.
 
 ## The YAML
 
@@ -123,9 +104,7 @@ Three knobs to know:
 - `lint: true` (default) enables the lint pipeline. Set it to
   `false` to silence the field across the whole app.
 - `sync_to_disk: true` mirrors workspace writes to disk so the
-  file is also readable by external tools (and by you, in the
-  session workspace under
-  `~/.digitorn/workspaces/<app>/<session>/`). The built-in
+  file is also readable by external tools. The built-in
   validators read from the in-memory content, not from disk,
   so they work even without sync.
 - `auto_approve: true` skips the human review step. Without
@@ -140,9 +119,9 @@ digitorn dev deploy lsp-py-selfcorrect.yaml
 digitorn dev chat lsp-py-selfcorrect -m "Create a Python file bad.py that defines add(a, b) returning a + b. On your FIRST WsWrite, deliberately omit the colon after the def line so we can see the lint diagnostics. Then WsEdit to fix it."
 ```
 
-## Real session transcript (session `test-c8c09bfe`)
+## Sample flow
 
-**Turn 1: agent writes the broken file.**
+**Turn 1: WsWrite the broken file.**
 
 Tool call:
 
@@ -175,12 +154,7 @@ Tool result the agent receives back:
 }
 ```
 
-The `source: "python"` field is the marker that the built-in
-`compile()` validator produced the diagnostic. If the LSP
-module had been wired to a real Python LSP server, the source
-would be the server name (e.g. `"pyright"`).
-
-**Turn 2: agent fixes via WsEdit.**
+**Turn 2: WsEdit to fix.**
 
 ```json
 WsEdit(
@@ -202,47 +176,44 @@ Tool result:
 }
 ```
 
-No `lint` field on this response, which confirms the
-post-edit content lint-checked clean. The agent then replied:
+No `lint` field on this response: the post-edit content
+lint-checked clean. The agent then confirms:
 
 > Done. I created bad.py with a deliberate syntax error first,
-> inspected the lint output (it showed "expected ':'" on line 1),
-> then fixed the file.
-
-End-to-end in 11.8s.
+> inspected the lint output, then fixed the file.
 
 ## Same pattern, other languages
 
 The same YAML works for JSON, YAML, TOML, LaTeX. Just point
 the agent at the relevant file extension. Examples of
-diagnostics you would see:
+diagnostics:
 
 JSON, broken trailing comma:
+
 ```json
 {"line": 4, "column": 1, "severity": "error",
- "message": "Expecting property name enclosed in double quotes",
- "source": "json"}
+ "message": "Expecting property name enclosed in double quotes"}
 ```
 
 YAML, wrong indent:
+
 ```json
 {"line": 3, "column": 5, "severity": "error",
- "message": "mapping values are not allowed here",
- "source": "yaml"}
+ "message": "mapping values are not allowed here"}
 ```
 
 TOML, unterminated string:
+
 ```json
 {"line": 2, "column": 1, "severity": "error",
- "message": "Unclosed string (at line 2, column 1)",
- "source": "toml"}
+ "message": "Unclosed string (at line 2, column 1)"}
 ```
 
 LaTeX, unmatched `\begin{}`:
+
 ```json
 {"line": 12, "column": 1, "severity": "error",
- "message": "\\begin{itemize} never closed",
- "source": "latex"}
+ "message": "\\begin{itemize} never closed"}
 ```
 
 ## Going further: `lsp_diagnose` hook
@@ -251,14 +222,14 @@ The workspace's built-in lint runs automatically for
 `workspace.write` / `workspace.edit`. If you want the same
 self-correction loop on **other write surfaces** (the
 `filesystem` module, an MCP tool that creates files, a custom
-writer), wire the `lsp_diagnose` hook to inject diagnostics into
-their tool results:
+writer), wire the `lsp_diagnose` hook to inject diagnostics
+into their tool results:
 
 ```yaml
 runtime:
   hooks:
     - id: lint_after_write
-      "on": tool_end
+      'on': tool_end
       condition:
         type: tool_name
         match: [filesystem.write, filesystem.edit]
@@ -279,37 +250,16 @@ already gets. `publish: true` pushes the same data to the
 `diagnostics` preview channel for client UIs that render
 markers.
 
-**Caveat (current daemon state).** The hook calls
-`lsp.notify_change(path, content)` which goes through the LSP
-module's real-LSP-server path. The LSP module's built-in
-content validators live inside the workspace module, not in
-the LSP module. So today, `lsp_diagnose` on a non-workspace
-write surface only yields diagnostics when a real LSP server
-is configured AND running. A daemon-side improvement to
-fall back to the same built-in validators when no LSP server
-matches the extension is on the roadmap.
-
-## What we proved
-
-| Claim | Status |
-|---|---|
-| Built-in Python validator returns line, column, message, source | verified |
-| Workspace injects the `lint` field into WsWrite tool result | verified, session `test-c8c09bfe` seq 21 |
-| Agent reads the lint field and corrects via WsEdit | verified, session seq 38 |
-| Clean post-edit content omits the `lint` field | verified, session seq 38 result keys |
-| Pattern generalises to JSON, YAML, TOML, LaTeX | verified by inspecting the validator registry |
-
 ## When to reach for this
 
 - Any workflow where the agent generates structured files
   (configs, dataclasses, JSON payloads, LaTeX papers).
 - Self-bootstrapping projects where you do not want to install
   pyright / eslint / tsc on the daemon machine.
-- A safe floor under more advanced LSP wiring: even if the LSP
-  server fails to start, the built-in validator still catches
-  syntax bugs.
+- A safe floor under more advanced LSP wiring: even if a
+  language server fails to start, the built-in validator still
+  catches syntax bugs.
 
-For type-level diagnostics (pyright, tsc), eslint-style style
-rules, or anything beyond syntax, you need a real LSP server
-plus the `lsp:` module config. That path is documented
-separately.
+For type-level diagnostics, eslint-style style rules, or
+anything beyond syntax, configure a real LSP server in the
+`lsp:` module.

@@ -4,7 +4,7 @@ id: client-manifest
 
 # Client Manifest
 
-The Flutter / web client reads the deployed app's YAML
+The the chat client / web client reads the deployed app's YAML
 (through the daemon's app-detail surface) and uses the
 **`ui:` block** plus a handful of `app:` and `runtime:`
 fields to tailor its UI: which greeting to show, which
@@ -30,7 +30,7 @@ entries are cited with file + line.
 | `ui.slash_commands` | The `/`-palette entries. |
 | `ui.quick_prompts` | Same shape as `app.quick_prompts`; client merges both lists. |
 | `ui.workspace` | Renderer hint + layout (`render_mode`, `entry_file`, `title`, `position`, `width_pct`, `auto_open_on_first_tool`, `default_open`, `default_view`, `hidden_views`, `preview_chrome`). |
-| `ui.templates` | One-click bootstrap gallery shown in the empty state. See [Templates](48-templates.md). |
+| `ui.templates` | One-click bootstrap gallery shown in the empty state. |
 | `ui.widgets` | Declarative widget tree rendered in chat, sidebar, modals. |
 | `ui.layout` | High-level chat preset (`default`, `code`, `builder`, `research`, `minimal`, `lovable`). |
 | `ui.density` | Bubble spacing (`compact` / `comfortable`). |
@@ -65,7 +65,7 @@ this page focuses on the `ui:` block.
 | `token_badges` | `true` | Hides the per-message token counts. |
 
 Source of truth: the docstring at `schema.py` lists the
-exact keys the Flutter client recognises today. Unknown keys are
+exact keys the chat client recognises today. Unknown keys are
 ignored silently (the spec is forward-compatible).
 
 ```yaml
@@ -98,7 +98,7 @@ ui:
     background: "#0F172A"    # hex; client may apply this to the chat surface
 ```
 
-Other keys are passed through but unused by the current Flutter /
+Other keys are passed through but unused by the current the chat client /
 web clients. Treat `theme` as a forward-compat dict - only `accent`
 and `background` are guaranteed.
 
@@ -436,7 +436,7 @@ ui:
 `UIBlock.activity` is `ActivityPanelBlock` (`schema.py`,
 `extra: forbid`). Surfaces the live sub-agent fan-out, background
 tasks, and recent terminal events as a dedicated workspace mode
-(web `Activity ▾` entry / Flutter `Activity` mode in the
+(web `Activity ▾` entry / the chat client `Activity` mode in the
 workspace toolbar).
 
 **Opt-in contract.** When the YAML omits this block, both clients
@@ -475,7 +475,7 @@ ui:
     auto_open_on_spawn: false
 ```
 
-**What the pane shows** (mirror across web + Flutter):
+**What the pane shows** (mirrored across all clients):
 
 1. **Header strip** - pulse dot + status label + live counters
    (`3 running · 8 done · 1 failed`).
@@ -584,7 +584,7 @@ client-side.
 cleanly drops the field from `UIBlock` (the import is wrapped in
 `try / except ImportError`) - every tool falls back to its legacy
 chip. Client-side: web has a single `<ToolRendererOrLegacy>` adapter
-in `tool-call-block.tsx`; Flutter has a single `_renderToolEntry`
+in `tool-call-block.tsx`; the chat client has a single `_renderToolEntry`
 method in `chat_bubbles.dart`. Replacing those
 two adapters back to the original `<ToolCallRow>` / `_buildToolContent`
 calls is the full client-side rollback.
@@ -593,7 +593,7 @@ calls is the full client-side rollback.
 
 - **Long renderers compete with the message column.** The widget
   card renders inline in the chat timeline at message-column width
-  (`maxWidth: 720` on web, `800` on Flutter desktop). Trees taller
+  (`maxWidth: 720` on web, `800` on the chat client desktop). Trees taller
   than ~160 px push the rest of the conversation down - keep them
   card-sized.
 - **`{{tool.result}}` is JSON-dumped raw.** No prettification, no

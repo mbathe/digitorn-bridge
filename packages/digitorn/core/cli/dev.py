@@ -270,6 +270,7 @@ def chat(
     session_id: str = typer.Option("", "--session", "-s", help="Resume an existing session."),
     timeout: float = typer.Option(600.0, "--timeout", "-t", help="Max wait time per turn."),
     message: str = typer.Option("", "--message", "-m", help="Single message (non-interactive)."),
+    mode: str = typer.Option("", "--mode", help="Composer mode id (e.g. 'ask', 'plan', 'auto'). Forwarded as POST /messages body.mode."),
 ) -> None:
     """Interactive multi-turn chat with a deployed app.
 
@@ -302,10 +303,13 @@ def chat(
         _print(f"\n> {msg}", "green")
 
         # Send
+        _body: dict[str, Any] = {"message": msg, "workspace": ws}
+        if mode:
+            _body["mode"] = mode
         resp = daemon_request(
             "post",
             f"{daemon}/api/apps/{app_id}/sessions/{sid}/messages",
-            json={"message": msg, "workspace": ws},
+            json=_body,
         )
         send_data = resp.json()
         if not send_data.get("success") and resp.status_code not in (200, 202):

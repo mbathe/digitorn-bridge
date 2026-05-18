@@ -8,7 +8,7 @@ description: Declarative UI widgets - render / update / close on a per-session S
 # widget
 
 The **widget** module lets agents push declarative UI
-components into the Flutter / web client. The agent calls
+components into the the chat client / web client. The agent calls
 `render(zone, ref|tree, ctx)` to mount a widget,
 `update(widget_id, patch)` to mutate it live, and
 `close(widget_id)` to unmount. Every call publishes a
@@ -171,7 +171,7 @@ bridge between the UI and the LLM.
 
 ## Integration notes
 
-- **Flutter / web first** - the client is the primary
+- **chat client / web first** - the client is the primary
   renderer. React apps that just need files (no widget tree)
   usually use `workspace` + `preview` directly.
 - **No SSE** - transport is Socket.IO only; widget events

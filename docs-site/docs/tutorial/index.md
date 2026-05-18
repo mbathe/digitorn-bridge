@@ -46,6 +46,6 @@ A multi-agent app that:
 ## When to leave the tutorial
 
 The tutorial is opinionated and linear. Once you've finished it,
-work from [Reference](../reference/) and [Language](../language/)
+work from [Reference](/docs/reference/) and [Language](/docs/language/)
 directly - those are the canonical surfaces. Come back to
-[Concepts](../concepts/) any time the framework's *why* is unclear.
+[Concepts](/docs/concepts/) any time the framework's *why* is unclear.

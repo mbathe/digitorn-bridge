@@ -28,6 +28,29 @@ from digitorn.modules.llm_provider.providers.base import (
 logger = logging.getLogger(__name__)
 
 
+def _wrapper_is_zombie(client: Any) -> bool:
+    """Detect a closed-out-of-band openai.AsyncOpenAI wrapper.
+
+    The wrapper itself has no ``is_closed`` flag, but its internal
+    httpx.AsyncClient does. When a CancelledError unwinds a streaming
+    request mid-flight, the httpx layer can transition to CLOSED while
+    our cached wrapper reference stays non-None. The next call would
+    then hit ``RuntimeError: Cannot send a request, as the client has
+    been closed.`` from openai/_base_client.py.
+
+    Returns True iff the underlying httpx client is closed (so the
+    caller must rebuild). False on any inspection failure (fail-open
+    so we don't churn clients on harmless SDK shape changes).
+    """
+    try:
+        inner = getattr(client, "_client", None)
+        if inner is None:
+            return True
+        return bool(getattr(inner, "is_closed", False))
+    except Exception:
+        return False
+
+
 _KNOWN_PROVIDERS: dict[str, dict[str, Any]] = {
     "openai": {
         "base_url": "https://api.openai.com/v1",
@@ -1189,8 +1212,15 @@ class OpenAICompatProvider(BaseLLMProvider):
         stall the loop and drop Socket.IO. Prefer
         :meth:`_ensure_client_async` from any async context.
         """
-        if self._client is not None:
+        if self._client is not None and not _wrapper_is_zombie(self._client):
             return self._client
+        # Zombie wrapper: the openai AsyncOpenAI was cached but its
+        # underlying httpx.AsyncClient transitioned to CLOSED out-of-band
+        # (typical cause: a CancelledError unwinding a cancelled stream
+        # propagates aclose() to the httpx layer without going through
+        # provider.close(), so self._client stays non-None but is dead).
+        # Drop the reference + rebuild.
+        self._client = None
         import openai
         self._client = openai.AsyncOpenAI(
             api_key=self.api_key or "not-needed",
@@ -1207,8 +1237,9 @@ class OpenAICompatProvider(BaseLLMProvider):
         the same as the sync version once warm. Cold path runs the
         full SSL/httpx init in a worker thread.
         """
-        if self._client is not None:
+        if self._client is not None and not _wrapper_is_zombie(self._client):
             return self._client
+        self._client = None
         import asyncio as _asyncio
         self._client = await _asyncio.to_thread(self._ensure_client)
         return self._client
@@ -1267,6 +1298,19 @@ class OpenAICompatProvider(BaseLLMProvider):
                 response = await client.chat.completions.create(**params)
                 parsed = self._parse_response(response)
                 return _recover_from_content(parsed, known_tools)
+            except RuntimeError as exc:
+                # Race: another coroutine aclose'd the shared httpx
+                # client between ``_ensure_client_async`` returning and
+                # ``create()`` issuing the send. Drop + rebuild on the
+                # NEXT iteration; don't count it against retries.
+                if "client has been closed" in str(exc).lower():
+                    self._client = None
+                    last_exc = exc
+                    continue
+                last_exc = exc
+                recovered = _recover_from_error(exc, known_tools)
+                if recovered is not None:
+                    return recovered
             except Exception as exc:
                 last_exc = exc
                 recovered = _recover_from_error(exc, known_tools)
@@ -1350,29 +1394,50 @@ class OpenAICompatProvider(BaseLLMProvider):
             except Exception:
                 pass
 
-        try:
-            client = await self._ensure_client_async()
-            # Streaming: pass an explicit ``httpx.Timeout`` per-request
-            # with a generous ``read`` so the stream survives extended
-            # thinking pauses (Anthropic adaptive thinking can pause
-            # 60-180 s between tokens). Default client-level scalar
-            # ``timeout=self.timeout`` (120 s) was applied to read AND
-            # connect, so the stream died mid-response under long
-            # reasoning. Connect stays short (fail fast on dead
-            # gateway). The bigger read also covers slow upstream
-            # providers (Copilot first-token, gateway queue).
-            import httpx as _httpx
-            _stream_timeout = _httpx.Timeout(
-                connect=30.0,
-                read=600.0,
-                write=30.0,
-                pool=30.0,
-            )
-            stream = await client.chat.completions.create(
-                **params, timeout=_stream_timeout,
-            )
-        except Exception as exc:
-            raise _enrich_error(exc, self.base_url, self.provider_hint) from exc
+        # Streaming: pass an explicit ``httpx.Timeout`` per-request
+        # with a generous ``read`` so the stream survives extended
+        # thinking pauses (Anthropic adaptive thinking can pause
+        # 60-180 s between tokens). Default client-level scalar
+        # ``timeout=self.timeout`` (120 s) was applied to read AND
+        # connect, so the stream died mid-response under long
+        # reasoning. Connect stays short (fail fast on dead
+        # gateway). The bigger read also covers slow upstream
+        # providers (Copilot first-token, gateway queue).
+        import httpx as _httpx
+        _stream_timeout = _httpx.Timeout(
+            connect=30.0,
+            read=600.0,
+            write=30.0,
+            pool=30.0,
+        )
+        # Two attempts: the zombie check at ``_ensure_client_async`` is
+        # not race-free. A concurrent stream cancellation can aclose()
+        # the httpx layer AFTER we get the client back but BEFORE
+        # ``create()`` issues its first send. Result: ``RuntimeError:
+        # Cannot send a request, as the client has been closed.``.
+        # Drop + rebuild + retry ONCE before bubbling up; the parent
+        # retry loop in agent_loop handles further connection errors.
+        stream = None
+        for attempt in (1, 2):
+            try:
+                client = await self._ensure_client_async()
+                stream = await client.chat.completions.create(
+                    **params, timeout=_stream_timeout,
+                )
+                break
+            except RuntimeError as exc:
+                msg = str(exc).lower()
+                if (
+                    attempt == 1
+                    and "client has been closed" in msg
+                ):
+                    # Force-drop the dead reference and let the next
+                    # ``_ensure_client_async`` rebuild a fresh one.
+                    self._client = None
+                    continue
+                raise _enrich_error(exc, self.base_url, self.provider_hint) from exc
+            except Exception as exc:
+                raise _enrich_error(exc, self.base_url, self.provider_hint) from exc
 
         async for chunk in stream:
             # IMPORTANT: the provider emits a FINAL usage-only chunk with
@@ -1790,7 +1855,24 @@ class OpenAICompatProvider(BaseLLMProvider):
             if msg.tool_call_id and msg.role == "tool":
                 m["tool_call_id"] = msg.tool_call_id
             if msg.tool_calls:
-                m["tool_calls"] = msg.tool_calls
+                # OpenAI strictly requires ``type`` on every tool_call entry
+                # (one of "function", "all_tools", "custom"). Stored history,
+                # streaming-reconstructed calls from edge providers, and
+                # cross-provider replay (e.g. Anthropic format converted to
+                # OpenAI) can produce entries without a ``type`` field; the
+                # API then 400s with "Invalid type for messages[N].tool_calls
+                # [0].type: expected ..., got null instead." Normalise at the
+                # serialisation boundary so we never ship a non-conforming
+                # entry, regardless of where it came from.
+                normalised: list[dict[str, Any]] = []
+                for tc in msg.tool_calls:
+                    if not isinstance(tc, dict):
+                        normalised.append(tc)
+                        continue
+                    if not tc.get("type"):
+                        tc = {**tc, "type": "function"}
+                    normalised.append(tc)
+                m["tool_calls"] = normalised
             # DeepSeek V4 thinking mode requires reasoning_content on
             # EVERY assistant message replay. Include it for any
             # assistant message targeting a DeepSeek model. Empty

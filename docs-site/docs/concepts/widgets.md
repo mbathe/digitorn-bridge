@@ -1,7 +1,7 @@
 # Widgets - End-to-End Wiring Guide
 
 > Audience: app authors who want to ship rich UIs without writing
-> any frontend code. The Flutter client renders everything; the
+> any frontend code. The chat client renders everything; the
 > daemon validates, serves, and dispatches.
 
 This guide shows the **complete round-trip** for the four common
@@ -25,7 +25,7 @@ flowchart TD
         files["<b>./widgets/*.yaml</b>"]
     end
     yaml -- "daemon compile<br/>validate every primitive,<br/>action, accent" --> compiled["<b>CompiledApp</b><br/>CompiledApp.widgets → WidgetsConfig"]
-    compiled -- "Flutter calls GET /widgets<br/>at app open" --> client["<b>Flutter client</b><br/>• Renders chat_side, workspace_tabs, inline, modals<br/>• Manages local form / state / loop scope<br/>• Substitutes {{form.X}}, {{state.X}}, {{item.X}}<br/>• Sends actions to /widgets/action<br/>• Listens for widget:* on Socket.IO /events"]
+    compiled -- "The client calls GET /widgets<br/>at app open" --> client["<b>chat client</b><br/>• Renders chat_side, workspace_tabs, inline, modals<br/>• Manages local form / state / loop scope<br/>• Substitutes {{form.X}}, {{state.X}}, {{item.X}}<br/>• Sends actions to /widgets/action<br/>• Listens for widget:* on Socket.IO /events"]
     client --> daemon["<b>Daemon runtime</b><br/>• POST /widgets/action → dispatch<br/>• GET /widgets/data/X → resolve sources<br/>• Socket.IO widget:* → push from agent<br/>• widget.* tool calls → per-session room"]
     classDef block fill:#1a1a1a,stroke:#A78BFA,stroke-width:1.5px,color:#E6E6E6,text-align:left;
     classDef sub fill:#0d0d0d,stroke:#3B82F6,stroke-width:1.5px,color:#E6E6E6;
@@ -34,7 +34,7 @@ flowchart TD
 ```
 
 **Key insight:** the daemon never renders. It validates and routes.
-The Flutter client renders and substitutes expressions. The agent
+The chat client renders and substitutes expressions. The agent
 **pushes** live changes via the `widget` module's actions.
 
 ---
@@ -89,13 +89,13 @@ widgets:
 1. **Compile time** - the daemon validates the tree, rejects unknown
    primitives, and stores `data.sources` on the compiled app.
 
-2. **Client mount** - Flutter does:
+2. **Client mount** - The client does:
    ```
    GET (apps API)
    → returns the full WidgetsConfig as JSON
    ```
 
-3. **Hydrate the binding** - Flutter does:
+3. **Hydrate the binding** - The client does:
    ```
    GET (apps API)
    → daemon resolves data.sources (http source type)
@@ -103,11 +103,11 @@ widgets:
    → returns {data: {value: <json response>, status: 200}}
    ```
 
-4. **Render** - Flutter substitutes `{{sources}}` with the array,
+4. **Render** - The client substitutes `{{sources}}` with the array,
    loops the `item:` template, replaces `{{item.title}}` and
    `{{item.url}}` for each entry.
 
-5. **Polling** - Flutter re-fetches the binding every 10s; the
+5. **Polling** - The client re-fetches the binding every 10s; the
    `poll:` is a hint the client honors locally. The daemon doesn't
    schedule anything.
 
@@ -188,15 +188,15 @@ widgets:
 ```
 ### How values flow (the moment the user clicks "Book")
 
-1. **Client validation** - Flutter checks `required`, `regex`, `min`,
+1. **Client validation** - The client checks `required`, `regex`, `min`,
    `max`, `type_hint`. If any field fails, the button stays disabled
    (`{{!form.valid}}`).
 
-2. **Substitution** - Flutter replaces `{{form.topic}}` with the
+2. **Substitution** - The client replaces `{{form.topic}}` with the
    actual user input from the form state map. The `args:` block
    becomes a concrete dict.
 
-3. **POST** - Flutter sends:
+3. **POST** - The client sends:
    ```http
    POST (apps API)
    Authorization: Bearer <jwt>
@@ -245,7 +245,7 @@ widgets:
      }}}
      ```
 
-5. **Client effect** - Flutter sees `effect.action == "tool_result"`,
+5. **Client effect** - The client sees `effect.action == "tool_result"`,
    triggers `on_success` (or `on_error` if `result.success == false`).
 
 ### Shortcut - auto-merge, no `args:` needed
@@ -305,7 +305,7 @@ What happens:
 1. The `widget` module mounts the widget in the per-session store
 2. Publishes a `widget:render` event on the session's Socket.IO room
    (`/events` namespace, room `session:{sid}`)
-3. The Flutter client (joined the session room via `join_session`)
+3. The chat client (joined the session room via `join_session`)
    receives the event
 4. Renders `widgets.inline.confirm_delete` substituting `ctx.path`
 
@@ -352,7 +352,7 @@ await widget.update(
 ```
 
 The daemon publishes a `widget:update` event with the patch. The
-Flutter client merges the dotted-path keys into the widget's local
+chat client merges the dotted-path keys into the widget's local
 state map and re-renders only the affected nodes.
 
 For a clean reset:
@@ -494,7 +494,7 @@ inline entries declared in `app.yaml` are rejected at compile.
 | `skeleton` | Loading placeholder |
 | `empty_state` | Icon + title + subtitle + CTA when no data |
 
-**Where rendering happens:** Flutter. The daemon validates the tree
+**Where rendering happens:** the chat client. The daemon validates the tree
 against this closed set, refuses anything else, and serves the
 JSON-serialised compiled widgets via `GET /widgets`.
 
@@ -564,8 +564,8 @@ client and subscribe to the session room:
 py -3.12 -m digitorn dev chat my-app -m "trigger a widget"
 ```
 
-For one-off SDK / Flutter integration, see
-[Flutter Socket.IO Integration](../reference/client-sdks/flutter.md).
+For one-off SDK / the chat client integration, see
+[Web Socket.IO reference](../reference/api/socketio.md).
 
 ---
 
@@ -595,7 +595,7 @@ widgets.modals.booking.tree.children[1].action.action:
 
 To set realistic expectations:
 
-- **Doesn't render** - the Flutter client owns rendering.
+- **Doesn't render** - the chat client owns rendering.
 - **Doesn't evaluate `{{...}}` expressions** - substitution happens
   client-side. The daemon receives concrete values via `body.form`
   and `payload.args` after the client has done its work.
@@ -744,7 +744,7 @@ widgets:
               # Toggle this source in the user's selection
               action: set_state
               set:
-                # The Flutter client appends/removes from the array
+                # The chat client appends/removes from the array
                 "selected_sources.toggle": '{{item.id}}'
         - type: divider
         - type: stat
@@ -799,7 +799,7 @@ await widget.render(
 )
 ```
 
-The Flutter client receives the `widget:render` event AND has
+The chat client receives the `widget:render` event AND has
 access to the session's state via the snapshot, so `{{state.search_results}}`
 resolves correctly when the list renders.
 

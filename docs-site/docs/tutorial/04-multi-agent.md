@@ -102,7 +102,7 @@ digitorn dev chat multi-agent
 
 ## Live transcript
 
-Real session against the daemon. The user paragraph asks the
+Sample transcript. The user paragraph asks the
 coordinator to summarise and translate at once.
 
 ```text

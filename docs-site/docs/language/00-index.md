@@ -204,7 +204,6 @@ Everything that was under `execution:` (`mode`, `triggers`, `hooks`,
 - [Dev CLI](46-dev-cli.md) - test against the real daemon
 - [API Integration](14-api-integration.md) - REST + Socket.IO contracts
 - [Expressions](10-expressions.md) - template language
-- [App-as-MCP-Server](16-app-as-mcp-server.md) - *(planned)* expose deployed apps
 
 ## Modules
 
@@ -217,7 +216,7 @@ The daemon ships **23 modules** (under ):
 
 `context_builder` and `llm_provider` are auto-loaded; you never
 declare them under `tools.modules`. Per-module reference docs live
-under [reference/modules/](../reference/modules/).
+under [reference/modules/](/docs/reference/modules/).
 
 ## Architecture
 
@@ -320,24 +319,26 @@ digitorn middleware install <path>
 digitorn middleware uninstall <middleware_id>
 
 # Dev loop (test apps against the live daemon)
-digitorn dev deploy <app.yaml>
+digitorn dev deploy <app.yaml> [--scope system|user]
 digitorn dev chat <app_id> [-m "message"]
 digitorn dev status <app_id>
-digitorn dev history <app_id>
+digitorn dev history <app_id> <session_id>
 
 # Daemon control (top-level commands defined in server.py)
 digitorn start [--host 127.0.0.1] [--port 8000] [--workers N] [--config config.yaml] [--app app.yaml]
+digitorn supervise [...]                # daemon under restart-on-crash supervisor
 digitorn stop [--host 127.0.0.1] [--port 8000]
 digitorn status [--host 127.0.0.1] [--port 8000]
 digitorn version
 
-# Module catalog + credential vault + KB + hub
+# Module catalog + credential vault + packages + hub
 digitorn modules ...
 digitorn credentials ...
 digitorn requires ...
 digitorn package ...
 digitorn hub ...
-digitorn install ...
+digitorn install-local                   # pair this daemon to a central account
+digitorn auth login|logout|whoami        # CLI auth against the central service
 digitorn db ...
 ```
 

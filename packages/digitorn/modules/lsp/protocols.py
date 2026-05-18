@@ -38,8 +38,14 @@ class FeedbackProtocol(ABC):
         app_id: str,
         command: list[str],
         cwd: str | None,
+        **kwargs: Any,
     ) -> bool:
-        """Start the protocol. Returns True if successful."""
+        """Start the protocol. Returns True if successful.
+
+        Extra kwargs (``initialization_options``, ``settings``,
+        ``roots``) are honoured by the LSP-mode subclass; compiler /
+        linter subclasses accept and ignore them.
+        """
         ...
 
     @abstractmethod
@@ -100,7 +106,30 @@ class LspProtocol(FeedbackProtocol):
         self._opened: set[str] = set()  # URIs already opened
         self._parser_name = parser_name
 
-    async def start(self, pool, name, app_id, command, cwd) -> bool:
+    async def start(
+        self, pool, name, app_id, command, cwd,
+        *,
+        initialization_options: dict[str, Any] | None = None,
+        settings: dict[str, Any] | None = None,
+        roots: list[str] | None = None,
+    ) -> bool:
+        """Spawn the LSP server subprocess and handshake.
+
+        ``initialization_options`` (JSON-RPC ``initialize.params.initializationOptions``)
+            Server-specific bootstrap config. Examples:
+            - pyright: ``{"settings": {"python": {"venvPath": "..."}}}``
+            - rust-analyzer: ``{"checkOnSave": {"command": "clippy"}}``
+            - texlab: ``{"latex": {"build": {"executable": "tectonic"}}}``
+
+        ``settings`` (sent via ``workspace/didChangeConfiguration`` after
+        ``initialized``)
+            Runtime workspace settings most LSP servers accept.
+
+        ``roots`` (workspaceFolders)
+            Multi-root projects. Each entry is an absolute path; the
+            server sees them as workspace folders and indexes them.
+            Falls back to ``cwd`` when empty.
+        """
         self._pool = pool
         self._name = name
         self._app_id = app_id
@@ -116,21 +145,92 @@ class LspProtocol(FeedbackProtocol):
                 on_notification=self._on_notification,
             )
 
-            ws_uri = Path(cwd).resolve().as_uri() if cwd else "file:///tmp"
-            await self._channel.request("initialize", {
+            # Build the workspaceFolders list. ``roots`` (if provided)
+            # takes precedence over ``cwd`` -- it's the explicit
+            # multi-root contract. Otherwise fall back to the legacy
+            # single-folder shape (cwd).
+            folders: list[dict[str, str]] = []
+            if roots:
+                for r in roots:
+                    if not r:
+                        continue
+                    rp = Path(r).resolve()
+                    if not rp.exists():
+                        logger.debug(
+                            "lsp_root_missing name=%s root=%s",
+                            name, r,
+                        )
+                        continue
+                    folders.append({
+                        "uri": rp.as_uri(),
+                        "name": rp.name or "root",
+                    })
+            if not folders and cwd:
+                cwdp = Path(cwd).resolve()
+                folders.append({
+                    "uri": cwdp.as_uri(),
+                    "name": cwdp.name or "workspace",
+                })
+            primary_uri = folders[0]["uri"] if folders else "file:///tmp"
+
+            # Keep the capabilities block MINIMAL: only declare what
+            # the channel actually implements. Declaring
+            # ``workspace.configuration: true`` here would make servers
+            # (pyright, typescript-language-server) issue
+            # ``workspace/configuration`` requests back to us, expecting
+            # a reply -- our sidecar channel doesn't currently handle
+            # server-initiated REQUESTS (only notifications), so the
+            # server would block forever on the first didOpen. The
+            # legacy minimal set is good enough for hover / goto /
+            # references / completion.
+            init_params: dict[str, Any] = {
                 "processId": None,
                 "capabilities": {
                     "textDocument": {
                         "publishDiagnostics": {"relatedInformation": True},
-                        "synchronization": {"didSave": True, "didOpen": True, "didChange": True},
+                        "synchronization": {
+                            "didSave": True,
+                            "didOpen": True,
+                            "didChange": True,
+                        },
                     },
                 },
-                "rootUri": ws_uri,
-                "workspaceFolders": [{"uri": ws_uri, "name": Path(cwd).name if cwd else "workspace"}],
-            }, timeout=30)
+                # ``rootUri`` kept for old LSP servers that ignore
+                # workspaceFolders. Spec says rootUri is deprecated in
+                # favor of workspaceFolders, but several real-world
+                # servers (older rust-analyzer, some embedded LSPs)
+                # still consult it. Set it to the primary folder.
+                "rootUri": primary_uri,
+                "workspaceFolders": folders or None,
+            }
+            if initialization_options:
+                init_params["initializationOptions"] = initialization_options
 
+            await self._channel.request(
+                "initialize", init_params, timeout=30,
+            )
             await self._channel.notify("initialized", {})
-            logger.info("lsp_protocol_started name=%s", name)
+
+            # Post-initialized: push runtime settings if provided.
+            # Pyright / typescript-language-server / others read these
+            # via ``workspace/didChangeConfiguration``.
+            if settings:
+                try:
+                    await self._channel.notify(
+                        "workspace/didChangeConfiguration",
+                        {"settings": settings},
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        "lsp_didChangeConfiguration_failed name=%s: %s",
+                        name, exc,
+                    )
+
+            logger.info(
+                "lsp_protocol_started name=%s folders=%d init_opts=%s settings=%s",
+                name, len(folders),
+                bool(initialization_options), bool(settings),
+            )
             return True
 
         except Exception as exc:
@@ -273,7 +373,9 @@ class CompilerProtocol(FeedbackProtocol):
         self._lock = asyncio.Lock()
         self._last_run: float = 0
 
-    async def start(self, pool, name, app_id, command, cwd) -> bool:
+    async def start(
+        self, pool, name, app_id, command, cwd, **_ignored,
+    ) -> bool:
         self._command = command
         self._cwd = cwd
         self._name = name
@@ -396,7 +498,9 @@ class LinterProtocol(FeedbackProtocol):
         self._cached: dict[str, list[Diagnostic]] = {}
         self._json_flag: str = ""
 
-    async def start(self, pool, name, app_id, command, cwd) -> bool:
+    async def start(
+        self, pool, name, app_id, command, cwd, **_ignored,
+    ) -> bool:
         self._command = command
         self._cwd = cwd
         self._name = name

@@ -258,18 +258,92 @@ def parse_generic_lines(stdout: str, stderr: str) -> list[Diagnostic]:
     return parse_fallback(stderr or stdout)
 
 
-def parse_fallback(text: str) -> list[Diagnostic]:
-    """Best-effort parse of unstructured output (file:line:col: message)."""
+def parse_fallback(stdout: str, stderr: str = "") -> list[Diagnostic]:
+    """Best-effort parse of unstructured output (file:line:col: message).
+
+    Accepts both stdout AND stderr because the linter / compiler protocol
+    invokers always pass both — some tools emit diagnostics on stdout
+    (chktex, ruff), others on stderr (cargo, gcc, older latexmk). The
+    registry called us with a single-arg signature historically (4
+    internal callsites in this module); the second arg defaults to ""
+    so legacy callers keep working without a sweep.
+    """
     diags: list[Diagnostic] = []
-    for line in text.splitlines():
-        m = re.match(r"^(.+?):(\d+):(\d+):\s*(\w+:?\s*)?(.+)$", line)
-        if m:
-            sev_raw = (m.group(4) or "").strip().rstrip(":").lower()
+    for text in (stdout, stderr):
+        if not text:
+            continue
+        for line in text.splitlines():
+            m = re.match(r"^(.+?):(\d+):(\d+):\s*(\w+:?\s*)?(.+)$", line)
+            if m:
+                sev_raw = (m.group(4) or "").strip().rstrip(":").lower()
+                diags.append(Diagnostic(
+                    file=m.group(1), line=int(m.group(2)), column=int(m.group(3)),
+                    severity="error" if "error" in sev_raw else "warning",
+                    message=m.group(5).strip(),
+                ))
+    return diags
+
+
+_CHKTEX_RE = re.compile(
+    r"^(?P<sev>Warning|Error|Message)\s+(?P<code>\d+)\s+in\s+"
+    r"(?P<file>.+?)\s+line\s+(?P<line>\d+):\s*(?P<msg>.+)$"
+)
+
+
+def parse_chktex(stdout: str, stderr: str = "") -> list[Diagnostic]:
+    """Parse chktex's native multi-line output.
+
+    Format (default, no -f):
+        Warning N in PATH line L: MESSAGE
+        <context line>
+        ^
+
+    The MiKTeX build of chktex does NOT translate ``\\n`` in -f format
+    strings to real newlines, so using -f with our standard regex
+    silently produces a single Diagnostic with all hits concatenated.
+    Letting chktex emit its native format and parsing it here side-steps
+    that platform quirk.
+
+    Column comes from the caret line that follows the message. We
+    advance past the ``Warning ... line L:`` line, then peek at the
+    next-but-one line for the ``^`` position. If absent we default to 1.
+    """
+    diags: list[Diagnostic] = []
+    # chktex emits diagnostics to STDOUT and warns about update checks
+    # on stderr ("chktex: major issue: So far, you have not checked
+    # for MiKTeX updates"). Scan stdout first; fall back to stderr if
+    # stdout is empty (some legacy builds invert the streams).
+    for src in (stdout, stderr):
+        if not src or not src.strip():
+            continue
+        lines = src.splitlines()
+        i = 0
+        while i < len(lines):
+            m = _CHKTEX_RE.match(lines[i])
+            if not m:
+                i += 1
+                continue
+            col = 1
+            # Caret is typically 2 lines after the diagnostic header
+            if i + 2 < len(lines):
+                caret_line = lines[i + 2]
+                caret_pos = caret_line.find("^")
+                if caret_pos >= 0:
+                    col = caret_pos + 1
+            sev_raw = m.group("sev").lower()
+            severity = "error" if sev_raw == "error" else "warning"
             diags.append(Diagnostic(
-                file=m.group(1), line=int(m.group(2)), column=int(m.group(3)),
-                severity="error" if "error" in sev_raw else "warning",
-                message=m.group(5).strip(),
+                file=m.group("file"),
+                line=int(m.group("line")),
+                column=col,
+                severity=severity,
+                message=m.group("msg").strip(),
+                code=m.group("code"),
+                source="chktex",
             ))
+            i += 1
+        if diags:
+            return diags  # stop scanning subsequent streams once we have hits
     return diags
 
 
@@ -314,6 +388,7 @@ PARSERS: dict[str, Any] = {
     "cargo": parse_cargo,
     "govet": parse_govet,
     "tectonic": parse_tectonic,
+    "chktex": parse_chktex,
     "generic_json": parse_generic_json,
     "generic_lines": parse_generic_lines,
     "fallback": parse_fallback,

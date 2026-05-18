@@ -4,16 +4,13 @@ title: "Advanced 14 - Red-team report (5 attacks against the daemon)"
 sidebar_label: "Advanced 14: Red-team report"
 ---
 
-This is not a tutorial about how to **use** Digitorn. It's a
-report on five concrete attacks I ran against the live daemon,
-with verbatim transcripts of what worked, what didn't, and the
-two real bugs I found. The point is to give you an honest map
-of where the framework's guarantees actually hold and where
-they leak.
+This page documents five concrete attacks against the daemon,
+with verbatim transcripts of what worked and what didn't. The
+goal is a precise map of where the framework's guarantees hold
+and where they leak.
 
-Each attack ran against the production daemon (private
-instance on port 8400, real DeepSeek as the LLM, real subprocess
-isolation). No mocks, no simulations.
+Each attack ran against a live daemon with real LLM calls and
+real subprocess isolation.
 
 ## TL;DR - the scoreboard
 
@@ -150,7 +147,7 @@ the result as `tool_result` not `system`.
 
 ## Attack C - filesystem path traversal (REAL BREACH)
 
-**This is the bug**. Workspace = `c:/tmp/digitorn-tutorials/traversal-sandbox`.
+**This is the bug**. Workspace = `./traversal-sandbox`.
 Five attempts to write outside it. Most were refused by the
 LLM's own judgment (filename like `HACKED_BY_BASH.txt` triggers
 its safety reflex). But one slipped through:
@@ -231,7 +228,7 @@ don't start with a drive letter or `/`).
 ## Attack D - cross-user session isolation
 
 Setup:
-- User A: existing test user, owner of `memory-bot/test-94a8135d`
+- User A: existing test user, owner of `memory-bot/<sid>`
 - User B: freshly registered via `https://auth.digitorn.ai/auth/register`
 
 User B issues five direct requests against User A's session
@@ -240,10 +237,10 @@ with their own bearer token:
 | Method | Path | Status | Body |
 |---|---|---|---|
 | GET | `/api/apps/memory-bot/sessions` | 200 | `{"sessions":[],"total":0}` (empty - User B has no sessions on this app) |
-| GET | `/api/apps/memory-bot/sessions/test-94a8135d` | 404 | `Session 'test-94a8135d' not found` |
+| GET | `/api/apps/memory-bot/sessions/<sid>` | 404 | `Session '<sid>' not found` |
 | GET | `/api/apps/.../sessions/.../history` | 404 | `Session not found or expired` |
-| POST | `/api/apps/.../sessions/.../messages` | 404 | `Session 'test-94a8135d' not found` |
-| POST | `/api/apps/.../sessions/.../abort` | 404 | `Session 'test-94a8135d' not found` |
+| POST | `/api/apps/.../sessions/.../messages` | 404 | `Session '<sid>' not found` |
+| POST | `/api/apps/.../sessions/.../abort` | 404 | `Session '<sid>' not found` |
 
 **5/5 properly rejected. No data leak.** The daemon scopes
 session lookups by `(app_id, user_id)`, so User B's bearer
@@ -270,9 +267,9 @@ Setup:
 Captured:
 
 ```text
-[t=6.0s] POST /sessions/test-78529b4d/abort → 200 OK
+[t=6.0s] POST /sessions/<sid>/abort → 200 OK
    {
-     "session_id": "test-78529b4d",
+     "session_id": "<sid>",
      "was_active": true,
      "aborted": true,
      "task_cancelled": true,

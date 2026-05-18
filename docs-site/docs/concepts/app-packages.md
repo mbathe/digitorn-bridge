@@ -1,15 +1,10 @@
-# Digitorn App Packages - Canonical Design Document
+# Digitorn App Packages
 
-> **Status**: design locked on 2026-04-13. Implementation of
-> Phase A starts now. Any change to the design from this point on
-> must update this doc first, then the code.
->
-> **Scope for v1**: daemon-side only. The **hub server** (where users
-> publish / browse / download community apps) is intentionally out
-> of scope for v1 and tracked as a separate project - see §14. The
-> daemon ships with built-in apps bundled in the wheel plus the
-> ability to install local packages from a directory. That's
-> enough to prove the architecture. Hub comes later.
+The packaging model: how apps are bundled, installed, and run
+by the daemon. The daemon ships with built-in apps bundled in
+the wheel plus the ability to install local packages from a
+directory. The hub server (where users publish / browse /
+download community apps) is documented separately.
 
 ## Table of contents
 
@@ -1116,9 +1111,6 @@ place (HubSource interface) - implementing the real source is
 ---
 
 ## 16. Locked decisions
-
-Reviewed and validated by the user on 2026-04-13. **Authoritative**
-- no question is reopened without updating this section first.
 
 ### D1 - Install directory: `~/.digitorn/packages/<id>/`
 

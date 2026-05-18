@@ -381,8 +381,17 @@ class LLMProviderProxy:
         chunks_text: list[str] = []
         final_finish: str | None = None
         final_usage: Any = None
-        accumulated_tool_calls: list[dict[str, Any]] = []
-        seen_ids: set[str] = set()
+        # Tool-call accumulator keyed by the streamed index (OpenAI
+        # streams deltas with a stable ``index`` per logical call; ``id``
+        # only appears on some chunks, name on others, arguments
+        # progressively across many). Previous implementation dedup'd
+        # by id and kept only the FIRST chunk per id, which meant
+        # capturing the placeholder (typically ``{id, name: null,
+        # arguments: ""}``) and dropping every subsequent delta that
+        # carried the real name + args. github_copilot/gpt-5-mini
+        # routinely emits name in a late chunk → loop_guard_hard_kill
+        # cascade with 12 empty-name tool exec attempts (BUG-069).
+        tc_acc: dict[int, dict[str, Any]] = {}
         thinking_acc: list[str] = []
 
         async for chunk in self.chat_stream(
@@ -405,14 +414,58 @@ class LLMProviderProxy:
                 for tc in chunk.tool_calls:
                     if not isinstance(tc, dict):
                         continue
-                    tc_id = tc.get("id")
-                    if tc_id and tc_id in seen_ids:
-                        continue
+                    idx = tc.get("index", len(tc_acc))
+                    entry = tc_acc.setdefault(
+                        idx, {"id": "", "name": "", "args_parts": []},
+                    )
+                    tc_id = tc.get("id") or ""
                     if tc_id:
-                        seen_ids.add(tc_id)
-                    accumulated_tool_calls.append(tc)
+                        entry["id"] = tc_id
+                    tc_name = tc.get("name") or ""
+                    if tc_name and not entry["name"]:
+                        entry["name"] = tc_name
+                    tc_args = tc.get("arguments")
+                    if tc_args:
+                        if isinstance(tc_args, str):
+                            entry["args_parts"].append(tc_args)
+                        elif isinstance(tc_args, (dict, list)):
+                            # Some adapters skip streaming and ship the
+                            # final args dict in one shot. Serialise it
+                            # so the join below produces valid JSON.
+                            import json as _json
+                            entry["args_parts"].append(
+                                _json.dumps(tc_args, ensure_ascii=False),
+                            )
             if chunk.thinking:
                 thinking_acc.append(chunk.thinking)
+
+        # Build the final OpenAI-shape tool_calls list. Skip entries
+        # that never received a function name (an unrunnable call - the
+        # LLM aborted mid-stream or the adapter mangled the deltas).
+        # Parse args back into a dict where possible so downstream
+        # validators see the structured form.
+        import json as _json
+        import uuid as _uuid
+        accumulated_tool_calls: list[dict[str, Any]] = []
+        for idx in sorted(tc_acc.keys()):
+            entry = tc_acc[idx]
+            if not entry["name"]:
+                continue
+            args_str = "".join(entry["args_parts"])
+            args_obj: Any = {}
+            if args_str.strip():
+                try:
+                    args_obj = _json.loads(args_str)
+                except _json.JSONDecodeError:
+                    args_obj = args_str  # leave raw for downstream recovery
+            accumulated_tool_calls.append({
+                "id": entry["id"] or f"call_{_uuid.uuid4().hex[:12]}",
+                "type": "function",
+                "function": {
+                    "name": entry["name"],
+                    "arguments": args_obj,
+                },
+            })
 
         from digitorn.modules.llm_provider.providers.base import (
             ChatResponse, TokenUsage,

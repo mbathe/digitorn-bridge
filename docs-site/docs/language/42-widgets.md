@@ -7,7 +7,7 @@ sidebar_position: 42
 # Widgets - Declarative UI v1
 
 Any Digitorn app can expose dynamic UIs rendered by the
-Flutter / web client **without writing a single line of
+chat client / web client **without writing a single line of
 frontend code**. The agent declares trees of typed primitives;
 the daemon validates them, substitutes templates server-side,
 and pushes them to the client over Socket.IO.
@@ -194,7 +194,7 @@ ui:
 | `hidden` | Static alias for `when: false`. |
 | `data` | Local data sources scoped to this sub-tree. |
 
-`when:` and `for:` are evaluated **client-side** (Flutter
+`when:` and `for:` are evaluated **client-side** (chat client
 holds the live form / state / loop scope); the daemon
 validates structure but doesn't execute the predicate.
 
@@ -563,7 +563,7 @@ against `WIDGET_PRIMITIVES` happens at compile time
 
 ## 8 · The 15 actions
 
-Verified at `schema.py`. Dispatched through the widget-action
+Every widget action is dispatched through the widget-action
 endpoint.
 
 | Action | Purpose |
@@ -655,7 +655,7 @@ then:
 ## 9 · Expression language
 
 Daemon evaluates these **server-side** when rendering / patching
-trees (`module.py`). Flutter evaluates the same grammar
+trees (`module.py`). the chat client evaluates the same grammar
 locally for `when:` / `for:` / live form substitution.
 
 ### Scopes
@@ -1417,7 +1417,7 @@ publishing - client renders the confirmation card in the chat.
 
 - App-config block reference (`ui.widgets`):
   [App Configuration → ui](02-app-config.md#ui---display-layer-daemon-never-reads)
-- Client manifest (everything the Flutter / web client reads,
+- Client manifest (everything the the chat client / web client reads,
   including `ui.widgets`): [Client Manifest](44-client-manifest.md)
 - Bundle directories (`widgets/`, `prompts/`, `skills/`,
   `behavior/`, `assets/`): [Bundle namespaces](38-bundle-namespaces.md)

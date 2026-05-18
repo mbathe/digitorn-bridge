@@ -4,16 +4,14 @@ id: app-config
 
 # App Configuration
 
-The canonical reference for the Digitorn app YAML. Every field on this
-page maps to a Pydantic field in
- (or )
-and is enforced at compile time with `extra: forbid` - unknown keys
-are rejected.
+The canonical reference for the Digitorn app YAML. Every field on
+this page is strictly enforced at compile time - unknown keys are
+rejected.
 
 ## YAML structure (v2)
 
 A canonical Digitorn app declares **eight top-level blocks** plus an
-optional ``schema_version`` (`schema.py` `AppDefinition`):
+optional ``schema_version``:
 
 ```yaml
 schema_version: 2  # optional, default 2 (forward-compat declaration)
@@ -45,7 +43,7 @@ to a default-instance model) - but a useful app declares at least
 
 ## `app:` - Identity
 
-`schema.py` `AppMeta` (`extra: forbid`).
+Identity, branding, and discovery metadata for the app.
 
 ```yaml
 app:
@@ -83,14 +81,14 @@ app:
 | `color` | string | `""` |
 | `category` | string | `"general"` |
 | `attachments` | `list["image" \| "document" \| "audio" \| "video"]` or `"*"` or `null` | `null` (disabled) |
-| `attachments_mode` | `"auto" \| "inject" \| "tool" \| "hybrid"` | `"auto"` |
+| `attachments_mode` | `"direct" \| "tool"` | `"direct"` |
 | `quick_prompts` | list[QuickPrompt] | `[]` |
 
-`QuickPrompt` (`typed_models.py`, `extra: allow`) is `{label*, message*, icon}` - `label` and `message` are required strings, `icon` defaults to `""`.
+`QuickPrompt` is `{label*, message*, icon}` - `label` and `message` are required strings, `icon` defaults to `""`.
 
 ### `app.attachments` - what the composer's `+` menu accepts
 
-`schema.py` `AppMeta.attachments`. Declares which attachment
+Declares which attachment
 types the chat composer will let the user upload. **Opt-in**:
 when the field is unset (`null`) the composer hides the upload
 entries entirely.
@@ -101,13 +99,12 @@ entries entirely.
 | `["image", "document"]` | Only the listed types appear in the menu. Order doesn't matter. |
 | `"*"` | All four types enabled. Expanded server-side before the manifest reaches the client. |
 
-Supported types and how the daemon routes each one
-(`manager_v2/_models.py` `_ATTACHMENT_TYPES`):
+Supported types and how the daemon routes each one:
 
 | Type | Accepted extensions | Pipeline |
 |------|--------------------|----------|
 | `image`    | PNG, JPG, GIF, WEBP, HEIC | Embedded as base64, routed to a vision-capable LLM. Apps using a non-vision brain should disable. |
-| `document` | PDF, DOCX, PPTX, ODT, ODS, XLSX, RTF, CSV, JSON, MD, TXT, HTML, XML, common code files | Format detected by magic bytes (`_attach_helpers.py::sniff_format`), parsed to plain text by the matching ingestor under `modules/rag/indexing/ingestors.py`, then injected or indexed depending on `attachments_mode`. |
+| `document` | PDF, DOCX, PPTX, ODT, ODS, XLSX, RTF, CSV, JSON, MD, TXT, HTML, XML, common code files | Format detected by magic bytes, parsed to plain text by the matching ingestor, then injected or indexed depending on `attachments_mode`. |
 | `audio`    | MP3, WAV, M4A, OGG | Transcribed via the configured STT provider, the transcript is passed as text. |
 | `video`    | MP4, MOV, WEBM | Sent to the LLM only when the model supports video (Gemini, recent Sonnet). Other models return an error. |
 
@@ -139,49 +136,30 @@ app:
   attachments: null
 ```
 
-Adding a new attachment kind requires extending both the
-`Literal` union in `schema.py` and the `_ATTACHMENT_TYPES`
-tuple in `manager_v2/_models.py` (the validator and the
-expander) - they stay in lockstep.
+Adding a new attachment kind requires extending the daemon's
+validator and expander tuples in lockstep.
 
 ### `app.attachments_mode` - how the agent sees attached files
 
-`schema.py` `AppMeta.attachments_mode`. Once a file has been
+Once a file has been
 uploaded and parsed to text, this field decides what the
 agent receives on the next turn.
 
 | Mode | Effect | When to use |
 |------|--------|-------------|
-| `auto` | Pick automatically per turn. No workspace module loaded: behaves like `inject`. Workspace loaded and total extracted text ≤ 80 KB: behaves like `hybrid`. Workspace loaded and bigger: behaves like `tool`. | **Default.** Leaves the right call to the daemon. |
-| `inject` | Full extracted text of every attached file is prepended to the user message, wrapped in a `[Attached files context]` block. The agent never has to call a tool to see the content. | Chat apps without a workspace; small-doc Q&A where the user wants the model to "see" everything immediately. |
-| `tool` | Files are mirrored into the workspace under `attachments/<name>`. The agent is told to call `WsRead` / `WsGlob` / `WsGrep` to inspect them. No content in the prompt, just a manifest with per-file line counts. | Big-corpus apps where injecting the full text would blow the context window. Pair with [`workspace.agent_root: "attachments"`](../reference/modules/workspace.md#agent_root---scope-lock-for-attachments-mode) to lock the agent's view to the upload directory. |
-| `hybrid` | Both: the text is injected AND the files are mirrored into the workspace. The agent has the content immediately for Q&A but can also re-read sections or edit them via `WsRead` / `WsEdit`. | Mixed workflows: chat over the document, but also let the agent rewrite parts of it. |
+| `direct` | Full extracted text of every attached file is prepended to the user message. The agent answers immediately, no tool call needed. | **Default.** Chat apps without a workspace, small-doc Q&A where the user wants the model to "see" everything immediately. |
+| `tool` | Files are mirrored into the workspace under `attachments/<name>`. The agent is told to call `WsRead` / `WsGlob` / `WsGrep` to inspect them. No content in the prompt. | Big-corpus apps where injecting the full text would blow the context window. Pair with [`workspace.agent_root: "attachments"`](../reference/modules/workspace.md#agent_root---scope-lock-for-attachments-mode) to lock the agent's view to the upload directory. |
 
-Recommendation: leave `attachments_mode: auto` unless you have
-a specific reason. Switch to `tool` only for big-corpus apps
-that ship a workspace and where injection is provably blowing
-the context window. `inject` is rarely set explicitly,
-`auto` covers it whenever the workspace module isn't loaded.
-
-The four modes are implemented in `_dispatch.py`
-`_maybe_inject_rag_context`; `tool` and `hybrid` need the
-`workspace` module loaded or they silently fall back to `inject`.
-
-Beyond the size threshold (80 KB extracted text per session),
-the daemon falls back to top-k RAG retrieval against a
-per-session knowledge base named `chat-session-<sid>`
-(`_attach_helpers.py::kb_name_for_session`). The user message
-gets the same `[Attached files context]` block, but with the
-20 most relevant excerpts (cap 2000 chars each) instead of
-the full document.
+`tool` mode needs the `workspace` module loaded or it silently
+falls back to `direct`.
 
 ```yaml
-# digitorn-chat - hybrid + workspace lock (real production app)
+# digitorn-chat - direct mode (real production app)
 app:
   app_id: chat
   name: Chat
   attachments: [image, document]
-  attachments_mode: hybrid
+  attachments_mode: direct
 
 tools:
   modules:
@@ -213,7 +191,7 @@ tools:
 > `Clone`, `Code`, `Copilot`, `Research`, `Sandbox`.
 
 > **Mode picker.** The composer's Ask / Plan / Auto pill is driven by
-> [`runtime.modes`](#runtimemodes--composer-mode-picker), not an
+> [`runtime.modes`](#runtime-modes-picker), not an
 > AppMeta tag. Each entry is a structured override (system prompt,
 > tool grants, behavior profile, …), not just a label.
 
@@ -229,7 +207,7 @@ tools:
 
 ## `runtime:` - Lifecycle and execution policy
 
-`schema.py` `RuntimeBlock` (`extra: forbid`). Every field that
+Every field that
 controls per-turn daemon behavior lives here.
 
 ```yaml
@@ -314,12 +292,11 @@ flow:
 | `input`, `output` | InputConfig, OutputConfig | default-instances |
 | `payload_schema` | PayloadSchemaConfig\|None | `null` |
 
-### `runtime.modes` - Composer mode picker
+### `runtime.modes` - Composer mode picker {#runtime-modes-picker}
 
-`schema.py` `ModeDef` (`extra: forbid`). Map of mode-id →
-`ModeDef`. The chat composer surfaces the picker only when
-`len(runtime.modes) >= 2` - a single entry (or empty dict) hides
-the pill entirely.
+Map of mode-id → mode definition. The chat composer surfaces the
+picker only when at least two modes are declared - a single entry
+(or empty dict) hides the pill entirely.
 
 Each entry is a **sparse override**: only fields you set apply on
 top of the app's normal runtime / agent / tools config when the
@@ -364,33 +341,119 @@ with default icons + accents: `ask` (lightbulb / cyan), `plan`
 (map / purple), `auto` (sparkles / green). Custom ids work too -
 just set `label`, `icon` and `accent` explicitly.
 
-**Built-in usage.** `digitorn-chat`, `copilot-smoke`,
-`digitorn-deepresearch` ship with no `runtime.modes` (single
-dispatch path → no picker). `digitorn-code`, `digitorn-builder`,
-`digitorn-clone` ship with `ask / plan / auto`.
-`digitorn-react-sandbox` ships with `plan / auto`.
+**Built-in usage.** `digitorn-chat`, `digitorn-scribe`,
+`digitorn-deepresearch`, `notes-lm` ship with no `runtime.modes`
+(single dispatch path → no picker). `digitorn-code`,
+`digitorn-builder` ship with `ask / plan / auto`.
+`digitorn-lovable` ships with `plan / build`.
+
+#### Runtime semantics - what fires when the user picks a mode
+
+Once a mode is wired into `runtime.modes`, the daemon applies each
+override at a specific point in the dispatch pipeline. Empty mode
+fields are no-ops - the app default keeps its place.
+
+1. **Mode_id arrives via the POST body.** The composer ships the
+   selected mode in `POST /messages` as `{ "mode": "<id>" }`. When
+   the body omits `mode`, the **default-policy** kicks in: `auto`
+   if declared, else the first declared mode (insertion order),
+   else no mode at all (every override is inert).
+
+2. **Mode-switch system message** *(applied at every fresh user
+   turn).* When the active mode differs from the session's stored
+   mode, a durable system directive is injected into the
+   conversation timeline, carrying:
+   - the mode header `[Mode: <Label>]`
+   - the YAML's `system_prompt` verbatim
+   - the auto-generated tools-available + tools-blocked lists
+   - the standing instruction "ask the user to switch mode if you
+     need a blocked tool"
+
+   The directive is persisted like assistant messages, survives
+   daemon restarts, and is replayed on cold-load. The session's
+   active mode is then bumped so the next turn with the same mode
+   is a no-op.
+
+3. **Tool list filtering** *(applied on the LLM call schema).*
+   `tool_grants` is a strict allow-list. When non-empty, the agent
+   computes an allowed / blocked partition over the app's full tool
+   list and the LLM only sees the allowed tools in its schema for
+   this turn. Empty `tool_grants` means full inheritance and no
+   filtering.
+
+4. **Tool dispatch guard** *(defense in depth).* Any call whose
+   tool name is not in the active mode's allow-list is rejected
+   with a synthetic error result:
+
+   > Tool 'X' is blocked in mode 'Y'. Allowed tools: ... Ask the
+   > user to switch to a mode that allows this tool. Do not retry
+   > this call.
+
+   This catches hallucinated calls (e.g. the LLM remembers a tool
+   from a previous mode in the same conversation).
+
+5. **`max_turns` / `timeout` caps** *(applied per turn).* When the
+   mode narrows either value, the per-turn loop bound and timeout
+   use the mode's value instead of the app's. A mode that caps
+   `max_turns: 8` stops the inner loop at 8 even though the app
+   declares 200.
+
+6. **`behavior_profile` swap** *(applied per turn).* When the mode
+   declares a profile, the behaviour engine re-resolves its active
+   rules against the new profile while preserving per-session
+   state (counters, sets, flags). Empty profile string reverts to
+   the YAML's `security.behavior.profile`. A re-call with the same
+   profile is a no-op.
+
+7. **`workspace_mode` override** *(client signal, optional).* The
+   client may hide the workspace pane in Ask mode etc. No
+   server-side effect today.
+
+#### Client surfaces
+
+| Surface | Behaviour |
+| --- | --- |
+| Mode pill in the composer | Shown when the active app declares at least two modes. Pre-selected to the app's default mode (auto if declared, else the first declared). |
+| Switch animation | A 600 ms colored pulse using the new mode's accent fires every time the user picks a different mode in the picker. |
+| Session reload | The session API exposes the currently-bound mode so the picker comes back on the user's last-active mode, not the app default. |
+| Directive bubbles | The mode-switch directives are NOT rendered as visible bubbles in the chat. The LLM still sees them as system messages in its context. |
+
+#### Known limitations
+
+- **Queue persistence.** Messages queued behind a long-running turn
+  drop the mode on chain-drain - drained turns fall back to the
+  default-policy mode. Fast-path POSTs (no queue) keep the user's
+  selection.
+- **Sub-agents.** `runtime.modes` applies to the coordinator turn
+  only. Spawned sub-agents inherit the app's defaults regardless of
+  the active mode. Per-mode sub-agent overrides are not in scope.
+- **Per-mode credentials / brain.** Not supported. All modes share
+  the agent's normal `brain` block.
+- **Mid-turn mode change.** Once a turn is dispatched, the active
+  configuration for that turn is frozen. Switching modes in the
+  picker during a running turn affects only the next user message.
 
 ### `runtime.context` - Context window management
 
-`schema.py` `ContextConfig` (`extra: forbid`). Eight fields:
+Eight fields:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `max_tokens` | int [0, 2_000_000] | `0` | `schema.py`. `0` = auto-detect from provider. |
-| `output_reserved` | int | `4096` | `schema.py`. Reserved for output generation when computing pressure. |
-| `strategy` | `truncate | summarize` | `summarize` | `schema.py` |
-| `keep_recent` | int | `10` | `schema.py`. Most-recent messages preserved verbatim during compaction. |
-| `compression_trigger` | float [0, 1] | `0.75` | `schema.py`. Pressure ratio that triggers auto-compaction. |
-| `summary_max_tokens` | int | `1024` | `schema.py` |
-| `auto_compact` | bool | `true` | `schema.py`. Auto-injects a `context_pressure` hook if none declared. |
-| `summary_brain` | AgentBrain\|None | `null` | `schema.py`. Use a cheap/fast model for summaries instead of the agent's main brain. |
+| `max_tokens` | int [0, 2_000_000] | `0` | `0` = auto-detect from provider. |
+| `output_reserved` | int | `4096` | Reserved for output generation when computing pressure. |
+| `strategy` | `truncate` \| `summarize` | `summarize` | Compaction strategy when the window fills. |
+| `keep_recent` | int | `10` | Most-recent messages preserved verbatim during compaction. |
+| `compression_trigger` | float [0, 1] | `0.75` | Pressure ratio that triggers auto-compaction. |
+| `summary_max_tokens` | int | `1024` | Cap on the generated summary. |
+| `auto_compact` | bool | `true` | Auto-injects a `context_pressure` hook if none declared. |
+| `summary_brain` | AgentBrain\|None | `null` | Use a cheap/fast model for summaries instead of the agent's main brain. |
 
 Per-agent override: each agent can re-declare `brain.context` with the
 same fields.
 
 ## `agents:` - Agent definitions
 
-`schema.py` `AgentDefinition` (list-shape, `extra: forbid`). Full
+List of agent definitions. Full
 field reference is on the [Agents](03-agents.md) page; here is the
 shape and how it nests in the app:
 
@@ -423,7 +486,7 @@ patterns.
 
 ## `tools:` - Modules, capabilities, channels
 
-`schema.py` `ToolsBlock` (`extra: forbid`).
+Tools declaration block.
 
 ```yaml
 tools:
@@ -460,18 +523,18 @@ tools:
 
 ### `tools.modules` - Module configuration
 
-`schema.py`. Map of module-id → `ModuleBlock` (`schema.py`).
-Each `ModuleBlock` has 5 fields (`extra: forbid`):
+Map of module-id to module block.
+Each `ModuleBlock` has 5 fields:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `config` | dict | `{}` | `schema.py`. Static config pushed via `module.on_config_update(config)` at bootstrap. Validated against the module's `CONFIG_MODEL` if declared. |
-| `setup` | list[SetupStep] | `[]` | `schema.py`. Ordered actions executed at bootstrap. Each step = `{action: str, params: dict}`. |
-| `constraints` | dict | `{}` | `schema.py`. Universal: `allowed_actions`, `blocked_actions`. Module-specific keys validated against the module's `ConstraintSpec`. |
-| `middleware` | list[dict] | `[]` | `schema.py`. Module-level middleware pipeline. Example: `[{audit: {log_params: true}}, {retry: {max_attempts: 3}}]`. |
-| `credential` | string \| dict \| null | `null` | `schema.py`. Compact: `credential: openai_main`. Explicit: `credential: { ref: openai_main, scope: per_user }`. Resolved at activation time. |
+| `config` | dict | `{}` | Static config pushed to the module at bootstrap. Validated against the module's own config model when declared. |
+| `setup` | list[SetupStep] | `[]` | Ordered actions executed at bootstrap. Each step = `{action: str, params: dict}`. |
+| `constraints` | dict | `{}` | Universal: `allowed_actions`, `blocked_actions`. Module-specific keys validated against the module's constraint spec. |
+| `middleware` | list[dict] | `[]` | Module-level middleware pipeline. Example: `[{audit: {log_params: true}}, {retry: {max_attempts: 3}}]`. |
+| `credential` | string \| dict \| null | `null` | Compact: `credential: openai_main`. Explicit: `credential: { ref: openai_main, scope: per_user }`. Resolved at activation time. |
 
-`SetupStep` (`schema.py`):
+`SetupStep`:
 - `action: str` (required) - action name on the module
 - `params: dict` (default `{}`) - may contain `{{variables}}`
 
@@ -482,13 +545,13 @@ and `llm_provider` are auto-loaded - never declare them.
 
 ### `tools.capabilities` - Grant / approve / deny
 
-`schema.py` `CapabilitiesConfig` (`extra: forbid`). Optional
+Optional
 (`null` = dev/test mode, no enforcement). When present:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `default_policy` | `auto | approve | block` | `approve` | `schema.py` |
-| `max_risk_level` | `low | medium | high` | `medium` | `schema.py` |
+| `default_policy` | `auto` \| `approve` \| `block` | `approve` | Default approval policy for tools not listed elsewhere. |
+| `max_risk_level` | `low` \| `medium` \| `high` | `medium` | Maximum risk level tools are allowed to declare. |
 | `grant` | list[CapabilityGrant] | `[]` | Explicit allows |
 | `approve` | list[CapabilityGrant] | `[]` | Each call pauses for user approval |
 | `deny` | list[CapabilityGrant] | `[]` | Hard block |
@@ -496,20 +559,20 @@ and `llm_provider` are auto-loaded - never declare them.
 | `hidden_modules` | list[string] | `[]` | Modules hidden from the agent index but still callable from setup steps / hooks / channels |
 | `hidden_actions` | list[CapabilityGrant] | `[]` | Specific actions hidden but executable internally |
 
-`CapabilityGrant` (`schema.py`) is `{module: str, actions: list[str], reason: str}`. Empty `actions` = all actions on the module.
+`CapabilityGrant` is `{module: str, actions: list[str], reason: str}`. Empty `actions` = all actions on the module.
 
 See [Security](11-security.md) for the resolution algorithm and
 risk-level classification.
 
 ### `tools.channels` - Output channel instances
 
-`schema.py`. Map of channel-instance-name → `ChannelInstanceConfig`
-(`schema.py`). See [Channels (Bidirectional I/O)](40-channels.md)
+Map of channel-instance-name to channel config. See
+[Channels (Bidirectional I/O)](40-channels.md)
 for the full surface.
 
 ## `security:` - Runtime boundaries
 
-`schema.py` `SecurityBlock` (`extra: forbid`). All three sub-fields
+All three sub-fields
 are optional.
 
 ```yaml
@@ -525,14 +588,14 @@ security:
 
 | Field | Type | Source | Doc |
 |-------|------|--------|-----|
-| `behavior` | BehaviorConfig\|None | `schema.py` | [Behavior Engine](43-behavior.md) |
-| `sandbox` | SandboxConfig\|None | `schema.py` | [OS Sandbox](35-sandbox.md) |
-| `credentials_schema` | CredentialsSchemaConfig\|None | `schema.py` | [credentials.md](../reference/runtime/credentials.md) |
+| `behavior` | BehaviorConfig\|None | `null` | [Behavior Engine](43-behavior.md) |
+| `sandbox` | SandboxConfig\|None | `null` | [OS Sandbox](35-sandbox.md) |
+| `credentials_schema` | CredentialsSchemaConfig\|None | `null` | [credentials.md](../reference/runtime/credentials.md) |
 
 ## `ui:` - Display layer (daemon never reads)
 
-`schema.py` `UIBlock` (`extra: forbid`). Pure client-side rendering -
-every field here is consumed by the Flutter / web client, not by the
+Pure client-side rendering -
+every field here is intended for the chat client / web client, not the
 daemon.
 
 The block ships **two layers**:
@@ -545,8 +608,16 @@ The block ships **two layers**:
    the extended `workspace` fields `position`, `width_pct`,
    `auto_open_on_first_tool`.
 
-Every new sub-block is **optional**; omitting it preserves the
+Every sub-block is **optional**; omitting it preserves the
 historical client behaviour.
+
+> **Wired vs reserved.** Not every documented field is consumed by
+> the current web client. The tables below mark each field as either
+> **Wired** (read at runtime, changes the UI) or **Reserved** (parsed
+> and stored but ignored by the current premium composer; kept so
+> apps that set it don't fail validation and so we can wire it in
+> later releases without a schema bump). Setting a reserved field is
+> a no-op on the web client; the YAML still validates.
 
 ```yaml
 ui:
@@ -637,16 +708,37 @@ ui:
 
 ### Legacy fields
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `theme` | `dict[str, str]` | `{}` | Open dict. Keys: `accent` (hex), `background` (hex). Custom keys passed through untouched. |
-| `features` | `dict[str, bool]` | `{}` | 12 known toggles + any custom key. Missing keys default to `true`. See [Client Manifest → features](44-client-manifest.md#uifeatures---12-toggles). |
-| `widgets` | `WidgetsConfig \| null` | `null` | See [Widgets](42-widgets.md). |
-| `slash_commands` | `list[SlashCommand]` | `[]` | `/`-palette entries. |
-| `quick_prompts` | `list[QuickPrompt]` | `[]` | Mirror of `app.quick_prompts`; the client merges both. |
-| `greeting` | `str` | `""` | Empty-state welcome message. |
+| Field | Type | Default | Status | Description |
+| --- | --- | --- | --- | --- |
+| `theme.accent` | hex string | `""` | Reserved | The active accent today is sourced from `visual.accent`, falling back to `app.color`. |
+| `theme.background` | hex string | `""` | Reserved | Client theming hook, no consumer today. |
+| `widgets` | `WidgetsConfig \| null` | `null` | Wired | See [Widgets](42-widgets.md). |
+| `slash_commands` | `list[SlashCommand]` | `[]` | Wired | `/`-palette entries. Same shape as `ui.slash_commands` further down (preferred location). |
+| `quick_prompts` | `list[QuickPrompt]` | `[]` | Wired | Mirror of `app.quick_prompts`; the client merges both. |
+| `greeting` | `str` | `""` | Reserved | Cut from the empty-state hero in a 2026-05-07 refresh that kept only the app name + quick prompts + composer. The field is still parsed; a future client release may surface it again. |
 
-### Workspace block (`UIBlock.workspace`, `extra: forbid`)
+### Legacy `ui.features` (12 toggles)
+
+`dict[str, bool]`, default `{}`. Missing keys default to `true`. The
+new premium composer honours the toggles below; the rest are
+reserved.
+
+| Toggle | Status | Effect |
+| --- | --- | --- |
+| `voice` | Wired | AND-combined with `ui.composer.voice`. Either being `false` hides the mic button. |
+| `attachments` | Wired | AND-combined with `ui.composer.file_upload`. Either being `false` hides the upload entry of the `+` menu. |
+| `snippets` | Wired | Hides the "Insert snippet" entry of the `+` menu when `false`. |
+| `context_ring` | Wired | Hides the context-pressure ring icon button when `false`. |
+| `slash_commands` | Wired | AND-combined with `ui.composer.slash_commands`. Either being `false` hides the `/` palette entry of the `+` menu. |
+| `tools_panel` | Reserved | The premium composer no longer ships a tools-panel button; toggle has no effect. |
+| `tasks_panel` | Reserved | Same as above for tasks. |
+| `memory_panel` | Reserved | No memory panel surface today. |
+| `markdown` | Reserved | Markdown rendering is always on; toggling to `false` is a no-op. |
+| `message_actions` | Reserved | Per-message action buttons not yet gated by this toggle (see `ui.message_actions` for the typed declaration). |
+| `status_pills` | Reserved | Status pills always render. |
+| `token_badges` | Reserved | Token badges always render. |
+
+### Workspace block (`ui.workspace`)
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -661,7 +753,7 @@ ui:
 | `hidden_views` | `list[str]` | `[]` | Subset of `["code", "preview", "changes", "activity"]` to remove from the workspace mode menu. Right for hiding Monaco on apps where the user should never see the editor, or hiding Changes on auto-approve sandboxes. The remaining views still render normally. |
 | `preview_chrome` | `PreviewChromeBlock` | see below | Per-feature flags for the toolbar above the preview iframe (refresh, open-in-new-tab, viewport toggle, URL bar). |
 
-### `PreviewChromeBlock` (`extra: forbid`)
+### `PreviewChromeBlock`
 
 The chrome controls live inline in the workspace toolbar (next to the
 mode menu) and stream their state through `usePreviewChromeStore` on
@@ -678,36 +770,40 @@ enable every flag.
 
 ### Chat layout / behaviour blocks (optional, added 2026-05-04)
 
-All sub-blocks below are `extra: forbid` Pydantic models. Omit any
-of them to keep the client's historical defaults.
+All sub-blocks below are strictly validated - unknown fields are
+rejected at deploy time. Omit any of them to keep the client's
+historical defaults.
 
-#### `ui.layout`
+#### `ui.layout` (Reserved)
 
 `str`, default `"default"`. Allowed: `default`, `code`, `builder`,
 `research`, `minimal`, `lovable`.
 
-High-level preset that the client uses to pre-fill any sub-block the
-YAML did NOT define. Fine-grained sub-blocks ALWAYS win over the
-preset, so a YAML can derive from `lovable` and tweak just one knob.
+High-level preset intended to pre-fill any sub-block the YAML did
+not define. Parsed by the client but **not consumed by the current
+premium composer** — no preset-driven default kicks in today.
+Setting it is a no-op until a future client release wires the preset
+cascade. Until then, every sub-block (`thinking`, `tool_calls`,
+`composer`, ...) is read from its own typed values.
 
-#### `ui.density`
+#### `ui.density` (Wired)
 
 `str`, default `"comfortable"`. Allowed: `compact`, `comfortable`.
-Controls bubble spacing.
+Controls message-bubble spacing — compact halves the vertical gap
+between bubbles, comfortable keeps the default spacing.
 
-#### `ui.thinking`
+#### `ui.thinking` (Wired)
 
 - `visible: bool` (default `true`) - when `false`, thinking blocks
   are hidden entirely.
 - `collapsed_default: bool` (default `true`) - initial collapsed
   state of thinking blocks.
 
-#### `ui.tool_calls`
+#### `ui.tool_calls` (Wired)
 
-`ChatToolCallsBlock` (`schema.py`, `extra: forbid`).
-Controls how tool calls are rendered in the chat stream:
-the standard chip view, a Lovable-style "verb shimmer", or
-a minimal narrative-only surface.
+Controls how tool calls are rendered in the chat stream: the
+standard chip view, a Lovable-style "verb shimmer", or a minimal
+narrative-only surface.
 
 - `collapsed_default: bool` (default `true`) - initial collapsed
   state of tool-call chips in the standard renderer.
@@ -798,7 +894,7 @@ ui:
 
 ##### `ui.tool_calls.intent_phrases`
 
-`IntentPhrasesConfig` (`schema.py`, `extra: forbid`). Sources
+`IntentPhrasesConfig`. Sources
 the shimmer phrases for `strict_mode`. Three modes:
 
 - `source: "llm" | "static" | "auto"` (default `"auto"`) -
@@ -922,7 +1018,7 @@ both are present, the typed `composer.X` wins.
 
 #### `ui.activity`
 
-`ActivityPanelBlock` (`schema.py`, `extra: forbid`). Opt-in pane
+`ActivityPanelBlock`. Opt-in pane
 that surfaces live sub-agent fan-out, background tasks, and recent
 terminal events. **Omit the block to hide the entry entirely** -
 simple chat apps stay clean. Apps that orchestrate multi-agent work
@@ -949,7 +1045,7 @@ socket drops without zombie state. Full reference:
 
 #### `ui.slots`
 
-`SlotsConfig` (`schema.py`, `extra: forbid`). Five named
+`SlotsConfig`. Five named
 placements in the chat surface where the app can render an
 inline widget. Each slot is optional; omitted slots stay
 empty so existing apps without a `ui.slots` block keep their
@@ -991,8 +1087,7 @@ ui:
 | `footer_left`   | **Replaces** the workspace-path chip in the StatusLine row below the composer | None |
 | `footer_right`  | **Replaces** the model-name chip in the same StatusLine row | None |
 
-Each slot is a `SlotEntry` with two fields (`schema.py`,
-`extra: allow`):
+Each slot is a `SlotEntry` with two fields:
 
 - `kind: str` (default `"inline"`) - renderer type. Phase 1
   supports `inline` only. Phase 4 will add `chart`,
@@ -1015,14 +1110,14 @@ living in the StatusLine.
 
 ### Custom typed models
 
-`SlashCommand` (`typed_models.py`, `extra: allow`):
+`SlashCommand`:
 
 - `command: str` (required) - the `/foo` id
 - `description: str` (default `""`)
 - `template: str` (default `""`) - message template with `{{var}}`
   placeholders
 
-`QuickPrompt` (`typed_models.py`, `extra: allow`):
+`QuickPrompt`:
 
 - `label: str` (required, min 1) - short button label
 - `message: str` (required, min 1) - full prompt sent on click
@@ -1030,7 +1125,7 @@ living in the StatusLine.
 
 ## `dev:` - Developer affordances
 
-`schema.py` `DevBlock` (`extra: forbid`).
+Developer affordances block.
 
 ```yaml
 dev:
@@ -1048,7 +1143,7 @@ dev:
 
 ### `dev.skills`
 
-List of `SkillEntry` (`typed_models.py`, `extra: forbid`):
+List of `SkillEntry`:
 - `command: str` (required, min length 1) - slash command id
 - `description: str` (default `""`) - one-line catalog entry
 - `path: str` (required, min length 1) - path to the `.md` file
@@ -1065,9 +1160,8 @@ every other field of the YAML. Variables can reference each other
 
 ### `dev.include` - Fragmentation
 
-`IncludeBlock` (`typed_models.py`, `extra: forbid`). Splits
-list-shaped sections (`agents`, hooks) into separate files. The
-compiler resolves these BEFORE Pydantic validation.
+`IncludeBlock`. Splits list-shaped sections (`agents`, hooks) into
+separate files. The compiler resolves these before validation.
 
 ```yaml
 dev:
@@ -1081,21 +1175,21 @@ even without an explicit `include:` entry.
 
 ## `flow:` - Declarative orchestration graph (8th block)
 
-`schema.py` `AppDefinition.flow` (FlowConfig | None, default
+`flow` (FlowConfig | None, default
 `null`). Promoted to a **top-level block** in v2 because the model
 is different from agent-driven coordination: a directed graph of
 nodes with conditional edges, declared up front, instead of
 runtime `Agent` tool calls.
 
-`FlowConfig` is defined in (`extra: forbid`).
+`FlowConfig` definition.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | string (min 1) | yes | Flow identifier, unique within the app (`flow.py`). |
-| `entry` | string (min 1) | yes | Starting node id (`flow.py`). |
-| `description` | string | no | Free-form summary (`flow.py`). |
-| `max_iterations` | int ≥ 0 | conditional | Per-flow cap on total node visits. `0` = no cap, only valid for acyclic flows. Required ≥ 1 when the graph has any cycle (`flow.py`). |
-| `nodes` | list[FlowNode] (min 1) | yes | Nodes that compose the graph (`flow.py`). |
+| `id` | string (min 1) | yes | Flow identifier, unique within the app. |
+| `entry` | string (min 1) | yes | Starting node id. |
+| `description` | string | no | Free-form summary. |
+| `max_iterations` | int ≥ 0 | conditional | Per-flow cap on total node visits. `0` = no cap, only valid for acyclic flows. Required ≥ 1 when the graph has any cycle. |
+| `nodes` | list[FlowNode] (min 1) | yes | Nodes that compose the graph. |
 
 `FlowNode.type` is a discriminator with six values: `agent`, `tool`,
 `parallel`, `approval`, `decision`, `terminal`. Each node carries
@@ -1129,7 +1223,7 @@ flow:
 
 > **Backward compatibility.** A YAML that still declares `flow:`
 > nested under `runtime:` is accepted by the compiler's alias pass
-> (`schema_aliases.py`), which lifts it to top-level before
+> which lifts it to top-level before
 > validation. The `digitorn yaml migrate-v2` command rewrites it in
 > place to the canonical top-level form.
 
@@ -1164,8 +1258,8 @@ dev:
     region:  "{{env.AWS_REGION ?? 'eu-west-1'}}"
 ```
 
-If the left side fails to resolve, the right side is used
-(`variables.py`). Works with any namespace.
+If the left side fails to resolve, the right side is used.
+Works with any namespace.
 
 ### User variables (`{{my_var}}`)
 
@@ -1193,9 +1287,9 @@ is not set** (use `??` for optional values).
 
 > **Prefer `credential:` blocks for new apps**
 > ([credentials.md](../reference/runtime/credentials.md)). The legacy
-> `{{secret.X}}` system still works as a fallback (resolved
-> by `runtime_resolver.py`) but new apps should reference
-> the centralised credentials vault by name.
+> `{{secret.X}}` system still works as a fallback at runtime, but
+> new apps should reference the centralised credentials vault by
+> name.
 
 Two-step lookup: encrypted per-app database first,
 `os.environ` fallback. Stored encrypted at rest with Fernet
@@ -1219,8 +1313,7 @@ The compiler emits a warning when an app uses
 
 ### System variables (`{{sys.*}}`)
 
-Resolved at compile time from `_SYS_VARIABLES`
-(`variables.py`). The full list:
+Resolved at compile time. The full list:
 
 | Key | Source | Example |
 |-----|--------|---------|
@@ -1231,7 +1324,7 @@ Resolved at compile time from `_SYS_VARIABLES`
 | `sys.platform` | `sys.platform` | `linux`, `darwin`, `win32` |
 | `sys.os` | `platform.system` | `Linux`, `Darwin`, `Windows` |
 | `sys.arch` | `platform.machine` | `x86_64`, `arm64` |
-| `sys.python_version` | `platform.python_version` | `3.13.12` |
+| `sys.python_version` | Runtime Python version | `3.13.12` |
 | `sys.cwd` | `os.getcwd` | `/home/user/apps` |
 | `sys.user` | `$USER` / `$USERNAME` / `unknown` | `paul` |
 | `sys.pid` | `os.getpid` | `12345` |
@@ -1245,8 +1338,6 @@ Resolved at compile time from `_SYS_VARIABLES`
 | `sys.is_windows` | `"true"` / `"false"` | `"false"` |
 | `sys.is_linux` | `"true"` / `"false"` | `"true"` |
 | `sys.is_macos` | `"true"` / `"false"` | `"false"` |
-
-Source of truth: `_SYS_VARIABLES` dict in `variables.py`.
 
 ### App variables (`{{app.*}}`)
 
@@ -1263,8 +1354,7 @@ Resolved at compile time from the `app:` block:
 ### Bundle file namespaces
 
 When the bundle directory contains the corresponding folder, these
-resolve to file content / URLs at compile time
-(`variables.py:_resolve_prompt`, `_resolve_skill`, etc.):
+resolve to file content / URLs at compile time:
 
 | Pattern | Folder | Resolves to |
 |---------|--------|-------------|
@@ -1304,8 +1394,8 @@ tools:
 
 ## Migration: legacy → canonical
 
-The compiler's alias pass (`schema_aliases.py`) accepts the legacy
-flat shape and reshapes it to canonical before Pydantic validates.
+The compiler's alias pass accepts the legacy flat shape and reshapes
+it to canonical before validation runs.
 The migration table is in [the index](/docs/language/#migration-from-the-legacy-flat-shape).
 
 To rewrite a YAML in-place to canonical form:

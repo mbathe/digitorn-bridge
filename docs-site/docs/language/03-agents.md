@@ -60,7 +60,7 @@ Embed the full provider config in the agent block.
 brain:
   provider: deepseek                  # Provider hint, validated against a known set
   model: deepseek-chat                # Model identifier
-  backend: openai_compat              # 'openai_compat' (default) or 'anthropic'
+  backend: openai_compat              # 'openai_compat' (default), 'anthropic', or 'github_copilot'
   config:                             # Provider-specific config
     api_key: "{{env.DEEPSEEK_API_KEY}}"
     base_url: "https://api.deepseek.com/v1"   # optional if provider hint resolves it
@@ -105,7 +105,7 @@ agents:
 | `provider_id` | string\|None | `null` |
 | `provider` | string\|None | `null` |
 | `model` | string\|None | `null` |
-| `backend` | `openai_compat | anthropic` | `openai_compat` |
+| `backend` | `openai_compat` \| `anthropic` \| `github_copilot` | `openai_compat` |
 | `config` | dict | `{}` |
 | `credential` | string \| dict \| null | `null` |
 | `temperature` | float\|None | `null` |
@@ -120,11 +120,11 @@ agents:
 | `image_detail` | string | `"auto"` |
 | `max_images_per_turn` | int [0, 100] | `5` |
 
-### Validated provider hints
+### Known provider hints {#validated-provider-hints}
 
-`schema.py`. The `provider` field is validated against this
-exact set (17 entries); any other value raises a compile error with a
-"Did you mean..." suggestion.
+The `provider` field is a free-form string used to look up a
+default `base_url` and pick a tool-call format. The runtime
+recognises these names:
 
 ```
 anthropic, openai, deepseek, groq, mistral, together,
@@ -133,9 +133,10 @@ google-gemini, gemini, xai, grok,
 cerebras, perplexity, fireworks, github_copilot
 ```
 
-A `custom` provider hint is **not** in this set - when targeting a
-non-listed endpoint, pick the closest hint (usually `openai` or
-`deepseek`) and override `config.base_url`.
+For an endpoint not in this list, pick the closest hint
+(usually `openai` or `deepseek`) and override `config.base_url`
+explicitly. Unknown hints are accepted at compile time and fall
+back to OpenAI-compatible defaults.
 
 ### Native vs text-based tool calling
 

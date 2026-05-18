@@ -112,10 +112,10 @@ loaded.
 
 ```yaml
 - rag_inject:
-    kb: documentation                 # KB name registered with the rag module
-    max_chunks: 3                     # default
-    min_score: 0.5                    # default
-    position: suffix                  # or "prefix"
+    knowledge_base: documentation     # KB name (alias: collection)
+    max_chunks: 5                     # default
+    max_chars: 2000                   # default - total budget across all chunks
+    position: append                  # default; or "prepend"
 ```
 
 See [Advanced RAG](37-rag.md) for the KB declaration and the rag

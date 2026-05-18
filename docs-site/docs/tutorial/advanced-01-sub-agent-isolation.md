@@ -123,7 +123,7 @@ restriction.
 
 ## Live transcript
 
-Real session against the daemon. The coordinator gets one user
+Sample transcript. The coordinator gets one user
 message that explicitly tries to make the **reader** write a file
 (to verify the gate).
 

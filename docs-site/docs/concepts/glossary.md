@@ -30,7 +30,7 @@ title: Glossary
 | **Manifest** | The client-facing summary of an app: identity, modes, modules, slash commands, theme, etc. Built by `manager.summary`. |
 | **Middleware** | A composable wrapper around tool calls. Runs `before` and `after` the action method. Built-ins: audit, retry, redact, rate_limit, content_filter. |
 | **Module** | A self-contained Python package that subclasses `BaseModule` and declares `CONFIG_MODEL`, `CONSTRAINTS`, and action methods. |
-| **Provider** | An LLM service backend (DeepSeek, OpenAI, Anthropic, Ollama, ...). Declared under `agents[].brain.provider`, validated against the known set. |
+| **Provider** | An LLM service backend (DeepSeek, OpenAI, Anthropic, Ollama, ...). Declared under `agents[].brain.provider`. Unknown hints are accepted at compile time and fall back to OpenAI-compatible defaults. |
 | **Provider hint** | The string in `brain.provider`. Resolves the default `base_url` and the default backend (`openai_compat` vs `anthropic`). |
 | **Risk level** | A per-action classification (`low`, `medium`, `high`) used by the capabilities gate. Unset = `medium`. |
 | **Role** | The functional role of an agent: `coordinator`, `specialist`, `worker`. Free-form descriptive roles (`assistant`, `analyst`, ...) are also accepted. |

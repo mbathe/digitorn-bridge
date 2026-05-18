@@ -237,7 +237,7 @@ agents:
   - id: writer
     brain:
       provider: anthropic
-      model: claude-sonnet-4-20250514
+      model: claude-sonnet-4-5
       context:
         max_tokens: 200000         # writer keeps full Sonnet window
         keep_recent: 8

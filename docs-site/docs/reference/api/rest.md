@@ -30,7 +30,6 @@ CLI, not the raw HTTP routes:
 | Task | Use this |
 |------|----------|
 | Build apps, manage sessions, send messages | [Python testing SDK](../client-sdks/python-testing.md) (`DevClient`) |
-| Build a chat UI | [Flutter chat client](../client-sdks/flutter.md) |
 | Build a Lovable-style preview | [React Preview SDK](../../language/47-preview-sdk.md) |
 | Subscribe to live events | [Socket.IO Protocol](socketio.md) |
 | Drive everything from a terminal | [CLI reference](../cli/) |
