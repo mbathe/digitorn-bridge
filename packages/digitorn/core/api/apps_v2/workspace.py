@@ -459,6 +459,12 @@ async def get_file_content(
     payload: dict[str, Any] | None = None
     resolved_path = safe_rel
     file_path = safe_rel
+    # Absolute on-disk path of the file when we fall through to the
+    # disk-fallback branch. Used by the ``raw=true`` path to serve
+    # binary files (PDF compiled by tectonic, images, etc.) directly
+    # from disk via FileResponse, without forcing them through
+    # text-mode UTF-8 decode that would corrupt the bytes.
+    disk_target: str | None = None
 
     # Preview-based path (current live resources).
     if preview_module is not None:
@@ -505,19 +511,35 @@ async def get_file_content(
             if not target.startswith(ws_abs + _os.sep) and target != ws_abs:
                 raise HTTPException(status_code=400, detail="path escapes workspace")
             if _os.path.isfile(target):
-                try:
-                    with open(target, "r", encoding="utf-8", errors="replace") as _fh:
-                        content = _fh.read()
-                    stat = _os.stat(target)
+                disk_target = target
+                # For raw=true on a disk-only file, we serve binary
+                # directly below — do NOT bother opening in text mode
+                # (would corrupt PDFs / images / fonts).
+                if raw:
                     payload = {
-                        "content": content,
-                        "size": stat.st_size,
-                        "mtime": stat.st_mtime,
+                        # Empty content marker so the raw branch can
+                        # short-circuit on `disk_target` without going
+                        # through text decode.
+                        "content": "",
+                        "size": _os.path.getsize(target),
+                        "mtime": _os.path.getmtime(target),
                         "source": "disk",
                     }
                     resolved_path = file_path
-                except (OSError, PermissionError) as exc:
-                    raise HTTPException(status_code=500, detail=f"read failed: {exc}")
+                else:
+                    try:
+                        with open(target, "r", encoding="utf-8", errors="replace") as _fh:
+                            content = _fh.read()
+                        stat = _os.stat(target)
+                        payload = {
+                            "content": content,
+                            "size": stat.st_size,
+                            "mtime": stat.st_mtime,
+                            "source": "disk",
+                        }
+                        resolved_path = file_path
+                    except (OSError, PermissionError) as exc:
+                        raise HTTPException(status_code=500, detail=f"read failed: {exc}")
 
     if payload is None:
         raise HTTPException(status_code=404, detail=f"file not found: {file_path}")
@@ -528,10 +550,10 @@ async def get_file_content(
     # payload only stores the post-extraction TEXT — for an iframe PDF
     # viewer or DOCX renderer we need the pre-extraction binary.
     if raw:
+        from starlette.responses import FileResponse
         file_id = payload.get("file_id") if isinstance(payload, dict) else None
         if isinstance(file_id, str) and file_id:
             from digitorn.core.file_store import get_file_store
-            from starlette.responses import FileResponse
             store = get_file_store()
             ref = store.get_ref(file_id, session_id)
             if ref is None:
@@ -551,9 +573,36 @@ async def get_file_content(
                     "Cache-Control": "private, max-age=300",
                 },
             )
-        # ``raw=true`` requested but no file_id on payload (agent-written
-        # file). Fall through to the JSON envelope - the caller will
-        # see the missing file_id and can decide to use the text path.
+        # No file_id, but the file lives on disk (e.g. a PDF compiled
+        # by tectonic / latexmk / cargo / pandoc as a side-effect of
+        # the lint pipeline -- workspace doesn't track it as a
+        # resource but it IS on disk in the session workdir). Serve
+        # the bytes directly via FileResponse so the SDK's Blob
+        # consumer gets a real binary (was returning corrupted UTF-8
+        # JSON before this fallback).
+        if disk_target is not None:
+            import mimetypes
+            mime, _ = mimetypes.guess_type(disk_target)
+            return FileResponse(
+                disk_target,
+                media_type=mime or "application/octet-stream",
+                headers={
+                    "Content-Disposition": "inline",
+                    # Compiled artifacts (tectonic-produced main.pdf,
+                    # latexmk output, etc.) update on every save. The
+                    # preview iframe's debounced retry hits this route
+                    # 0-3 s after the workspace publishes the .tex
+                    # update; an in-flight compile may not have
+                    # finished yet at the first call, so we must NOT
+                    # let the browser cache the stale snapshot.
+                    "Cache-Control": "no-store, no-cache, must-revalidate",
+                    "Pragma": "no-cache",
+                },
+            )
+        # ``raw=true`` requested but nothing serviceable as binary
+        # (agent-written virtual file, no on-disk artifact). Fall
+        # through to the JSON envelope; the caller can use the text
+        # path or wait for the next compile.
 
     out: dict[str, Any] = {
         "path": resolved_path,

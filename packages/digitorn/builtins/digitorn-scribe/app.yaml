@@ -146,6 +146,12 @@ agents:
 security:
   behavior:
     profile: creative
+    # Coach REACTIVE après tune de coach.md : section
+    # "CONVERSATION PHASE" force le classifier à identifier
+    # cold_start / in_progress / refining / interrupted AVANT de
+    # classifier, et interdit explicitement les "menu replies"
+    # (préférez-vous A/B/C) qui étaient la cause de la
+    # réinitialisation observée sur les messages courts.
     classify_turns: true
     brain:
       # Same github_copilot relay as the writer agent -- the coach

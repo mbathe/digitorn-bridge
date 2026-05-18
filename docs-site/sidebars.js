@@ -45,6 +45,10 @@ const sidebars = {
         "tutorial/advanced-15-parallel-spawn",
         "tutorial/advanced-16-selfcorrect-builtin",
         "tutorial/advanced-17-gate-destructive",
+        "tutorial/advanced-18-hook-chain",
+        "tutorial/advanced-19-slash-commands",
+        "tutorial/advanced-20-multimodal-image",
+        "tutorial/advanced-21-rag-kb",
       ],
     },
     {
