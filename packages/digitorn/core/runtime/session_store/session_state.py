@@ -62,6 +62,8 @@ class SessionState:
     interrupted: bool = False
     interrupted_at: str | None = None
     active_mode_id: str | None = None
+    # Classified error of the most recent turn (None after a clean turn).
+    last_error: dict | None = None
 
     pinned: bool = False
     last_accessed_at: float = field(default_factory=time.monotonic)

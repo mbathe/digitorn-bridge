@@ -963,10 +963,8 @@ async def _emit_turn_terminal(
 
 
 async def _persist_turn_error(
-    manager: Any,
     app_id: str,
     session_id: str,
-    user_id: str,
     error_data: dict[str, Any] | None,
 ) -> None:
     """Write the classified turn error onto the canonical session so
@@ -975,12 +973,11 @@ async def _persist_turn_error(
     clears the slot after a clean turn. Also feeds the session-metrics
     error counter, which nothing else was wiring.
     """
-    if manager is None:
-        return
     try:
-        sess = await manager.get_session(app_id, session_id, user_id=user_id)
-        if sess is not None:
-            sess.last_error = error_data
+        from digitorn.core.runtime.session_store import get_default_bridge
+        st = get_default_bridge().store.state(session_id)
+        if st is not None:
+            st.last_error = error_data
     except Exception:
         logger.debug("persist_turn_error: session write failed", exc_info=True)
     if error_data:
@@ -1021,9 +1018,7 @@ async def _finalize_failed(
     flicker.
     """
 
-    await _persist_turn_error(
-        manager, app_id, session_id, user_id, outcome.error_data,
-    )
+    await _persist_turn_error(app_id, session_id, outcome.error_data)
 
     next_entry = await _flip_queue_row(
         session_id=session_id, entry=entry, source=source,

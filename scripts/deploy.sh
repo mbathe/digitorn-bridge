@@ -70,8 +70,6 @@ DEPS_FILES=(
   pyproject.toml
   poetry.lock
   requirements*.txt
-  packages/auth/pyproject.toml
-  packages/gateway/pyproject.toml
 )
 shopt -u nullglob
 NEW_DEPS_HASH="$(sha256sum "${DEPS_FILES[@]}" | sha256sum | cut -c1-16)"
@@ -81,11 +79,6 @@ if [ "$NEW_DEPS_HASH" != "$OLD_DEPS_HASH" ]; then
   log "deps changed ($OLD_DEPS_HASH → $NEW_DEPS_HASH) — pip install"
   sudo -u "$SERVICE_USER" "$REPO_DIR/.venv/bin/pip" install --upgrade -e \
     "$REPO_DIR[postgres,redis,rss,pdf,presentation]"
-  # digitorn-gateway is the OpenAI-compatible LLM router. The
-  # daemon's outbound LLM calls hit ``gateway.digitorn.ai`` which is
-  # served by ``digitorn-gateway.service`` from this same repo.
-  sudo -u "$SERVICE_USER" "$REPO_DIR/.venv/bin/pip" install --upgrade -e \
-    "$REPO_DIR/packages/gateway"
   echo "$NEW_DEPS_HASH" > "$DEPS_HASH_FILE"
   chown "$SERVICE_USER:$SERVICE_USER" "$DEPS_HASH_FILE"
 else
@@ -130,12 +123,12 @@ if ! cmp -s /tmp/Caddyfile.new "$CADDY_DST"; then
 fi
 rm -f /tmp/Caddyfile.new
 
-# 4.5. Pre-flight: import the daemon + gateway packages BEFORE we
-#       touch the running services. Catches syntax errors / broken
-#       imports introduced by the push without ever restarting (the
-#       OLD code keeps serving). A failed import here is the cheapest
-#       possible "deploy abort".
-log "pre-flight: import daemon + gateway"
+# 4.5. Pre-flight: import the daemon package BEFORE we touch the
+#       running services. Catches syntax errors / broken imports
+#       introduced by the push without ever restarting (the OLD code
+#       keeps serving). A failed import here is the cheapest possible
+#       "deploy abort".
+log "pre-flight: import daemon"
 # ``sudo -u $SERVICE_USER bash -c ...`` spawns a fresh subshell that does
 # NOT inherit systemd's EnvironmentFile. Source /etc/digitorn/digitorn.env
 # explicitly so Settings classes (which call ``os.environ[...]`` at import)
@@ -144,33 +137,11 @@ log "pre-flight: import daemon + gateway"
 # stops auto-export so subsequent shell vars stay local.
 if ! sudo -u "$SERVICE_USER" bash -c "set -a; source /etc/digitorn/digitorn.env; set +a; '$REPO_DIR/.venv/bin/python' -c '
 import digitorn.core.server
-import digitorn_gateway.main
 '" 2>&1 | sed 's/^/[deploy preflight] /'; then
   rollback "pre-flight import check failed"
   exit 1
 fi
 log "pre-flight OK"
-
-# 4.6. Run gateway alembic migrations. The repo's HEAD may carry new
-#      schema changes (added columns, new tables) that the running
-#      gateway code expects. Without this, the gateway boots OK but
-#      first real request crashes with "column does not exist".
-#      Idempotent: alembic skips revisions that are already at head.
-#
-#      ``cd`` into the gateway dir BEFORE invoking alembic: the
-#      ``script_location = alembic`` in alembic.ini is resolved
-#      relative to the current working directory, NOT the config
-#      file. Running from $REPO_DIR with -c packages/gateway/alembic.ini
-#      would make alembic look for $REPO_DIR/alembic/ (wrong path).
-log "running gateway alembic migrations"
-# Same env-file source as the pre-flight: alembic env.py reads
-# DIGITORN_GATEWAY_DATABASE_URL from os.environ at import time, which
-# the bash subshell needs to inherit explicitly.
-if ! sudo -u "$SERVICE_USER" bash -c "set -a; source /etc/digitorn/digitorn.env; set +a; cd '$REPO_DIR/packages/gateway' && '$REPO_DIR/.venv/bin/alembic' upgrade head" 2>&1 | sed 's/^/[deploy alembic] /'; then
-  rollback "alembic upgrade failed"
-  exit 1
-fi
-log "alembic upgrade OK"
 
 # 5. Restart the daemon AND the gateway. We do them in parallel-ish:
 #    the daemon takes ~3-5s to come back, the gateway is faster.

@@ -435,9 +435,15 @@ class _ChatMixin:
         # Snapshot count before this turn so the end-of-turn delta persist stays O(1).
         _messages_baseline = len(session.messages)
 
-        # Fresh turn: drop any error left by the previous turn so poll-based
+        # Fresh turn: drop any error left by the previous turn on the canonical
+        # SessionState (the ConversationSession is a throwaway view) so poll-based
         # clients don't surface a stale failure. Re-set below if this turn fails.
-        session.last_error = None
+        try:
+            _st0 = self._session_store._store.state(session_id)
+            if _st0 is not None:
+                _st0.last_error = None
+        except Exception:
+            logger.debug("clear last_error failed", exc_info=True)
 
         # Build user message - multimodal if images provided
         if image_refs:
@@ -1370,10 +1376,15 @@ class _ChatMixin:
                     _turn_error if _turn_error else RuntimeError(result.error)
                 )
                 error_data["session_id"] = session_id
-                # Persist on the canonical session so poll-based clients
+                # Persist on the canonical SessionState so poll-based clients
                 # (dev CLI, plain REST) surface it via summary(). SSE clients
                 # get the live event emitted just below.
-                session.last_error = error_data
+                try:
+                    _st_err = self._session_store._store.state(session_id)
+                    if _st_err is not None:
+                        _st_err.last_error = error_data
+                except Exception:
+                    logger.debug("persist last_error failed", exc_info=True)
                 try:
                     from digitorn.core.runtime.session_metrics import (
                         get_session_metrics,

@@ -2300,6 +2300,7 @@ from digitorn.core.cli.dev import dev_cli  # noqa: E402
 from digitorn.core.cli.install import install_cli  # noqa: E402
 from digitorn.core.cli.auth import auth_cli  # noqa: E402
 from digitorn.core.cli.db import db_cli  # noqa: E402
+from digitorn.core.cli.service import service_cli  # noqa: E402
 
 cli.command(name="init")(init_command)
 cli.command(name="doctor")(doctor_command)
@@ -2317,6 +2318,7 @@ cli.add_typer(dev_cli)
 cli.add_typer(install_cli)
 cli.add_typer(auth_cli)
 cli.add_typer(db_cli)
+cli.add_typer(service_cli)
 
 
 _DEFAULT_DAEMON = "http://127.0.0.1:8000"

@@ -333,6 +333,15 @@ def init(
     console.print("[bold]Next steps:[/bold]")
     console.print()
     step = 1
+    console.print(f"  {step}. Make sure the daemon is running:")
+    console.print("     [dim]digitorn status[/dim]")
+    console.print("     [dim](if not: digitorn service start)[/dim]")
+    console.print()
+    step += 1
+    console.print(f"  {step}. Sign in to your Digitorn account:")
+    console.print("     [dim]digitorn auth login[/dim]")
+    console.print()
+    step += 1
     if chosen != "ollama":
         console.print(f"  {step}. Set your API key:")
         console.print(
@@ -340,15 +349,10 @@ def init(
         )
         console.print()
         step += 1
-    console.print(f"  {step}. Make sure the daemon is running:")
-    console.print("     [dim]digitorn status[/dim]")
-    console.print("     [dim](if not: digitorn service start)[/dim]")
-    console.print()
-    step += 1
     console.print(f"  {step}. Deploy your app and chat with it:")
     cd_hint = "" if directory in (".", "") else f"     [dim]cd {target.name}[/dim]\n"
     console.print(
-        f"{cd_hint}     [dim]digitorn dev deploy app.yaml[/dim]"
+        f"{cd_hint}     [dim]digitorn dev deploy app.yaml --scope user[/dim]"
         f"\n     [dim]digitorn dev chat {app_id}[/dim]",
     )
     console.print()

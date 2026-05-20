@@ -89,7 +89,14 @@ tools:
     memory:
       config:
         auto_remember: false
-        working_memory: true
+        # working_memory exposes goal/task tools (MemorySetGoal,
+        # TaskCreate, ...). Notes LM is a single-shot grounded
+        # assistant - it has no use for multi-step goal tracking, and
+        # exposing those tools made gpt-5-mini "plan" (set a goal) then
+        # END the turn without doing the work (briefing.md never
+        # written). Disabled so the agent executes WsGlob -> WsRead ->
+        # WsWrite directly in one turn.
+        working_memory: false
     # Preview module - the SSE transport that mirrors every workspace
     # mutation to the iframe via the ``files`` resource channel. The
     # agent never calls it directly; workspace.write -> preview internally.

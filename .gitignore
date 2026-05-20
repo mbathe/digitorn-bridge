@@ -184,6 +184,19 @@ tools/_*_result.txt
 tools/*_result.json
 tools/_seq_log.txt
 
+# Internal diagnostic + one-off maintenance scripts
+scripts/diag-*.py
+scripts/backfill-installed-packages.py
+scripts/merge-duplicate-user.py
+scripts/reset-apps-direct.py
+scripts/reset-apps.ps1
+scripts/check-recent-session-events.py
+scripts/check-user-history.py
+
+# Scratch / ad-hoc debug runs in tools (underscore-prefixed = private)
+tools/_*.py
+tools/live_tests/_*.py
+
 # ── Generated API specs ──────────────────────────────
 docs/openapi.json
 tools/openapi.json

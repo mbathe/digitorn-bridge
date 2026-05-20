@@ -504,6 +504,7 @@ class LegacySessionStoreAdapter:
             workdir=state.workdir or "",
             interrupted=bool(state.interrupted),
             interrupted_at=_parse_iso_to_epoch(state.interrupted_at) if state.interrupted else 0.0,
+            last_error=getattr(state, "last_error", None),
         )
         return cs
 

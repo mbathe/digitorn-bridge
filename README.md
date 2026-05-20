@@ -12,16 +12,17 @@ agents:
   - id: main
     role: assistant
     brain:
-      provider: anthropic
-      model: claude-sonnet-4-5
-      backend: anthropic
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
       config:
-        api_key: "claude-code"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
     system_prompt: "Reply with one short sentence."
 ```
 
 ```bash
-digitorn dev deploy hello.yaml
+digitorn dev deploy hello.yaml --scope user
 digitorn dev chat hello -m "ping"
 # pong
 ```

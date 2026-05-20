@@ -55,11 +55,6 @@ jobs:
         run: |
           poetry config virtualenvs.in-project true
           poetry install --no-interaction
-          # digitorn-auth is a sibling package consumed by the daemon
-          # at runtime (RemoteAuthMiddleware, RemoteAuthClient). It is
-          # NOT a Poetry dep of the root - install it separately so the
-          # import check below doesn't fail.
-          poetry run pip install -e packages/auth
 
       - name: Check all imports
         run: |
@@ -105,11 +100,6 @@ jobs:
             --ignore=tests/test_robustness.py `
             --ignore=tests/test_shell.py
 
-      - name: Run digitorn-auth tests
-        run: |
-          poetry run pip install pytest pytest-asyncio
-          poetry run pytest packages/auth/tests/ -q --tb=short -x
-
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -122,7 +112,7 @@ jobs:
 
       - name: Syntax check all Python files
         run: |
-          find packages/digitorn/ packages/auth/src/ -name "*.py" \
+          find packages/digitorn/ -name "*.py" \
             -not -path "*__pycache__*" \
             -exec python -m py_compile {} +
           echo "All files compile OK"

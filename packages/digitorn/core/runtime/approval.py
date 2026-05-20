@@ -196,7 +196,6 @@ class ApprovalQueue:
             await self._fire_resolved(request, False, timeout_msg)
             return (False, timeout_msg)
         finally:
-            # pop before any trailing callback so list_pending() never reports a resolved request as pending.
             self._pending.pop(request.request_id, None)
             if progress_task is not None and not progress_task.done():
                 progress_task.cancel()
