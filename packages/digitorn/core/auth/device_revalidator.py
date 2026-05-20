@@ -23,8 +23,7 @@ async def revalidate_loop(
 
 async def _revalidate_once(local_auth: LocalDeviceAuth) -> None:
     if not local_auth.device_token:
-        return  # Wiped by an earlier revoke - nothing to do.
-
+        return 
     import httpx
     auth_url = local_auth.auth_url.rstrip("/")
 
@@ -36,7 +35,7 @@ async def _revalidate_once(local_auth: LocalDeviceAuth) -> None:
             )
     except httpx.RequestError as exc:
         logger.debug("device revalidate network error: %s", exc)
-        return  # offline / DNS / TLS failure - try again next tick
+        return  
 
     if response.status_code in (401, 403):
         logger.warning(

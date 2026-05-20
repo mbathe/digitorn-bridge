@@ -663,7 +663,22 @@ class AnthropicProvider(BaseLLMProvider):
         }
 
         if system_parts:
-            params["system"] = "\n\n".join(system_parts)
+            # Prompt caching: the system prompt is large (notes-lm ~7.5K
+            # tokens) and IDENTICAL on every turn. Sending it as a
+            # cache-marked content block tells Anthropic to cache it -
+            # the first call pays full price + a small write cost,
+            # every subsequent call within the 5-min TTL pays ~10% as a
+            # cache read. This is exactly what Claude Code does, and it
+            # is the reason a claude-code OAuth session burns its
+            # (model-weighted) quota ~10x slower than an uncached client.
+            # Caching is GA (no beta header needed) and works on both
+            # the OAuth and api-key paths. Sub-minimum prompts simply
+            # aren't cached - no error - so this is pure upside.
+            params["system"] = [{
+                "type": "text",
+                "text": "\n\n".join(system_parts),
+                "cache_control": {"type": "ephemeral"},
+            }]
         if merged.get("temperature") is not None:
             params["temperature"] = merged["temperature"]
         if merged.get("top_p") is not None:
@@ -671,7 +686,19 @@ class AnthropicProvider(BaseLLMProvider):
         if merged.get("stop"):
             params["stop_sequences"] = merged["stop"]
         if merged.get("tools"):
-            params["tools"] = self._convert_tools(merged["tools"])
+            converted_tools = self._convert_tools(merged["tools"])
+            # Cache the tools schema too: ``cache_control`` on the LAST
+            # tool definition caches the entire tools block up to it.
+            # The tools envelope is fixed per-app and re-sent every turn,
+            # so this is the second-biggest cache win after the system
+            # prompt. Anthropic allows up to 4 cache breakpoints; we use
+            # 2 (system + tools), leaving headroom.
+            if converted_tools:
+                converted_tools[-1] = {
+                    **converted_tools[-1],
+                    "cache_control": {"type": "ephemeral"},
+                }
+            params["tools"] = converted_tools
         if merged.get("tool_choice"):
             converted = self._convert_tool_choice(merged["tool_choice"])
             if converted is None:

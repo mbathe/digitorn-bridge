@@ -30,8 +30,7 @@ class SocketIOEventBus(EventBus):
     ) -> None:
         self._sio = sio
         self._router = EventRouter()
-        # `session_bus` is a `SocketIOBus` - we use it as the single
-        # source of truth for seq generation and envelope shape.
+
         self._session_bus = session_bus
 
     def attach_session_bus(self, session_bus: Any) -> None:

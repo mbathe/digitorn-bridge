@@ -191,9 +191,7 @@ class SocketIOBus:
         envelope = event.to_dict()
 
         if event.session_id and event.type not in _EPHEMERAL_EVENT_TYPES:
-            # Fire-and-forget DB persistence. The agent loop never
-            # blocks on IO. Row order is maintained by the `seq`
-            # column (unique, monotonic, assigned before scheduling).
+  
             try:
                 persisted_payload = dict(envelope["payload"])
                 persisted_payload.setdefault("op_id", event.op_id)

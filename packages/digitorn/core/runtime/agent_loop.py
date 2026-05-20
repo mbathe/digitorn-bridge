@@ -1264,7 +1264,6 @@ async def _handle_llm_error(
             f"Check that the provider is running and reachable."
         ) from exc
 
-    # Gateway 429 quota_exceeded is terminal; bail before the retry loop burns minutes.
     try:
         from digitorn.modules.llm_provider.errors import QuotaExceededError
         if isinstance(exc, QuotaExceededError):

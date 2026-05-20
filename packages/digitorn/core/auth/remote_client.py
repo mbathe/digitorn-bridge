@@ -68,12 +68,10 @@ class RemoteAuthClient:
         self._last_revocation_sync: float = 0
         self._revocation_poll_interval = revocation_poll_interval
         self._revocation_task: asyncio.Task[None] | None = None
-        # shared long-lived httpx client; per-request scope races with starlette anyio task groups.
         self._http: Any | None = None
 
     async def _get_http(self) -> Any:
         """Return the shared httpx client, creating it on first use."""
-        # build httpx in a thread so Windows CA-store load doesn't stall the event loop.
         if self._http is None:
             import asyncio as _asyncio
             import httpx
@@ -211,7 +209,6 @@ class RemoteAuthClient:
                 token,
                 public_key,
                 algorithms=["RS256"],
-                # skip iat/nbf (clock-skew failure mode); keep exp with 60s leeway.
                 leeway=60,
                 options={
                     "verify_aud": False,
@@ -224,7 +221,6 @@ class RemoteAuthClient:
         except Exception as exc:  # noqa: BLE001
             raise InvalidToken(f"Token validation failed: {exc}") from exc
 
-        # Diagnostic only: log clock skew once for operator visibility.
         if decoded.get("iat"):
             import time as _time
             skew = int(_time.time()) - int(decoded["iat"])
