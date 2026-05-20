@@ -33,8 +33,6 @@ exclude = [
     # Poetry would happily slurp anything starting with "digitorn-*"
     # if we didn't say no.
     "packages/auth/**",
-    "packages/gateway/**",
-    "packages/hub/**",
     "packages/digitorn-preview-sdk/**",
     "packages/digitorn_cli/**",
 
