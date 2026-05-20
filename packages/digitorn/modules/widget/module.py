@@ -1,19 +1,4 @@
-"""Widget Module - declarative UI rendered by the Flutter client.
-
-The agent calls ``widget.render(zone, ref/tree, ctx)`` to push a
-widget into the user's screen, ``widget.update(widget_id, patch)``
-to mutate it live, and ``widget.close(widget_id)`` to take it down.
-Each call publishes a Socket.IO event on the per-session widget channel
-(namespace ``/events``, room ``session:{session_id}``).
-
-Per-session isolation: every action mutates the state for whichever
-``session_id`` the agent loop has activated on the module. Two users
-opening two sessions each get two independent widget surfaces.
-
-Widgets at startup come from the app's ``widgets:`` block compiled
-into ``CompiledApp.widgets``. The agent uses the actions below to
-push **inline** widgets (Z1) or trigger registered ones via ``ref:``.
-"""
+"""Widget Module - declarative UI rendered by the chat client."""
 
 from __future__ import annotations
 
@@ -38,23 +23,12 @@ from digitorn.modules.widget.store import (
 
 logger = logging.getLogger(__name__)
 
-
-# Per-asyncio-task active session pointer. The widget module is
-# ``isolation=shared`` so a single instance is reused for every
-# session in the daemon. Storing the active session on the instance
-# (the previous behaviour) caused a cross-session race: two agent
-# turns from different sessions overwrote each other's pointer at
-# every ``await``. Putting it in a ContextVar makes the pointer
-# task-local; ``asyncio.create_task`` snapshots the parent context
-# so the agent loop spawned from a request handler still sees the
-# session that handler activated.
+# Task-local active session pointer. Widget is isolation=shared, so an
+# instance attribute would race across concurrent agent turns; ContextVar
+# is snapshotted by asyncio.create_task and stays correct under fan-out.
 _ACTIVE_SESSION_VAR: ContextVar[str | None] = ContextVar(
     "widget_active_session", default=None,
 )
-
-
-# ── Config model (compile-time validation via CONFIG_MODEL) ──────
-
 
 class WidgetModuleConfig(BaseModel):
     """Pydantic config for the widget module (validated at compile time)."""
@@ -63,12 +37,7 @@ class WidgetModuleConfig(BaseModel):
 
     workspace: str = Field(default="", description="Auto-injected by the daemon.")
 
-
 _VALID_ZONES = {"inline", "chat_side", "workspace", "modal"}
-
-
-# ─────────────────────────── params ────────────────────────────
-
 
 class RenderParams(BaseModel):
     """Mount or replace a widget in one of the four zones."""
@@ -98,7 +67,6 @@ class RenderParams(BaseModel):
         description="Optional turn id to associate the widget with a chat turn.",
     )
 
-
 class UpdateParams(BaseModel):
     """Patch a previously rendered widget."""
     widget_id: str = Field(..., description="The id returned by the render call.")
@@ -107,10 +75,8 @@ class UpdateParams(BaseModel):
         description="Dotted-path keys: 'data.sources', 'state.filter', 'ctx.path'…",
     )
 
-
 class CloseParams(BaseModel):
     widget_id: str = Field(..., description="Widget to unmount.")
-
 
 class ErrorParams(BaseModel):
     """Surface an error inside a mounted widget without closing it."""
@@ -120,7 +86,6 @@ class ErrorParams(BaseModel):
         description="Optional name of the data binding that failed.",
     )
     message: str = Field(..., description="Human-readable error.")
-
 
 class GetStateParams(BaseModel):
     """Read the session's widget state (or one key)."""
@@ -133,27 +98,15 @@ class GetStateParams(BaseModel):
         ),
     )
 
-
 class SetStateParams(BaseModel):
-    """Write into the session's widget state.
-
-    Used by the agent when it wants to expose a value to the next
-    widget render or to other modules that read widget state via
-    ``ctx.widget_state``. The same map is also injected into the
-    system prompt under the WIDGET CONTEXT section.
-    """
+    """Write into the session's widget state."""
     set: dict[str, Any] = Field(
         ...,
         description="Key/value pairs to merge into the session state.",
     )
 
-
 class ClearParams(BaseModel):
     """No params - clears all mounted widgets + state for the session."""
-
-
-# ─────────────────────────── module ────────────────────────────
-
 
 class WidgetModule(BaseModule):
     """Per-session declarative-widget runtime."""
@@ -163,31 +116,7 @@ class WidgetModule(BaseModule):
     CONFIG_MODEL = WidgetModuleConfig
 
     def get_prompt_sections(self) -> list[dict[str, Any]]:
-        """Inject the current session's widget state into the system prompt.
-
-        Every value the user typed in a form, every result of a tool
-        triggered by a widget, every set_state call - all of it
-        appears under a ``# Widget context`` section so the agent can
-        reference them in its reasoning and pass them to subsequent
-        tool calls. This is what makes widgets behave as a
-        bidirectional bridge between the UI and the agent.
-
-        Format (rendered as markdown):
-
-            # Widget context
-
-            ## form.last_booking_topic
-            "1:1 with Alice"
-
-            ## state.selected_sources
-            ["s1", "s2", "s3"]
-
-            ## last tool result
-            tool: rag.query → {"hits": 12, "top_score": 0.94}
-
-        The agent loop calls this hook every turn for the active
-        session, so the state is always fresh.
-        """
+        """Inject the current session's widget state into the system prompt."""
         import json as _json
 
         sid = _ACTIVE_SESSION_VAR.get()
@@ -257,7 +186,7 @@ class WidgetModule(BaseModule):
             "description": (
                 "Declarative UI widgets - agent pushes render/update/close "
                 "events via Socket.IO. Trees are validated at compile time; "
-                "the Flutter client renders them with no extra code."
+                "the client renders them with no extra code."
             ),
             "author": "Digitorn Team",
         })
@@ -265,22 +194,12 @@ class WidgetModule(BaseModule):
     def __init__(self) -> None:
         super().__init__()
         self._store = WidgetSessionStore()
-        # NOTE: the active session pointer used to live HERE as
-        # ``self._active_session_id``. Moved to a module-level
-        # ContextVar (top of this file) to remove the cross-session
-        # race introduced by ``isolation=shared``. See the doc near
-        # the ContextVar definition.
-        # Socket.IO bridge - set by bootstrap to emit events on the bus
+        # Socket.IO bridge - set by bootstrap to emit events on the bus.
         self._event_bus: Any | None = None
         self._bus_app_id: str | None = None
 
-    # ── session wiring ────────────────────────────────────────
-
     def set_active_session(self, session_id: str | None) -> None:
-        """Set the active session for the CURRENT asyncio task.
-        See ``_ACTIVE_SESSION_VAR`` at the top of this file for the
-        why - storing this on the instance caused cross-session
-        leaks under concurrent turns of a shared module."""
+        """Set the active session for the CURRENT asyncio task."""
         _ACTIVE_SESSION_VAR.set(session_id)
 
     def _resolve_session_id(self) -> str:
@@ -295,12 +214,6 @@ class WidgetModule(BaseModule):
         ctx: dict[str, Any] | None = None,
         item: Any = None,
     ) -> dict[str, Any]:
-        """Build the scope dict the expression evaluator reads from.
-
-        Mirrors the spec §6.1: ``form``, ``state``, ``ctx``, ``item``,
-        ``session`` (id), ``app`` (id) - everything the agent or the
-        UI might want to substitute into a widget tree.
-        """
         return {
             "form": dict(sess.state.get("form") or {}),
             "state": {k: v for k, v in sess.state.items() if k != "form"},
@@ -316,8 +229,6 @@ class WidgetModule(BaseModule):
         state = self._store.get(session_id) or self._store.get_or_create(session_id)
         return state.snapshot()
 
-    # ── publish helper ────────────────────────────────────────
-
     def _publish(
         self,
         session_state: WidgetSessionState,
@@ -328,7 +239,6 @@ class WidgetModule(BaseModule):
         evt = WidgetEvent(seq=seq, event_type=event_type, data=data)
         session_state.events.append(evt)
 
-        # ── Socket.IO: emit to session room via SocketIOBus ──
         bus = self._event_bus
         if bus is not None:
             user_id = getattr(session_state, "user_id", None) or "local"
@@ -347,8 +257,6 @@ class WidgetModule(BaseModule):
                 pass
         return evt
 
-    # ── actions ────────────────────────────────────────────────
-
     @action(
         description="Render a widget in one of the 4 zones (inline, chat_side, workspace, modal).",
         params_model=RenderParams,
@@ -364,24 +272,19 @@ class WidgetModule(BaseModule):
         if params.ref is None and params.tree is None:
             return ActionResult(
                 success=False,
-                error="render() requires either ``ref`` (inline widget name) or ``tree`` (inline tree)",
+                error="render() requires either `ref` (inline widget name) or `tree` (inline tree)",
             )
         if params.ref is not None and params.tree is not None:
             return ActionResult(
                 success=False,
-                error="render() takes either ``ref`` OR ``tree``, not both",
+                error="render() takes either `ref` OR `tree`, not both",
             )
 
         sess = self._session()
         widget_id = params.widget_id or f"w_{uuid.uuid4().hex[:12]}"
 
-        # ── Server-side template substitution ────────────────────
-        # If the agent passes a tree containing ``{{form.X}}`` or
-        # ``{{state.X}}`` references, resolve them against the live
-        # session state BEFORE we publish the event. This way
-        # the client renders concrete values without needing its
-        # own copy of the state map. The ``ctx`` provided by the
-        # agent is also exposed to the evaluator as ``{{ctx.X}}``.
+        # Resolve `{{form.X}}` / `{{state.X}}` / `{{ctx.X}}`
+        # against the live session before publishing.
         scopes = self._build_scopes(sess, ctx=params.ctx)
         rendered_tree = (
             substitute_tree(params.tree, scopes)
@@ -414,8 +317,8 @@ class WidgetModule(BaseModule):
                 success=False,
                 error=f"widget {params.widget_id!r} not mounted in session {sess.session_id!r}",
             )
-        # Substitute ``{{...}}`` tokens inside the patch values too -
-        # the agent can write ``patch={"state.greeting": "Hello {{form.name}}"}``
+        # Substitute `{{...}}` tokens inside the patch values too -
+        # the agent can write `patch={"state.greeting": "Hello {{form.name}}"}`
         # and have it resolved against the live state before sending.
         scopes = self._build_scopes(sess)
         rendered_patch = substitute_tree(params.patch, scopes)

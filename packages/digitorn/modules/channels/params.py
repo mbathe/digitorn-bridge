@@ -1,19 +1,10 @@
-"""Pydantic parameter models for all channel actions.
-
-Each model validates agent-provided parameters before execution.
-Used with ``@action(params_model=...)`` for automatic schema generation
-and runtime validation.
-"""
+"""Pydantic parameter models for all channel actions."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from pydantic import BaseModel, Field
-
-
-# ── Send / Reply / Broadcast ─────────────────────────────────────────
-
 
 class SendMessageParams(BaseModel):
     """Send a message through a specific channel provider."""
@@ -41,7 +32,6 @@ class SendMessageParams(BaseModel):
         description="Extra metadata passed to the adapter.",
     )
 
-
 class ReplyParams(BaseModel):
     """Reply to the current inbound event on its originating channel."""
 
@@ -52,7 +42,6 @@ class ReplyParams(BaseModel):
         default_factory=dict,
         description="Extra metadata for the reply.",
     )
-
 
 class BroadcastParams(BaseModel):
     """Send the same message to multiple providers."""
@@ -71,10 +60,6 @@ class BroadcastParams(BaseModel):
         description="Extra metadata.",
     )
 
-
-# ── Provider management ──────────────────────────────────────────────
-
-
 class ListProvidersParams(BaseModel):
     """List all configured channel providers."""
 
@@ -82,27 +67,20 @@ class ListProvidersParams(BaseModel):
         default=True, description="Include runtime status for each provider."
     )
 
-
 class ProviderStatusParams(BaseModel):
     """Get detailed status of a specific provider."""
 
     provider: str = Field(..., description="Provider instance name.")
-
 
 class PauseProviderParams(BaseModel):
     """Pause a provider's inbound listener."""
 
     provider: str = Field(..., description="Provider instance name to pause.")
 
-
 class ResumeProviderParams(BaseModel):
     """Resume a paused provider's inbound listener."""
 
     provider: str = Field(..., description="Provider instance name to resume.")
-
-
-# ── Events / History ─────────────────────────────────────────────────
-
 
 class ProviderHistoryParams(BaseModel):
     """Get recent inbound/outbound event history for a provider."""
@@ -118,15 +96,10 @@ class ProviderHistoryParams(BaseModel):
         description="Filter by direction: 'inbound', 'outbound', or 'all'.",
     )
 
-
 class StatsParams(BaseModel):
     """Get aggregate statistics for all providers."""
 
     pass
-
-
-# ── Testing / Debug ──────────────────────────────────────────────────
-
 
 class SimulateEventParams(BaseModel):
     """Simulate an inbound event for testing."""
@@ -141,7 +114,6 @@ class SimulateEventParams(BaseModel):
     message: str = Field(
         default="", description="Simulated message text."
     )
-
 
 class TestSendParams(BaseModel):
     """Send a test message to verify outbound connectivity."""

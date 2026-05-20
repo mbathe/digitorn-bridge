@@ -1,14 +1,4 @@
-"""Compaction record: cursor saying ``RAM holds events from seq X
-onward + this summary``.
-
-Disk file: ``compaction.json``. ONE record per session. Each compaction
-overwrites the previous one (history of past compactions lives in
-``events.jsonl`` as ``compact_done`` rows).
-
-events.jsonl is NEVER touched by compaction. The disk journal stays
-the full chronology -- frontend ``stream_full_history`` reads it as-is
-and the user sees every event.
-"""
+"""Compaction record: cursor saying `RAM holds events from seq X"""
 
 from __future__ import annotations
 
@@ -28,22 +18,7 @@ COMPACTION_FILENAME = "compaction.json"
 
 @dataclass
 class Compaction:
-    """The latest compaction record for a session.
-
-    Fields:
-      cutoff_seq        -- events with seq <= cutoff_seq are NOT in
-                           memory; they live only on events.jsonl.
-      summary           -- caller-generated text. Injected as a system
-                           message at index 0 on load.
-      strategy          -- "summary" | "summary_plus_keys" | "truncate".
-      key_events        -- if strategy is summary_plus_keys, verbatim
-                           events the caller decided to preserve in
-                           memory. Stored as serialized event dicts.
-      created_at        -- ISO timestamp of the compaction.
-      tokens_estimate   -- REAL token count from litellm
-                           (no len/4 heuristic).
-      model             -- model id used for the count.
-    """
+    """The latest compaction record for a session."""
 
     cutoff_seq: int
     summary: str
@@ -70,8 +45,7 @@ class Compaction:
 
 
 def read_compaction(session_dir: Path) -> Compaction | None:
-    """Read compaction.json. Returns None if missing or corrupt -- the
-    caller can treat that as ``no compaction yet``."""
+    """Read compaction.json"""
     path = session_dir / COMPACTION_FILENAME
     if not path.exists():
         return None

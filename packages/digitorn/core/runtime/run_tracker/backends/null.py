@@ -1,10 +1,4 @@
-"""No-op backend.
-
-Selected when an operator wants the runtime to advertise its events
-to nothing - e.g., during benchmarks, in test harnesses, or when
-running the runtime in a transient sandbox where persistence has no
-value. Every method returns immediately.
-"""
+"""No-op backend."""
 
 from __future__ import annotations
 
@@ -13,8 +7,8 @@ from typing import Any, Optional
 
 class NullBackend:
     def __init__(self, **_: Any) -> None:
-        # Accept (and ignore) backend config so ``select_backend("null",
-        # {"path": ...})`` works the same as the other backends.
+        # Accept (and ignore) backend config so `select_backend("null",
+        # {"path": ...})` works the same as the other backends.
         pass
 
     async def setup(self) -> None:

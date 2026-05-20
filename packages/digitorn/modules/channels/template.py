@@ -1,22 +1,4 @@
-"""Safe template renderer for channel messages.
-
-Security properties:
-- NO eval, exec, Jinja2, or any code execution.
-- Single-pass substitution only (no recursive expansion).
-- ``{{secret.*}}`` and ``{{env.*}}`` are REJECTED at runtime
-  (secrets must be resolved at compile time by the YAML compiler).
-- Maximum output length enforced to prevent expansion bombs.
-- HTML-safe by default (values are escaped).
-
-Usage::
-
-    variables = {
-        "event": {"data": {"from": "+33612345678", "body": "Hello"}},
-        "caller": {"name": "Jean", "plan": "premium"},
-    }
-    result = render("Message from {{caller.name}}: {{event.data.body}}", variables)
-    # → "Message from Jean: Hello"
-"""
+"""Safe template renderer for channel messages."""
 
 from __future__ import annotations
 
@@ -36,20 +18,8 @@ _VAR_PATTERN = re.compile(r"\{\{\s*(.+?)\s*\}\}")
 # Blocked prefixes - these must be resolved at compile time, not runtime
 _BLOCKED_PREFIXES = ("secret.", "env.")
 
-
 def render(template: str, variables: dict[str, Any]) -> str:
-    """Render a template string with safe variable substitution.
-
-    Args:
-        template: Template with ``{{dotpath}}`` placeholders.
-        variables: Nested dict of available variables.
-
-    Returns:
-        Rendered string, truncated to MAX_OUTPUT_LENGTH.
-
-    Raises:
-        ValueError: If template contains blocked runtime references.
-    """
+    """Render a template string with safe variable substitution."""
     if not template:
         return ""
 
@@ -80,17 +50,8 @@ def render(template: str, variables: dict[str, Any]) -> str:
 
     return result
 
-
 def resolve_dotpath(dotpath: str, data: dict[str, Any]) -> Any:
-    """Resolve a dot-separated path into a nested dict.
-
-    Supports:
-    - ``event.data.from`` → data["event"]["data"]["from"]
-    - ``caller.0.name`` → data["caller"][0]["name"] (list index)
-    - ``event.data`` → returns the whole sub-dict
-
-    Returns None if path cannot be resolved.
-    """
+    """Resolve a dot-separated path into a nested dict."""
     parts = dotpath.split(".")
     current: Any = data
 
@@ -114,9 +75,7 @@ def resolve_dotpath(dotpath: str, data: dict[str, Any]) -> Any:
 
     return current
 
-
 def _format_value(value: Any) -> str:
-    """Format a resolved value as a safe string."""
     if isinstance(value, str):
         return value
     if isinstance(value, (int, float, bool)):

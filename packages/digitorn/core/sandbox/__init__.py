@@ -1,12 +1,4 @@
-"""OS-level sandbox - kernel-enforced isolation derived from app YAML.
-
-Public API:
-
-    from digitorn.core.sandbox import build_sandbox_profile, apply_sandbox
-
-    profile = build_sandbox_profile(compiled_app)
-    guard = apply_sandbox(profile)
-"""
+"""OS-level sandbox: kernel-enforced isolation derived from app YAML."""
 
 from __future__ import annotations
 
@@ -54,11 +46,7 @@ def get_backend() -> SandboxBackend:
 
 
 def apply_sandbox(profile: SandboxProfile) -> SandboxGuard:
-    """Apply OS-level isolation for the given profile.
-
-    This is irreversible - once applied, the current process
-    cannot regain dropped privileges.
-    """
+    """Apply OS-level isolation for the given profile (irreversible)."""
     backend = get_backend()
     features = backend.probe()
 

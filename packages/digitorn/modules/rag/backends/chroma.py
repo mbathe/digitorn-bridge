@@ -1,8 +1,4 @@
-"""ChromaDB vector backend.
-
-Requires: pip install chromadb
-Supports in-memory (default) and persistent (path-based) modes.
-"""
+"""ChromaDB vector backend."""
 
 from __future__ import annotations
 
@@ -13,7 +9,6 @@ from typing import Any
 from .base import CollectionInfo, Document, SearchResult, VectorBackend
 
 logger = logging.getLogger(__name__)
-
 
 class ChromaBackend(VectorBackend):
 

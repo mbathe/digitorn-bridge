@@ -1,8 +1,4 @@
-"""Sandbox guard - result of applying OS-level isolation.
-
-Returned by ``apply_sandbox()`` so callers know what protections
-are active and which ones could not be applied.
-"""
+"""Sandbox guard: outcome of applying OS-level isolation."""
 
 from __future__ import annotations
 
@@ -18,10 +14,9 @@ class SandboxGuard:
     unavailable: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
-    # Per-session sandbox extensions
     namespaces: list[str] = field(default_factory=list)
     hardening: list[str] = field(default_factory=list)
-    notify_fd: int | None = None  # seccomp-notify FD for real-time audit
+    notify_fd: int | None = None
 
     @property
     def is_enforced(self) -> bool:

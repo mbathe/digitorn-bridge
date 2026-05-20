@@ -1,28 +1,4 @@
-"""Sidecar - persistent bidirectional subprocess channels.
-
-Generic transport layer for long-lived subprocess communication.
-Modules use sidecars for real-time interactions with external tools:
-  - LSP servers (JSON-RPC over stdio)
-  - REPLs (line-based over stdio)
-  - File watchers, compilers, custom servers
-
-Three built-in codecs:
-  - ``jsonrpc``: JSON-RPC 2.0 with Content-Length headers (LSP standard)
-  - ``lines``: Newline-delimited text
-  - ``ndjson``: Newline-delimited JSON objects
-
-Usage::
-
-    channel = await spawn_sidecar(
-        name="pyright",
-        command=["pyright-langserver", "--stdio"],
-        protocol="jsonrpc",
-        on_notification=my_handler,
-    )
-    result = await channel.request("initialize", {"capabilities": {}})
-    await channel.notify("initialized", {})
-    await channel.close()
-"""
+"""Sidecar: persistent bidirectional subprocess channels."""
 
 from __future__ import annotations
 
@@ -36,35 +12,23 @@ from typing import Any, Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
-# Type aliases
 NotificationHandler = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 
-# ── Codecs ───────────────────────────────────────────────────────
-
-
 class JsonRpcCodec:
-    """JSON-RPC 2.0 over stdio with Content-Length headers (LSP standard).
-
-    Wire format::
-
-        Content-Length: 42\\r\\n
-        \\r\\n
-        {"jsonrpc":"2.0","method":"...","params":{...}}
-    """
+    """JSON-RPC 2.0 over stdio with Content-Length headers (LSP standard)."""
 
     @staticmethod
     async def read_message(reader: asyncio.StreamReader) -> dict[str, Any] | None:
         """Read one JSON-RPC message. Returns None on EOF."""
-        # Read Content-Length header
         content_length = 0
         while True:
             line = await reader.readline()
             if not line:
-                return None  # EOF
+                return None
             decoded = line.decode("utf-8", errors="replace").strip()
             if not decoded:
-                break  # Empty line = end of headers
+                break
             if decoded.lower().startswith("content-length:"):
                 try:
                     content_length = int(decoded.split(":", 1)[1].strip())
@@ -72,7 +36,6 @@ class JsonRpcCodec:
                     pass
 
         if content_length <= 0:
-            # Fallback: try reading a line as raw JSON (ndjson-style)
             line = await reader.readline()
             if not line:
                 return None
@@ -149,24 +112,17 @@ _CODECS = {
 }
 
 
-# ── SidecarChannel ───────────────────────────────────────────────
-
-
 @dataclass
 class SidecarChannel:
-    """A persistent bidirectional connection to a subprocess.
-
-    Lifecycle: spawn → connected → (request/notify/send) → close → disconnected
-    Auto-restartable via restart().
-    """
+    """A persistent bidirectional connection to a subprocess."""
 
     name: str
     command: list[str]
-    protocol: str  # "jsonrpc", "lines", "ndjson"
+    protocol: str
     cwd: str | None = None
     env: dict[str, str] | None = None
 
-    status: str = "disconnected"  # disconnected, connected, error
+    status: str = "disconnected"
     on_notification: NotificationHandler | None = None
 
     _process: asyncio.subprocess.Process | None = field(default=None, repr=False)
@@ -180,7 +136,7 @@ class SidecarChannel:
     async def start(self) -> None:
         """Spawn the subprocess and start reading."""
         if self.status == "connected" and self._process and self._process.returncode is None:
-            return  # Already running
+            return
 
         env = {**os.environ}
         _ENV_BLOCKLIST = frozenset({
@@ -238,7 +194,6 @@ class SidecarChannel:
             except ProcessLookupError:
                 pass
 
-        # Fail all pending requests
         for fut in self._pending.values():
             if not fut.done():
                 fut.set_exception(ConnectionError(f"Sidecar '{self.name}' closed"))
@@ -250,10 +205,8 @@ class SidecarChannel:
     async def restart(self) -> None:
         """Close and re-spawn with the same config."""
         await self.close()
-        await asyncio.sleep(0.2)  # Brief pause before restart
+        await asyncio.sleep(0.2)
         await self.start()
-
-    # ── Request/Response (JSON-RPC) ──────────────────────────────
 
     async def request(self, method: str, params: dict[str, Any] | None = None, timeout: float = 30.0) -> Any:
         """Send a JSON-RPC request and wait for the response."""
@@ -285,8 +238,6 @@ class SidecarChannel:
             self._pending.pop(req_id, None)
             raise TimeoutError(f"Sidecar '{self.name}' request '{method}' timed out after {timeout}s")
 
-    # ── Notification (JSON-RPC) ──────────────────────────────────
-
     async def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
         """Send a JSON-RPC notification (no response expected)."""
         if self.protocol != "jsonrpc":
@@ -300,8 +251,6 @@ class SidecarChannel:
             await self._process.stdin.drain()  # type: ignore[union-attr]
         except (BrokenPipeError, ConnectionError):
             self.status = "error"
-
-    # ── Line/NdJson send ─────────────────────────────────────────
 
     async def send(self, data: str | dict[str, Any]) -> None:
         """Send a message using the configured protocol (lines or ndjson)."""
@@ -321,10 +270,7 @@ class SidecarChannel:
         except (BrokenPipeError, ConnectionError):
             self.status = "error"
 
-    # ── Background reader ────────────────────────────────────────
-
     async def _read_loop(self) -> None:
-        """Background task: reads messages from stdout and dispatches."""
         codec_cls = _CODECS.get(self.protocol)
         if not codec_cls:
             return
@@ -334,7 +280,7 @@ class SidecarChannel:
             while True:
                 msg = await codec_cls.read_message(reader)
                 if msg is None:
-                    break  # EOF - process exited
+                    break
 
                 if self.protocol == "jsonrpc" and isinstance(msg, dict):
                     self._dispatch_jsonrpc(msg)
@@ -350,14 +296,12 @@ class SidecarChannel:
         except Exception:
             logger.warning("sidecar_reader_error name=%s", self.name, exc_info=True)
         finally:
-            # Process exited
             if self.status == "connected":
                 self.status = "error"
                 self._consecutive_failures += 1
                 logger.warning("sidecar_process_exited name=%s failures=%d", self.name, self._consecutive_failures)
 
     async def _stderr_loop(self) -> None:
-        """Background task: reads stderr for logging."""
         reader = self._process.stderr  # type: ignore[union-attr]
         try:
             while True:
@@ -373,10 +317,8 @@ class SidecarChannel:
             logger.debug("sidecar stderr reader failed", exc_info=True)
 
     def _dispatch_jsonrpc(self, msg: dict[str, Any]) -> None:
-        """Route a JSON-RPC message to the right handler."""
         msg_id = msg.get("id")
 
-        # Response to a pending request
         if msg_id is not None and msg_id in self._pending:
             future = self._pending.pop(msg_id)
             if not future.done():
@@ -388,7 +330,6 @@ class SidecarChannel:
                     future.set_result(msg.get("result"))
             return
 
-        # Notification (no id, or unknown id with method)
         method = msg.get("method", "")
         params = msg.get("params", {})
         if method and self.on_notification:
@@ -404,9 +345,6 @@ class SidecarChannel:
             logger.debug("sidecar_notification_handler_error name=%s method=%s", self.name, method, exc_info=True)
 
 
-# ── Factory ──────────────────────────────────────────────────────
-
-
 async def spawn_sidecar(
     name: str,
     command: list[str],
@@ -416,23 +354,7 @@ async def spawn_sidecar(
     env: dict[str, str] | None = None,
     on_notification: NotificationHandler | None = None,
 ) -> SidecarChannel:
-    """Create and start a sidecar channel.
-
-    Args:
-        name: Unique identifier for this sidecar.
-        command: Command + args to execute (e.g. ["pyright-langserver", "--stdio"]).
-        protocol: Communication protocol ("jsonrpc", "lines", "ndjson").
-        cwd: Working directory for the subprocess.
-        env: Additional environment variables.
-        on_notification: Async callback for push messages from the process.
-
-    Returns:
-        A connected SidecarChannel ready for communication.
-
-    Raises:
-        FileNotFoundError: If the command binary is not found.
-        OSError: If the subprocess fails to start.
-    """
+    """Create and start a sidecar channel."""
     if protocol not in _CODECS:
         raise ValueError(f"Unknown protocol '{protocol}'. Available: {list(_CODECS)}")
 
@@ -446,9 +368,6 @@ async def spawn_sidecar(
     )
     await channel.start()
     return channel
-
-
-# ── One-shot execution ───────────────────────────────────────────
 
 
 @dataclass
@@ -473,24 +392,7 @@ async def run_oneshot(
     env: dict[str, str] | None = None,
     timeout: float = 60.0,
 ) -> OneshotResult:
-    """Run a command once, wait for it to finish, return output.
-
-    Unlike SidecarChannel, this is for **one-shot tools** that don't
-    maintain state: pdflatex, pandoc, ffmpeg, libreoffice, imagemagick, etc.
-
-    No reader loop, no health monitoring, no protocol codec.
-    Just spawn → (optional stdin) → wait → collect output.
-
-    Args:
-        command: Command + args (e.g. ["pdflatex", "-interaction=nonstopmode", "doc.tex"])
-        stdin: Optional input to send to the process's stdin
-        cwd: Working directory
-        env: Additional environment variables
-        timeout: Maximum execution time (default 60s)
-
-    Returns:
-        OneshotResult with stdout, stderr, exit_code, success
-    """
+    """Run a command once, wait for it to finish, return output."""
     full_env = {**os.environ, **(env or {})}
 
     try:

@@ -3,18 +3,7 @@
 from __future__ import annotations
 
 PROFILES: dict[str, dict] = {
-    # ================================================================
-    # DEV - Ultra-advanced developer behavior
-    #
-    # This is how a senior developer works:
-    # - Understands the full scope before touching code
-    # - Plans complex work and gets approval
-    # - Delegates exploration to sub-agents
-    # - Verifies everything after changes
-    # - Never guesses, always searches
-    # ================================================================
     "dev": {
-        # ── Mandatory sequences ──
         "read_before_edit": True,
         "read_before_write_existing": True,
         "search_before_read": True,
@@ -22,30 +11,23 @@ PROFILES: dict[str, dict] = {
         "verify_after_edit": True,
         "plan_before_execute": True,
 
-        # ── Prohibitions ──
         "no_bash_for_files": True,
         "no_blind_exploration": True,
 
-        # ── Validation ──
         "confirm_complex_plans": True,
         "confirm_destructive": True,
 
-        # ── Delegation ──
         "delegate_complex": True,
         "delegate_large_reads": True,
 
-        # ── Research ──
         "web_search_when_unknown": True,
 
-        # ── Quality ──
         "always_lint_check": True,
 
-        # ── Thresholds ──
         "max_blind_reads": 2,
         "changes_before_test_reminder": 2,
         "max_sequential_same_tool": 8,
 
-        # ── Style ──
         "verbosity": "concise",
         "autonomy": "medium",  # Ask before big changes, do small ones alone
     },
@@ -154,14 +136,6 @@ PROFILES: dict[str, dict] = {
         "autonomy": "medium",
     },
 }
-
-
-# ================================================================
-# DEV profile - advanced behavioral prompt section
-#
-# This is injected into the system prompt when profile=dev.
-# It describes EXACTLY how a senior developer thinks and works.
-# ================================================================
 
 DEV_PROMPT_SECTION = """\
 You are guided by the "dev" behavioral profile - the highest standard of developer behavior. \
@@ -292,22 +266,8 @@ NEVER delegate judgment calls. YOU synthesize the results and decide.
 - If a task will take many steps, create tasks (TaskCreate) so the user sees progress
 """
 
-
 def resolve_profile(profile_name: str | None, overrides: dict | None) -> dict:
-    """Merge a profile preset with user overrides.
-
-    ``profile_name`` can be:
-    - A built-in name: ``"dev"``, ``"coding"``, ``"research"``, etc.
-    - A JSON string from ``{{behavior.X}}`` resolution (parsed here)
-    - ``None`` → empty base, only overrides apply
-
-    Custom profiles (from ``./behavior/*.yaml``) support:
-    - ``extends: dev`` → start from a built-in profile
-    - ``rules: {...}`` → merged on top of the base
-    - ``custom: [...]`` → appended to the custom rules
-    - ``prompt: "..."`` → stored as ``_custom_prompt`` for injection
-    - ``name: "..."`` → stored as ``_profile_display_name``
-    """
+    """Merge a profile preset with user overrides."""
     import json as _json
 
     custom_profile: dict | None = None
@@ -357,16 +317,10 @@ def resolve_profile(profile_name: str | None, overrides: dict | None) -> dict:
         base.update(overrides)
     return base
 
-
 def get_dev_prompt_section() -> str:
     """Return the advanced dev behavior prompt section."""
     return DEV_PROMPT_SECTION
 
-
 def get_custom_prompt_section(rules: dict) -> str | None:
-    """Return a custom prompt section if defined in the profile.
-
-    Custom profiles from ``./behavior/*.yaml`` can include a ``prompt:``
-    field with additional behavioral instructions.
-    """
+    """Return a custom prompt section if defined in the profile."""
     return rules.get("_custom_prompt")

@@ -1,35 +1,17 @@
-"""NotificationPolicy - decide which channels fire for an inbox item.
-
-Reads a user's prefs from the ``inbox_notification_prefs`` table
-and applies:
-
-1. **Per-kind channel routing**: ``prefs.events[kind] → [channels]``.
-   If the kind isn't listed, a default is applied (desktop only).
-
-2. **Quiet hours**: during the user's quiet window, non-critical
-   events are silenced across all channels except the SSE stream
-   (which is always live for in-app usage). Critical kinds -
-   approval requests, failures - ignore quiet hours.
-
-3. **Master enable**: if ``prefs.enabled`` is false, the policy
-   returns an empty channel list → nothing fires.
-
-The policy is **pure**: no DB calls, no IO. It accepts a prefs
-dict and a kind, returns a channel list. The dispatcher is the
-one that fetches prefs from the store and routes to backends.
-"""
+"""NotificationPolicy - decide which channels fire for an inbox item."""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 from datetime import datetime, time, timezone
 from typing import Any
 
 from digitorn.core.inbox.kinds import InboxKind
 
 
-# Channels the daemon can dispatch to. "desktop" is a no-op on the
-# server - the client's SSE stream delivers it. It's listed so the
-# policy can explicitly include/exclude it in the routing decision.
 CHANNELS = ("desktop", "push", "email")
 
 
@@ -43,9 +25,6 @@ CRITICAL_KINDS: frozenset[str] = frozenset({
 })
 
 
-# Default routing when a kind isn't in prefs.events. Matches the
-# Flutter client's out-of-the-box behavior (desktop toast only for
-# routine completion events).
 _DEFAULT_ROUTING: dict[str, list[str]] = {
     InboxKind.SESSION_COMPLETED:         ["desktop"],
     InboxKind.SESSION_FAILED:            ["desktop", "push"],
@@ -68,34 +47,7 @@ class NotificationPolicy:
         prefs: dict[str, Any] | None,
         now: datetime | None = None,
     ) -> list[str]:
-        """Return the list of channels that should receive this event.
-
-        Two input shapes are supported:
-
-        **Granular** (daemon-native)::
-
-            { "enabled": True,
-              "events": { "session.failed": ["desktop", "push"] },
-              "quiet_hours": { "start": 22, "end": 7 } }
-
-        **Flat** (Flutter client SharedPreferences shape)::
-
-            { "desktop": True, "sound": True,
-              "events": ["session.failed", "session.awaiting_approval"],
-              "quiet_hours": { "start_hour": 22, "end_hour": 7, "tz": "..." } }
-
-        In the flat shape, ``events`` is a whitelist of kinds that
-        should trigger notifications at all. The top-level
-        ``desktop``/``push``/``email`` booleans control the active
-        channels. Matching an event that is NOT in the whitelist
-        returns an empty channel list.
-
-        Args:
-            kind:  Inbox kind string (see ``InboxKind``).
-            prefs: The user's stored notification prefs dict, or
-                   None when no prefs are set (apply defaults).
-            now:   Current time for quiet-hours testing.
-        """
+        """Return the list of channels that should receive this event."""
         prefs = prefs or {}
 
         # Master switch (granular shape)
@@ -106,7 +58,6 @@ class NotificationPolicy:
         routing: list[str]
 
         if isinstance(events_field, list):
-            # ── Flat shape (Flutter client) ──
             # The whitelist: if the kind isn't listed, silence it.
             if kind not in events_field:
                 routing = []
@@ -120,7 +71,6 @@ class NotificationPolicy:
                 if prefs.get("email", False):
                     routing.append("email")
         elif isinstance(events_field, dict) and events_field:
-            # ── Granular shape (daemon-native) ──
             override = events_field.get(kind)
             if override is None:
                 routing = list(_DEFAULT_ROUTING.get(kind, ["desktop"]))
@@ -146,12 +96,7 @@ class NotificationPolicy:
         prefs: dict[str, Any] | None,
         now: datetime | None = None,
     ) -> bool:
-        """Return True if a specific channel would fire for a kind.
-
-        Convenience wrapper - equivalent to ``channel in
-        channels_for(...)`` but keeps the intent explicit at call
-        sites.
-        """
+        """Return True if a specific channel would fire for a kind."""
         return channel in NotificationPolicy.channels_for(
             kind=kind, prefs=prefs, now=now,
         )
@@ -160,15 +105,9 @@ class NotificationPolicy:
 def _in_quiet_hours(
     quiet: dict[str, Any], now: datetime | None = None,
 ) -> bool:
-    """Check if ``now`` falls inside the user's quiet-hours window.
-
-    Accepts an integer ``start``/``end`` (hour in 0-23) OR a string
-    ``HH:MM``. Wrap-around midnight is handled (e.g. 22 → 7 means
-    10pm to 7am). If ``tz`` is present, ``now`` is converted; else
-    UTC is assumed. Missing/invalid values → returns False (off).
-    """
+    """Check if `now` falls inside the user's quiet-hours window."""
     # Accept both shapes: {start, end} (granular) and
-    # {start_hour, end_hour} (Flutter client).
+    # {start_hour, end_hour} (client).
     start = quiet.get("start", quiet.get("start_hour"))
     end = quiet.get("end", quiet.get("end_hour"))
     if start is None or end is None:
@@ -183,8 +122,8 @@ def _in_quiet_hours(
         try:
             from zoneinfo import ZoneInfo
             now = now.astimezone(ZoneInfo(tz_name))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("policy best-effort block failed: %s", exc)
 
     try:
         start_t = _parse_hour(start)

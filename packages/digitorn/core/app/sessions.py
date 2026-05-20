@@ -1,17 +1,4 @@
-"""ConversationSession dataclass.
-
-Data container for an active chat session. Used as the inter-module
-data type across the daemon (manager_v2, apps_v2 routes, sub-agent
-spawn, etc.). The persistent storage is owned by the new
-``InMemorySessionStore`` (filesystem-first); this dataclass is the
-in-memory facade callers receive.
-
-The legacy KV-backed ``SessionStore`` was removed in the SessionStore
-unification refactor. Nothing constructs it anymore. The bridge +
-``LegacySessionStoreAdapter`` translate between ``SessionState`` (the
-new internal type) and ``ConversationSession`` (this type) for legacy
-callers.
-"""
+"""ConversationSession dataclass."""
 
 from __future__ import annotations
 
@@ -38,21 +25,15 @@ class ConversationSession:
     title: str = ""
     memory_snapshot: dict[str, Any] = field(default_factory=dict)
     turn_count: int = 0
-    # ``workspace`` is the daemon-private per-session dir under
-    # ``~/.digitorn/workspaces/{app}/{sid}/``. ALWAYS auto-created.
-    # Holds state.json, baselines, hidden ``__sdk__/``, etc. The agent
-    # never points its tools here directly - it operates on ``workdir``.
     workspace: str = ""
-    # ``workdir`` is the agent's working directory. When the user passes
-    # a ``workdir`` at session create (``runtime.workdir_mode: required``
-    # apps), the agent's tools (Read/Write/Edit/Bash, WsRead/WsWrite, ...)
-    # operate inside it. When omitted, ``workdir`` defaults to
-    # ``workspace`` so the agent and the daemon share one tree (legacy
-    # behaviour, retained for backward compat with existing apps).
     workdir: str = ""
     # Interruption tracking - enables smart resume
     interrupted: bool = False  # True if session didn't end cleanly
     interrupted_at: float = 0.0
+    # Classified error of the most recent turn. None after a clean turn.
+    # SSE clients get the `error` event live; poll-based clients (dev CLI,
+    # plain REST) read it from summary().
+    last_error: dict[str, Any] | None = None
 
     def add_system(self, content: str) -> None:
         if not self.messages:
@@ -66,22 +47,10 @@ class ConversationSession:
 
     def add_assistant(self, content: str) -> None:
         self.messages.append({"role": "assistant", "content": content})
-        # Keep ``last_active`` fresh so the session drawer's sort
-        # (most-recent first) reflects "the assistant just replied"
-        # and not merely "the user last typed". Without this, a long
-        # turn that fires many ``add_assistant`` appends would leave
-        # the drawer order stale for the duration of the turn.
         self.last_active = time.time()
 
     def summary(self) -> dict[str, Any]:
-        """Rich summary suitable for list rendering.
-
-        Includes a best-effort ``last_message_preview`` (last
-        assistant/user content, trimmed to 200 chars) so the client
-        can render chat cards without a second fetch. Token /cost
-        fields are 0 here and joined on top in ``AppManager.list_sessions``
-        via the UsageStore when available.
-        """
+        """Rich summary suitable for list rendering."""
         preview = ""
         last_role = ""
         if self.messages:
@@ -110,12 +79,6 @@ class ConversationSession:
             "turn_count": self.turn_count,
             "created_at": self.created_at,
             "last_active": self.last_active,
-            # ``workspace`` here is the agent-facing path the frontend
-            # renders (file tree, status bar, etc.). The daemon-private
-            # ``self.workspace`` is intentionally NOT exposed - it
-            # holds internal state (baselines, ``__sdk__/``) and would
-            # confuse the UI if surfaced. Both keys carry the workdir
-            # value so legacy clients reading ``workspace`` still work.
             "workspace": self.workdir or self.workspace,
             "workdir": self.workdir or self.workspace,
             "interrupted": self.interrupted,
@@ -128,5 +91,5 @@ class ConversationSession:
             "app_color": None,
             "tokens": 0,
             "cost_usd": 0.0,
-            "last_error": None,
+            "last_error": self.last_error,
         }

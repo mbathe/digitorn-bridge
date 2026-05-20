@@ -4,21 +4,21 @@ Revision ID: 0008
 Revises: 0007
 Create Date: 2026-05-15
 
-The bundle concept is removed. ``~/.digitorn/apps/<scoped>/`` is the
+The bundle concept is removed. `~/.digitorn/apps/<scoped>/` is the
 sole on-disk source-of-truth. The deterministic path makes
-``installed_packages.install_dir`` redundant (computed at read time)
-and the entire ``app_bundles`` table dead.
+`installed_packages.install_dir` redundant (computed at read time)
+and the entire `app_bundles` table dead.
 
 Operations (idempotent, Postgres + SQLite):
 
-1. DROP FK ``applications.current_bundle_id`` -> ``app_bundles.id``
-   (created with ``use_alter=True`` so the constraint name is stable).
-2. DROP COLUMN ``applications.current_bundle_id``.
-3. DROP COLUMN ``installed_packages.install_dir``.
-4. DROP TABLE ``app_bundles``.
+1. DROP FK `applications.current_bundle_id` -> `app_bundles.id`
+   (created with `use_alter=True` so the constraint name is stable).
+2. DROP COLUMN `applications.current_bundle_id`.
+3. DROP COLUMN `installed_packages.install_dir`.
+4. DROP TABLE `app_bundles`.
 
 No data is migrated. Bundles on disk under
-``~/.digitorn/apps/<app_id>/bundle-<hash>/`` are NOT removed by this
+`~/.digitorn/apps/<app_id>/bundle-<hash>/` are NOT removed by this
 migration -- the bootstrap self-heal will reinstall builtins on next
 boot and old bundle dirs become orphan files that can be wiped
 manually.
@@ -54,10 +54,8 @@ def upgrade() -> None:
     bind = op.get_bind()
     dialect = bind.dialect.name
 
-    # 1: drop app_bundles FIRST so the FK target on
-    # applications.current_bundle_id is gone before we drop the column.
-    # SQLite refuses to drop a column referenced by a FK definition even
-    # if the foreign-key target table is being dropped at the same time.
+    # 1: drop `app_bundles` first; SQLite won't drop a column whose
+    # FK target still exists.
     if _has_table(bind, "app_bundles"):
         op.drop_table("app_bundles")
 

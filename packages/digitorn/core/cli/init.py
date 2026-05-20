@@ -1,19 +1,13 @@
-"""digitorn init - scaffold a new agent application.
-
-Creates a project directory with:
-  - app.yaml (configured for the chosen provider)
-  - .digitorn.md (project memory file)
-  - skills/ directory with example skills
-  - .gitignore
-"""
+"""digitorn init - scaffold a new agent application."""
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import typer
 from rich.console import Console
-from rich.prompt import Prompt, Confirm
+from rich.prompt import Confirm, Prompt
 
 console = Console()
 
@@ -21,106 +15,89 @@ console = Console()
 _APP_YAML = '''app:
   app_id: {app_id}
   name: "{name}"
+  description: "{name} agent built with Digitorn."
+  icon: "🤖"
+  category: assistant
 
-variables:
-  workspace: "{{{{env.PWD}}}}"
+runtime:
+  mode: conversation
+  workdir_mode: auto
+  direct_modules:
+    - filesystem
+    - shell
+    - memory{extra_direct_modules}
+  max_turns: 100
+  timeout: 600
 
-modules:
-  filesystem:
-    config:
-      checkpoint: true
-    constraints:
-      paths: ["{{{{workspace}}}}"]
-
-  git:
-    config:
-      workspace: "{{{{workspace}}}}"
-
-  shell:
-    constraints:
-      allowed_actions: [run, bash, which, env, background_run, task_status, task_output, task_list, task_wait]
-
-  memory:
-    config:
-      working_memory: true
-      todo_list: true
-      checkpoint: true
-      runtime:
-        goal_guardian: true
-        content_cache: true
-{extra_modules}
 agents:
   - id: main
     role: coordinator
     brain:
       provider: {provider}
+      backend: {backend}
       model: {model}
       config:
-        api_key: "{{{{env.{api_key_env}}}}}"
-{provider_config}
-      temperature: 0.1
-      max_tokens: 4096
+        api_key: {api_key_value}{provider_extra_config}
+      temperature: 0.3
+      max_tokens: 8192
       context:
         max_tokens: {context_size}
         strategy: summarize
-        keep_recent: 6
+        keep_recent: 10
+        auto_compact: true
     system_prompt: |
-      You are an expert software engineer. You help with coding tasks
-      in the user's workspace.
+      You are a helpful AI assistant working in the user's project.
+      Read files before editing them. Be concise.
 
-      Workspace: {{{{workspace}}}}
-    pool:
-      max_workers: 3
+tools:
+  modules:
+    filesystem: {{}}
+    shell: {{}}
+    memory:
+      config:
+        working_memory: true
+        todo_list: true{extra_modules}
+  capabilities:
+    default_policy: auto
+    max_risk_level: medium
+    grant:
+      - module: filesystem
+        actions: [read, write, edit, grep, glob]
+      - module: shell
+        actions: [bash]
+      - module: memory
+        actions: [remember, task_create, task_update, set_goal]{extra_grants}
 
-execution:
-  mode: conversation
+ui:
   greeting: |
-    Ready to help. What are we working on?
-  workspace: "{{{{workspace}}}}"
-  project_memory: auto
-  max_turns: 100
-  timeout: 600
-
-capabilities:
-  default_policy: auto
-  max_risk_level: medium
-  grant:
-    - module: filesystem
-      actions: [read, write, edit, ls, find, grep, rm, mv, cp, undo]
-    # All git operations go through shell.bash (git commit / git status / git log / ...)
-    - module: shell
-      actions: [bash, bash_background, bash_status]
-  approve:
-    - module: filesystem
-      actions: [rm, mv, cp]
+    Ready. What are we working on?
 '''
+
 
 _DIGITORN_MD = '''# Project Memory
 
-This file is automatically loaded by the agent at the start of each session.
-Add project-specific context here: conventions, architecture decisions,
+Loaded automatically at the start of every session. Edit this file to
+give the agent project-specific context: conventions, architecture,
 important paths, team preferences.
 
 ## Project
 - Name: {name}
-- Language: (fill in)
-- Framework: (fill in)
 
 ## Conventions
-- (add your coding conventions here)
+- (add coding conventions here)
 
-## Important Paths
+## Important paths
 - Source: src/
 - Tests: tests/
-- Config: (fill in)
 '''
 
 _GITIGNORE = '''.env
 __pycache__/
 *.pyc
-.digitorn/state/
+.digitorn/
 node_modules/
 .venv/
+venv/
 '''
 
 _COMMIT_SKILL = '''# Smart Commit
@@ -138,82 +115,98 @@ _REVIEW_SKILL = '''# Code Review
 1. Read the files that changed (use git diff or git status to find them)
 2. For each file, check:
    - Security: no hardcoded secrets, no injection, no unsafe operations
-   - Quality: clear naming, no code duplication, proper error handling
-   - Tests: are there tests? do they cover the changes?
+   - Quality: clear naming, no duplication, proper error handling
+   - Tests: are there tests, do they cover the changes
    - Style: consistent with the rest of the codebase
-3. Produce a summary with findings categorized as:
+3. Produce a summary with findings categorized:
    - Critical (must fix before merge)
    - Suggestion (nice to have)
    - Nitpick (style only)
 '''
 
-_BEHAVIOR_EXAMPLE = '''# Custom behavior profile
-# Reference in app.yaml:  behavior: { profile: "{{behavior.strict}}" }
-# See docs/app-language/43-behavior.md for all available rules.
 
-name: strict
-description: "Strict developer rules - read before edit, test after changes."
-extends: dev
-
-rules:
-  read_before_edit: true
-  test_after_changes: true
-  verify_after_edit: true
-  confirm_destructive: true
-  max_blind_reads: 1
-  changes_before_test_reminder: 1
-
-prompt: |
-  You follow a strict development discipline:
-  - NEVER edit a file you haven't read in this session.
-  - Run tests after EVERY change, no matter how small.
-  - If tests fail, fix them before moving on.
-'''
-
-
-_PROVIDERS = {
+_PROVIDERS: dict[str, dict[str, str | int]] = {
     "deepseek": {
         "model": "deepseek-chat",
+        "backend": "openai_compat",
         "api_key_env": "DEEPSEEK_API_KEY",
-        "config": "",
-        "context_size": 60000,
+        "extra_config": '\n        base_url: "https://api.deepseek.com/v1"',
+        "context_size": 64000,
+    },
+    "anthropic": {
+        "model": "claude-sonnet-4-5",
+        "backend": "anthropic",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "extra_config": "",
+        "context_size": 200000,
     },
     "openai": {
         "model": "gpt-4o",
+        "backend": "openai_compat",
         "api_key_env": "OPENAI_API_KEY",
-        "config": "",
+        "extra_config": '\n        base_url: "https://api.openai.com/v1"',
         "context_size": 128000,
     },
-    "anthropic": {
-        "model": "claude-sonnet-4-20250514",
-        "api_key_env": "ANTHROPIC_API_KEY",
-        "config": '        base_url: "https://api.anthropic.com/v1"\n      backend: anthropic',
-        "context_size": 200000,
-    },
     "openrouter": {
-        "model": "anthropic/claude-sonnet-4",
+        "model": "anthropic/claude-sonnet-4.5",
+        "backend": "openai_compat",
         "api_key_env": "OPENROUTER_API_KEY",
-        "config": '        base_url: "https://openrouter.ai/api/v1"',
+        "extra_config": '\n        base_url: "https://openrouter.ai/api/v1"',
         "context_size": 200000,
     },
     "ollama": {
         "model": "qwen2.5:14b-instruct",
+        "backend": "openai_compat",
         "api_key_env": "OLLAMA_UNUSED",
-        "config": '        base_url: "http://localhost:11434/v1"',
+        "extra_config": '\n        base_url: "http://localhost:11434/v1"',
         "context_size": 32000,
     },
     "groq": {
-        "model": "llama-3.1-70b-versatile",
+        "model": "llama-3.3-70b-versatile",
+        "backend": "openai_compat",
         "api_key_env": "GROQ_API_KEY",
-        "config": '        base_url: "https://api.groq.com/openai/v1"',
+        "extra_config": '\n        base_url: "https://api.groq.com/openai/v1"',
         "context_size": 128000,
     },
 }
 
+
+def _slugify(name: str) -> str:
+    return name.lower().replace(" ", "-").replace("_", "-").strip("-") or "my-app"
+
+
 def init(
     directory: str = typer.Argument(
         ".",
-        help="Directory to create the project in (default: current directory)",
+        help="Directory to create the project in (default: current directory).",
+    ),
+    name: str | None = typer.Option(
+        None,
+        "--name",
+        "-n",
+        help="Project name. Defaults to the directory name.",
+    ),
+    provider: str | None = typer.Option(
+        None,
+        "--provider",
+        "-p",
+        help=f"LLM provider ({', '.join(_PROVIDERS)}). Defaults to anthropic.",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip all prompts and use defaults.",
+    ),
+    web: bool = typer.Option(
+        False,
+        "--web",
+        help="Include the web search module.",
+    ),
+    db: bool = typer.Option(
+        False,
+        "--db",
+        help="Include the database module.",
     ),
 ) -> None:
     """Create a new Digitorn agent application."""
@@ -222,84 +215,140 @@ def init(
     console.print()
 
     target = Path(directory).resolve()
+    interactive = sys.stdin.isatty() and not yes
 
-    existing = list(target.glob("*.yaml")) + list(target.glob("*.yml"))
-    if existing:
-        if not Confirm.ask(f"[yellow]Found existing YAML files in {target}. Continue anyway?[/yellow]"):
-            raise typer.Exit()
+    if target.exists():
+        existing = list(target.glob("*.yaml")) + list(target.glob("*.yml"))
+        if existing and interactive:
+            if not Confirm.ask(
+                f"[yellow]Found existing YAML files in {target}. Continue anyway?[/yellow]",
+            ):
+                raise typer.Exit()
+        elif existing and not yes:
+            console.print(
+                f"[yellow]Found existing YAML files in {target}. "
+                f"Pass --yes to overwrite.[/yellow]",
+            )
+            raise typer.Exit(1)
 
-    default_name = target.name if target.name != "." else Path.cwd().name
-    name = Prompt.ask("Project name", default=default_name)
-    app_id = name.lower().replace(" ", "-").replace("_", "-")
+    default_name = target.name if target.name not in (".", "") else Path.cwd().name
+    if name:
+        project_name = name
+    elif interactive:
+        project_name = Prompt.ask("Project name", default=default_name)
+    else:
+        project_name = default_name
+    app_id = _slugify(project_name)
 
-    console.print()
-    console.print("[bold]Choose your LLM provider:[/bold]")
-    console.print()
-    providers = list(_PROVIDERS.keys())
-    for i, p in enumerate(providers, 1):
-        info = _PROVIDERS[p]
-        console.print(f"  [cyan]{i}[/cyan]. {p} ({info['model']})")
-    console.print()
+    if provider:
+        if provider not in _PROVIDERS:
+            console.print(
+                f"[bold red]Unknown provider '{provider}'. "
+                f"Choose from: {', '.join(_PROVIDERS)}[/bold red]",
+            )
+            raise typer.Exit(1)
+        chosen = provider
+    elif interactive:
+        console.print()
+        console.print("[bold]Choose your LLM provider:[/bold]")
+        console.print()
+        providers = list(_PROVIDERS.keys())
+        for i, p in enumerate(providers, 1):
+            info = _PROVIDERS[p]
+            console.print(f"  [cyan]{i}[/cyan]. {p} ({info['model']})")
+        console.print()
+        choice = Prompt.ask(
+            "Provider",
+            choices=[str(i) for i in range(1, len(providers) + 1)],
+            default="1",
+        )
+        chosen = providers[int(choice) - 1]
+    else:
+        chosen = "deepseek"
+    prov_info = _PROVIDERS[chosen]
 
-    choice = Prompt.ask(
-        "Provider",
-        choices=[str(i) for i in range(1, len(providers) + 1)],
-        default="1",
-    )
-    provider = providers[int(choice) - 1]
-    prov_info = _PROVIDERS[provider]
+    if interactive and not web and not yes:
+        web = Confirm.ask("Include web search module?", default=False)
+    if interactive and not db and not yes:
+        db = Confirm.ask("Include database module?", default=False)
 
-    include_web = Confirm.ask("Include web search module?", default=False)
-    include_db = Confirm.ask("Include database module?", default=False)
-
+    extra_direct = ""
     extra_modules = ""
-    if include_web:
-        extra_modules += "\n  web:\n    config:\n      search:\n        primary: duckduckgo\n"
-    if include_db:
-        extra_modules += "\n  database: {}\n"
+    extra_grants = ""
+    if web:
+        extra_direct += "\n    - web"
+        extra_modules += "\n    web:\n      config:\n        search_backend: duckduckgo"
+        extra_grants += (
+            "\n      - module: web"
+            "\n        actions: [search, fetch]"
+        )
+    if db:
+        extra_direct += "\n    - database"
+        extra_modules += "\n    database: {}"
+        extra_grants += (
+            "\n      - module: database"
+            "\n        actions: [sql, schema, list_connections]"
+        )
 
     target.mkdir(parents=True, exist_ok=True)
     skills_dir = target / "skills"
     skills_dir.mkdir(exist_ok=True)
-    behavior_dir = target / "behavior"
-    behavior_dir.mkdir(exist_ok=True)
+
+    if chosen == "ollama":
+        api_key_value = '"ollama"'
+    else:
+        api_key_value = '"{{env.' + str(prov_info["api_key_env"]) + '}}"'
 
     yaml_content = _APP_YAML.format(
         app_id=app_id,
-        name=name,
-        provider=provider,
+        name=project_name,
+        provider=chosen,
+        backend=prov_info["backend"],
         model=prov_info["model"],
-        api_key_env=prov_info["api_key_env"],
-        provider_config=prov_info["config"],
+        api_key_value=api_key_value,
+        provider_extra_config=prov_info["extra_config"],
         context_size=prov_info["context_size"],
+        extra_direct_modules=extra_direct,
         extra_modules=extra_modules,
+        extra_grants=extra_grants,
     )
-    (target / "app.yaml").write_text(yaml_content)
-
-    (target / ".digitorn.md").write_text(_DIGITORN_MD.format(name=name))
-    (target / ".gitignore").write_text(_GITIGNORE)
-    (skills_dir / "commit.md").write_text(_COMMIT_SKILL)
-    (skills_dir / "review.md").write_text(_REVIEW_SKILL)
-    (behavior_dir / "strict.yaml").write_text(_BEHAVIOR_EXAMPLE)
+    (target / "app.yaml").write_text(yaml_content, encoding="utf-8")
+    (target / ".digitorn.md").write_text(
+        _DIGITORN_MD.format(name=project_name), encoding="utf-8",
+    )
+    (target / ".gitignore").write_text(_GITIGNORE, encoding="utf-8")
+    (skills_dir / "commit.md").write_text(_COMMIT_SKILL, encoding="utf-8")
+    (skills_dir / "review.md").write_text(_REVIEW_SKILL, encoding="utf-8")
 
     console.print()
     console.print(f"[bold green]Project created:[/bold green] {target}")
     console.print()
     console.print("  Files:")
-    console.print(f"    [cyan]app.yaml[/cyan]           - Application definition")
-    console.print(f"    [cyan].digitorn.md[/cyan]       - Project memory (edit this)")
-    console.print(f"    [cyan].gitignore[/cyan]         - Git ignore rules")
-    console.print(f"    [cyan]skills/commit.md[/cyan]       - /commit skill")
-    console.print(f"    [cyan]skills/review.md[/cyan]       - /review skill")
-    console.print(f"    [cyan]behavior/strict.yaml[/cyan]   - Example behavior profile")
+    console.print("    [cyan]app.yaml[/cyan]           - Application definition")
+    console.print("    [cyan].digitorn.md[/cyan]       - Project memory (edit this)")
+    console.print("    [cyan].gitignore[/cyan]         - Git ignore rules")
+    console.print("    [cyan]skills/commit.md[/cyan]   - /commit skill")
+    console.print("    [cyan]skills/review.md[/cyan]   - /review skill")
     console.print()
     console.print("[bold]Next steps:[/bold]")
     console.print()
-    if provider != "ollama":
-        console.print(f"  1. Set your API key:")
-        console.print(f"     [dim]export {prov_info['api_key_env']}='your-key-here'[/dim]")
+    step = 1
+    if chosen != "ollama":
+        console.print(f"  {step}. Set your API key:")
+        console.print(
+            f"     [dim]export {prov_info['api_key_env']}='your-key-here'[/dim]",
+        )
         console.print()
-    console.print(f"  2. Run your agent:")
-    console.print(f"     [dim]cd {target.name}[/dim]")
-    console.print(f"     [dim]digitorn run app.yaml[/dim]")
+        step += 1
+    console.print(f"  {step}. Make sure the daemon is running:")
+    console.print("     [dim]digitorn status[/dim]")
+    console.print("     [dim](if not: digitorn service start)[/dim]")
+    console.print()
+    step += 1
+    console.print(f"  {step}. Deploy your app and chat with it:")
+    cd_hint = "" if directory in (".", "") else f"     [dim]cd {target.name}[/dim]\n"
+    console.print(
+        f"{cd_hint}     [dim]digitorn dev deploy app.yaml[/dim]"
+        f"\n     [dim]digitorn dev chat {app_id}[/dim]",
+    )
     console.print()

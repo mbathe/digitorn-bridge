@@ -29,14 +29,7 @@ async def aestimate_tokens(
     provider: Any = None,
     model: str | None = None,
 ) -> int:
-    """Async wrapper around :func:`estimate_tokens`.
-
-    The provider tokenizers (litellm + tiktoken / Anthropic offline /
-    HuggingFace) are CPU-bound and the first call also triggers a model
-    load (10s+ for HF). Off-loaded so the event loop keeps serving
-    Socket.IO pings under load. Use this from any async context;
-    :func:`estimate_tokens` stays for sync callers.
-    """
+    """Async wrapper around estimate_tokens (off-loaded; tokenizers are CPU-bound)."""
     import asyncio as _asyncio
     return await _asyncio.to_thread(
         estimate_tokens, messages, provider=provider, model=model,
@@ -49,29 +42,7 @@ def estimate_tokens(
     provider: Any = None,
     model: str | None = None,
 ) -> int:
-    """Real token count for ``messages``.
-
-    Resolution order:
-
-    1. ``provider.count_message_tokens(messages)`` when a provider is
-       passed - uses the provider's exact tokenizer (litellm under the
-       hood, which routes to ``tiktoken`` for OpenAI / DeepSeek, the
-       Anthropic offline tokenizer for Claude 3+, HuggingFace for
-       Mistral / Llama / Qwen / Gemini). Cached internally.
-    2. ``litellm.token_counter`` directly when ``model`` is known.
-       Falls back to ``cl100k_base`` for unknown models.
-    3. The crude ``len(text) // 4`` heuristic ONLY when both lookups
-       fail (litellm import error, network-resolved tokenizer
-       unreachable). Logged at WARNING so the operator sees it -
-       silently drifting between heuristic and real counts skews every
-       UI pressure indicator built on top.
-
-    Pass ``provider=ctx.provider`` from any agent_loop call site so the
-    count uses the live model's tokenizer instead of a generic 4-char
-    rule.
-    """
-    # Path 1: provider tokenizer (preferred - handles overhead / per-message
-    # boilerplate / tool definitions exactly the way the API will).
+    """Token count: provider tokenizer, then litellm, then char/4 fallback."""
     if provider is not None and hasattr(provider, "count_message_tokens"):
         try:
             return int(provider.count_message_tokens(messages))
@@ -82,7 +53,6 @@ def estimate_tokens(
                 exc,
             )
 
-    # Path 2: litellm direct (when caller knows the model name).
     if model:
         try:
             from litellm import token_counter
@@ -94,9 +64,6 @@ def estimate_tokens(
                 model, exc,
             )
 
-    # Path 3: last-resort heuristic. Logged at WARNING because every
-    # call here means a context-pressure indicator is using a fake
-    # number - we want this visible, not silent.
     total = 0
     for msg in messages:
         content = msg.get("content", "")
@@ -112,12 +79,11 @@ def estimate_tokens(
             args = fn.get("arguments", "")
             total += len(args) if isinstance(args, str) else len(str(args))
     if provider is not None or model is not None:
-        # Caller TRIED to use a real tokenizer and we ended up here -
-        # that's worth knowing.
         logger.warning(
             "estimate_tokens: real tokenizer unavailable, returned crude "
             "char/4 heuristic for %d messages", len(messages),
         )
+    # crude char/4 heuristic
     return total // 4
 
 
@@ -131,36 +97,7 @@ async def emergency_compact(
     session_id: str | None = None,
     user_id: str | None = None,
 ) -> dict[str, Any]:
-    """Emergency compaction when the LLM returns a context overflow error.
-
-    Uses truncate strategy (no LLM call needed - the LLM is refusing).
-    Aggressively reduces context to ~50% of max.
-
-    ``reason`` is stamped on the durable ``compaction`` event persisted
-    to ``history_log``: ``context_overflow`` (agent_loop auto-trigger),
-    ``manual`` (``POST /sessions/{sid}/compact``), or any caller-supplied
-    label. It doesn't affect the compaction algorithm - only the audit
-    trail and the resume-time telemetry.
-
-    ``event_bus`` / ``app_id`` / ``session_id`` / ``user_id`` override
-    the corresponding fields when ``ctx`` is a shared template (e.g.
-    the manual API endpoint uses ``deployed.entry_context`` which
-    isn't wired to a specific session). Pass them explicitly whenever
-    the call site isn't inside ``_chat_locked``.
-
-    Returns a ``CompactionResult`` dict with:
-      * ``compacted``: True iff the messages list was actually trimmed
-        (caller should then chain ``store.compact_session`` for disk
-        durability). False on early-return (too few messages) or
-        revert.
-      * ``tokens_before`` / ``tokens_after``: real token counts.
-      * ``to_compact_count``: number of older messages that were
-        dropped (0 on early-return / revert). Used by callers to
-        derive ``cutoff_seq`` against the SessionStore projection.
-      * ``to_keep_count``: number of most-recent messages preserved.
-      * ``reason``: final reason emitted (may have ``_noop_reverted``
-        suffix when revert kicked in).
-    """
+    """Emergency truncate-strategy compaction on context overflow."""
     from digitorn.core.runtime.hooks import (
         TurnState,
         _build_context_reminder,
@@ -205,19 +142,13 @@ async def emergency_compact(
         to_compact = conversation[:-safe_keep]
         to_keep = conversation[-safe_keep:]
 
-    # RT6: if the safe split would compact nothing (edge case where the
-    # entire conversation is "in flight" tool calls/results that can't be
-    # split), force aggressive truncation. We MUST reduce context - the
-    # alternative is an infinite retry loop with the same overflow error.
+    # safe split empty (in-flight tool pairs) => force truncation to break overflow retry loop
     if not to_compact:
         logger.warning(
             "emergency_compact: safe split returned empty, forcing aggressive "
             "truncation of oversized messages and dropping oldest half",
         )
-        # First try the per-message truncation
         truncate_oversized_messages(messages, cc.max_tokens)
-        # If conversation is still long, drop the oldest half regardless of pairing
-        # (we'll lose tool_call/tool_result coherence but the LLM will adapt)
         if len(conversation) > 4:
             half = len(conversation) // 2
             to_compact = conversation[:half]
@@ -230,13 +161,6 @@ async def emergency_compact(
                 agent_context=ctx,
                 recent_messages=to_keep,
             )
-            # _do_truncate returns (summary_note, full_injected_note).
-            # ``summary_text`` (bare) goes into the durable compaction
-            # event payload. ``full_note`` (incl. context_reminder) is
-            # already in ``messages`` AND will be emitted as a separate
-            # ``system_message`` event below so the directive lands at
-            # its own canonical seq - same contract as the hook-driven
-            # compaction in ``hooks._exec_compact_context``.
             summary_text, full_note = _do_truncate(
                 messages, system_msg, to_compact, to_keep, context_reminder,
             )
@@ -282,11 +206,9 @@ async def emergency_compact(
         }
 
     recent_messages_before = list(to_keep)
-    # Snapshot the pre-compaction message list so we can revert if
-    # every strategy fails to reduce tokens.
+    # snapshot pre-compaction state for revert if no strategy reduces tokens
     messages_snapshot = [dict(m) for m in messages]
 
-    # ── Attempt 1: full context_reminder (with tools list, setup, …).
     context_reminder = _build_context_reminder(
         ctx.context_builder,
         ctx.tool_injection,
@@ -304,11 +226,6 @@ async def emergency_compact(
         messages, provider=getattr(ctx, "provider", None),
     )
 
-    # ── Attempt 2: if the full reminder bloated past the slice we
-    # removed, retry WITHOUT it. The tools list is already in the
-    # system prompt -- re-injecting it after every compaction was an
-    # un-needed safety net that ended up DEFEATING the purpose for
-    # tools-heavy apps (digitorn-chat, opencode, builder).
     if tokens_after >= tokens_before:
         logger.warning(
             "emergency_compact: full-reminder bloated context "
@@ -325,15 +242,10 @@ async def emergency_compact(
             messages, provider=getattr(ctx, "provider", None),
         )
 
-    # ── Attempt 3: if even the minimal compaction failed to reduce
-    # tokens, revert to pre-state. Only happens when ``to_compact``
-    # was so small (e.g. 1-2 short messages) that even the tiny
-    # ``[Context compacted: N older messages removed]`` summary note
-    # was bigger. Rare but possible.
     if tokens_after >= tokens_before:
         logger.warning(
             "emergency_compact: reverting -- compaction cannot reduce "
-            "tokens (before=%d after=%d). ``to_compact`` slice was "
+            "tokens (before=%d after=%d). `to_compact` slice was "
             "shorter than the summary note itself.",
             tokens_before, tokens_after,
         )
@@ -345,7 +257,7 @@ async def emergency_compact(
             strategy="truncate",
             summary_text="(reverted: nothing to compact)",
             tokens_before=tokens_before,
-            tokens_after=tokens_before,  # unchanged after revert
+            tokens_after=tokens_before,
             to_keep_count=len(to_keep),
             recent_messages_before=recent_messages_before,
             event_bus=event_bus,
@@ -402,16 +314,6 @@ async def _emit_compaction_directive(
     reason: str,
     compacted: int,
 ) -> None:
-    """Emit the post-compaction summary as a durable ``system_message``
-    event so the directive lands at its own canonical seq in
-    ``state.messages``. Mirrors what ``hooks._exec_compact_context`` does
-    for the hook-driven compaction path - keeps the two paths symmetric
-    so an emergency compaction is restored identically to a scheduled
-    one on cold reload.
-
-    No-op when ``full_note`` is empty (defensive - _do_truncate always
-    produces at least the bare SYS_CONTEXT_TRUNCATED line).
-    """
     if not full_note:
         return
     try:
@@ -422,7 +324,7 @@ async def _emit_compaction_directive(
             source="compaction_summary",
             metadata={"strategy": "truncate", "compacted": compacted, "reason": reason},
         )
-    except Exception as exc:  # never block the compaction on emit failure
+    except Exception as exc:
         logger.debug("emergency_compact directive emit failed: %s", exc)
 
 
@@ -452,18 +354,8 @@ def snip_oversized_messages(
     messages: list[dict[str, Any]],
     threshold_chars: int = 16000,
 ) -> int:
-    """Proactive snip: trim individual messages > threshold without losing key info.
-
-    Unlike emergency truncation, this is gentle:
-    - Tool results: keep first + last 200 lines, note middle was snipped
-    - Long assistant content: keep first 2000 + last 500 chars
-    - System messages: never touched
-    - Recent 4 messages: never touched (may be in-progress)
-
-    Returns number of messages snipped.
-    """
+    """Trim messages > threshold while preserving head/tail."""
     snipped = 0
-    # Don't snip the last 4 messages (in-progress conversation)
     safe_end = max(len(messages) - 4, 1)
 
     for i in range(safe_end):
@@ -478,7 +370,6 @@ def snip_oversized_messages(
         original_len = len(content)
 
         if role == "tool":
-            # Tool result: keep first 6000 + last 2000 chars
             head = content[:6000]
             tail = content[-2000:]
             msg["content"] = (
@@ -487,7 +378,6 @@ def snip_oversized_messages(
                 f"{tail}"
             )
         else:
-            # Assistant/user: keep first 4000 + last 1000 chars
             head = content[:4000]
             tail = content[-1000:]
             msg["content"] = (

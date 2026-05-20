@@ -1,19 +1,4 @@
-"""DatabaseFieldsHandler - structured DB connection (host + port + ...).
-
-An alternative to `connection_string` for users who prefer separate
-fields over a URL. The injector composes the connection string from
-the fields at runtime, OR exposes them individually depending on
-what the consumer module expects.
-
-Useful when:
-  - The user pastes credentials from a form their DBA shared.
-  - Special characters in the password would need percent-encoding
-    in a URL (the user pastes raw, the injector encodes on the fly).
-  - The consumer module wants the parts separately (Postgres
-    psycopg2 typically takes them as separate kwargs).
-
-Fields: host, port, username, password, database, ssl_mode, options.
-"""
+"""DatabaseFieldsHandler - structured DB connection (host + port + ...)."""
 
 from __future__ import annotations
 
@@ -131,12 +116,7 @@ class DatabaseFieldsHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Build a connection URL from the fields and try to open it.
-
-        Delegates to the same ``_probe_db`` helper used by the
-        ``connection_string`` handler so both code paths give identical
-        feedback (Connected (postgres) / Timeout / etc.).
-        """
+        """Build a connection URL from the fields and try to open it."""
         from urllib.parse import quote
         from digitorn.core.credentials.handlers.connection_string import (
             _probe_db,

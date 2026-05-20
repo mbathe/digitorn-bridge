@@ -1,25 +1,4 @@
-"""Activation Store - database-backed record of background trigger fires.
-
-Each time a background trigger activates the agent, an Activation row
-is created, updated during execution, and persisted to the database.
-
-All operations are async (SQLAlchemy async sessions).
-
-Usage::
-
-    store = ActivationStore(session_factory)
-
-    # Create
-    activation_id = await store.create(app_id, trigger_id, "cron", message)
-
-    # Complete
-    await store.complete(activation_id, response="...", tool_calls_count=3, ...)
-
-    # Query
-    activations = await store.list(app_id, limit=20)
-    activation = await store.get(activation_id)
-    stats = await store.stats(app_id)
-"""
+"""Activation Store - database-backed record of background trigger fires."""
 
 from __future__ import annotations
 
@@ -167,7 +146,6 @@ class ActivationStore:
         from digitorn.core.models import Activation
 
         async with self._session_factory() as session:
-            # Aggregates
             result = await session.execute(
                 select(
                     func.count(Activation.id).label("total"),
@@ -182,7 +160,6 @@ class ActivationStore:
             row = result.one()
             total = row.total or 0
 
-            # Count completed/failed separately (reliable across all DB backends)
             completed = (await session.execute(
                 select(func.count(Activation.id))
                 .where(Activation.app_id == app_id, Activation.status == "completed")
@@ -218,11 +195,7 @@ class ActivationStore:
         event_type: str,
         data: dict[str, Any],
     ) -> None:
-        """Persist one timeline event for an activation.
-
-        Cheap single-row INSERT. Failure is logged and swallowed - an
-        event-store outage must NEVER break the live activation.
-        """
+        """Persist one timeline event for an activation."""
         from digitorn.core.models import ActivationEvent
 
         try:
@@ -236,8 +209,7 @@ class ActivationStore:
                     )
                     session.add(row)
         except Exception as exc:
-            # Don't raise - we don't want telemetry loss to abort an
-            # otherwise successful activation.
+            # telemetry loss must not abort the activation
             import logging
             logging.getLogger(__name__).warning(
                 "record_event failed activation=%s type=%s: %s",
@@ -247,13 +219,7 @@ class ActivationStore:
     async def get_event(
         self, event_id: str, *, app_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Look up a single event by its id, joined to its activation.
-
-        When ``app_id`` is supplied, the lookup also checks that the
-        owning activation belongs to that app - returning ``None`` on a
-        mismatch so a malicious caller can't use a known event_id of an
-        app they don't control to pivot into another app's artifacts.
-        """
+        """Look up a single event by its id, joined to its activation."""
         from digitorn.core.models import Activation, ActivationEvent
 
         async with self._session_factory() as session:
@@ -283,13 +249,7 @@ class ActivationStore:
     async def list_events(
         self, activation_id: str, *, event_type: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Return all events for an activation, oldest first.
-
-        Optional ``event_type`` filters to a single kind (e.g. only
-        ``tool_call`` or only ``artifact``). The result is a list of
-        plain dicts with ``{id, sequence, timestamp, event_type,
-        data}`` - ready to serialise into the API response.
-        """
+        """Return all events for an activation, oldest first."""
         from digitorn.core.models import ActivationEvent
 
         async with self._session_factory() as session:
@@ -315,12 +275,7 @@ class ActivationStore:
         ]
 
     async def count_by_status(self, app_id: str) -> dict[str, int]:
-        """Return a {status: count} map for every status an app has seen.
-
-        Cheap aggregate - one query backed by the ``ix_activations_app_status``
-        composite index. Used by the dashboard to drive the live ``● running``
-        indicator (status='running' > 0) and the summary counters.
-        """
+        """Return a {status: count} map for every status an app has seen."""
         from digitorn.core.models import Activation
 
         async with self._session_factory() as session:
@@ -336,19 +291,7 @@ class ActivationStore:
     async def hourly_buckets(
         self, app_id: str, hours: int = 24,
     ) -> list[dict[str, Any]]:
-        """Return a per-hour bucket list for the last N hours.
-
-        Each bucket is ``{hour_utc: "YYYY-MM-DDTHH:00Z", total, completed,
-        failed}``. Always returns exactly ``hours`` buckets in chronological
-        order (oldest first), including empty ones, so the Flutter sparkline
-        can render a fixed-width strip without client-side gap filling.
-
-        Implementation note: we fetch every row in the window and bucket
-        in Python rather than using DATE_TRUNC because the target is
-        SQLite which does not have that function. For apps with < 10k
-        activations per day this is fast; beyond that we can swap to a
-        materialized view or dialect-specific SQL.
-        """
+        """Return a per-hour bucket list for the last N hours."""
         from datetime import datetime, timedelta, timezone
 
         from digitorn.core.models import Activation
@@ -381,7 +324,7 @@ class ActivationStore:
                     minute=0, second=0, microsecond=0,
                 )
                 if hour not in by_hour:
-                    continue  # outside the window (clock drift, racing insert)
+                    continue
                 by_hour[hour]["total"] += 1
                 if status == "completed":
                     by_hour[hour]["completed"] += 1
@@ -400,14 +343,7 @@ class ActivationStore:
         return buckets
 
     async def delete_for_app(self, app_id: str) -> int:
-        """Delete all activations for an app.
-
-        BUG-106: previously this ran silently, so ops would see the
-        activation counter drop (e.g. 80 → 42) with no log line
-        explaining the cause. We now emit an INFO-level audit line
-        with the exact number of rows wiped and a traceback snippet
-        so the call site is easy to identify.
-        """
+        """Delete all activations for an app."""
         from digitorn.core.models import Activation
         from sqlalchemy import delete
         import traceback as _tb
@@ -427,21 +363,7 @@ class ActivationStore:
             return rowcount
 
     async def sweep_stuck_running(self, older_than_seconds: int = 600) -> int:
-        """Mark activations pinned in ``status=running`` as failed.
-
-        An activation row is created at the start of ``_run_single_activation``
-        and completed at the end. If the daemon crashes between those
-        two points - OOM, hard kill, power cut, pre-fix BUG-054 code
-        path - the row stays ``running`` forever and pollutes the
-        dashboard counters.
-
-        This sweeper is idempotent: ``fail`` only touches rows whose
-        ``started_at`` is older than ``older_than_seconds`` (default
-        10 min - longer than any real turn), so a legitimately running
-        activation is never stolen by the sweeper.
-
-        Returns the number of rows marked failed.
-        """
+        """Mark activations pinned in `status=running` as failed."""
         from datetime import datetime, timedelta, timezone
 
         from digitorn.core.models import Activation

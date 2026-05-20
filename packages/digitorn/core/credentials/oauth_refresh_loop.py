@@ -1,19 +1,4 @@
-"""Background OAuth refresh loop.
-
-Runs periodically (every 5 minutes by default) and refreshes any
-OAuth credential whose `expires_at` is within `REFRESH_BUFFER` of
-now. Uses the existing `TokenExchange.refresh_token` helper.
-
-This prevents:
-  - tokens expiring mid-session (which would force the user to
-    re-consent in the middle of an agent turn),
-  - users hitting 401 from the LLM provider after a long sleep,
-  - the picker dialog firing for an OAuth credential that was
-    actually fine 30s ago.
-
-Started from `server.py` lifespan as a daemon background task. The
-loop is self-canceling on lifespan shutdown.
-"""
+"""Background OAuth refresh loop."""
 
 from __future__ import annotations
 
@@ -37,9 +22,6 @@ from digitorn.core.credentials.store import (
 logger = logging.getLogger(__name__)
 
 
-# How long before expiry we proactively refresh a token.
-# 10 min: long enough to absorb refresh failures + retry, short
-# enough not to refresh tokens that actually have hours left.
 REFRESH_BUFFER_SECONDS = 600
 
 
@@ -78,7 +60,6 @@ class OAuthRefreshLoop:
                 self._task.cancel()
 
     async def _run(self) -> None:
-        """Loop: every interval, sweep + refresh near-expiry tokens."""
         logger.info(
             "oauth_refresh_loop_started interval=%ds buffer=%ds",
             self._interval, REFRESH_BUFFER_SECONDS,
@@ -101,7 +82,6 @@ class OAuthRefreshLoop:
         logger.info("oauth_refresh_loop_stopped")
 
     async def _refresh_pass(self) -> None:
-        """Find every OAuth credential near expiry and refresh it."""
         now = time.time()
         cutoff = now + REFRESH_BUFFER_SECONDS
 
@@ -166,8 +146,8 @@ class OAuthRefreshLoop:
                             await self._store.update_status(
                                 cred["id"], status=Status.EXPIRED,
                             )
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("oauth_refresh_loop best-effort block failed: %s", exc)
                     failed += 1
                     continue
 
@@ -186,8 +166,8 @@ class OAuthRefreshLoop:
                             cred["id"], status=Status.EXPIRED,
                             last_error=str(exc),
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("oauth_refresh_loop best-effort block failed: %s", exc)
                     continue
 
                 # Merge new tokens into the credential's fields.
@@ -209,10 +189,6 @@ class OAuthRefreshLoop:
                         new_expires_at = None
 
                 try:
-                    # Re-upsert the row with the new field values.
-                    # `upsert_credential` is keyed on
-                    # (user_id, app_id, provider_name, scope) so it
-                    # rewrites this exact row.
                     await self._store.upsert_credential(
                         user_id=cred.get("user_id"),
                         app_id=cred.get("app_id"),

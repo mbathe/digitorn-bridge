@@ -1,15 +1,4 @@
-"""SQLAlchemy async adapter - covers PostgreSQL, MySQL, SQLite, MSSQL, Oracle.
-
-This is the primary adapter. It uses SQLAlchemy's async engine for connection
-pooling, and the inspector API for schema introspection. Queries go through
-the native driver with zero abstraction overhead.
-
-Performance notes:
-    - Connection pooling: SQLAlchemy's QueuePool (default for non-SQLite).
-    - Prepared statements: Used automatically by asyncpg/aiomysql.
-    - Streaming: Large results are fetched with server-side cursors when
-      supported by the driver.
-"""
+"""SQLAlchemy async adapter - covers PostgreSQL, MySQL, SQLite, MSSQL, Oracle."""
 
 from __future__ import annotations
 
@@ -48,21 +37,13 @@ _DRIVER_MAP = {
     "oracle": "oracle",
 }
 
-
 class SQLAdapter:
-    """Async SQL adapter backed by SQLAlchemy.
-
-    Supports any database that has an async SQLAlchemy driver:
-        - SQLite:     ``sqlite+aiosqlite:///path.db``
-        - PostgreSQL: ``postgresql+asyncpg://user:pass@host/db``
-        - MySQL:      ``mysql+aiomysql://user:pass@host/db``
-    """
+    """Async SQL adapter backed by SQLAlchemy."""
 
     def __init__(self) -> None:
         self._engine: AsyncEngine | None = None
         self._conn: AsyncConnection | None = None
         self._in_transaction = False
-
 
     @property
     def connected(self) -> bool:
@@ -74,7 +55,6 @@ class SQLAdapter:
             return ""
         dialect = self._engine.dialect.name
         return _DRIVER_MAP.get(dialect, dialect)
-
 
     async def connect(self, url: str, **options: Any) -> None:
         if self._engine:
@@ -112,7 +92,6 @@ class SQLAdapter:
             await self._engine.dispose()
             self._engine = None
 
-
     async def execute(
         self, query: str, params: list[Any] | None = None,
     ) -> ExecuteResult:
@@ -133,11 +112,7 @@ class SQLAdapter:
         query: str,
         params_list: list[dict[str, Any]],
     ) -> ExecuteResult:
-        """Execute a statement with multiple parameter sets (batch).
-
-        Uses SQLAlchemy's ``execute()`` with a list of dicts which maps
-        to the driver's ``executemany`` - far faster than looping in Python.
-        """
+        """Execute a statement with multiple parameter sets (batch)."""
         self._assert_connected()
         async with self._get_connection() as conn:
             result = await conn.execute(text(query), params_list)
@@ -175,7 +150,6 @@ class SQLAdapter:
                     break
 
         return FetchResult(columns=columns, rows=rows, total_count=len(rows))
-
 
     async def introspect(self, schema: str | None = None) -> SchemaInfo:
         self._assert_connected()
@@ -270,12 +244,7 @@ class SQLAdapter:
             )
 
     async def table_stats(self, table: str) -> TableStats:
-        """Get row count, using fast approximate counts for large tables.
-
-        PostgreSQL: uses ``pg_stat_user_tables`` (maintained by autovacuum).
-        MySQL: uses ``information_schema.tables`` (approximate).
-        SQLite/others: falls back to ``COUNT(*)``.
-        """
+        """Get row count, using fast approximate counts for large tables."""
         self._assert_connected()
         driver = self.driver_name
 
@@ -310,7 +279,6 @@ class SQLAdapter:
             f"SELECT * FROM {_quote_ident(table)} LIMIT {limit}"
         )
 
-
     async def explain(
         self, query: str, params: list[Any] | None = None, analyze: bool = False,
     ) -> list[dict[str, Any]]:
@@ -331,7 +299,6 @@ class SQLAdapter:
 
         return rows
 
-
     async def ping(self) -> bool:
         """Check if the connection is alive."""
         if not self._engine:
@@ -342,7 +309,6 @@ class SQLAdapter:
             return True
         except Exception:
             return False
-
 
     async def begin(self) -> None:
         self._assert_connected()
@@ -367,7 +333,6 @@ class SQLAdapter:
         await self._conn.close()
         self._conn = None
         self._in_transaction = False
-
 
     async def list_items(
         self, patterns: list[str] | None = None,
@@ -417,17 +382,14 @@ class SQLAdapter:
 
         return checksums
 
-
     def _assert_connected(self) -> None:
         if not self._engine:
             raise RuntimeError("Not connected. Call connect() first.")
 
     def _get_connection(self):
-        """Return the transaction connection or a new one."""
         if self._in_transaction and self._conn:
             return _NoOpCtx(self._conn)
         return self._engine.connect()  # type: ignore[union-attr]
-
 
 class _NoOpCtx:
     """Context manager that yields an existing connection without closing it."""
@@ -441,9 +403,7 @@ class _NoOpCtx:
     async def __aexit__(self, *_: Any) -> None:
         pass
 
-
 def _sanitize_url(url: str) -> str:
-    """Remove password from URL for logging."""
     if "@" in url and ":" in url.split("@")[0]:
         parts = url.split("@")
         creds = parts[0]
@@ -451,29 +411,20 @@ def _sanitize_url(url: str) -> str:
         return f"{scheme_user}:****@{parts[1]}"
     return url
 
-
 def _quote_ident(name: str) -> str:
-    """Quote a table name to prevent SQL injection in introspection queries.
-
-    Only allows alphanumeric + underscore + dot (for schema.table).
-    """
     import re
     if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_.]*$", name):
         raise ValueError(f"Invalid identifier: {name!r}")
     return f'"{name}"'
 
-
 def _bind_params(params: list[Any] | None) -> dict[str, Any] | None:
-    """Convert positional params to named params for SQLAlchemy text()."""
     if not params:
         return None
     return {f"p{i}": v for i, v in enumerate(params)}
 
-
 def _get_pk_columns(
     sync_conn: Any, table: str, schema: str | None,
 ) -> set[str]:
-    """Get primary key column names for a table."""
     try:
         pk = inspect(sync_conn).get_pk_constraint(table, schema=schema)
         return set(pk.get("constrained_columns", []))

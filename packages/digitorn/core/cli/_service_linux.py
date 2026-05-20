@@ -1,9 +1,4 @@
-"""Linux Service backend - systemd unit management.
-
-Generates and manages a systemd unit file for the Digitorn daemon.
-Supports both user mode (~/.config/systemd/user/) and system mode
-(/etc/systemd/system/) depending on privileges.
-"""
+"""Linux Service backend - systemd unit management."""
 
 from __future__ import annotations
 
@@ -43,11 +38,11 @@ def _systemctl(*args: str) -> subprocess.CompletedProcess:
 def _get_exec_start() -> str:
     """Return the ExecStart command for the unit file."""
     if getattr(sys, "frozen", False):
-        return f"{sys.executable} start --no-interactive"
+        return f"{sys.executable} start"
     digitorn_bin = shutil.which("digitorn")
     if digitorn_bin:
-        return f"{digitorn_bin} start --no-interactive"
-    return f"{sys.executable} -m digitorn.core.server start --no-interactive"
+        return f"{digitorn_bin} start"
+    return f"{sys.executable} -m digitorn.core.server start"
 
 
 def _generate_unit() -> str:

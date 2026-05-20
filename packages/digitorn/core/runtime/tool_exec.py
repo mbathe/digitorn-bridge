@@ -13,17 +13,11 @@ from digitorn.core.runtime.types import AgentContext
 logger = logging.getLogger(__name__)
 
 
-# Loop-block watchdog: an event loop heartbeat that bumps every 50 ms.
-# If the gap between bumps grows above this threshold during a tool call,
-# the tool blocked the loop - we log it with the tool name so the operator
-# can find the offender. The agent loop must NEVER block: Socket.IO ping/
-# pong runs on the same loop and will drop the client.
-_LOOP_BLOCK_WARN_MS = 250.0  # >250ms means dropped pings under load
+# Above this gap (ms), Socket.IO pings start dropping; log the offending tool.
+_LOOP_BLOCK_WARN_MS = 250.0
 
 
 async def _loop_heartbeat(state: dict[str, Any]) -> None:
-    """Bumps ``state['last_tick']`` every 50ms. If something blocks the
-    loop, the tick won't advance. Cheap - no allocations per tick."""
     while True:
         try:
             state["last_tick"] = time.monotonic()
@@ -37,18 +31,7 @@ async def execute_tool(
     tool_name: str,
     tool_args: dict[str, Any],
 ) -> Any:
-    """Execute a tool call with intelligent error recovery and a global safety net.
-
-    Wraps the dispatch logic in a try/except so that any unhandled exception
-    in a module action becomes a proper ActionResult(success=False) instead of
-    propagating up and crashing the agent loop. CancelledError is re-raised
-    to allow proper async cancellation.
-
-    Also runs a loop-block watchdog: if the event loop heartbeat misses
-    a beat for more than ``_LOOP_BLOCK_WARN_MS`` while this tool is
-    running, it logs a WARNING tagged with the tool name. Use those
-    warnings to find sync I/O that needs an ``asyncio.to_thread`` wrap.
-    """
+    """Dispatch a tool call with exception trapping and a loop-block watchdog."""
     state: dict[str, Any] = {"last_tick": time.monotonic()}
     hb_task = asyncio.create_task(_loop_heartbeat(state))
     started = time.monotonic()
@@ -70,7 +53,6 @@ async def execute_tool(
     try:
         return await _execute_tool_inner(ctx, tool_name, tool_args)
     except asyncio.CancelledError:
-        # Always propagate cancellation - the agent loop needs to handle it
         raise
     except Exception as exc:
         logger.exception("execute_tool_unhandled tool=%r: %s", tool_name, exc)
@@ -82,15 +64,10 @@ async def execute_tool(
     finally:
         hb_task.cancel()
         watch_task.cancel()
-        # Surface the worst loop stall caused by this tool. Anything
-        # above the threshold means sync I/O snuck through - find the
-        # call site and wrap it in ``asyncio.to_thread``.
         if max_gap > _LOOP_BLOCK_WARN_MS:
             elapsed_ms = (time.monotonic() - started) * 1000.0
             logger.warning(
-                "tool_blocked_event_loop tool=%s max_gap_ms=%.0f tool_duration_ms=%.0f "
-                "(Socket.IO pings drop above ~250ms - find the sync I/O and wrap "
-                "it with asyncio.to_thread)",
+                "tool_blocked_event_loop tool=%s max_gap_ms=%.0f tool_duration_ms=%.0f",
                 tool_name, max_gap, elapsed_ms,
             )
 
@@ -100,42 +77,25 @@ async def _execute_tool_inner(
     tool_name: str,
     tool_args: dict[str, Any],
 ) -> Any:
-    """Inner dispatch logic. Wrapped by execute_tool() with a safety net."""
     cb = ctx.context_builder
     if cb is None:
         return {"success": False, "error": "No context_builder available"}
 
-    # Reject malformed dispatches up-front so we don't waste a full
-    # resolution pass (registry lookup + direct_modules_map + to_fqn +
-    # _recover_malformed_tool + suggestion) on names that obviously
-    # cannot resolve. Empty / whitespace / None names were the proximate
-    # cause of the digitorn-lovable runaway turn (1.7M events / 12 turns):
-    # the LLM kept emitting ``name=""`` tool calls, the daemon kept
-    # answering "Unknown tool: ''", and the agent re-tried the SAME
-    # malformed call instead of giving up. Returning a stronger,
-    # non-suggestive error here makes the failure shape obvious to the
-    # model and keeps the call counted as a failed tool call for the
-    # loop guards to act on (consecutive_failures, repetition, etc.).
+    # Reject empty/whitespace names early so loop guards see a real failure
+    # instead of letting the model retry the same malformed call.
     if not isinstance(tool_name, str) or not tool_name.strip():
-        # ULTRA-DIRECT message: empirically the LLM (qwen / claude /
-        # openai) ignores polite "stop retrying" wording and keeps
-        # emitting the same malformed call. The wording below uses
-        # the patterns we observed work best: capitalized STOP /
-        # forbidden imperative / explicit "no tool exists" /
-        # concrete next-step list. The goal is one rejection -> one
-        # recovery, NOT a 12-iteration loop ending in hard kill.
         return {
             "success": False,
             "error": (
                 "STOP. No tool exists with an empty name. "
-                "Your last tool_call had ``name=\"\"`` (empty string) which "
+                "Your last tool_call had `name=\"\"` (empty string) which "
                 "is INVALID. You MUST NOT retry this exact tool_call. "
                 "Choose one of these three actions instead:\n"
                 "  1. If you intended to call a real tool, emit a NEW "
-                "tool_call with a non-empty ``name`` matching one of the "
+                "tool_call with a non-empty `name` matching one of the "
                 "tools you have access to.\n"
                 "  2. If you don't know which tool, call "
-                "``list_categories`` or ``search_tools`` to discover them.\n"
+                "`list_categories` or `search_tools` to discover them.\n"
                 "  3. If no tool is needed, finish your turn with a "
                 "plain text reply (no tool_call at all).\n"
                 "Repeating the empty-name shape will be terminated by "
@@ -146,24 +106,9 @@ async def _execute_tool_inner(
 
     logger.debug("execute_tool: tool_name=%r args_keys=%s", tool_name, list(tool_args.keys()))
 
-    # Composer-mode tool guard. When the active mode narrows the
-    # capability grant (``effective.tool_grants`` non-empty), the agent
-    # loop stores the allowed short-name set on ``ctx.allowed_tool_names``
-    # before dispatching the turn. Tools that don't appear in that set
-    # are rejected synthetically here so the LLM gets a clear
-    # "blocked in mode X, ask the user to switch" answer instead of
-    # silently executing a tool the YAML mode forbade.
-    #
-    # Defense in depth: the LLM never sees blocked tools in its schema
-    # (filtered at ``_call_llm``), so a blocked call typically means
-    # the model hallucinated the name from memory of a previous mode.
-    # ``allowed_tool_names is None`` -> mode does not narrow grants ->
-    # passthrough (no extra round-trip).
+    # Composer mode may narrow the tool grant; reject calls outside it.
     _allowed = getattr(ctx, "allowed_tool_names", None)
     if _allowed is not None and tool_name not in _allowed:
-        # Try the FQN form too -- the LLM may emit ``filesystem.write``
-        # when the short list contains ``Write``. Reverse-lookup keeps
-        # the guard agnostic to which name shape the model picked.
         from digitorn.core.runtime.tool_names import to_fqn, to_short
         _fqn = to_fqn(tool_name)
         _short = to_short(_fqn) if _fqn != tool_name else tool_name
@@ -192,19 +137,7 @@ async def _execute_tool_inner(
         cb._session_id = ctx.session_id
 
     tool_args.pop("_approved", None)
-    # Strip the progressive-mode ``intent`` meta-field. Apps that opt
-    # into ``ui.tool_calls.inject_intent: true`` get an ``intent``
-    # property prepended to every tool's schema (see
-    # ``context_builder/tool_schema.py::inject_intent_field``). The
-    # LLM fills it with a present-continuous verb phrase the frontend
-    # shows as a live progress indicator. By the time we reach the
-    # handler, the UI has already captured the value from the SSE
-    # tool_call payload, so we drop it here — none of the real tool
-    # handlers (filesystem, shell, workspace, MCP-bridged, ...) declare
-    # an ``intent`` parameter, and passing it through would either be
-    # rejected by Pydantic ``extra=forbid`` validators or silently
-    # ignored. Mirroring the ``_approved`` pop one line above keeps
-    # the sentinel-strip pattern in one place.
+    # Strip `intent`: it is a UI-only progress hint; handlers don't declare it and Pydantic `extra=forbid` would reject it.
     tool_args.pop("intent", None)
     if isinstance(tool_args.get("params"), dict):
         tool_args["params"].pop("_approved", None)
@@ -261,8 +194,6 @@ async def _execute_tool_inner(
             return await cb.execute("execute_tool", {
                 "name": candidates[0], "params": tool_args,
             }, context=exec_context)
-        # RT11: explicit error on ambiguous matches instead of falling
-        # through and risking a wrong tool execution.
         if len(candidates) > 1:
             return {
                 "success": False,
@@ -287,7 +218,6 @@ async def _execute_tool_inner(
 
 
 def _build_exec_context(ctx: AgentContext, tool_name: str) -> Any:
-    """Build an ExecutionContext for the tool call."""
     from digitorn.modules.base import ExecutionContext
 
     normalized = tool_name
@@ -312,8 +242,6 @@ def _build_exec_context(ctx: AgentContext, tool_name: str) -> Any:
         workspace=ctx.workspace,
         constraints=module_constraints,
         approval_queue=ctx.approval_queue,
-        # Forward the workdir-scoped sandbox so every module's
-        # path-touching action enforces the same confinement.
         path_policy=ctx.path_policy,
     )
 
@@ -346,9 +274,6 @@ async def _try_sandbox_exec(
     except Exception as exc:
         logger.warning("sandbox_exec_failed tool=%s: %s", tool_name, exc)
         return {"success": False, "error": f"Sandbox execution failed: {exc}"}
-
-
-# ── Approval handling ────────────────────────────────────────────────
 
 
 def needs_approval(result: Any) -> bool:
@@ -384,11 +309,7 @@ async def handle_approval(
     tool_args: dict[str, Any],
     result: Any,
 ) -> Any:
-    """Enqueue an approval request and await user decision.
-
-    If approved, re-executes the tool with _approved=True.
-    If denied, returns a denial message for the LLM.
-    """
+    """Enqueue an approval request and await user decision."""
     queue = ctx.approval_queue
     real_tool_name, risk_level = extract_approval_info(result)
 
@@ -425,10 +346,8 @@ async def handle_approval(
 
     if not approved:
         if user_message:
-            # Sanitise user denial message to prevent prompt injection:
-            # strip control chars, truncate to reasonable length, and wrap
-            # in a clearly-delimited block so the LLM can't confuse it
-            # with tool parameters or system instructions.
+            # Sanitise denial to prevent prompt injection: strip control chars,
+            # cap length, wrap in a delimited block.
             sanitised = "".join(
                 ch for ch in str(user_message)[:500]
                 if ch.isprintable() or ch in ("\n", "\t")
@@ -449,9 +368,6 @@ async def handle_approval(
         return {"success": False, "error": "No context_builder available"}
 
     return await _execute_approved(cb, tool_name, tool_args, real_tool_name, result)
-
-
-# ── Private helpers ──────────────────────────────────────────────────
 
 
 def _get_meta(result: Any) -> dict:
@@ -476,22 +392,12 @@ async def _execute_approved(
     real_tool_name: str,
     result: Any,
 ) -> Any:
-    """Re-execute a tool with _approved=True after user approval.
-
-    IMPORTANT: tool_name may be a short name from the LLM (e.g. "Bash",
-    "Write", "Edit"). We MUST resolve to FQN before calling cb.execute()
-    because cb is the context_builder module - calling cb.execute("Bash", ...)
-    would fail with ActionNotFoundError.
-    All paths go through _exec() which uses cb.execute("execute_tool", ...)
-    to properly route to the target module.
-    """
+    """Re-run a tool with `_approved=True` after user approval."""
     from digitorn.core.runtime.tool_names import to_fqn
 
     redirect = _extract_redirect(result)
     redirect_tool = _get_meta(result).get("tool", "") if redirect is not None else None
 
-    # Normalize tool_name to FQN upfront - this is the critical fix.
-    # "Bash" → "shell.bash", "Write" → "filesystem.write", etc.
     normalized = to_fqn(tool_name)
     if "__" in normalized and "." not in normalized:
         normalized = normalized.replace("__", ".")
@@ -514,8 +420,7 @@ async def _execute_approved(
     if "." in normalized:
         return await _exec(normalized, tool_args)
 
-    # Context_builder actions (background_run, run_parallel) - these are
-    # in the cb registry, so we can call cb.execute() directly.
+    # background_run / run_parallel live in the cb registry.
     registry = getattr(cb, "_action_registry", {})
     if normalized in registry:
         args_copy = dict(tool_args)
@@ -536,7 +441,6 @@ async def _execute_approved(
             args_copy["_approved"] = True
         return await cb.execute(normalized, args_copy)
 
-    # Last resort: use real_tool_name (already FQN from the index)
     return await _exec(real_tool_name or normalized, tool_args)
 
 
@@ -545,7 +449,6 @@ def _enrich_transaction_params(
     tool_name: str,
     params: dict[str, Any],
 ) -> dict[str, Any]:
-    """Enrich commit/rollback params with recent transaction queries."""
     action = tool_name.rsplit(".", 1)[-1] if "." in tool_name else tool_name
     if action not in ("commit_transaction", "rollback_transaction"):
         return params
@@ -590,15 +493,11 @@ def _enrich_transaction_params(
     return enriched
 
 
-# ── Tool name recovery ───────────────────────────────────────────────
-
-
 def _recover_malformed_tool(
     tool_name: str,
     registry: dict[str, Any],
     cb: Any,
 ) -> tuple[str, str, dict] | None:
-    """Try to recover a malformed tool name."""
     m = re.match(r"^(\w+)\((\w+)\)?$", tool_name)
     if m:
         fixed = f"{m.group(1)}.{m.group(2)}"
@@ -632,7 +531,6 @@ def _suggest_tool(
     registry: dict[str, Any],
     cb: Any,
 ) -> str:
-    """Build an error message with suggestions for an unknown tool name."""
     suggestions: list[str] = []
 
     meta_match = _closest_match(tool_name, list(registry.keys()), max_distance=3)
@@ -656,15 +554,15 @@ def _suggest_tool(
             f"You MUST NOT retry this exact tool_call. "
             f"Did you mean: {hint}? "
             f"If yes, emit a NEW tool_call with the corrected name. "
-            f"If unsure, call ``list_categories`` or ``search_tools`` "
+            f"If unsure, call `list_categories` or `search_tools` "
             f"to discover tools. If none fits, finish with plain text. "
             f"Repeating '{tool_name}' will be terminated by the runtime."
         )
     return (
         f"STOP. No tool exists with the name '{tool_name}'. "
         f"You MUST NOT retry this exact tool_call. "
-        f"Call ``list_categories`` to see modules, "
-        f"or ``search_tools`` to find tools by description. "
+        f"Call `list_categories` to see modules, "
+        f"or `search_tools` to find tools by description. "
         f"If no tool fits, finish with plain text instead. "
         f"Repeating '{tool_name}' will be terminated by the runtime."
     )
@@ -687,8 +585,6 @@ def _closest_match(
 
 
 def _levenshtein(s: str, t: str) -> int:
-    # RT23: fully iterative - no recursion. Swap to ensure s is the
-    # longer string so the inner row buffer is sized to min(len(s), len(t)).
     if len(s) < len(t):
         s, t = t, s
     if not t:

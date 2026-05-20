@@ -1,29 +1,4 @@
-"""JobStore - persistence for watchers, scheduled jobs, and notification buffers.
-
-Follows the same KV + secondary-index pattern as ``SessionStore``.
-
-KV key scheme::
-
-    watcher:{app_id}:{watcher_id}       → PersistedWatcher (dict)
-    __watcher_index__{app_id}            → set[watcher_id]
-    job:{app_id}:{job_id}               → ScheduledJob (dict)
-    __job_index__{app_id}               → set[job_id]
-    __all_active_jobs__                  → set[app_id:job_id]
-    notif_buf:{app_id}                   → list[dict]   (FIFO, max N, TTL 24h)
-
-Usage::
-
-    store = JobStore(backend=shared_kv_backend)
-
-    store.put_watcher(pw)
-    pw = store.get_watcher("myapp", "abc123")
-
-    store.put_job(job)
-    job = store.get_job("myapp", "abc123")
-
-    store.buffer_notification("myapp", {"type": "watcher", ...})
-    pending = store.drain_buffered("myapp")
-"""
+"""JobStore - persistence for watchers, scheduled jobs, and notification buffers."""
 
 from __future__ import annotations
 
@@ -69,22 +44,7 @@ class PersistedWatcher:
 
 @dataclass
 class ScheduledJob:
-    """A scheduled task persisted in KV. Unifies timers, cron, and reminders.
-
-    ``schedule_type`` determines how ``next_run_at`` is computed:
-    - ``"once"``     - fires at ``run_at`` (ISO 8601 or epoch), then completes.
-    - ``"cron"``     - fires at times matching ``cron_expr`` (5-field cron).
-    - ``"interval"`` - fires every ``interval_seconds`` seconds.
-
-    ``action_type`` determines what happens when the job fires:
-    - ``"tool_call"``     - calls ``tool_name`` with ``tool_params``.
-    - ``"llm_prompt"``    - injects ``prompt`` as a system message for the LLM.
-    - ``"notification"``  - sends ``prompt`` as a plain notification.
-
-    ``session_id`` identifies which user created this job, so that output
-    channels can auto-resolve per-user delivery targets (email, phone, etc.)
-    via the ``user_resolver`` mechanism.
-    """
+    """A scheduled task persisted in KV. Unifies timers, cron, and reminders."""
 
     job_id: str
     app_id: str
@@ -139,13 +99,7 @@ class ScheduledJob:
 
 
 class JobStore:
-    """Backend-agnostic persistence for watchers, jobs, and notification buffers.
-
-    Args:
-        backend: A ``KeyValueBackend`` instance (DiskCache or Redis).
-        buffer_max: Max buffered notifications per app (FIFO eviction).
-        buffer_ttl: TTL for the notification buffer key (seconds).
-    """
+    """Backend-agnostic persistence for watchers, jobs, and notification buffers."""
 
     def __init__(
         self,
@@ -329,11 +283,7 @@ class JobStore:
         return result
 
     def list_all_active_jobs(self) -> list[ScheduledJob]:
-        """List all active jobs across all apps (for scheduler loop).
-
-        Uses the global active index for O(1) lookup of which jobs need
-        checking, then loads each job from KV.
-        """
+        """List all active jobs across all apps (for scheduler loop)."""
         actives: set[str] = self._backend.get(self._ACTIVE_JOBS_KEY, set())
         result: list[ScheduledJob] = []
         stale: list[str] = []
@@ -373,15 +323,7 @@ class JobStore:
         return count
 
     def persist_job_atomic(self, job: ScheduledJob) -> None:
-        """Persist job state atomically - single KV write.
-
-        Use this instead of ``put_job()`` when updating an *existing* job
-        after it fires.  Unlike ``put_job()``, this skips the secondary
-        index bookkeeping (which is already correct for existing jobs)
-        and performs a single ``backend.set()`` so the job's updated
-        ``next_run_at``, ``run_count``, ``status``, etc. are never
-        partially persisted.
-        """
+        """Persist job state atomically - single KV write."""
         key = self._job_key(job.app_id, job.job_id)
         self._backend.set(key, job.to_dict())
         # If the job completed, remove from active index.
@@ -389,7 +331,6 @@ class JobStore:
             self._remove_from_active_index(f"{job.app_id}:{job.job_id}")
 
     def _remove_from_active_index(self, composite: str) -> None:
-        """Remove a composite key from the global active index."""
         actives: set[str] = self._backend.get(self._ACTIVE_JOBS_KEY, set())
         if composite in actives:
             actives.discard(composite)

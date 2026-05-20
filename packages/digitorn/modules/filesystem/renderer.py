@@ -1,12 +1,4 @@
-"""Filesystem module - file tree tracker.
-
-Tracks files the agent touches (read, write, edit, grep, glob)
-and maintains a tree section showing the workspace structure as it evolves.
-
-Note: Filesystem module was consolidated from 15 tools to 5 ultra-powerful ones:
-  - read, write, edit, grep, glob
-  - Removed (use Bash instead): ls, mv, cp, rm, mkdir, insert, find, file_stat, undo
-"""
+"""Filesystem module - file tree tracker."""
 
 from __future__ import annotations
 
@@ -14,9 +6,6 @@ import os
 import time
 from pathlib import Path
 from typing import Any
-
-
-# ── File state tracking ───────────────────────────────────────────────────────
 
 class _TrackedFile:
     __slots__ = ("path", "action", "size", "timestamp", "is_dir", "insertions", "deletions")
@@ -32,7 +21,6 @@ class _TrackedFile:
         self.insertions = insertions
         self.deletions = deletions
         self.timestamp = time.time()
-
 
 # Icons for file types (sent as tree node icons)
 _EXT_ICON: dict[str, str] = {
@@ -58,13 +46,11 @@ _EXT_ICON: dict[str, str] = {
     ".svg": "\U0001f5bc",
 }
 
-
 def _icon_for(path: str, is_dir: bool) -> str:
     if is_dir:
         return "\U0001f4c1"  # folder
     ext = os.path.splitext(path)[1].lower()
     return _EXT_ICON.get(ext, "\U0001f4c4")  # default: page
-
 
 def _human_size(n: int) -> str:
     if n < 1024:
@@ -72,7 +58,6 @@ def _human_size(n: int) -> str:
     if n < 1024 * 1024:
         return f"{n / 1024:.1f}KB"
     return f"{n / (1024 * 1024):.1f}MB"
-
 
 # Action → (label, badge letter, CSS color variable)
 # Mirrors VS Code git status: A=green, M=yellow, D=red, R=blue
@@ -86,22 +71,12 @@ _ACTION_META: dict[str, tuple[str, str, str]] = {
     "cp_dst":     ("copied here", "A", "var(--green-text)"),
 }
 
-
-# ── Renderer ──────────────────────────────────────────────────────────────────
-
 class FilesystemRenderer:
-    """Workbench renderer for the filesystem shadow buffer.
-
-    This renderer doesn't render buffer *content* - the buffer content is
-    just a placeholder. Instead, it uses the tracked-files dict (attached
-    by the module) to build a tree view for the frontend.
-    """
+    """Workbench renderer for the filesystem shadow buffer."""
 
     def __init__(self, workspace_root: str | None = None) -> None:
         self._workspace_root = workspace_root
         self._tracked: dict[str, _TrackedFile] = {}
-
-    # ── Public: called by the module after each operation ──
 
     def track(
         self,
@@ -112,11 +87,7 @@ class FilesystemRenderer:
         insertions: int = 0,
         deletions: int = 0,
     ) -> None:
-        """Record that a file was touched by the agent.
-
-        For write/edit actions, insertions and deletions track the cumulative
-        line changes across the session - like VS Code's git gutter counts.
-        """
+        """Record that a file was touched by the agent."""
         existing = self._tracked.get(path)
         if existing and action in ("edit", "write", "insert"):
             # Accumulate line changes across multiple edits to the same file
@@ -164,8 +135,6 @@ class FilesystemRenderer:
                 deletions=info.get("deletions", 0),
             )
             self._tracked[path].timestamp = info.get("timestamp", time.time())
-
-    # ── WorkbenchRenderer protocol ──
 
     def snapshot(
         self, buffer: Any, action: str = "write", added_content: str = "",

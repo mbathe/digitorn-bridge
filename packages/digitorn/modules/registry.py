@@ -1,22 +1,4 @@
-"""Module layer - Module registry.
-
-The registry is the single point of truth for all loaded modules.
-It handles:
-  - Module registration and discovery
-  - Platform compatibility checks via :class:`PlatformGuard`
-  - Graceful degradation when a module cannot load (missing deps, wrong platform)
-  - Lazy loading (modules are instantiated on first access)
-
-Platform guard integration:
-  When ``platform_guard`` is provided (or auto-detected), the registry checks
-  module platform compatibility at registration time.  Incompatible modules
-  are added to ``_platform_excluded`` rather than ``_failed`` so they can be
-  reported separately in the health endpoint.  This distinction matters:
-    - ``_failed``: module failed to load due to a runtime error (missing dep,
-      import error, etc.)
-    - ``_platform_excluded``: module is intentionally unavailable on this
-      platform (e.g. IoT on Windows)
-"""
+"""Module layer - Module registry."""
 
 from __future__ import annotations
 
@@ -34,20 +16,8 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-
 class ModuleRegistry:
-    """Runtime registry for Digitorn modules.
-
-    Usage::
-
-        from digitorn.module.platform_guard import PlatformGuard
-        registry = ModuleRegistry(platform_guard=PlatformGuard())
-        registry.register(FilesystemModule)
-        registry.register(IoTModule)
-
-        module = registry.get("filesystem")
-        result = await module.execute("read_file", {"path": "/tmp/test.txt"})
-    """
+    """Runtime registry for Digitorn modules."""
 
     def __init__(self, platform_guard: "PlatformGuard | None" = None) -> None:
         self._classes: dict[str, Type["BaseModule"]] = {}
@@ -67,12 +37,7 @@ class ModuleRegistry:
         return self._lifecycle
 
     def register(self, module_class: Type["BaseModule"]) -> None:
-        """Register a module class.  Instantiation is deferred until first use.
-
-        If a ``platform_guard`` is configured, modules incompatible with the
-        current platform are recorded in ``_platform_excluded`` rather than
-        ``_classes`` so they never attempt to load.
-        """
+        """Register a module class.  Instantiation is deferred until first use."""
         module_id = module_class.MODULE_ID
         if not module_id:
             raise ValueError(f"Module class {module_class.__name__} has no MODULE_ID.")
@@ -105,11 +70,6 @@ class ModuleRegistry:
             )
         )
         if _has_actions and not _overrides_prompt and module_class.MODULE_TYPE != "system":
-            # Advisory only - BaseModule ships a no-op default that lets
-            # modules run fine without custom prompt sections. Emitting
-            # this as a warning on every boot for every module that hasn't
-            # migrated is log spam. Surface it at DEBUG for authors who
-            # actually care.
             log.debug(
                 "module_missing_prompt_sections: %s has %d actions but does not "
                 "override get_prompt_sections(). The LLM won't receive usage "
@@ -122,12 +82,7 @@ class ModuleRegistry:
         log.debug("module_registered", module_id=module_id, version=module_class.VERSION)
 
     def get(self, module_id: str) -> "BaseModule":
-        """Return the module instance for *module_id*.
-
-        Raises:
-            ModuleNotFoundError: No module with this ID is registered.
-            ModuleLoadError:     The module failed to instantiate or is excluded.
-        """
+        """Return the module instance for *module_id*."""
         if module_id in self._platform_excluded:
             raise ModuleLoadError(
                 module_id=module_id,
@@ -142,15 +97,7 @@ class ModuleRegistry:
         return self._instances[module_id]
 
     def create(self, module_id: str) -> "BaseModule":
-        """Create a **fresh** module instance (no caching).
-
-        Use this when each caller needs its own isolated instance - e.g.
-        per-app module isolation in multi-tenant deployments.
-
-        Raises:
-            ModuleNotFoundError: No module with this ID is registered.
-            ModuleLoadError:     The module failed to instantiate or is excluded.
-        """
+        """Create a **fresh** module instance (no caching)."""
         if module_id in self._platform_excluded:
             raise ModuleLoadError(
                 module_id=module_id,
@@ -177,11 +124,7 @@ class ModuleRegistry:
             raise ModuleLoadError(module_id=module_id, reason=reason) from exc
 
     def register_instance(self, instance: "BaseModule") -> None:
-        """Register a pre-constructed module instance directly.
-
-        Useful for modules that need dependency injection before registration
-        (e.g. SecurityModule, RecordingModule).
-        """
+        """Register a pre-constructed module instance directly."""
         module_id = instance.MODULE_ID
         if not module_id:
             raise ValueError(f"Module instance {type(instance).__name__} has no MODULE_ID.")
@@ -200,18 +143,7 @@ class ModuleRegistry:
         timeout: float = 30.0,
         max_restarts: int = 3,
     ) -> None:
-        """Register a module that runs in an isolated subprocess.
-
-        Creates an :class:`IsolatedModuleProxy` and registers it as a
-        pre-constructed instance.  The proxy handles lazy venv creation
-        and subprocess management transparently.
-
-        Args:
-            source_path: Root directory of the module source code.  When set,
-                the parent directory is prepended to PYTHONPATH so the worker
-                subprocess can import the module without it being pip-installed.
-                Use for local installs and development workflows.
-        """
+        """Register a module that runs in an isolated subprocess."""
         from digitorn.isolation.proxy import IsolatedModuleProxy
 
         merged_env: dict[str, str] = dict(env_vars or {})
@@ -292,16 +224,7 @@ class ModuleRegistry:
         self._platform_excluded.pop(module_id, None)
 
     def status_report(self) -> dict[str, dict[str, str | list[str]]]:
-        """Return a structured status report for the health endpoint.
-
-        Schema::
-
-            {
-                "available": ["filesystem", "os_exec"],
-                "failed": {"browser": "playwright not installed"},
-                "platform_excluded": {"iot": "Platform 'linux' not in [raspberry_pi]"}
-            }
-        """
+        """Return a structured status report for the health endpoint."""
         return {
             "available": self.list_available(),
             "failed": self.list_failed(),

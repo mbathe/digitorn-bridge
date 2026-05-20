@@ -1,43 +1,4 @@
-"""Database module - Security policy, query guard, and audit logger.
-
-Three layers of database-specific security:
-
-1. **DatabasePolicy** - per-connection security policy (Pydantic model,
-   YAML/JSON/dashboard-configurable). Controls what operations are allowed
-   on each connection.
-
-2. **QueryGuard** - runtime interceptor that validates every query/operation
-   against the policy BEFORE it reaches the adapter. Raises
-   ``QueryBlockedError`` on violation.
-
-3. **AuditLogger** - structured log of every database operation with full
-   context (who, what, when, how long, how many rows).
-
-YAML configuration example::
-
-    database:
-      connections:
-        main:
-          driver: postgresql
-          host: localhost
-          database: myapp
-          persist: true
-          policy:
-            read_only: false
-            blocked_statements: [DROP, TRUNCATE, ALTER]
-            table_blacklist: [audit_log, secrets]
-            column_blacklist:
-              users: [password_hash, ssn]
-            max_rows_returned: 5000
-            max_query_time_seconds: 30
-        analytics:
-          driver: postgresql
-          host: analytics-host
-          database: analytics
-          policy:
-            read_only: true
-            max_rows_returned: 50000
-"""
+"""Database module - Security policy, query guard, and audit logger."""
 
 from __future__ import annotations
 
@@ -51,17 +12,8 @@ from pydantic import BaseModel, Field
 
 logger = structlog.get_logger(__name__)
 
-
 class DatabasePolicy(BaseModel):
-    """Per-connection security policy.
-
-    Serializable to/from YAML, JSON, or dashboard forms. Every field has
-    a description so both LLM agents and human admins understand it.
-
-    Apply to a connection via ``ConnectParams.policy`` or update at runtime
-    via the ``set_policy`` action.
-    """
-
+    """Per-connection security policy."""
 
     read_only: bool = Field(
         default=False,
@@ -71,7 +23,6 @@ class DatabasePolicy(BaseModel):
             "are allowed. Ideal for analytics or reporting connections."
         ),
     )
-
 
     allowed_statements: list[str] = Field(
         default_factory=list,
@@ -91,7 +42,6 @@ class DatabasePolicy(BaseModel):
         ),
     )
 
-
     table_whitelist: list[str] = Field(
         default_factory=list,
         description=(
@@ -110,7 +60,6 @@ class DatabasePolicy(BaseModel):
         ),
     )
 
-
     column_blacklist: dict[str, list[str]] = Field(
         default_factory=dict,
         description=(
@@ -120,7 +69,6 @@ class DatabasePolicy(BaseModel):
             "Blocked columns appear as '***REDACTED***' in fetch results."
         ),
     )
-
 
     max_rows_returned: int = Field(
         default=10_000,
@@ -143,7 +91,6 @@ class DatabasePolicy(BaseModel):
         ),
     )
 
-
     allow_transactions: bool = Field(
         default=True,
         description=(
@@ -162,7 +109,6 @@ class DatabasePolicy(BaseModel):
         ),
     )
 
-
     blocked_operations: list[str] = Field(
         default_factory=list,
         description=(
@@ -172,7 +118,6 @@ class DatabasePolicy(BaseModel):
         ),
     )
 
-
     blocked_commands: list[str] = Field(
         default_factory=list,
         description=(
@@ -181,7 +126,6 @@ class DatabasePolicy(BaseModel):
             "Applied in addition to read_only checks."
         ),
     )
-
 
     @classmethod
     def readonly(cls) -> DatabasePolicy:
@@ -202,7 +146,6 @@ class DatabasePolicy(BaseModel):
         """Preset: no restrictions (admin/dev use only)."""
         return cls()
 
-
 class QueryBlockedError(Exception):
     """Raised when the QueryGuard blocks a query based on policy."""
 
@@ -211,7 +154,6 @@ class QueryBlockedError(Exception):
         self.policy_rule = policy_rule
         self.detail = detail
         super().__init__(reason)
-
 
 _WRITE_STATEMENTS = frozenset({
     "INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP",
@@ -242,21 +184,8 @@ _REDIS_WRITE_COMMANDS = frozenset({
     "CONFIG",
 })
 
-
 class QueryGuard:
-    """Validates queries/operations against a DatabasePolicy before execution.
-
-    Usage::
-
-        guard = QueryGuard(policy)
-
-        guard.check_sql_query("SELECT * FROM users WHERE id = :p0")
-        guard.check_sql_query("DROP TABLE users")
-
-        guard.check_mongo_operation("users", "delete_many")
-
-        guard.check_redis_command("FLUSHDB")
-    """
+    """Validates queries/operations against a DatabasePolicy before execution."""
 
     def __init__(self, policy: DatabasePolicy) -> None:
         self._policy = policy
@@ -268,7 +197,6 @@ class QueryGuard:
     @property
     def policy(self) -> DatabasePolicy:
         return self._policy
-
 
     def check_sql_query(self, query: str) -> None:
         """Validate a SQL query against the policy. Raises QueryBlockedError."""
@@ -327,11 +255,7 @@ class QueryGuard:
                 )
 
     def check_column_access(self, table: str, columns: list[str]) -> list[str]:
-        """Filter columns, returning only accessible ones.
-
-        Blocked columns are replaced with None in the result (for redaction).
-        Returns the list of blocked column names.
-        """
+        """Filter columns, returning only accessible ones."""
         blocked = self._policy.column_blacklist.get(table, [])
         if not blocked:
             return []
@@ -348,7 +272,6 @@ class QueryGuard:
     def get_transaction_timeout(self) -> float:
         """Return the max transaction duration in seconds."""
         return self._policy.max_transaction_seconds
-
 
     def check_mongo_operation(
         self, collection: str, operation: str,
@@ -370,7 +293,6 @@ class QueryGuard:
 
         self.check_table_access(collection)
 
-
     def check_redis_command(self, command: str) -> None:
         """Validate a Redis command against the policy."""
         cmd = command.upper()
@@ -389,7 +311,6 @@ class QueryGuard:
                 detail=f"command={cmd}",
             )
 
-
     def check_transaction_allowed(self) -> None:
         """Check if transactions are allowed by policy."""
         if not self._policy.allow_transactions:
@@ -397,7 +318,6 @@ class QueryGuard:
                 "Transactions are disabled on this connection.",
                 policy_rule="allow_transactions",
             )
-
 
 @dataclass
 class AuditEntry:
@@ -417,16 +337,8 @@ class AuditEntry:
     session_id: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
-
 class AuditLogger:
-    """Structured audit logger for database operations.
-
-    Logs every database action with full context for compliance,
-    debugging, and anomaly detection.
-
-    Entries are emitted via structlog and optionally stored in a buffer
-    for programmatic access (e.g. dashboard, export).
-    """
+    """Structured audit logger for database operations."""
 
     def __init__(self, max_buffer_size: int = 1000) -> None:
         self._buffer: list[AuditEntry] = []
@@ -526,9 +438,7 @@ class AuditLogger:
         """Clear the audit buffer."""
         self._buffer.clear()
 
-
 _REDACTED = "***REDACTED***"
-
 
 def redact_columns(
     rows: list[dict[str, Any]],
@@ -546,7 +456,6 @@ def redact_columns(
         for row in rows
     ]
 
-
 def filter_table_list(
     tables: list[Any],
     guard: QueryGuard,
@@ -561,7 +470,6 @@ def filter_table_list(
             continue
     return result
 
-
 _STMT_PATTERN = re.compile(
     r"^\s*(?:--[^\n]*\n\s*|/\*.*?\*/\s*)*"
     r"(\w+)",
@@ -575,40 +483,25 @@ _TABLE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-
 def _extract_statement_type(query: str) -> str:
-    """Extract the SQL statement type (SELECT, INSERT, DROP, etc.)."""
     match = _STMT_PATTERN.match(query)
     if match:
         return match.group(1).upper()
     return "UNKNOWN"
 
-
 def _extract_table_names(query: str) -> list[str]:
-    """Extract table names from a SQL query (best-effort regex)."""
     return list(set(_TABLE_PATTERN.findall(query)))
 
-
 def _sanitize_query(query: str, max_length: int = 200) -> str:
-    """Truncate and sanitize a query for audit logging."""
     clean = " ".join(query.split())
     if len(clean) > max_length:
         return clean[:max_length] + "..."
     return clean
 
-
 _SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
-
 def validate_sql_identifier(name: str, label: str = "identifier") -> str:
-    """Validate and return a safe SQL identifier.
-
-    Raises ``QueryBlockedError`` if the identifier contains anything
-    other than ``[A-Za-z0-9_]`` (optionally dot-separated for schema.table).
-
-    This prevents SQL injection via table/column names in dynamically
-    built queries (bulk_insert, upsert, etc.).
-    """
+    """Validate and return a safe SQL identifier."""
     if not name or not isinstance(name, str):
         raise QueryBlockedError(
             f"Empty or invalid {label}: {name!r}",
@@ -627,7 +520,6 @@ def validate_sql_identifier(name: str, label: str = "identifier") -> str:
                 policy_rule="identifier_validation",
             )
     return name
-
 
 def validate_sql_identifiers(names: list[str], label: str = "identifier") -> list[str]:
     """Validate a list of SQL identifiers. Returns the list if all are safe."""

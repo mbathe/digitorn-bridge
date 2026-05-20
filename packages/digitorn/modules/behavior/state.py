@@ -1,24 +1,4 @@
-"""Per-session behavioral state - generic tracking for any app type.
-
-The state tracks two kinds of data:
-
-1. **Universal** (every app): turn, tool counts, violations, consecutive tool.
-   These are used by the engine regardless of app type.
-
-2. **Generic collections** (any app can use):
-   - ``sets``: named sets of strings - track targets per category
-     e.g. {"read_files": {"a.py", "b.py"}, "searched_urls": {"https://..."}}
-   - ``counters``: named integer counters - track "since" patterns
-     e.g. {"changes_since_test": 3, "queries_since_verify": 1}
-   - ``flags``: named booleans
-     e.g. {"has_web_searched": True, "plan_approved": False}
-   - ``tool_history``: ordered list of (tool_name, target) for recent actions
-
-Built-in rules in ``rules.py`` use convenience properties that map to the
-generic collections (``read_files`` → ``sets["read_files"]``) so existing
-YAML configs work unchanged. New apps define their own set/counter/flag
-names without touching this code.
-"""
+"""Per-session behavioral state - generic tracking for any app type."""
 
 from __future__ import annotations
 
@@ -26,16 +6,9 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
-
 @dataclass
 class BhvSessionState:
-    """Mutable state tracked across an entire session.
-
-    Generic by design: ``sets``, ``counters``, and ``flags`` hold
-    arbitrary named values that rules and the classifier reference.
-    """
-
-    # ── Universal (every app) ──
+    """Mutable state tracked across an entire session."""
 
     turn: int = 0
     violations_count: int = 0
@@ -45,8 +18,6 @@ class BhvSessionState:
     last_tool_name: str = ""
     consecutive_same_tool: int = 0
     plan_stated: bool = False
-
-    # ── Generic collections ──
 
     # Named sets of strings (e.g. "read_files", "edited_files", "fetched_urls")
     sets: dict[str, set[str]] = field(default_factory=dict)
@@ -61,8 +32,6 @@ class BhvSessionState:
     tool_history: deque[tuple[str, str]] = field(
         default_factory=lambda: deque(maxlen=50),
     )
-
-    # ── Universal actions ──
 
     def on_new_turn(self) -> None:
         """Reset per-turn state."""
@@ -79,8 +48,6 @@ class BhvSessionState:
         else:
             self.last_tool_name = tool_name
             self.consecutive_same_tool = 1
-
-    # ── Generic collection helpers ──
 
     def add_to_set(self, name: str, value: str) -> None:
         """Add a value to a named set."""
@@ -112,7 +79,6 @@ class BhvSessionState:
         """Get a named flag (False if missing)."""
         return self.flags.get(name, False)
 
-    # ── Convenience properties for backward compat with built-in rules ──
     # These map to the generic collections so existing rules.py code
     # using state.read_files, state.edited_files, etc. still works.
 
@@ -157,8 +123,6 @@ class BhvSessionState:
     def has_web_searched(self, val: bool) -> None:
         self.flags["has_web_searched"] = val
 
-    # ── Convenience mutation methods (backward compat) ──
-
     def on_read(self, file_path: str) -> None:
         self.add_to_set("read_files", file_path)
         self.increment_counter("reads_since_search")
@@ -181,15 +145,8 @@ class BhvSessionState:
     def on_web_search(self) -> None:
         self.set_flag("has_web_searched", True)
 
-    # ── Snapshot for the classifier ──
-
     def snapshot(self) -> dict[str, Any]:
-        """Return a complete state snapshot for the classifier.
-
-        Generic: includes all sets, counters, flags, and universal
-        fields. The classifier formats whatever it finds - nothing
-        is hardcoded to a specific app type.
-        """
+        """Return a complete state snapshot for the classifier."""
         snap: dict[str, Any] = {
             "turn": self.turn,
             "total_tool_calls": self.total_tool_calls,
@@ -224,7 +181,6 @@ class BhvSessionState:
             ]
 
         return snap
-
 
 # Backward-compat aliases
 SessionBehaviorState = BhvSessionState  # noqa: F841

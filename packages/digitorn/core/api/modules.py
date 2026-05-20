@@ -1,10 +1,4 @@
-"""Digitorn - Module API routes.
-
-    GET  /api/modules              List all modules with status
-    GET  /api/modules/{id}         Module details (manifest, actions)
-    POST /api/modules/{id}/execute Execute an action on a module
-    GET  /api/modules/{id}/health  Health check for a module
-"""
+"""Digitorn - Module API routes."""
 
 from __future__ import annotations
 
@@ -49,7 +43,6 @@ class ExecuteResponse(BaseModel):
 
 
 def _get_registry(request: Request):
-    """Get the module registry from app state."""
     registry = getattr(request.app.state, "registry", None)
     if registry is None:
         raise HTTPException(status_code=503, detail="Module registry not initialized.")
@@ -57,12 +50,10 @@ def _get_registry(request: Request):
 
 
 def _get_event_bus(request: Request):
-    """Get the event bus from app state."""
     return getattr(request.app.state, "event_bus", None)
 
 
 async def _load_profile(app_id: str | None) -> "SecurityProfile | None":
-    """Load the SecurityProfile for a given app_id. Returns None if absent."""
     if not app_id:
         return None
     from digitorn.core.security import load_security_profile
@@ -75,11 +66,7 @@ async def list_modules(
     request: Request,
     app_id: str | None = Query(None, description="Application ID for visibility filtering."),
 ) -> dict[str, Any]:
-    """List all modules with their status.
-
-    When ``app_id`` is provided, modules marked *hidden* in that app's
-    security profile are excluded from the response.
-    """
+    """List all modules with their status."""
     registry = _get_registry(request)
     report = registry.status_report()
     profile = await _load_profile(app_id)
@@ -136,10 +123,7 @@ async def get_module(
     request: Request,
     app_id: str | None = Query(None, description="Application ID for visibility filtering."),
 ) -> dict[str, Any]:
-    """Get detailed info about a specific module.
-
-    Returns 404 if the module is hidden for the given ``app_id``.
-    """
+    """Get detailed info about a specific module."""
     registry = _get_registry(request)
     profile = await _load_profile(app_id)
 
@@ -189,7 +173,6 @@ async def _persist_execution(
     params: dict[str, Any],
     correlation_id: str,
 ) -> "ActionExecution | None":
-    """Create an ActionExecution record in status 'started'. Returns None on failure."""
     try:
         from digitorn.core.database import _session_factory
         from digitorn.core.models import ActionExecution
@@ -227,7 +210,6 @@ async def _complete_execution(
     result: dict[str, Any] | None = None,
     error: str | None = None,
 ) -> None:
-    """Update an execution record to completed or failed."""
     if execution is None:
         return
     try:
@@ -251,19 +233,7 @@ async def _complete_execution(
 
 
 def _require_admin_for_execute(request: Request) -> None:
-    """Block non-admin callers from the raw module execute endpoint.
-
-    This route bypasses ALL of the per-app sandboxing (security profile,
-    workspace root, capability grants, path traversal guards) that only
-    fires when modules are invoked through the agent loop. Any caller
-    that reaches it can shell-out, read/write anywhere the daemon
-    process can, etc. - so it is strictly an admin/debug tool.
-
-    The loopback auth bypass (``_is_loopback_self_call``) already
-    refuses POST to this path when the caller has no credentials, so
-    the only way to get here is with a real token; we then require
-    admin (or the narrow ``modules.execute`` permission).
-    """
+    """Block non-admin callers from the raw module execute endpoint."""
     perms = getattr(request.state, "permissions", []) or []
     if "*" in perms or "modules.execute" in perms:
         return
@@ -311,10 +281,6 @@ async def execute_action(
     )
     correlation_id = started_event.correlation_id or started_event.event_id
 
-    # Sessionless module calls (admin tooling) skip the session bus -
-    # otherwise a stray action_started event would fan out to every
-    # connected chat panel because the client's source filter passes
-    # events without a session_id through.
     if event_bus and body.session_id:
         await event_bus.publish(started_event)
 
@@ -437,11 +403,6 @@ async def execute_action(
     except ActionExecutionError as exc:
         await _complete_execution(execution, status="failed", error=str(exc))
 
-        # Only publish on the bus when the caller gave us a session_id
-        # - an untagged "error" event would leak onto whichever session
-        # a client happens to be viewing. Sessionless module calls
-        # (admin-only tooling) still persist their failure via
-        # _complete_execution and return the error in the HTTP response.
         if event_bus and body.session_id:
             await event_bus.publish(started_event.child(
                 topic=f"digitorn.module.{module_id}.action_failed",

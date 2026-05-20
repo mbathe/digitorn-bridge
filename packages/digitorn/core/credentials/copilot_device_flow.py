@@ -1,28 +1,4 @@
-"""GitHub Copilot OAuth device-flow store.
-
-GitHub closed ``/copilot_internal/v2/token`` to non-VS-Code OAuth tokens
-(personal access tokens, gh CLI tokens, custom OAuth apps - all 404).
-The only client_id whose tokens are still whitelisted for the Copilot
-endpoint is the official VS Code Copilot Chat app, ``Iv1.b507a08c87ecfe98``.
-
-This module runs the OAuth 2.0 device flow against that client_id from
-the daemon side, so the user can authenticate from any browser without
-typing a token by hand.
-
-Flow shape (mirrors the standard RFC 8628 device flow):
-
-  1. Client -> POST /api/credentials/copilot/device/start
-       -> daemon hits github.com/login/device/code
-       -> returns user_code + verification_uri + state
-  2. User opens verification_uri in browser, types user_code, approves
-     "GitHub for VS Code".
-  3. Client polls GET /api/credentials/copilot/device/status?state=...
-     every interval seconds.
-  4. Daemon polls github.com/login/oauth/access_token until user
-     authorizes -> receives ghu_... token -> creates credential row
-     under the user's vault and returns ``{status: "connected",
-     credential_id: ...}``.
-"""
+"""GitHub Copilot OAuth device-flow store."""
 
 from __future__ import annotations
 
@@ -37,22 +13,13 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# ────────────────────────────────────────────────────────────────────
 # GitHub Copilot OAuth client config
-# ────────────────────────────────────────────────────────────────────
 
-# Official VS Code Copilot Chat OAuth app. Tokens issued under this
-# client_id are whitelisted for /copilot_internal/v2/token. Updating
-# this value would break Copilot integration; do not change without
-# confirming the new value is also whitelisted.
 COPILOT_CLIENT_ID = "Iv1.b507a08c87ecfe98"
 
 DEVICE_CODE_URL = "https://github.com/login/device/code"
 TOKEN_URL = "https://github.com/login/oauth/access_token"
 
-# Headers GitHub's device-flow validates against. Without them
-# the endpoint returns 422 (invalid client). Updating to a more
-# recent VS Code version is safe; older values may stop working.
 _EDITOR_HEADERS = {
     "Accept": "application/json",
     "Content-Type": "application/json",
@@ -62,19 +29,12 @@ _EDITOR_HEADERS = {
 }
 
 
-# ────────────────────────────────────────────────────────────────────
 # Pending flow record
-# ────────────────────────────────────────────────────────────────────
 
 
 @dataclass
 class CopilotDeviceFlow:
-    """One in-progress device-flow authorization.
-
-    Stored server-side keyed by ``state``. The frontend never sees
-    ``device_code`` (the secret half of the flow); it only gets the
-    public ``user_code`` + ``verification_uri`` + ``state``.
-    """
+    """One in-progress device-flow authorization."""
 
     state: str
     device_code: str
@@ -109,18 +69,11 @@ class CopilotDeviceFlow:
         }
 
 
-# ────────────────────────────────────────────────────────────────────
 # Store
-# ────────────────────────────────────────────────────────────────────
 
 
 class CopilotDeviceFlowStore:
-    """In-memory registry of pending device flows.
-
-    Single-process only (the device_code lives on the daemon that
-    started the flow). For HA setups the store would have to be
-    replaced with Redis or similar; not our concern in v1.
-    """
+    """In-memory registry of pending device flows."""
 
     def __init__(self) -> None:
         self._flows: dict[str, CopilotDeviceFlow] = {}
@@ -144,12 +97,7 @@ class CopilotDeviceFlowStore:
     async def start(
         self, *, user_id: str, target_name: str, target_scope: str = "per_user",
     ) -> CopilotDeviceFlow:
-        """Kick off a new device flow for ``user_id``.
-
-        Hits GitHub's device-code endpoint, stores the resulting
-        ``device_code`` server-side under a fresh ``state`` key, and
-        returns the public part to the caller.
-        """
+        """Kick off a new device flow for `user_id`."""
         cl = await self._http()
         try:
             resp = await cl.post(
@@ -211,12 +159,7 @@ class CopilotDeviceFlowStore:
     async def poll(
         self, state: str, *, on_success: Any = None,
     ) -> CopilotDeviceFlow:
-        """Hit GitHub once for the given flow.
-
-        If GitHub returns a token, marks the flow connected and calls
-        ``on_success(flow, access_token)`` so the caller can persist the
-        credential. Returns the (mutated) flow.
-        """
+        """Hit GitHub once for the given flow."""
         flow = await self.get(state)
         if flow is None:
             raise KeyError(f"unknown copilot device flow: {state}")
@@ -248,12 +191,6 @@ class CopilotDeviceFlowStore:
             )
             return flow
 
-        # One-line trace of EVERY GitHub response. Helps diagnose the
-        # "user authorized but daemon stays pending" failure mode -
-        # the daemon log shows exactly what GitHub keeps returning
-        # (authorization_pending / slow_down / expired_token / unknown).
-        # Token shape is logged with a masked length so the secret
-        # never lands in plaintext.
         _has_token = "access_token" in data
         _err = data.get("error", "")
         logger.info(
@@ -313,7 +250,6 @@ class CopilotDeviceFlowStore:
             self._flows.pop(state, None)
 
     def _sweep_expired_locked(self) -> None:
-        """Drop flows whose state has been hanging around > 1 hour."""
         now = time.time()
         cutoff = now - 3600
         stale = [s for s, f in self._flows.items()
@@ -324,9 +260,7 @@ class CopilotDeviceFlowStore:
             logger.debug("copilot_device_flow_swept count=%d", len(stale))
 
 
-# ────────────────────────────────────────────────────────────────────
 # Module-level singleton
-# ────────────────────────────────────────────────────────────────────
 
 
 _default_store: CopilotDeviceFlowStore | None = None

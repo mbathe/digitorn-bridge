@@ -1,12 +1,4 @@
-"""Bootstrap - CompiledApp → RuntimeApp.
-
-Transforms the compiled IR into live, ready-to-execute objects:
-1. Instantiate and start modules
-2. Push configs, run setup steps
-3. Build tool index via context_builder
-4. Build AgentContext for each agent
-5. Assemble RuntimeApp
-"""
+"""Bootstrap - CompiledApp → RuntimeApp."""
 
 from __future__ import annotations
 
@@ -18,15 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from digitorn.core.runtime.types import AgentContext, ContextWindowConfig
 
-# Warm-import litellm at module load so the heavy pydantic-schema
-# generation in ``litellm.types.router`` runs ONCE on the main thread.
-# Without this, ``bootstrap_builtins``' parallel app deploys all import
-# litellm concurrently from ``_estimate_tools_tokens``, hit Python's
-# per-module import lock, and deadlock the daemon at boot (observed in
-# prod 2026-05-15: two threads stuck on ``_lock_unlock_module`` while
-# generating litellm's deeply-nested Pydantic schemas). Failing this
-# import is non-fatal: ``_estimate_tools_tokens`` has a ``char/4``
-# fallback when litellm is unavailable.
+# warm-import litellm on the main thread so its pydantic-schema generation runs once and parallel deploys don't deadlock on the import lock.
 try:
     import litellm  # noqa: F401
 except Exception as _litellm_warmup_exc:  # pragma: no cover
@@ -45,13 +29,7 @@ if TYPE_CHECKING:
 
 
 def _resolve_workspace(compiled: "CompiledApp", *, standalone: bool = False) -> str:
-    """Resolve the workspace directory for an app.
-
-    Respects workspace_mode:
-    - none: returns empty string
-    - fixed: YAML workspace only
-    - required/auto: YAML > cwd (standalone) > managed dir (daemon)
-    """
+    """Resolve the workspace directory for an app."""
     mode = getattr(compiled.execution, "workspace_mode", "auto")
     workspace = getattr(compiled.execution, "workspace", "")
 
@@ -83,15 +61,7 @@ async def bootstrap(
     registry: ModuleRegistry,
     skip_embeddings: bool = False,
 ) -> dict[str, Any]:
-    """Bootstrap a compiled app into live runtime objects.
-
-    Each app gets fresh module instances via ``registry.create()``
-    so that concurrent deployments are fully isolated.
-
-    Args:
-        skip_embeddings: Skip loading the semantic search model (~900MB).
-            Used by sandbox workers that only execute tools by name.
-    """
+    """Bootstrap a compiled app into live runtime objects."""
     modules, service_bus = await _init_modules(compiled, registry)
     setup_summary = await _run_setup_phase(compiled, modules)
     context_builder, index = await _build_context_layer(
@@ -107,26 +77,14 @@ async def bootstrap(
         compiled, contexts, modules, context_builder,
     )
 
-    # Attach the hook runner onto the context_builder so modules / hook
-    # actions that want to fire cross-event hooks (workspace, filesystem,
-    # preview, approval_queue, …) can reach it without threading the
-    # runner through every signature.
     if hook_runner is not None:
         setattr(context_builder, "hook_runner", hook_runner)
 
-    # Post-wire: fire `approval_request` hook every time a tool goes up
-    # for approval. The ApprovalQueue exposes a callback list; we just
-    # register a lightweight async callback that constructs a minimal
-    # TurnState and forwards to the runner. Skip entirely when the app
-    # declared no capabilities block - _build_approval_queue returns
-    # None in that case and there's nothing to wire.
     if hook_runner is not None and approval_queue is not None:
         async def _approval_hook_callback(request: Any) -> None:
             try:
                 from digitorn.core.runtime.hooks import TurnState
                 from types import SimpleNamespace
-                # Build a synthetic tool_context so {{tool.*}} templates
-                # in hook actions can reference the awaiting tool.
                 tool_ctx = SimpleNamespace(
                     tool_name=getattr(request, "tool_name", "") or "",
                     tool_params=dict(getattr(request, "tool_params", {}) or {}),
@@ -157,19 +115,13 @@ async def bootstrap(
     }
 
 
-
 async def _init_modules(
     compiled: "CompiledApp",
     registry: "ModuleRegistry",
 ) -> tuple[dict[str, "BaseModule"], Any]:
-    """Create, wire, start, and configure all modules."""
     modules: dict[str, BaseModule] = {}
     errors: list[str] = []
 
-    # Workers routing: lazy-populate the worker registry from current
-    # Settings. Empty registry = no routing = legacy in-process flow
-    # (the default; ``workers.enabled`` is False unless the operator
-    # opts in). Idempotent across app deploys.
     from digitorn.workers.registry import (
         ensure_default_registry_from_settings,
     )
@@ -185,14 +137,7 @@ async def _init_modules(
         except Exception as exc:
             errors.append(f"Failed to create module '{module_id}': {exc}")
 
-    # ``llm_provider`` is a system module: every agent's brain needs it
-    # at session-start (gateway resolver, fallback brain, summary
-    # provider, classifier...). The compiler now auto-injects it into
-    # compiled.modules, but we keep this bootstrap-side injection too so
-    # legacy bundles that pre-date the compiler change still get the
-    # module wired. MODULE_SINGLETON = the daemon's one instance is
-    # reused, no per-app cost. Hidden from the LLM tool catalogue by
-    # ``context_builder._HIDDEN_MODULES``.
+    # llm_provider is system-required; auto-inject for legacy bundles that pre-date the compiler change.
     if "llm_provider" not in modules:
         try:
             cls = registry._classes.get("llm_provider")
@@ -209,25 +154,7 @@ async def _init_modules(
     if errors:
         raise RuntimeError(f"Bootstrap failed: {'; '.join(errors)}")
 
-    # Worker routing: for every module hosted by a worker (per
-    # ``settings.workers``), replace its action handlers with HTTP
-    # forwarders. The instance stays the same class with the same
-    # manifest / specs / params_models / constraints -- only the
-    # action implementations move to the worker process. When the
-    # registry is empty (default), this loop is a no-op and every
-    # module runs in-process exactly as before.
-    #
-    # ``llm_provider`` is **excluded** from the module-level wrap.
-    # Reason: the agent loop bypasses ``llm_module.execute("chat",
-    # ...)`` and calls ``ctx.provider.chat_stream(...)`` directly on
-    # the provider instance. The provider-level proxy
-    # (``maybe_wrap_provider`` at line 564 below) is what intercepts
-    # that path. Wrapping the MODULE here would set ``_skip_on_start``
-    # = True on the llm_provider instance, which makes the bootstrap
-    # lifecycle loop skip ``on_config_update`` -- leaving
-    # ``_providers`` empty and crashing ``_resolve_provider``
-    # immediately after. We get all the benefit (chat_stream off the
-    # main loop) via the provider proxy, with none of the breakage.
+    # skip llm_provider in module wrap - provider-level proxy handles chat_stream off-loop; module wrap would break on_config_update.
     _WORKER_WRAP_SKIP = {"llm_provider"}
     if not _workers_registry.is_empty():
         from digitorn.workers.action_wrapper import (
@@ -262,38 +189,16 @@ async def _init_modules(
 
     failed_modules: list[str] = []
     for module_id, module in modules.items():
-        # Inject constraints before on_start (modules read them during init)
         mod_constraints = compiled.modules[module_id].constraints
         if mod_constraints:
             module._constraints = mod_constraints
 
-        # Workered modules: the worker process runs the real
-        # ``on_start`` -- the daemon-side instance is only a routing
-        # handle, so we skip the lifecycle hook to avoid double-start
-        # (e.g. cron sweepers spawned in both processes, MCP stdio
-        # subprocess opened twice). The wrap stamps ``_skip_on_start``
-        # in action_wrapper.py.
-        #
-        # BUT we still need to deliver the per-app ``module.config``
-        # block to the worker -- the worker's lifespan only calls
-        # ``on_start()`` (it has no app context at boot), so without
-        # this push the YAML's
-        # ``modules.lsp.config.python: "ruff ..."`` (and every other
-        # per-app config) is silently dropped. Net effect before the
-        # fix: LSP linters never registered, MCP custom servers never
-        # connected, rag backends stuck on in-memory default.
+        # workered modules skip on_start (worker owns lifecycle) but still need their per-app `module.config` pushed.
         if getattr(module, "_skip_on_start", False):
             module._started_ok = True  # type: ignore[attr-defined]
             cfg = dict(compiled.modules[module_id].config or {})
             workspace = _resolve_module_workspace(compiled, module_id)
-            # WORKSPACE_PLACEHOLDER is a daemon-side template that gets
-            # substituted per session at chat time. Shipping it to a
-            # worker as a literal string would set its module-level
-            # ``_workspace`` (and downstream ``_cwd`` on linter protocols)
-            # to the literal "{WORKSPACE}" -- triggering FileNotFoundError
-            # on every subprocess that chdirs into it. Per-session
-            # workspace already travels in the ``ctx`` envelope on every
-            # action call, so dropping the placeholder here is safe.
+            # WORKSPACE_PLACEHOLDER is substituted per session; shipping the literal string to a worker would break chdir.
             from digitorn.core.runtime.types import WORKSPACE_PLACEHOLDER
             if (
                 workspace
@@ -325,17 +230,14 @@ async def _init_modules(
 
         try:
             await module.on_start()
-            # Mark module as successfully started - usable by the runtime
             module._started_ok = True  # type: ignore[attr-defined]
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             logger.warning("Module '%s' on_start failed: %s", module_id, exc, exc_info=True)
-            # Mark the module as half-loaded so callers can detect it
             module._started_ok = False  # type: ignore[attr-defined]
             module._start_error = str(exc)  # type: ignore[attr-defined]
             failed_modules.append(module_id)
-            # Skip config update for failed modules - would likely also crash
             continue
 
         config = dict(compiled.modules[module_id].config or {})
@@ -371,21 +273,7 @@ async def _init_modules(
 
 
 def _resolve_module_workspace(compiled: "CompiledApp", module_id: str) -> str:
-    """Resolve workspace path for a specific module.
-
-    For ``workspace_mode == "auto"`` without an explicit yaml workspace
-    we return ``WORKSPACE_PLACEHOLDER`` ("{WORKSPACE}") instead of
-    ``Path.cwd()``. Reason: ``build_system_prompt`` runs at bootstrap,
-    before any session exists, and whatever module-level workspace we
-    set here gets baked into the system prompt AS A LITERAL STRING.
-    Using the daemon's cwd here previously meant every session's agent
-    saw "Session workspace: <daemon cwd>" (typically the repo root),
-    even though the per-session dir was wired correctly at turn time -
-    manager.chat's late ``prompt.replace({WORKSPACE}, ...)`` had
-    nothing to substitute because the placeholder had already been
-    resolved to the wrong path. Keeping the placeholder lets the
-    per-session substitution in ``manager._chat_locked`` do its job.
-    """
+    """Resolve workspace path for a specific module; returns WORKSPACE_PLACEHOLDER in auto mode so per-session substitution can run."""
     from digitorn.core.runtime.types import WORKSPACE_PLACEHOLDER
 
     mode = getattr(compiled.execution, "workspace_mode", "auto")
@@ -402,14 +290,10 @@ def _resolve_module_workspace(compiled: "CompiledApp", module_id: str) -> str:
     return ws
 
 
-# ── Phase 2: Setup steps ────────────────────────────────────────────
-
-
 async def _run_setup_phase(
     compiled: "CompiledApp",
     modules: dict[str, Any],
 ) -> list[str]:
-    """Execute setup steps, introspect databases, collect context snippets."""
     setup_summary: list[str] = []
 
     for module_id in compiled.module_ids:
@@ -438,16 +322,12 @@ async def _run_setup_phase(
     return setup_summary
 
 
-# ── Phase 3: Context layer ──────────────────────────────────────────
-
-
 async def _build_context_layer(
     compiled: "CompiledApp",
     modules: dict[str, Any],
     service_bus: Any,
     skip_embeddings: bool = False,
 ) -> tuple["ContextBuilderModule", Any]:
-    """Create context_builder, build index, wire notifications."""
     from digitorn.modules.context_builder.module import ContextBuilderModule
 
     context_builder = ContextBuilderModule()
@@ -455,13 +335,9 @@ async def _build_context_layer(
     context_builder._service_bus = service_bus
     service_bus.register_service("context_builder", context_builder)
 
-    # Include context_builder in modules dict so its granted actions (e.g. ask_user) get indexed
+    # include context_builder so its granted actions (e.g. ask_user) get indexed.
     build_modules = {**modules, "context_builder": context_builder}
-    # ``build_and_set_index`` does a SYNCHRONOUS load of the
-    # ~250 MB sentence-transformers embedding model on first call
-    # (downloads from HF cache + initialises ONNX runtime). On the
-    # main asyncio loop that's a 30-60s stall on cold start. Punt to
-    # a thread so the daemon stays responsive during deploy.
+    # build_and_set_index synchronously loads ~250 MB sentence-transformers; offload to keep the loop responsive on cold start.
     import asyncio as _aio
     index = await _aio.to_thread(
         context_builder.build_and_set_index,
@@ -492,35 +368,16 @@ def _inject_app_id_overrides(
     modules: dict[str, Any],
     context_builder: "ContextBuilderModule",
 ) -> None:
-    """Inject app_id into modules that need app-scoped identity.
-
-    ``workspace`` is in this list because its ``_resolve_sync_dir``
-    auto-isolates files under ``~/.digitorn/workspaces/{app_id}/{sid}/``
-    - without the override, the shared singleton uses its default
-    ``_app_id='default'`` and ALL apps collide in the same bucket.
-    """
     for mod_id in ("cron_native", "cache", "vector", "workspace", "channels", "web_preview"):
         mod = modules.get(mod_id)
         if mod is not None:
             mod._app_id_override = compiled.app_id
 
 
-# ── Phase 4: Approval queue ─────────────────────────────────────────
-
-
 def _build_approval_queue(
     compiled: "CompiledApp",
     modules: dict[str, Any],
 ) -> Any:
-    """Build an ApprovalQueue if the app has security or approval-requiring actions.
-
-    Timeout resolution:
-      1. ``compiled.security_profile.approval_timeout`` if the app's
-         YAML sets a security profile (per-app override).
-      2. Otherwise ``settings.session.approval_timeout_s`` from the
-         daemon config - tune in ``~/.digitorn/config.yaml`` or via
-         ``DIGITORN_SESSION__APPROVAL_TIMEOUT_S=...``.
-    """
     from digitorn.core.runtime.approval import ApprovalQueue
 
     needs_queue = compiled.security_profile is not None or _any_require_approval(modules)
@@ -537,9 +394,6 @@ def _build_approval_queue(
     return ApprovalQueue(default_timeout=timeout)
 
 
-# ── Phase 5: Agent contexts ─────────────────────────────────────────
-
-
 async def _build_agent_contexts(
     compiled: "CompiledApp",
     modules: dict[str, Any],
@@ -548,17 +402,10 @@ async def _build_agent_contexts(
     setup_summary: list[str],
     approval_queue: Any,
 ) -> dict[str, AgentContext]:
-    """Build an AgentContext for each agent in the compiled app."""
     from digitorn.modules.context_builder.builder import build_direct_tools
     from digitorn.modules.context_builder.prompt import build_system_prompt
 
     meta_tools = _build_meta_tools_schema(context_builder)
-    # Read the ``inject_intent`` flag from the compiled app config so
-    # the per-tool schemas get the ``intent`` first-property when the
-    # app opts in. Falls back to False (current behaviour) when the
-    # block is absent or the flag is unset.
-    # NOTE: ``CompiledApp`` flattened the old ``compiled.ui.*`` namespace
-    # into top-level ``compiled.chat_*`` attributes — read directly.
     _tc_block = getattr(compiled, "chat_tool_calls", None)
     _inject_intent = bool(getattr(_tc_block, "inject_intent", False)) if _tc_block else False
     direct_tools = build_direct_tools(index, inject_intent=_inject_intent)
@@ -568,7 +415,6 @@ async def _build_agent_contexts(
 
     watchers_enabled = compiled.execution.watchers
     scheduler_enabled = compiled.execution.scheduler
-    # Set feature flags on context_builder so mixin prompt sections can gate themselves
     context_builder._watchers_enabled = watchers_enabled
     context_builder._scheduler_enabled = scheduler_enabled
     channels_info = _build_channels_info(compiled)
@@ -599,11 +445,6 @@ async def _build_agent_contexts(
         )
         contexts[agent.agent_id] = ctx
 
-    # Refuse to return an empty contexts dict. Upstream code relies on
-    # at least one executable agent being present; without this guard
-    # the DeployedApp registers in `_deployed` but `entry_context`
-    # raises StopIteration on first use → `GET /api/apps` says
-    # deployed, `POST /messages` silently fails ("ghost app").
     if not contexts:
         raise RuntimeError(
             f"No agent contexts could be built for app "
@@ -635,24 +476,8 @@ async def _build_single_agent_context(
     approval_queue: Any,
     build_system_prompt: Any,
 ) -> AgentContext:
-    """Build a single AgentContext for one agent definition."""
     provider = _resolve_provider(agent, modules)
 
-    # Workers: when ``llm_provider`` is hosted by an out-of-process
-    # worker (``workers.workers[].modules`` includes ``llm_provider``),
-    # transparently replace the daemon-side provider instance with an
-    # ``LLMProviderProxy`` that streams ``chat_stream`` / ``chat``
-    # calls over HTTP/NDJSON to the worker. The proxy duck-types the
-    # full ``BaseLLMProvider`` surface (``chat_stream``, ``chat``,
-    # ``count_tokens``, ``count_message_tokens``, ``get_info``,
-    # ``close``, ``clone``, plus ``model`` / ``provider_id`` /
-    # ``provider_name`` attributes and dynamic ``_known_tool_names``
-    # marker), so every downstream caller (agent_loop, streaming.py,
-    # hooks, agent_spawn, behavior classifier) sees the same shape.
-    #
-    # No-op (returns the original provider) when ``llm_provider`` is
-    # not workered, when the workers registry is empty, or when the
-    # wrap helper hits an error -- legacy behaviour preserved.
     try:
         from digitorn.workers.llm_wrap import maybe_wrap_provider
         provider = maybe_wrap_provider(provider, agent.brain)
@@ -755,18 +580,9 @@ async def _build_single_agent_context(
         app_id=compiled.app_id,
     )
     ctx.context_builder = context_builder
-    # Stash the chat tool-calls block so the strict_mode intent-phrase
-    # dispatcher can read strict_mode + intent_phrases without re-resolving
-    # the compiled tree (AgentContext intentionally doesn't carry the full
-    # CompiledApp). None when the app has no chat_tool_calls config.
     ctx._chat_tool_calls = getattr(compiled, "chat_tool_calls", None)
 
-    # Wire fallback brain for billing/credit exhaustion. The YAML shape is
-    # the same AgentBrain schema as the primary - not a "provider_id
-    # reference" with an ``inline_config`` field (that older idea never
-    # made it into the schema). We unconditionally resolve the fallback
-    # AgentBrain into a provider via the same builder used for the main
-    # brain so a 402 on primary can swap to Claude / Haiku seamlessly.
+    # resolve the fallback AgentBrain through the same builder as the primary so a 402 can swap providers.
     ctx._fallback_brain = None
     if agent.brain.fallback is not None:
         try:
@@ -775,11 +591,7 @@ async def _build_single_agent_context(
             if llm_mod is None:
                 raise RuntimeError("llm_provider module required for fallback brain")
             deployed_fb = await llm_mod.create_provider_from_brain(fb)
-            # Default-via-gateway: swap the YAML-declared direct provider for a
-            # gateway-routed one unless the brain is local (ollama, vllm, …) or
-            # the operator killed the gateway. The BYOK toggle is per-(user,
-            # app) and lives on the MAIN brain only; derived brains always go
-            # through the gateway so quota + cost accounting cover them.
+            # derived brains always route through the gateway so quota + cost accounting cover them.
             from digitorn.core.credentials.gateway_resolver import (
                 route_derived_brain_through_gateway,
             )
@@ -822,14 +634,7 @@ async def _build_single_agent_context(
     if workspace_mod is not None and ctx.preview_module is not None:
         workspace_mod._preview = ctx.preview_module
 
-    # Wire web_preview → shell. Lets the idle reaper kill the agent's
-    # bash tasks when an attachment is reaped for inactivity AND lets
-    # the proxy() action verify the bash task is alive before
-    # attaching (catches port-collision / silent-spawn-fail cases).
-    # web_preview is a daemon-wide singleton; shell is per-app, so we
-    # also register the shell under the current app_id in the
-    # _shells_by_app dict so cross-module lookups stay correct when
-    # multiple apps are deployed at once.
+    # web_preview is a daemon singleton; register the per-app shell so cross-module lookups stay correct under concurrent deploys.
     web_preview_mod = modules.get("web_preview")
     shell_mod = modules.get("shell")
     if web_preview_mod is not None and shell_mod is not None:
@@ -840,13 +645,10 @@ async def _build_single_agent_context(
                 shells = getattr(web_preview_mod, "_shells_by_app", None)
                 if isinstance(shells, dict):
                     shells[app_id] = shell_mod
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("bootstrap best-effort block failed: %s", exc)
 
-    # Wire shell → workspace. When `ctx.workspace` is missing on a
-    # message (some UI flows omit it after the initial session create),
-    # shell asks the workspace module for the canonical session sync
-    # dir so `cd <subdir>` lines up with where WsWrite actually wrote.
+    # when ctx.workspace is missing, shell asks workspace for the canonical session sync dir so `cd <subdir>` matches WsWrite output.
     if shell_mod is not None and workspace_mod is not None:
         shell_mod._workspace_module = workspace_mod
 
@@ -855,10 +657,7 @@ async def _build_single_agent_context(
     if workspace_mod is not None and lsp_mod is not None:
         workspace_mod._lsp = lsp_mod
 
-    # Wire filesystem module → lsp + preview (real-disk writes also get
-    # diagnostics pushed to the `diagnostics` channel so Flutter / web
-    # clients show markers even when the agent uses the real filesystem
-    # toolset instead of the virtual workspace).
+    # wire filesystem to lsp + preview so real-disk writes push diagnostics to the same channel as workspace writes.
     fs_mod = modules.get("filesystem")
     if fs_mod is not None:
         if lsp_mod is not None:
@@ -866,10 +665,7 @@ async def _build_single_agent_context(
         if ctx.preview_module is not None:
             fs_mod._preview = ctx.preview_module
 
-    # Inject top-level workspace: block into the workspace module's fields.
-    # The top-level block is the source of truth for render_mode/entry_file/title;
-    # the module reads these when emitting the metadata SSE event on first write.
-    # We set the fields directly (no await) because this runs in a sync function.
+    # top-level `workspace:` block is the source of truth for render_mode/entry_file/title; inject into module fields.
     ws_block = getattr(compiled, "workspace", None)
     if ws_block is not None and workspace_mod is not None:
         if not workspace_mod._render_mode or workspace_mod._render_mode == "auto":
@@ -907,7 +703,6 @@ def _assemble_agent_tools(
     scheduler_enabled: bool,
     channels_enabled: bool,
 ) -> list[dict[str, Any]]:
-    """Assemble the final tool list for an agent."""
     skills_enabled = bool(compiled.skills)
 
     if tool_injection in ("direct", "compact_direct"):
@@ -968,7 +763,6 @@ def _build_operational_extras(
     channels_enabled: bool,
     skills_enabled: bool,
 ) -> list[dict[str, Any]]:
-    """Build operational/strategic tools that are always directly available."""
     extras: list[dict[str, Any]] = []
 
     if tool_injection == "discovery":
@@ -979,10 +773,7 @@ def _build_operational_extras(
             skills_enabled=skills_enabled,
         ))
 
-    # In direct/compact_direct mode, memory and agent_spawn tools are already
-    # in direct_tools (via build_direct_tools → index) with short API names
-    # (SetGoal, Remember, Agent, etc.).  Only inject them explicitly for
-    # discovery mode where the agent has meta-tools only.
+    # in direct/compact_direct mode, memory + agent_spawn already live in direct_tools; only inject explicitly for discovery mode.
     if tool_injection == "discovery":
         memory_module = modules.get("memory")
         if memory_module is not None:
@@ -1017,7 +808,6 @@ def _build_operational_extras(
 
 
 def _collect_hidden_actions(compiled: "CompiledApp") -> set[str]:
-    """Collect all hidden action names from compiled config."""
     hidden: set[str] = set()
     for ha in compiled.hidden_actions:
         mod = ha.get("module", "")
@@ -1043,7 +833,6 @@ def _build_agent_prompt(
     default_channel: str | None,
     build_system_prompt: Any,
 ) -> str:
-    """Build the system prompt for a single agent."""
     project_memory = _load_project_memory(compiled)
     user_prompt = agent.system_prompt
     if project_memory:
@@ -1081,7 +870,6 @@ def _log_agent_tools(
     agent_tools: list[dict[str, Any]],
     native_tool_use: bool,
 ) -> None:
-    """Log the final tool configuration for an agent."""
     tool_names = [t.get("function", {}).get("name", "?") for t in agent_tools]
     logger.info(
         "Agent '%s': %s tool injection (%d tools), %s tool use | tools: %s",
@@ -1096,7 +884,6 @@ def _wire_direct_modules_map(
     modules: dict[str, Any],
     agent: Any,
 ) -> None:
-    """Build and attach the direct modules routing map."""
     dm_map: dict[str, str] = {}
     memory = modules.get("memory")
     if memory is not None:
@@ -1111,7 +898,6 @@ def _wire_direct_modules_map(
 
 
 def _wire_skills(compiled: "CompiledApp", context_builder: "ContextBuilderModule") -> None:
-    """Load and attach skills from YAML and filesystem."""
     all_skills = list(compiled.skills) if compiled.skills else []
     try:
         from digitorn.core.workspace import WorkspaceLayout
@@ -1135,7 +921,6 @@ def _wire_memory_module(
     modules: dict[str, Any],
     tool_injection: str,
 ) -> None:
-    """Configure and attach the memory module to context."""
     memory = modules.get("memory")
     if memory is None:
         return
@@ -1154,11 +939,7 @@ async def _wire_behavior_module(
     compiled: "CompiledApp",
     modules: dict[str, Any],
 ) -> None:
-    """Configure and attach the behavior enforcement module.
-
-    Wrapped in a top-level try/except so a behavior config error
-    never prevents the app from deploying.
-    """
+    """Configure and attach the behavior enforcement module."""
     behavior_config = getattr(compiled, "behavior", None)
     if behavior_config is None:
         return
@@ -1213,12 +994,7 @@ async def _wire_behavior_module_inner(
         if brain_config is not None and brain_config.model:
             try:
                 classifier_provider = await _resolve_provider_from_brain(brain_config, modules)
-                # Default-via-gateway: same rule as fallback_brain /
-                # summary_provider. The session-time swap in _chat.py
-                # already routes per-user, but if that path fails the
-                # behavior module would fall back to THIS deploy-time
-                # instance. Make sure even the fallback honours the
-                # "tout via la gateway" rule.
+                # route the deploy-time fallback through the gateway too, mirroring fallback_brain / summary_provider.
                 if classifier_provider is not None:
                     from digitorn.core.credentials.gateway_resolver import (
                         route_derived_brain_through_gateway,
@@ -1249,7 +1025,6 @@ def _wire_app_middleware(
     compiled: "CompiledApp",
     agent: Any,
 ) -> None:
-    """Build and attach app-level middleware pipeline."""
     if not compiled.middleware:
         return
     from digitorn.core.middleware import build_app_pipeline
@@ -1263,9 +1038,6 @@ def _wire_app_middleware(
         )
 
 
-# ── Phase 6: Agent spawn + hooks ────────────────────────────────────
-
-
 def _wire_agent_spawn(
     compiled: "CompiledApp",
     modules: dict[str, Any],
@@ -1273,7 +1045,6 @@ def _wire_agent_spawn(
     context_builder: "ContextBuilderModule",
     skip_embeddings: bool = False,
 ) -> None:
-    """Wire coordinator and specialist configs into the agent_spawn module."""
     spawn_module = modules.get("agent_spawn")
     if spawn_module is None:
         return
@@ -1307,16 +1078,12 @@ def _register_specialist(
     context_builder: "ContextBuilderModule",
     skip_embeddings: bool = False,
 ) -> None:
-    """Register a single specialist agent with the spawn module."""
     spec_provider = _resolve_provider(agent, modules)
 
     spec_prompt = agent.system_prompt
     if agent.skills_content:
         spec_prompt += "\n\n# Skills\n\n" + agent.skills_content
 
-    # Parse modules list - supports simple strings and granular dicts:
-    #   modules: [filesystem, shell]                       → full module access
-    #   modules: [{filesystem: [read, grep, glob]}, shell] → restrict actions
     action_filter: dict[str, list[str]] = {}  # module_id → allowed actions (empty = all)
     allowed_module_ids: set[str] = set()
 
@@ -1358,11 +1125,6 @@ def _register_specialist(
 
     if spec_injection == "direct":
         from digitorn.modules.context_builder.builder import build_direct_tools
-        # Same source as the main-agent direct_tools call above —
-        # respect the per-app ``inject_intent`` flag for sub-agent
-        # tool schemas too. Reads the flattened top-level
-        # ``compiled.chat_tool_calls`` (the old ``compiled.ui.*`` namespace
-        # was removed when CompiledApp was flattened).
         _spec_tc_block = getattr(compiled, "chat_tool_calls", None)
         _spec_inject_intent = (
             bool(getattr(_spec_tc_block, "inject_intent", False)) if _spec_tc_block else False
@@ -1373,30 +1135,12 @@ def _register_specialist(
 
     spawn_module._specialists[agent.agent_id] = {
         "provider": spec_provider,
-        # Stash the brain so the spawn path can re-run
-        # ``resolve_session_provider`` per session: a specialist that
-        # declared ``provider: github_copilot`` in YAML will still get
-        # gateway-routed for authenticated users, BYOK-honoured for
-        # users who opted out, and KEPT for anonymous CLI calls. Without
-        # this, every specialist hit upstream directly with the YAML
-        # credential -- bypassing quota tracking and the JWT auth gate.
+        # stash the brain so the spawn path can re-run resolve_session_provider per session (gateway-routed for authed users, KEPT for anon CLI).
         "brain": agent.brain,
         "system_prompt": spec_prompt,
         "tools": spec_tools,
         "modules": spec_modules,
-        # ``spec_modules`` is filtered to the agent's declared
-        # ``agent.modules:`` list and never includes infrastructure
-        # modules like llm_provider (which is not a user-facing tool).
-        # ``resolve_session_provider`` bails to KEEP when it can't find
-        # llm_provider in the dict it gets, which falls back to the
-        # specialist's deploy-time provider (raw upstream URL + YAML
-        # credential) and skips the gateway + JWT auth + quota tracker
-        # for every sub-agent call. Cache the full app's llm_provider
-        # reference here so ``_resolve_specialist_provider`` can inject
-        # it before calling the resolver. Per-specialist brain
-        # remains the source of truth for which gateway model alias
-        # gets built (``{provider}/{model}``) -- the cached module is
-        # just the registry singleton used for the presence check.
+        # spec_modules excludes llm_provider (not a user tool); cache the app's instance so _resolve_specialist_provider can inject it into the resolver.
         "llm_module": modules.get("llm_provider"),
         "native_tool_use": True,
         "tool_injection": spec_injection,
@@ -1414,7 +1158,6 @@ async def _build_hooks(
     modules: dict[str, Any],
     context_builder: "ContextBuilderModule",
 ) -> Any:
-    """Build the hook runner with auto-compact injection."""
     from digitorn.core.runtime.hooks import build_hook_runner
 
     ctx_cfg = compiled.execution.context
@@ -1435,11 +1178,7 @@ async def _build_hooks(
     )
 
     hooks_list = list(compiled.execution.hooks)
-    # Merge per-agent hooks into the same runner. Each per-agent hook
-    # carries its own ``agent_id`` so the runtime filter fires it only
-    # during that agent's turns. The single-runner design keeps
-    # priority / cooldown / max_fires globally coherent - no risk of
-    # two parallel runners drifting.
+    # single runner keeps priority/cooldown/max_fires globally coherent; per-agent hooks carry agent_id for runtime filtering.
     for agent_def in compiled.agents:
         extra = getattr(agent_def, "hooks", None) or []
         if extra:
@@ -1465,10 +1204,7 @@ async def _build_hooks(
                     "summary_max_tokens": hook_context_config.summary_max_tokens,
                 },
                 cooldown=30.0,
-                # Compaction can run a summarization LLM call on a long
-                # transcript - 30s default is too tight, 180s gives
-                # headroom for slow providers without letting it run
-                # forever and stall every turn.
+                # 180s timeout - compaction's summarisation LLM call needs headroom for slow providers without stalling every turn.
                 timeout=180.0,
             ))
             logger.info(
@@ -1496,12 +1232,7 @@ async def _resolve_summary_provider(
     modules: dict[str, Any],
     default_context_config: Any,
 ) -> Any | None:
-    """Resolve the summary_brain to a provider, if configured.
-
-    Checks the entry agent's brain.context.summary_brain first,
-    then execution.context.summary_brain.
-    Returns None if no summary_brain is configured (use main provider).
-    """
+    """Resolve the summary_brain to a provider, if configured."""
     entry_agent_id = compiled.execution.entry_agent or (
         compiled.agents[0].agent_id if compiled.agents else None
     )
@@ -1544,10 +1275,7 @@ async def _resolve_summary_provider(
         providers = getattr(llm_module, "_providers", {})
         provider = providers.get(provider_id)
         if provider:
-            # Default-via-gateway: same rule as fallback_brain. Derived
-            # brains route through the gateway by default so quota +
-            # cost accounting cover the auto-compact summarisation,
-            # unless the model is local-only or the gateway is disabled.
+            # route auto-compact summarisation through the gateway so quota + cost accounting cover it.
             from digitorn.core.credentials.gateway_resolver import (
                 route_derived_brain_through_gateway,
             )
@@ -1570,11 +1298,7 @@ async def _resolve_summary_provider(
 
 
 async def _resolve_provider_from_brain(brain: Any, modules: dict[str, Any]) -> Any:
-    """Resolve an AgentBrain config to a live LLM provider (no agent required).
-
-    Used by the behavior module to create its classifier provider from
-    a standalone brain config.
-    """
+    """Resolve an AgentBrain config to a live LLM provider (no agent required)."""
     import inspect as _inspect
     llm_module = modules.get("llm_provider")
     if llm_module is None:
@@ -1598,11 +1322,7 @@ async def _resolve_provider_from_brain(brain: Any, modules: dict[str, Any]) -> A
 
 
 def _resolve_provider(agent: Any, modules: dict[str, Any]) -> Any:
-    """Resolve an agent's brain to a live LLM provider instance.
-
-    Since each app gets its own module instances (via ``registry.create()``),
-    providers registered via ``on_config_update`` are already per-app isolated.
-    """
+    """Resolve an agent's brain to a live LLM provider instance."""
     llm_module = modules.get("llm_provider")
     if llm_module is None:
         raise RuntimeError(
@@ -1621,10 +1341,7 @@ def _resolve_provider(agent: Any, modules: dict[str, Any]) -> Any:
 
 
 def _has_native_tool_use(provider: Any) -> bool:
-    """Check if a provider supports native tool calling via API.
-
-    Falls back to True (optimistic) if capabilities can't be read.
-    """
+    """Check if a provider supports native tool calling via API."""
     try:
         info = provider.get_info()
         return info.capabilities.tool_use
@@ -1637,7 +1354,6 @@ def _resolve_context_config(
     ctx_cfg: Any,
     modules: dict[str, Any],
 ) -> ContextWindowConfig:
-    """Build a ContextWindowConfig from compiled context config."""
     return ContextWindowConfig(
         max_tokens=ctx_cfg.max_tokens if ctx_cfg.max_tokens > 0 else 128_000,
         output_reserved=ctx_cfg.output_reserved,
@@ -1655,11 +1371,7 @@ def _refine_context_config_for_provider(
     *,
     yaml_max_tokens: int = 0,
 ) -> ContextWindowConfig:
-    """Refine context config with provider-reported capabilities.
-
-    Only uses the provider's max_context_window if the YAML didn't
-    explicitly set max_tokens (yaml_max_tokens == 0 means "not set").
-    """
+    """Refine context config with provider-reported capabilities."""
     if yaml_max_tokens > 0:
         return base_config
 
@@ -1693,20 +1405,7 @@ def _estimate_tools_tokens(
     *,
     model: str | None = None,
 ) -> int:
-    """Real token cost for all tool schemas.
-
-    Resolution order:
-    1. ``litellm.token_counter`` with the model's actual tokenizer
-       (tiktoken for OpenAI, Anthropic offline tokenizer, etc.).
-    2. Crude ``len // 4`` last resort when litellm fails.
-
-    The injection-mode decision below (direct / compact_direct /
-    discovery) is sized against this number - using a fake estimate
-    ships the wrong mode for the model and either wastes context
-    (under-estimate → direct mode, schemas blow the budget) or over-
-    triggers discovery (over-estimate → unnecessary meta-tool round
-    trips for small toolsets).
-    """
+    """Real token cost for all tool schemas."""
     if not direct_tools:
         return 0
 
@@ -1733,12 +1432,7 @@ async def _achoose_tool_injection(
     *,
     model: str | None = None,
 ) -> str:
-    """Async wrapper around :func:`_choose_tool_injection`.
-
-    The internal ``_estimate_tools_tokens`` calls litellm which loads
-    the model's tokenizer (multi-MB on first hit, cached afterwards).
-    Off-loaded so the bootstrap path doesn't stall the loop.
-    """
+    """Async wrapper around :func:`_choose_tool_injection`."""
     import asyncio as _asyncio
     return await _asyncio.to_thread(
         _choose_tool_injection,
@@ -1756,18 +1450,7 @@ def _choose_tool_injection(
     *,
     model: str | None = None,
 ) -> str:
-    """Choose between direct, compact_direct, and discovery mode.
-
-    Uses the actual serialized size of ``direct_tools`` when available
-    for an accurate token estimate.  Falls back to a conservative
-    per-tool average otherwise.
-
-    Returns:
-        ``"direct"`` - all tool schemas fit comfortably (≤50% of budget).
-        ``"compact_direct"`` - tools listed by name+one-liner, no full schemas.
-            The LLM calls tools directly but with less parameter detail.
-        ``"discovery"`` - tools discovered via meta-tools (large toolsets).
-    """
+    """Choose between direct, compact_direct, and discovery mode."""
     if direct_tools:
         tool_tokens = _estimate_tools_tokens(direct_tools, model=model)
     else:
@@ -1793,15 +1476,7 @@ def _choose_tool_injection(
 def _build_meta_tools_schema(
     context_builder: "ContextBuilderModule",
 ) -> list[dict[str, Any]]:
-    """Build meta-tools schema by introspecting context_builder's @action registry.
-
-    This is the single source of truth: the context_builder module defines
-    its actions via ``@action`` decorators with Pydantic params models.
-    We introspect the registry to generate OpenAI-compatible tool schemas.
-
-    If the context_builder adds a new action tomorrow, it will automatically
-    appear in the agent's tool list - no other file needs to change.
-    """
+    """Build meta-tools schema by introspecting context_builder's @action registry."""
     from digitorn.modules.context_builder.tool_schema import action_entry_to_json_schema
 
     registry = getattr(context_builder, "_action_registry", {})
@@ -1831,18 +1506,7 @@ def _build_module_tools_schema(
     prefix: str | None = None,
     use_short_names: bool = False,
 ) -> list[dict[str, Any]]:
-    """Build tool schemas from a module's @action registry.
-
-    Used to inject a specific module's actions as direct tools
-    (e.g. agent_spawn for coordinators, filesystem for direct_modules).
-
-    If *prefix* is given and *use_short_names* is False, tool names become
-    ``prefix__action_name`` (e.g. ``filesystem__read``).
-
-    If *use_short_names* is True, names are resolved via to_short() to get
-    Claude Code-style names (e.g. ``Read``, ``Bash``).  This produces much
-    better LLM performance because the model recognises these names.
-    """
+    """Build tool schemas from a module's @action registry."""
     from digitorn.modules.context_builder.tool_schema import action_entry_to_json_schema
 
     registry = getattr(module, "_action_registry", {})
@@ -1914,18 +1578,7 @@ def _build_primitive_tools_schema(
     channels_enabled: bool = False,
     skills_enabled: bool = False,
 ) -> list[dict[str, Any]]:
-    """Build schemas for strategic/primitive tools.
-
-    These are context_builder actions that guide execution strategy
-    (parallelism, background tasks, watchers, notifications,
-    skills). They are always injected as direct tools so the agent can
-    reason about HOW to execute before searching for domain tools.
-
-    Scheduling lives in the dedicated cron_native module and is not
-    gated here.
-
-    Each group is conditionally included based on YAML config flags.
-    """
+    """Build schemas for strategic/primitive tools."""
     allowed = _BASE_PRIMITIVE_ACTIONS
     if watchers_enabled:
         allowed = allowed | _WATCHER_ACTIONS
@@ -1944,7 +1597,6 @@ _PROJECT_MEMORY_MAX_CHARS = 4000  # ~1000 tokens - keeps system prompt lean
 
 
 def _truncate_project_memory(content: str, max_chars: int = _PROJECT_MEMORY_MAX_CHARS) -> str:
-    """Truncate project memory to *max_chars*, breaking at a line boundary."""
     if len(content) <= max_chars:
         return content
     # Cut at the last newline before the limit so we don't split mid-sentence.
@@ -1955,19 +1607,7 @@ def _truncate_project_memory(content: str, max_chars: int = _PROJECT_MEMORY_MAX_
 
 
 def _load_project_memory(compiled: "CompiledApp") -> str | None:
-    """Load project memory file from workspace.
-
-    Search order:
-    1. .digitorn/apps/{app_id}/.digitorn.md (app-specific)
-    2. .digitorn.md in workspace root (global)
-    3. CLAUDE.md in workspace root (compatibility)
-    4. README.md in workspace root (fallback)
-    5. Custom path from execution.project_memory
-
-    Content is capped at ~4 000 chars to avoid bloating the context window.
-
-    Returns the file content or None.
-    """
+    """Load project memory file from workspace."""
     setting = getattr(compiled.execution, "project_memory", "auto")
     if not setting:
         return None
@@ -1991,14 +1631,7 @@ def _load_project_memory(compiled: "CompiledApp") -> str | None:
             except OSError as exc:
                 logger.warning("project_memory_read_failed path=%s: %s", layout.app_memory_file, exc)
 
-        # SECURITY: do NOT auto-fall-back to CLAUDE.md / README.md in the
-        # workspace root under `auto`. When the daemon was launched from
-        # a developer's repo, that repo's CLAUDE.md (containing internal
-        # architecture notes, paths, OAuth credentials, etc.) was being
-        # silently injected into EVERY session's system prompt for
-        # generic apps like `digitorn-chat`. Cross-user leak.
-        # Only `.digitorn.md` stays in the auto path (it's explicitly
-        # namespaced for the framework).
+        # SECURITY: auto path only reads `.digitorn.md`. Auto-loading CLAUDE.md / README.md from the workspace risks cross-user leaks.
         for name in [".digitorn.md"]:
             path = Path(workspace) / name
             if path.exists() and path.is_file():
@@ -2032,16 +1665,7 @@ async def _auto_index_workspace(
     compiled: "CompiledApp",
     modules: dict[str, Any],
 ) -> None:
-    """Auto-register and scan the workspace in the index module.
-
-    If the app has both ``index`` and ``filesystem`` modules, and a
-    workspace is configured (or defaults to cwd), register it as a
-    source and scan it so that ``filesystem.find``/``grep`` can use
-    the index for faster lookups.
-
-    This runs once at bootstrap - the watcher keeps the index fresh
-    after that.
-    """
+    """Auto-register and scan the workspace in the index module."""
     index_module = modules.get("index")
     fs_module = modules.get("filesystem")
 
@@ -2100,12 +1724,7 @@ async def _auto_index_workspace(
 
 
 def _build_channels_info(compiled: "CompiledApp") -> list[dict[str, Any]]:
-    """Build channel info for prompt injection.
-
-    Extracts the channel names, types, and per-delivery config schemas
-    from compiled channels so the LLM knows what output channels are
-    available and what per-delivery targeting each one needs.
-    """
+    """Build channel info for prompt injection."""
     if not compiled.channels:
         return []
 
@@ -2140,7 +1759,6 @@ def _build_channels_info(compiled: "CompiledApp") -> list[dict[str, Any]]:
 
 
 def _any_require_approval(modules: dict[str, Any]) -> bool:
-    """Return True if any module action declares require_approval=True."""
     for module in modules.values():
         registry = getattr(module, "_action_registry", {})
         for entry in registry.values():
@@ -2152,17 +1770,7 @@ def _any_require_approval(modules: dict[str, Any]) -> bool:
 async def _auto_describe_databases(
     modules: dict[str, Any],
 ) -> str:
-    """Auto-introspect connected databases and build a schema summary.
-
-    After setup steps connect to databases, this function introspects all
-    active connections and builds a compact schema description including:
-    - Table names, columns, types, constraints
-    - DB-native comments (PostgreSQL COMMENT ON, MySQL column comments)
-    - Business annotations (from YAML annotate setup steps)
-
-    Returns a formatted string for injection into the system prompt,
-    or empty string if no database module or no connections.
-    """
+    """Auto-introspect connected databases and build a schema summary."""
     db_module = modules.get("database")
     if db_module is None:
         return ""
@@ -2227,16 +1835,7 @@ async def _probe_mcp_schemas(
     modules: dict[str, Any],
     index: Any,
 ) -> None:
-    """Probe MCP servers to discover API response structures.
-
-    For each connected MCP server that has writer tools (JSON string
-    params), calls getter tools on a sample resource to capture real
-    API responses.  The structural templates are stored on the ToolIndex
-    for injection into the system prompt.
-
-    This runs once at bootstrap and is best-effort - failures are
-    silently ignored (the agent falls back to workflow hints).
-    """
+    """Probe MCP servers to discover API response structures."""
     mcp_module = modules.get("mcp")
     if mcp_module is None:
         return
@@ -2270,10 +1869,7 @@ async def _probe_mcp_schemas(
 def _summarize_setup_step(
     module_id: str, action: str, params: dict[str, Any],
 ) -> str:
-    """Build a human-readable one-liner for a completed setup step.
-
-    Sensitive fields (passwords, api_key, etc.) are redacted.
-    """
+    """Build a human-readable one-liner for a completed setup step."""
     _SENSITIVE = {
         "password", "password_env", "api_key", "secret", "token",
         "api_secret", "client_secret", "jwt_secret", "auth_token",

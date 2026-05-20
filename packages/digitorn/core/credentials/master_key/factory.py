@@ -1,22 +1,4 @@
-"""Factory: pick the right MasterKeyProvider from config.
-
-Resolution order at boot:
-
-1. Explicit `kms` block in YAML config (highest precedence).
-2. `DIGITORN_KMS` env var.
-3. `DIGITORN_MASTER_KEY` env var → EnvKeyProvider (back-compat).
-4. Default: FileKeyProvider with `~/.digitorn/master.key`.
-
-Each KMS backend has its own required env vars (documented in its
-provider module). The factory raises `NoSuchProvider` for an unknown
-backend identifier and lets the original `ValueError` propagate from
-the provider's __init__ for missing config (so the operator sees
-exactly what's missing).
-
-Boot path also runs `await provider.healthcheck()` and refuses to
-start if the KMS is unreachable, so misconfiguration surfaces
-immediately instead of at the first credential request.
-"""
+"""Factory: pick the right MasterKeyProvider from config."""
 
 from __future__ import annotations
 
@@ -38,15 +20,7 @@ logger = logging.getLogger(__name__)
 def build_provider_from_config(
     config: dict[str, Any] | None = None,
 ) -> MasterKeyProvider:
-    """Build a MasterKeyProvider from configuration.
-
-    `config` can be a dict shaped like:
-        {"provider": "aws_kms", "key_id": "...", "region": "..."}
-    or None (env-driven).
-
-    Returns the constructed provider. The caller should await
-    `provider.healthcheck()` immediately after to verify reachability.
-    """
+    """Build a MasterKeyProvider from configuration."""
     cfg = dict(config or {})
     backend_str = (
         cfg.get("provider")
@@ -108,9 +82,7 @@ def build_provider_from_config(
 
 
 def _autodetect_legacy() -> str | None:
-    """Back-compat: if `DIGITORN_MASTER_KEY` is set but `DIGITORN_KMS`
-    is not, default to env provider. Lets existing deployments keep
-    working without YAML changes."""
+    """Back-compat: if `DIGITORN_MASTER_KEY` is set but `DIGITORN_KMS`"""
     if os.environ.get("DIGITORN_MASTER_KEY"):
         return KmsBackend.ENV.value
     return None

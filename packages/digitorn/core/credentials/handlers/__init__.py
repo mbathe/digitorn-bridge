@@ -1,17 +1,4 @@
-"""Built-in credential handlers.
-
-Importing this package registers all shipped handlers on the default
-registry. The daemon's server module imports this once at startup::
-
-    from digitorn.core.credentials import handlers  # noqa: F401
-
-After that, ``default_registry.get(provider_type)`` returns a working
-handler for any of the registered types.
-
-Third-party modules can register their own handlers by calling
-``default_registry.register(MyHandler())`` - useful for niche provider
-types not covered by the built-in catalog.
-"""
+"""Built-in credential handlers."""
 
 from __future__ import annotations
 

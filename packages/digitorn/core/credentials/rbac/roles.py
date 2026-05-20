@@ -1,27 +1,4 @@
-"""Role enumeration + scope permission matrix + FastAPI guards.
-
-The role hierarchy is total-ordered: each role implicitly includes
-the powers of all roles below it.
-
-    daemon_admin > app_owner > user > viewer
-
-`has_role(actual, required)` returns True when `actual >= required`.
-
-The scope permission matrix is the single source of truth for "who
-can do what":
-
-                       | system_wide | per_app_shared | per_user | per_app_per_user
-    daemon_admin       | RW          | RW             | RO*      | RO*
-    app_owner (own app)| RO          | RW             | -        | -
-    user               | RO          | RO             | RW       | RW
-    viewer             | RO-meta     | RO-meta        | RO-meta  | RO-meta
-
-*daemon_admin can READ user-scoped creds for support/debugging but
-never write to them. Audit log captures every such read.
-
-The matrix is encoded as data, not branches, so adding a new scope or
-role only requires updating the constants here.
-"""
+"""Role enumeration + scope permission matrix + FastAPI guards."""
 
 from __future__ import annotations
 
@@ -57,9 +34,6 @@ SCOPE_PER_USER = "per_user"
 SCOPE_PER_APP_PER_USER = "per_app_per_user"
 
 
-# Permission matrix. Each entry is a tuple of allowed Roles.
-# `None` for a (role, scope) means "denied" - we use empty set for
-# clarity.
 _READ_PERMISSIONS: dict[str, set[Role]] = {
     SCOPE_SYSTEM_WIDE: {
         Role.DAEMON_ADMIN, Role.APP_OWNER, Role.USER, Role.VIEWER,
@@ -91,32 +65,19 @@ def has_role(actual: Role | str, required: Role | str) -> bool:
 
 
 def can_read_scope(role: Role | str, scope: str) -> bool:
-    """True when the role can READ credentials at the given scope.
-
-    Note: 'read' here means seeing metadata (status, label, masked
-    preview). Decrypting fields is gated additionally by ownership
-    checks (a user reading another user's per_user cred is denied
-    even if both have role=user; the API layer enforces ownership)."""
+    """True when the role can READ credentials at the given scope."""
     r = role if isinstance(role, Role) else Role(role)
     return r in _READ_PERMISSIONS.get(scope, set())
 
 
 def can_write_scope(role: Role | str, scope: str) -> bool:
-    """True when the role can CREATE / UPDATE / DELETE credentials
-    at the given scope. App-owner ownership of the specific app is
-    NOT checked here (caller responsibility - they know which app)."""
+    """True when the role can CREATE / UPDATE / DELETE credentials"""
     r = role if isinstance(role, Role) else Role(role)
     return r in _WRITE_PERMISSIONS.get(scope, set())
 
 
-# ─── FastAPI dependencies ──────────────────────────────────────────
-
-
 def _get_role_from_request(request: Request) -> Role:
-    """Extract the caller's role from the auth middleware-populated
-    `request.state`. The auth middleware sets `state.role` to the
-    string value of the Role enum (or `viewer` for unauthenticated
-    /shared paths)."""
+    """Extract the caller's role from the auth middleware-populated"""
     raw = getattr(request.state, "role", Role.VIEWER.value)
     try:
         return Role(raw)
@@ -127,9 +88,7 @@ def _get_role_from_request(request: Request) -> Role:
 
 
 def require_role(min_role: Role) -> Any:
-    """FastAPI dependency: 403 when the caller's role is below
-    `min_role`. Use as `@router.get(..., dependencies=[Depends(require_role(Role.DAEMON_ADMIN))])`.
-    """
+    """FastAPI dependency: 403 when the caller's role is below"""
     def _dep(request: Request) -> None:
         actual = _get_role_from_request(request)
         if not has_role(actual, min_role):

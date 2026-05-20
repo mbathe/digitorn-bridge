@@ -1,10 +1,4 @@
-"""Unified bidirectional channels module.
-
-Receives events from any source (webhook, cron, email, file watch, RSS, queue)
-and responds through the same or a different channel. Replaces the separate
-trigger system (background.py) and output channels with a single YAML-configured
-module.
-"""
+"""Unified bidirectional channels module."""
 
 def __getattr__(name: str):
     if name == "ChannelsModule":

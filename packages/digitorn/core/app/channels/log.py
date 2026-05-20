@@ -1,21 +1,4 @@
-"""Log Output Channel - structured logging delivery.
-
-Writes notifications to the Python logging system. Useful for:
-- Development and debugging
-- Audit trails
-- Integration with log aggregation (ELK, Loki, Datadog, etc.)
-- Fallback/shadow channel alongside a primary channel
-
-YAML example::
-
-    channels:
-      audit_log:
-        type: log
-        config:
-          logger_name: "digitorn.notifications"
-          level: "INFO"
-          include_data: true
-"""
+"""Log Output Channel - structured logging delivery."""
 
 from __future__ import annotations
 
@@ -33,11 +16,7 @@ from digitorn.core.app.channels.base import (
 
 
 class LogChannel(BaseOutputChannel):
-    """Write notifications to Python's logging system.
-
-    Zero external dependencies. Works everywhere. Useful for debugging,
-    audit trails, and integration with log aggregation systems.
-    """
+    """Write notifications to Python's logging system."""
 
     CHANNEL_ID = "log"
     CHANNEL_NAME = "Structured Log"

@@ -1,8 +1,4 @@
-"""AdaptiveStrategy - routes queries to the best strategy based on complexity.
-
-Uses the QueryRouter to classify queries, then delegates to the appropriate
-sub-strategy (semantic, hybrid, sql, etc.).
-"""
+"""AdaptiveStrategy - routes queries to the best strategy based on complexity."""
 
 from __future__ import annotations
 
@@ -14,7 +10,6 @@ from ..router import QueryRouter
 from .base import RetrievalStrategy
 
 logger = logging.getLogger(__name__)
-
 
 class AdaptiveStrategy(RetrievalStrategy):
 

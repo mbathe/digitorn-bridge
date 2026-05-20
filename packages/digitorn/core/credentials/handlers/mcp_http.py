@@ -1,20 +1,4 @@
-"""McpHttpHandler - remote MCP server reached over HTTP / SSE.
-
-Distinguished from `mcp_server` (alias for `mcp_stdio`) which spawns
-a local process. The HTTP variant connects to a remote MCP endpoint
-and authenticates via a delegated method (api_key / oauth2 / custom
-headers).
-
-Fields:
-  - `url`: base URL of the MCP server.
-  - `transport`: `http` or `sse`.
-  - `auth_mode`: one of {`none`, `api_key`, `bearer`, `basic`, `oauth2`}.
-  - Plus the auth fields matching the chosen mode.
-
-Validation: the URL must parse, the auth_mode must come with the
-right correlated fields. The handler can optionally probe the
-server's `/health` or perform an MCP `initialize` round-trip.
-"""
+"""McpHttpHandler - remote MCP server reached over HTTP / SSE."""
 
 from __future__ import annotations
 
@@ -147,11 +131,7 @@ class McpHttpHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Reach the MCP HTTP endpoint with the configured auth.
-
-        Does a GET against the URL (most MCP servers respond with 405
-        or 200 there). 401/403 = auth rejected. Network errors fail.
-        """
+        """Reach the MCP HTTP endpoint with the configured auth."""
         f = fields or {}
         url = str(f.get("url") or "").strip()
         if not url:

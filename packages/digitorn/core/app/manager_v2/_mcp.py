@@ -22,13 +22,7 @@ class _McpMixin:
     async def _on_mcp_event(
         self, event: "MCPServerEvent", server_id: str,
     ) -> None:
-        """Called by daemon pool when a server changes state.
-
-        Handles:
-        - CONNECTED: rebuild tool index (tools may have changed)
-        - DISCONNECTED: rebuild tool index (tools removed)
-        - CONFIG_UPDATED: reconnect server with new config, then rebuild
-        """
+        """Called by daemon pool when a server changes state."""
         from digitorn.core.mcp_pool import MCPServerEvent
 
         if event == MCPServerEvent.CONFIG_UPDATED:
@@ -45,7 +39,6 @@ class _McpMixin:
             await self._rebuild_app_tool_index(app_id, deployed, server_id, event.value)
 
     async def _handle_mcp_config_updated(self, server_id: str) -> None:
-        """Reconnect a daemon-managed server after its config changed in DB."""
         pool = getattr(self, "_daemon_mcp_pool", None)
         if pool is None:
             return
@@ -89,13 +82,7 @@ class _McpMixin:
         server_id: str,
         reason: str,
     ) -> None:
-        """Rebuild tool index for a single deployed app.
-
-        Async because ``cb.build_and_set_index`` walks fastembed/ONNX
-        over every tool description -- 2-5s of CPU work that we MUST
-        off-load to a worker thread or the event loop stalls long
-        enough to drop Socket.IO heartbeats and trip the watchdog.
-        """
+        """Rebuild tool index for a single deployed app."""
         cb = deployed.context_builder
         if cb is None:
             return

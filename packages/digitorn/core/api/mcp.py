@@ -1,10 +1,4 @@
-"""MCP management REST API - daemon-level server administration.
-
-Endpoints for searching, installing, testing, configuring, and monitoring
-MCP servers through the daemon. Powers both the CLI and future dashboard.
-
-All endpoints under ``/api/mcp/``.
-"""
+"""MCP management REST API - daemon-level server administration."""
 
 from __future__ import annotations
 
@@ -22,13 +16,6 @@ from digitorn.core.database import get_session
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
 
-# Permissions that authorize MCP server management. The legacy
-# ``admin`` / ``mcp.admin`` entries are kept for backward compat with
-# older tokens; modern tokens minted by the central auth service use
-# the colon namespace (``mcp:install`` for the developer role,
-# ``mcp:admin`` for full management). Any of these unlocks the entire
-# admin surface — finer-grained scoping can be added later if the auth
-# service grows separate ``mcp:uninstall`` / ``mcp:configure`` claims.
 _MCP_ADMIN_PERMS = frozenset({
     "*",
     "admin",
@@ -39,16 +26,7 @@ _MCP_ADMIN_PERMS = frozenset({
 
 
 def _require_mcp_admin(request: Request) -> None:
-    """Block non-admin callers from mutating MCP server state.
-
-    MCP servers are daemon-level resources (processes running
-    inside the daemon), so installation and config management
-    are reserved to administrators. Regular users can read the
-    server list and catalog, and they can attach their own
-    credentials via the unified credential store - but they
-    can't install, remove, reconfigure, or connect/disconnect
-    servers.
-    """
+    """Block non-admin callers from mutating MCP server state."""
     perms = getattr(request.state, "permissions", []) or []
     if any(p in _MCP_ADMIN_PERMS for p in perms):
         return
@@ -87,10 +65,6 @@ class ServerResponse(BaseModel):
         from_attributes = True
 
 
-# Category + icon fallback map for catalog entries whose fields
-# are blank. Keyed by server_id substring. The Flutter client uses
-# ``category`` to filter the catalog grid and ``icon`` to render
-# each card when the entry has no explicit values.
 _CATEGORY_ICON_FALLBACK: dict[str, tuple[str, str]] = {
     # id-substring → (category, emoji)
     "github":     ("developer-tools", "🐙"),
@@ -136,12 +110,7 @@ _CATEGORY_ICON_FALLBACK: dict[str, tuple[str, str]] = {
 def _catalog_category_and_icon(
     server_id: str, explicit_category: str, explicit_icon: str,
 ) -> tuple[str, str]:
-    """Resolve the (category, icon) pair for a catalog entry.
-
-    Explicit values win; when absent, the fallback substring map
-    fills in sensible defaults based on the server_id. Final
-    fallback when nothing matches: category="other", icon="🧩".
-    """
+    """Resolve the (category, icon) pair for a catalog entry."""
     cat = (explicit_category or "").strip()
     ico = (explicit_icon or "").strip()
     if not cat or not ico:
@@ -162,17 +131,7 @@ def _catalog_category_and_icon(
 
 @router.get("/catalog")
 async def list_catalog_entries(category: str | None = None) -> dict[str, Any]:
-    """List every entry in the static MCP catalog.
-
-    This is what the Flutter Hub → MCP Servers tab calls to
-    populate the "Browse" view without having to do a search.
-    Returns a compact card-ready shape for each entry - enough
-    to render a grid of installable servers.
-
-    Use ``GET /api/mcp/catalog/{server_id}`` for the full
-    CatalogEntry with ``env_mapping`` + ``key_descriptions`` so
-    the client can render the install form fields.
-    """
+    """List every entry in the static MCP catalog."""
     from digitorn.modules.mcp.catalog import all_catalog_entries
 
     entries: list[dict[str, Any]] = []
@@ -206,28 +165,7 @@ async def list_catalog_entries(category: str | None = None) -> dict[str, Any]:
 
 @router.get("/catalog/{server_id}")
 async def get_catalog_entry_route(server_id: str) -> dict[str, Any]:
-    """Return the full static CatalogEntry for one server_id.
-
-    This is the endpoint the install form uses. It returns every
-    field the client needs to render the correct form:
-
-    - ``env_mapping``: which logical field name maps to which
-      env var the subprocess expects (e.g. ``token`` → ``GITHUB_PERSONAL_ACCESS_TOKEN``)
-    - ``key_descriptions``: human-readable help text per field,
-      shown as TextField helperText
-    - ``oauth_provider`` + ``oauth_scopes``: when set, the
-      server uses OAuth - the client should show a "Connect"
-      button instead of a text field
-    - ``default_env``: pre-filled env vars (e.g. Google Drive
-      uses ``GOOGLE_APPLICATION_CREDENTIALS`` pointing at a
-      credential file managed by the daemon)
-
-    Returns 404 if ``server_id`` is not in the static catalog.
-    For remote-registry entries the client should use the
-    search result fields directly (they don't have env_mapping
-    metadata - remote servers declare their config via their
-    MCP manifest when connected).
-    """
+    """Return the full static CatalogEntry for one server_id."""
     from digitorn.modules.mcp.catalog import get_catalog_entry
 
     entry = get_catalog_entry(server_id)
@@ -278,23 +216,9 @@ async def search_servers(q: str) -> dict[str, Any]:
     return {"query": q, "results": results, "count": len(results)}
 
 
-# ── Unified pre-install requirements ─────────────────────────────
-
-
 @router.get("/requirements/{server_id}")
 async def get_requirements(server_id: str) -> dict[str, Any]:
-    """Return install requirements for any server (catalog OR registry).
-
-    Lets the Flutter hub render the right install form BEFORE the user
-    commits to install. For catalog servers we serve the static metadata
-    (``env_mapping`` + ``key_descriptions``); for registry servers we
-    hit ``registry.modelcontextprotocol.io`` and surface every required
-    env var with its description.
-
-    Returns 404 if the server isn't in the catalog AND can't be found
-    in the registry. ``source`` in the body tells the client which one
-    matched so it can adapt copy ("Verified" vs "From registry").
-    """
+    """Return install requirements for any server (catalog OR registry)."""
     from digitorn.modules.mcp.catalog import (
         get_server_requirements_async,
         get_catalog_entry,
@@ -305,9 +229,6 @@ async def get_requirements(server_id: str) -> dict[str, Any]:
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
-    # Catalog entries carry icon + category + OAuth scope details that
-    # aren't in ServerRequirements — merge them so the install dialog
-    # has everything in one shot.
     extra: dict[str, Any] = {}
     entry = get_catalog_entry(server_id)
     if entry is not None:
@@ -353,30 +274,13 @@ async def get_requirements(server_id: str) -> dict[str, Any]:
     }
 
 
-# ── Registry browse + refresh ────────────────────────────────────
-
-
 @router.get("/registry/browse")
 async def browse_registry(
     q: str = "",
     cursor: str | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
-    """Paginated browse of the official MCP registry (~800 servers).
-
-    Surfaces the full registry to the hub so users can install ANY
-    published MCP server, not just the curated ~30 in our static
-    catalog. Each entry is summarised (runtime / package / transport /
-    required env count / OAuth flag) so the card can show a useful
-    preview without a second round-trip.
-
-    Cursor-based pagination matches the registry's own API. The first
-    page passes ``cursor=null`` (omitted), each subsequent page uses
-    the ``next_cursor`` from the previous response.
-
-    Cached 1h per (q, cursor, limit) tuple to avoid hammering the
-    registry. Admins can flush via ``POST /registry/refresh``.
-    """
+    """Paginated browse of the official MCP registry (~800 servers)."""
     from digitorn.modules.mcp.catalog import list_registry_servers
     return await list_registry_servers(
         query=q or "", cursor=cursor, limit=limit,
@@ -385,13 +289,7 @@ async def browse_registry(
 
 @router.post("/registry/refresh")
 async def refresh_registry(request: Request) -> dict[str, Any]:
-    """Flush the registry cache. **Admin-only.**
-
-    Forces the next ``/registry/browse`` to re-fetch from
-    ``registry.modelcontextprotocol.io``. Useful right after a new
-    server is published to the registry — without this the daemon
-    serves stale data for up to 1h.
-    """
+    """Flush the registry cache. **Admin-only.**"""
     _require_mcp_admin(request)
     from digitorn.modules.mcp.catalog import clear_registry_cache
     cleared = clear_registry_cache()
@@ -449,27 +347,7 @@ async def remove_server(
 async def list_available_references(
     session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
-    """List MCP server IDs that an app can reference by name in YAML.
-
-    These are the daemon-managed installs (``managed_mcp_servers``
-    table) that have completed the install / probe round-trip. An
-    app.yaml referencing one of these via shorthand::
-
-        modules:
-          mcp:
-            config:
-              servers:
-                github: {}
-
-    will pick up the daemon's resolved config (command + args + env +
-    credentials) at module init time. Status ``ready`` is required —
-    a server in ``error`` or ``installing`` state isn't referenceable
-    yet.
-
-    Public route: any authenticated user can call it (in particular
-    the dashboard's YAML editor for autocomplete). Mutating routes
-    stay admin-only.
-    """
+    """List MCP server IDs that an app can reference by name in YAML."""
     from digitorn.core.mcp_store import list_servers as do_list
 
     servers = await do_list(session, status="ready")
@@ -685,12 +563,7 @@ async def pool_disconnect(
 
 @router.get("/pool/health")
 async def pool_health(request: Request) -> dict[str, Any]:
-    """Run health check on all connected servers in the pool.
-
-    BUG-067: wrapped in the standard ``{success, data, error}``
-    envelope so clients don't need special-case parsing for this one
-    endpoint.
-    """
+    """Run health check on all connected servers in the pool."""
     mcp_pool = getattr(request.app.state, "mcp_pool", None)
     if mcp_pool is None:
         return {

@@ -1,11 +1,11 @@
-"""CodePreview - split pane showing file contents on the right.
-
-Updated live when the agent reads/writes/edits files.
-Toggle with Ctrl+P.
-"""
+"""CodePreview - split pane showing file contents on the right."""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
@@ -104,8 +104,8 @@ class CodePreview(VerticalScroll):
         for child in list(self.children):
             try:
                 child.remove()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("code_preview best-effort block failed: %s", exc)
 
         # Header
         icon = {"read": "\u2193", "write": "\u270e", "edit": "\u270e"}.get(action, "\u2022")

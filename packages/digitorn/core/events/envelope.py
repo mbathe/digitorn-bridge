@@ -1,73 +1,4 @@
-"""SessionEvent - the universal event envelope every client-facing
-event MUST use.
-
-Problem this solves
--------------------
-When a user disconnects mid-turn and reconnects, the client cannot
-reconstruct the current state of in-flight operations:
-
-    * Is the tool I saw running still running, or did it finish while
-      I was offline?
-    * Is the sub-agent I spawned still working, or did it crash?
-    * Was the approval I was waiting for resolved?
-
-The old ad-hoc ``{"type": ..., "data": {...}}`` dicts provided no
-structural invariant for the client to group lifecycle events of a
-single logical operation - callers had to reach into ``payload`` and
-hope the shape was consistent.
-
-Contract
---------
-Every event carries:
-
-  * ``event_id``      - globally unique, auto-generated.
-  * ``seq``           - per-user monotonically increasing counter.
-  * ``ts``            - server-side ISO-8601 UTC timestamp, µs precision.
-  * ``type``          - fine-grained event type (``tool_start``,
-                        ``agent_result``, …).
-  * ``kind``          - high-level category (``session``, ``approval``,
-                        ``error``, …) - auto-derived from ``type``.
-  * ``app_id``, ``session_id``, ``user_id`` - **always required**.
-  * ``correlation_id`` - the turn this event belongs to (same ``fp-…``
-                         id across every event of a message).
-  * ``op_id``         - the atomic operation this event belongs to. All
-                        lifecycle events of one tool, one sub-agent,
-                        one approval, one compaction, one turn share
-                        the same ``op_id``.
-  * ``op_type``       - enum: ``turn`` | ``tool`` | ``agent`` |
-                        ``approval`` | ``compact`` | ``message``.
-  * ``op_state``      - enum: ``pending`` | ``running`` |
-                        ``waiting_approval`` | ``completed`` |
-                        ``failed`` | ``cancelled`` | ``timeout``.
-  * ``op_parent_id``  - ``op_id`` of the enclosing op (e.g. a tool
-                        call inside a sub-agent points at that agent's
-                        ``op_id``).
-  * ``payload``       - type-specific fields.
-
-Terminal states (``completed``, ``failed``, ``cancelled``, ``timeout``)
-let the client apply a trivial rule on reconnect::
-
-    ops = {}   # op_id -> latest event
-    for ev in replay_since(last_seq):
-        ops[ev.op_id] = ev
-    for ev in ops.values():
-        if ev.op_state in TERMINAL_STATES:
-            show_final(ev)
-        else:
-            show_spinner(ev)
-
-The constructor is fail-closed: missing ``app_id`` / ``session_id`` /
-``user_id`` / ``op_id`` / ``op_type`` / ``op_state`` raises
-``ValueError`` before the bus ever sees the event. A bug in dev
-shouts immediately instead of leaking anonymous events in prod.
-
-Backwards-compatibility
------------------------
-``SessionEventBus.publish(key, dict)`` keeps working - it wraps the
-legacy dict into a ``SessionEvent`` using sensible defaults and logs
-a deprecation warning the first time each call site fires. Every call
-site is expected to migrate to ``bus.emit(SessionEvent(...))``.
-"""
+"""SessionEvent - the universal event envelope every client-facing."""
 
 from __future__ import annotations
 
@@ -80,31 +11,16 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
 def _now_iso_us() -> str:
-    """UTC timestamp with microsecond precision, ISO-8601.
-
-    ``seq`` is strictly monotonic per user so it is the primary
-    ordering key; ``ts`` is there for human debugging and cross-user
-    comparisons (where ``seq`` is meaningless).
-    """
     return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace(
         "+00:00", "Z",
     )
 
-
 def _gen_event_id() -> str:
     return f"ev-{uuid.uuid4().hex[:12]}"
 
-
 class OpType(str, Enum):
-    """The kind of long-lived operation an event belongs to.
-
-    These are the cycles the client renders as a single UI element
-    (a tool chip, a sub-agent pill, an approval modal, …). Each cycle
-    has a deterministic set of lifecycle events that all share one
-    ``op_id``.
-    """
+    """The kind of long-lived operation an event belongs."""
 
     TURN = "turn"
     TOOL = "tool"
@@ -112,10 +28,9 @@ class OpType(str, Enum):
     APPROVAL = "approval"
     COMPACT = "compact"
     MESSAGE = "message"
-    # ``SYSTEM`` is reserved for daemon-level events (connect,
+    # `SYSTEM` is reserved for daemon-level events (connect,
     # daemon_shutdown, …) that don't belong to any user-facing cycle.
     SYSTEM = "system"
-
 
 class OpState(str, Enum):
     PENDING = "pending"
@@ -126,7 +41,6 @@ class OpState(str, Enum):
     CANCELLED = "cancelled"
     TIMEOUT = "timeout"
 
-
 TERMINAL_STATES: frozenset[OpState] = frozenset({
     OpState.COMPLETED,
     OpState.FAILED,
@@ -134,8 +48,7 @@ TERMINAL_STATES: frozenset[OpState] = frozenset({
     OpState.TIMEOUT,
 })
 
-
-# Auto-derive ``kind`` (coarse category) from ``type`` (fine). Kept as
+# Auto-derive `kind` (coarse category) from `type` (fine). Kept as
 # a single map so adding a new event type is one line to update.
 _KIND_MAP: dict[str, str] = {
     # Turn
@@ -200,10 +113,7 @@ _KIND_MAP: dict[str, str] = {
     # Compact
     "compact_started": "session",
     "compact_done": "session",
-    # Durable snapshot emitted by _do_truncate / _do_summarize. Carries
-    # the full reconstruction payload (summary_text, memory, tools,
-    # kept_range, …) so a restarted daemon can resume exactly from the
-    # last compaction without replaying the compacted messages.
+    # Durable compaction snapshot for daemon-restart resume.
     "compaction": "session",
     # Credentials
     "credential_required": "session",
@@ -224,7 +134,7 @@ _KIND_MAP: dict[str, str] = {
     "queue:snapshot": "session",
     # Authoritative session state envelope - client's source of truth
     # for UI (turn active, queue depth, compaction, seq). See
-    # ``AppManager.build_state_envelope`` for the payload shape.
+    # `AppManager.build_state_envelope` for the payload shape.
     "state:snapshot": "session",
     # Turn liveness heartbeat, emitted every ~3s while a turn is
     # running. Lets the client watchdog distinguish "still thinking"
@@ -232,10 +142,7 @@ _KIND_MAP: dict[str, str] = {
     "turn:heartbeat": "session",
 }
 
-
-# Which types SHOULD carry which op_type, used to heuristically fix
-# up legacy ``publish(key, dict)`` calls that don't carry the contract
-# yet. Migrated call sites set ``op_type`` explicitly.
+# Heuristic op_type fallback for legacy `publish(key, dict)` call sites.
 _LEGACY_OP_TYPE: dict[str, OpType] = {
     "user_message": OpType.TURN,
     "message_queued": OpType.TURN,
@@ -276,9 +183,8 @@ _LEGACY_OP_TYPE: dict[str, OpType] = {
     "error": OpType.SYSTEM,
 }
 
-
-# Default ``op_state`` for a given event type - used when a legacy
-# dict doesn't specify one. Migrated code passes ``op_state``
+# Default `op_state` for a given event type - used when a legacy
+# dict doesn't specify one. Migrated code passes `op_state`
 # explicitly, so this map is only a last-resort fallback.
 _LEGACY_OP_STATE: dict[str, OpState] = {
     "user_message": OpState.PENDING,
@@ -313,20 +219,13 @@ _LEGACY_OP_STATE: dict[str, OpState] = {
     "abort": OpState.CANCELLED,
 }
 
-
 def kind_for(event_type: str) -> str:
-    """Public: look up the coarse ``kind`` for an event type."""
+    """Public: look up the coarse `kind` for an event type."""
     return _KIND_MAP.get(event_type, "session")
-
 
 @dataclass(frozen=True, slots=True)
 class SessionEvent:
-    """Immutable envelope for every client-bound event.
-
-    Use ``SessionEvent.build(...)`` for the common path - it fills in
-    defaults (event_id, ts, kind). Use the bare constructor only when
-    you need full control (tests).
-    """
+    """Immutable envelope for every client-bound event."""
 
     type: str
     app_id: str
@@ -380,8 +279,6 @@ class SessionEvent:
         if not self.kind:
             object.__setattr__(self, "kind", kind_for(self.type))
 
-    # ── Factory ────────────────────────────────────────────────────
-
     @classmethod
     def build(
         cls,
@@ -397,8 +294,7 @@ class SessionEvent:
         op_parent_id: str | None = None,
         payload: dict[str, Any] | None = None,
     ) -> "SessionEvent":
-        """Preferred construction path. Keyword-only so new fields can
-        be added later without breaking positional callers."""
+        """Preferred construction path. Keyword-only so new fields can."""
         return cls(
             type=type,
             app_id=app_id,
@@ -411,8 +307,6 @@ class SessionEvent:
             op_parent_id=op_parent_id,
             payload=dict(payload) if payload else {},
         )
-
-    # ── Serialisation ─────────────────────────────────────────────
 
     def to_dict(self) -> dict[str, Any]:
         """Wire format for Socket.IO emission and DB persistence."""
@@ -434,11 +328,7 @@ class SessionEvent:
         }
 
     def with_seq(self, seq: int) -> "SessionEvent":
-        """Return a copy with the server-assigned ``seq`` filled in.
-
-        ``SessionEvent`` is frozen, so the bus can't mutate it. This
-        helper hands back a sealed copy with the attribution written.
-        """
+        """Return a copy with the server-assigned `seq` filled."""
         object_copy = SessionEvent(
             type=self.type,
             app_id=self.app_id,
@@ -457,18 +347,10 @@ class SessionEvent:
         )
         return object_copy
 
-    # ── Convenience ───────────────────────────────────────────────
-
     def is_terminal(self) -> bool:
         """True when this event marks the op as finished for good."""
         return self.op_state in TERMINAL_STATES
 
-
 def gen_op_id(prefix: str) -> str:
-    """Generate a prefixed, globally-unique op_id.
-
-    The prefix is a short hint of the operation type (``turn``,
-    ``tool``, ``agent``, ``approval``, ``compact``) so op_ids are
-    self-describing in logs and tracebacks.
-    """
+    """Generate a prefixed, globally-unique op_id."""
     return f"op-{prefix}-{uuid.uuid4().hex[:12]}"

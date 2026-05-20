@@ -1,36 +1,4 @@
-"""Async queue + drainer for agent-run tracking events.
-
-The runtime hot path enqueues events via the synchronous public API in
-``run_tracker/__init__.py``. This module owns the queue, runs a single
-asyncio worker that drains it, and never blocks the producer.
-
-Why this exists:
-
-    Before this refactor every ``agent_turn`` invocation awaited 3 to 5
-    Postgres round-trips (resolve session_pk, get-or-create
-    session_agent, insert agent_runs, optional row updates per turn).
-    On Neon that's 40-200 ms of pure I/O latency PER TURN, in front
-    of the LLM call. Tracking was strangling the very thing it was
-    measuring.
-
-    After: every public API entry returns in microseconds. The agent
-    loop never waits on the tracker. The worker drains the queue at
-    its own pace; if it lags, the queue grows; if the queue caps,
-    we drop events with a WARNING (best-effort observability).
-
-Sequence allocation: the worker maintains an in-memory per-run
-counter so backends don't need to query MAX(sequence). This is safe
-because the worker is single-consumer - all enqueues for one run
-are processed in arrival order on one task.
-
-Backpressure: ``MAX_QUEUE_SIZE`` (default 10k) caps memory. On
-overflow we DROP the new event and log a WARNING. We do not block
-the producer.
-
-Crash recovery: events held in memory are LOST on daemon crash.
-That's fine for observability. The worker's drain-on-shutdown gives
-us a graceful flush in the common case.
-"""
+"""Async queue + drainer for agent-run tracking events."""
 
 from __future__ import annotations
 
@@ -43,8 +11,6 @@ from digitorn.core.runtime.run_tracker.protocols import TrackerBackend
 logger = logging.getLogger(__name__)
 
 
-# ── Module state (singleton; the daemon has one tracker worker) ──
-
 _queue: Optional[asyncio.Queue[dict[str, Any]]] = None
 _worker_task: Optional[asyncio.Task[None]] = None
 _backend: Optional[TrackerBackend] = None
@@ -54,9 +20,6 @@ _run_sequences: dict[str, int] = {}
 
 MAX_QUEUE_SIZE = 10_000
 DRAIN_TIMEOUT_SECONDS = 5.0
-
-
-# ── Lifecycle (called by the daemon's lifespan) ───────────────────
 
 
 async def install_and_start(backend: TrackerBackend) -> None:
@@ -108,13 +71,8 @@ def is_running() -> bool:
     return _worker_task is not None and not _worker_task.done()
 
 
-# ── Producer-side enqueue (called from runtime hot path) ──────────
-
-
 def enqueue(kind: str, payload: dict[str, Any]) -> bool:
-    """Add one event to the worker queue. Returns True on accept,
-    False on overflow / no-worker. Never raises, never blocks.
-    """
+    """Add one event to the worker queue"""
     if _queue is None:
         return False
     item = {"kind": kind, "payload": payload}
@@ -130,10 +88,7 @@ def enqueue(kind: str, payload: dict[str, Any]) -> bool:
 
 
 def allocate_sequence(run_id: str) -> int:
-    """Reserve the next sequence number for ``run_id``. Called by the
-    public API at enqueue time so events arrive at the backend with
-    a fully-formed sequence and the backend doesn't query MAX().
-    """
+    """Reserve the next sequence number for `run_id`. Called by the"""
     next_seq = _run_sequences.get(run_id, 0) + 1
     _run_sequences[run_id] = next_seq
     return next_seq
@@ -142,9 +97,6 @@ def allocate_sequence(run_id: str) -> int:
 def forget_run(run_id: str) -> None:
     """Drop the per-run sequence counter once the run is complete."""
     _run_sequences.pop(run_id, None)
-
-
-# ── Worker-side drain loop ────────────────────────────────────────
 
 
 async def _drain_loop() -> None:

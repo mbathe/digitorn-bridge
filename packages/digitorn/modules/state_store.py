@@ -1,11 +1,4 @@
-"""Module state persistence - SQLite-backed store for module state snapshots.
-
-Used by the LifecycleManager to:
-  - Save module state_snapshot() on shutdown
-  - Restore module state via restore_state() on startup
-
-Consistent with PlanStateStore, PermissionStore pattern (aiosqlite).
-"""
+"""Module state persistence - SQLite-backed store for module state snapshots."""
 
 from __future__ import annotations
 
@@ -19,13 +12,8 @@ from digitorn.modules.log import get_logger
 
 log = get_logger(__name__)
 
-
 class ModuleStateStore:
-    """SQLite-backed store for module state snapshots.
-
-    Each module's state is stored as a JSON blob keyed by module_id.
-    Only the latest snapshot is kept per module.
-    """
+    """SQLite-backed store for module state snapshots."""
 
     def __init__(self, db_path: Path | str) -> None:
         self._db_path = Path(db_path)

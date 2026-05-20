@@ -1,9 +1,4 @@
-"""macOS Service backend - launchd plist management.
-
-Generates and manages a launchd plist for the Digitorn daemon.
-Supports user agents (~/Library/LaunchAgents/) and system daemons
-(/Library/LaunchDaemons/) depending on privileges.
-"""
+"""macOS Service backend - launchd plist management."""
 
 from __future__ import annotations
 
@@ -35,11 +30,11 @@ def _plist_path() -> Path:
 def _get_program_args() -> list[str]:
     """Return the ProgramArguments for the plist."""
     if getattr(sys, "frozen", False):
-        return [sys.executable, "start", "--no-interactive"]
+        return [sys.executable, "start"]
     digitorn_bin = shutil.which("digitorn")
     if digitorn_bin:
-        return [digitorn_bin, "start", "--no-interactive"]
-    return [sys.executable, "-m", "digitorn.core.server", "start", "--no-interactive"]
+        return [digitorn_bin, "start"]
+    return [sys.executable, "-m", "digitorn.core.server", "start"]
 
 
 def _log_dir() -> Path:

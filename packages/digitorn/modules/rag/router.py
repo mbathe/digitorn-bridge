@@ -1,9 +1,4 @@
-"""QueryRouter - classifies queries to determine optimal retrieval strategy.
-
-Two stages:
-1. Fast classifier (<5ms): regex heuristics + signal scoring
-2. LLM fallback (optional, +300ms): when confidence is below threshold
-"""
+"""QueryRouter - classifies queries to determine optimal retrieval strategy."""
 
 from __future__ import annotations
 
@@ -14,20 +9,17 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass(slots=True)
 class RoutePlan:
     strategy: str  # hybrid | semantic | bm25 | sql | adaptive
     sources: list[RouteSource] = field(default_factory=list)
     confidence: float = 1.0
 
-
 @dataclass(slots=True)
 class RouteSource:
     type: str       # vector | sql | web
     source_id: str  # knowledge base name or connection_id
     query: str = ""
-
 
 _SQL_SIGNALS = re.compile(
     r"\b("
@@ -55,7 +47,6 @@ _HYBRID_SIGNALS = re.compile(
     r")\b",
     re.IGNORECASE,
 )
-
 
 class QueryRouter:
     """Routes queries to the best retrieval strategy."""

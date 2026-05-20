@@ -1,26 +1,4 @@
-"""Builder API - CRUD for App Builder drafts.
-
-Routes that the App Builder client (CLI, Flutter, web) calls to
-manage in-progress YAML conversations. The ``BuildDraft`` model and
-its store live in ``digitorn.core.app.build_draft_store`` - these
-routes are a thin HTTP shell over them.
-
-| Method | Path                                  | Purpose                            |
-|--------|---------------------------------------|------------------------------------|
-| GET    | /api/builder/drafts                   | List the caller's drafts           |
-| POST   | /api/builder/drafts                   | Create a new draft                 |
-| GET    | /api/builder/drafts/{draft_id}        | Resume a draft (full state)        |
-| PATCH  | /api/builder/drafts/{draft_id}        | Update yaml / chat / state / name  |
-| DELETE | /api/builder/drafts/{draft_id}        | Delete a draft (DB + disk)         |
-| POST   | /api/builder/drafts/{draft_id}/deploy | Compile + deploy the current YAML  |
-
-Cross-user isolation is enforced everywhere: a user can only see and
-mutate their own drafts. The ``user_id`` is read from
-``request.state.user_id`` (set by the auth middleware).
-
-The 50-draft-per-user cap lives in the store, not the route - the
-route just translates ``DraftLimitExceeded`` into a clean 409.
-"""
+"""Builder API - CRUD for App Builder drafts."""
 
 from __future__ import annotations
 
@@ -42,29 +20,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/builder", tags=["builder"])
 
 
-# ────────────────────────────────────────────────────────────────────
 # Dependencies
-# ────────────────────────────────────────────────────────────────────
 
 
 def _get_user_id(request: Request) -> str:
-    """Read the authenticated user id from the request state.
-
-    The auth middleware sets ``request.state.user_id`` for every
-    request. We default to ``anonymous`` only because some dev
-    instances run with auth disabled - in production the middleware
-    is required and the value is always populated.
-    """
+    """Read the authenticated user id from the request state."""
     return getattr(request.state, "user_id", None) or "anonymous"
 
 
 def _get_draft_store(request: Request) -> BuildDraftStore:
-    """Get or create the singleton ``BuildDraftStore`` on the AppManager.
-
-    Stores are cached on the AppManager instance the same way
-    ``_get_bg_session_store`` does it in ``apps.py``. This avoids
-    re-creating a store (and its session factory) on every request.
-    """
+    """Get or create the singleton `BuildDraftStore` on the AppManager."""
     manager = _get_manager(request)
     store = getattr(manager, "_build_draft_store", None)
     if store is None:
@@ -74,9 +39,7 @@ def _get_draft_store(request: Request) -> BuildDraftStore:
     return store
 
 
-# ────────────────────────────────────────────────────────────────────
 # Request bodies
-# ────────────────────────────────────────────────────────────────────
 
 
 class DraftCreateRequest(BaseModel):
@@ -110,9 +73,7 @@ class DraftPatchRequest(BaseModel):
     )
 
 
-# ────────────────────────────────────────────────────────────────────
 # Routes
-# ────────────────────────────────────────────────────────────────────
 
 
 @router.get("/drafts", response_model=AppResponse)
@@ -122,11 +83,7 @@ async def list_drafts(
     limit: int = 50,
     offset: int = 0,
 ) -> AppResponse:
-    """List the caller's drafts, most recently updated first.
-
-    Optional ``status`` filter (e.g. ``in_progress``, ``deployed``).
-    ``limit`` is clamped to ``MAX_DRAFTS_PER_USER`` server-side.
-    """
+    """List the caller's drafts, most recently updated first."""
     user_id = _get_user_id(request)
     store = _get_draft_store(request)
     drafts = await store.list_for_user(
@@ -146,10 +103,7 @@ async def list_drafts(
 
 @router.post("/drafts", response_model=AppResponse)
 async def create_draft(request: Request, body: DraftCreateRequest) -> AppResponse:
-    """Create a new draft for the caller.
-
-    Returns 409 if the user is at the per-user cap.
-    """
+    """Create a new draft for the caller."""
     user_id = _get_user_id(request)
     store = _get_draft_store(request)
     try:
@@ -179,12 +133,7 @@ async def get_draft(request: Request, draft_id: str) -> AppResponse:
 async def patch_draft(
     request: Request, draft_id: str, body: DraftPatchRequest,
 ) -> AppResponse:
-    """Update one or more fields on a draft.
-
-    Pass only the fields you want to change. Use ``append_messages``
-    when you just want to add a couple of chat messages without
-    re-sending the entire history.
-    """
+    """Update one or more fields on a draft."""
     user_id = _get_user_id(request)
     store = _get_draft_store(request)
 
@@ -223,16 +172,7 @@ async def delete_draft(request: Request, draft_id: str) -> AppResponse:
 
 @router.post("/drafts/{draft_id}/deploy", response_model=AppResponse)
 async def deploy_draft(request: Request, draft_id: str) -> AppResponse:
-    """Compile the draft's current YAML and deploy it via the AppManager.
-
-    On success, the draft's status is updated to ``deployed`` and its
-    ``deployed_app_id`` is set so the dashboard can link the draft to
-    the live app both ways.
-
-    On compile failure, returns ``success=False`` with the list of
-    errors - the draft itself is NOT modified, so the user can keep
-    iterating from where they were.
-    """
+    """Compile the draft's current YAML and deploy it via the AppManager."""
     user_id = _get_user_id(request)
     store = _get_draft_store(request)
     draft = await store.get(draft_id, user_id=user_id)
@@ -278,12 +218,6 @@ async def deploy_draft(request: Request, draft_id: str) -> AppResponse:
             error="Compilation crashed unexpectedly.",
         )
 
-    # Deploy via the manager. ``manager.deploy()`` takes a YAML *path*,
-    # not a CompiledApp, and the store already mirrors the current YAML
-    # to ``draft.yaml_path`` on every update - so we just hand that
-    # path over. We let any exception bubble up as a 500: deploy
-    # failures after a successful compile usually mean something is
-    # wrong with the runtime environment, not the YAML.
     from pathlib import Path as _Path
 
     yaml_path_str = draft.get("yaml_path") or ""

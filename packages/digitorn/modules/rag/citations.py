@@ -6,7 +6,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-
 @dataclass(slots=True)
 class Citation:
     source_type: str   # file | database | web | api | manual
@@ -26,7 +25,6 @@ class Citation:
         parts[0] += ")"
         return parts[0]
 
-
 @dataclass(slots=True)
 class RetrievalResult:
     text: str
@@ -35,7 +33,6 @@ class RetrievalResult:
     citation: Citation = field(
         default_factory=lambda: Citation(source_type="manual", source_id="unknown"),
     )
-
 
 _CITATION_INSTRUCTION = (
     "When answering based on retrieved context, ALWAYS cite sources using [N] notation.\n"
@@ -46,10 +43,8 @@ _CITATION_INSTRUCTION = (
     "- Never fabricate source numbers."
 )
 
-
 def get_citation_instruction() -> str:
     return _CITATION_INSTRUCTION
-
 
 def format_context_block(
     results: list[RetrievalResult],
@@ -76,7 +71,6 @@ def format_context_block(
         total += len(block)
 
     return "\n".join(lines)
-
 
 def verify_citations(response: str, num_sources: int) -> list[dict[str, Any]]:
     cited = {int(m) for m in re.findall(r"\[(\d+)\]", response)}

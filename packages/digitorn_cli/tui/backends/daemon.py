@@ -1,12 +1,4 @@
-"""Daemon backend - SSE client that talks to a remote Digitorn daemon.
-
-Architecture:
-  - POST /sessions/{sid}/messages  → send message (async, fire-and-forget)
-  - GET  /sessions/{sid}/events    → receive ALL events (persistent SSE)
-
-The event listener runs in a background thread and dispatches events
-as Textual Messages to the TUI.
-"""
+"""Daemon backend - SSE client that talks to a remote Digitorn daemon."""
 
 from __future__ import annotations
 
@@ -33,12 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class DaemonBackend:
-    """Connects to a Digitorn daemon as an SSE client.
-
-    Uses two endpoints:
-      POST /sessions/{sid}/messages → send user message (202 async)
-      GET  /sessions/{sid}/events   → persistent SSE for ALL session events
-    """
+    """Connects to a Digitorn daemon as an SSE client."""
 
     def __init__(
         self,
@@ -60,11 +47,7 @@ class DaemonBackend:
         # Token counters no longer needed - raw deltas passed through to TUI
 
     async def initialize(self, post: Callable[..., None]) -> dict[str, Any]:
-        """Fetch app info from daemon, post BackendReady.
-
-        Runs synchronously - called from TUI's @work(thread=True) so
-        Textual stays responsive.
-        """
+        """Fetch app info from daemon, post BackendReady."""
         import asyncio
 
         loop = asyncio.new_event_loop()
@@ -154,16 +137,7 @@ class DaemonBackend:
         return info
 
     def _load_history(self, post: Callable[..., None]) -> None:
-        """Load session history and restore the TUI state.
-
-        Calls GET /sessions/{sid}/history to get:
-        - messages (user/assistant turns)
-        - events (tool_call, tool_start, thinking, etc.)
-        - memory_snapshot (goal, todos, facts)
-        - session metadata (interrupted, title, etc.)
-
-        Posts a HistoryLoaded message that the TUI handles to rebuild the chat.
-        """
+        """Load session history and restore the TUI state."""
         try:
             url = (
                 f"{self._daemon_url}/api/apps/{self._app_id}"
@@ -209,12 +183,7 @@ class DaemonBackend:
             logger.warning("History load error: %s", exc)
 
     def start_event_listener(self, post: Callable[..., None]) -> None:
-        """Start a background thread that listens to GET /sessions/{sid}/events.
-
-        This persistent SSE connection receives ALL events for the session:
-        token, tool_call, tool_start, result, memory_update, agent_event, etc.
-        Must be called after initialize() so session_id is set.
-        """
+        """Start a background thread that listens to GET /sessions/{sid}/events."""
         import threading
 
         if getattr(self, "_event_thread", None) is not None:
@@ -239,13 +208,7 @@ class DaemonBackend:
         self._event_thread.start()
 
     async def _event_loop(self, post: Callable[..., None]) -> None:
-        """Persistent SSE listener with auto-reconnect + event replay + resume.
-
-        On disconnect:
-        1. Reconnect SSE with ?since=N to replay missed events
-        2. Check session state - if interrupted, POST /resume to auto-continue
-        3. The user never notices the interruption
-        """
+        """Persistent SSE listener with auto-reconnect + event replay + resume."""
         _had_tokens = False
         _event_count = 0  # Track how many events we've received (for replay)
         _reconnect_count = 0
@@ -384,10 +347,7 @@ class DaemonBackend:
             logger.warning("Resume check failed: %s", exc)
 
     async def send_message(self, text: str, post: Callable[..., None]) -> None:
-        """POST to /sessions/{sid}/messages - fire-and-forget.
-
-        Events arrive via the persistent SSE listener (start_event_listener).
-        """
+        """POST to /sessions/{sid}/messages - fire-and-forget."""
         import asyncio
         import os
         import concurrent.futures
@@ -430,7 +390,7 @@ class DaemonBackend:
         post: Callable[..., None],
         had_tokens: bool,
     ) -> bool:
-        """Map a single SSE event to Textual Messages. Returns updated had_tokens."""
+        """Map a single SSE event to Textual Messages."""
 
         if event_type == "token":
             delta = data.get("delta", "")
@@ -599,8 +559,8 @@ class DaemonBackend:
                         import json as _json
                         parsed = _json.loads(result)
                         data = parsed.get("data", parsed) if isinstance(parsed, dict) else None
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("daemon best-effort block failed: %s", exc)
                 elif isinstance(result, dict) and "result" in result:
                     # SSE format: {"name": "...", "result": {"data": {...}}}
                     inner = result["result"]
@@ -675,7 +635,6 @@ class DaemonBackend:
         except Exception:
             pass  # Best effort - don't crash on abort failure
 
-    # ── Session management ──────────────────────────────────
 
     @property
     def app_id(self) -> str:
@@ -711,7 +670,7 @@ class DaemonBackend:
             return None
 
     def resume_session(self, session_id: str) -> bool:
-        """Switch to an existing session. Messages will be loaded on next send."""
+        """Switch to an existing session."""
         self._session_id = session_id
         return True
 
@@ -733,7 +692,6 @@ class DaemonBackend:
         except Exception:
             return None
 
-    # ── MCP management ──────────────────────────────────────
 
     def list_mcp_servers(self) -> list[dict]:
         """List MCP servers configured for the current app."""
@@ -833,8 +791,8 @@ class DaemonBackend:
                     (c.get("name", "?"), c.get("ok", False), c.get("detail", ""))
                     for c in data.get("data", {}).get("checks", [])
                 ]
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("daemon best-effort block failed: %s", exc)
         return [("Daemon", True, self._daemon_url)]
 
     @property
@@ -853,18 +811,12 @@ class DaemonBackend:
         # Close the persistent HTTP client
         try:
             self._http.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("daemon best-effort block failed: %s", exc)
 
-    # ── HTTP helpers ──────────────────────────────────────
 
     def _fresh_headers(self) -> dict[str, str]:
-        """Get fresh auth headers with silent refresh (no interactive prompt).
-
-        Called from background threads - must NEVER block on user input.
-        If token expired, tries silent refresh. If that fails, returns
-        stale headers (caller handles the 401).
-        """
+        """Get fresh auth headers with silent refresh (no interactive prompt)."""
         try:
             from digitorn_cli.auth import (
                 _load_credentials, _refresh_token, _is_token_expired,
@@ -890,10 +842,7 @@ class DaemonBackend:
             return dict(self._auth_headers)
 
     def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
-        """Make an authenticated HTTP request to the daemon.
-
-        Refreshes auth headers before each request.
-        """
+        """Make an authenticated HTTP request to the daemon."""
         headers = self._fresh_headers()
         if "headers" in kwargs:
             kwargs["headers"].update(headers)

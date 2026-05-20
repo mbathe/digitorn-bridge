@@ -1,29 +1,11 @@
-"""Database module - multi-driver async database access for LLM agents.
-
-Supports any SQL database via SQLAlchemy async drivers (PostgreSQL, MySQL,
-SQLite, MSSQL, Oracle). Provides named connections, schema introspection,
-query execution, explicit transactions, and bulk inserts.
-
-LLM-facing actions (10 - these appear in the agent's tool list):
-  - connect          Open a named database connection
-  - disconnect       Close a connection (or all)
-  - list_connections List active connections
-  - sql              Universal SQL - SELECT, DML, DDL, EXPLAIN
-  - transaction      Explicit BEGIN/COMMIT/ROLLBACK on a connection
-  - bulk_insert      Fast multi-row insert
-  - schema           Explore tables / columns / FK / sample data
-  - browse           Paginated row browsing for one table
-  - relations        Show foreign key relationships for a table
-  - search_data      Search data in a table by column value
-
-Internal actions (6 - registered for bus.call() but hidden from the LLM):
-  - execute_query, fetch_results, list_tables, describe, introspect,
-    extract_for_index. The RAG / index modules call these directly via the
-    service bus; LLM agents go through the higher-level wrappers above.
-"""
+"""Database module - multi-driver async database access for LLM agents."""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 import asyncio
 import os
 import time as _time
@@ -72,10 +54,6 @@ from .security import (
 
 logger = structlog.get_logger(__name__)
 
-
-# ── Config model (compile-time validation via CONFIG_MODEL) ──────
-
-
 class DatabaseConfig(BaseModel):
     """Pydantic config for the database module (validated at compile time)."""
 
@@ -90,7 +68,6 @@ class DatabaseConfig(BaseModel):
         default_factory=list,
         description="Connections to establish at module start.",
     )
-
 
 class DatabaseModule(BaseModule):
     MODULE_ID = "database"
@@ -134,13 +111,8 @@ class DatabaseModule(BaseModule):
         self._connection_groups: dict[str, dict[str, Any]] = {}
         self._replica_rr: dict[str, int] = {}
 
-
     def get_prompt_sections(self) -> list[dict[str, Any]]:
-        """Inject database context into the LLM system prompt.
-
-        Shows active connections, available tables, and a compact reference
-        to the 10 database actions exposed to the agent.
-        """
+        """Inject database context into the LLM system prompt."""
         connections = self.pool.list_connections()
         if not connections:
             return []
@@ -273,7 +245,6 @@ class DatabaseModule(BaseModule):
         }
 
     def _get_guard(self, connection_id: str) -> QueryGuard | None:
-        """Get the QueryGuard for a connection, or None if no policy."""
         entry = self.pool._connections.get(connection_id)
         if entry and entry.guard:
             return entry.guard
@@ -283,7 +254,6 @@ class DatabaseModule(BaseModule):
     _DEFAULT_TX_TIMEOUT: float = 300.0
 
     def _get_query_timeout(self, guard: QueryGuard | None) -> float:
-        """Return query timeout in seconds. Always enforced (never None)."""
         if guard:
             return guard.get_query_timeout() or self._DEFAULT_QUERY_TIMEOUT
         return self._DEFAULT_QUERY_TIMEOUT
@@ -291,17 +261,11 @@ class DatabaseModule(BaseModule):
     async def _run_with_timeout(
         self, coro: Any, timeout: float | None,
     ) -> Any:
-        """Run a coroutine with optional timeout. Raises asyncio.TimeoutError."""
         if timeout:
             return await asyncio.wait_for(coro, timeout=timeout)
         return await coro
 
     def _check_transaction_timeout(self, connection_id: str, guard: QueryGuard | None) -> None:
-        """Check if an active transaction has exceeded its time limit.
-
-        Always enforced - uses policy timeout if available, otherwise
-        ``_DEFAULT_TX_TIMEOUT`` (300s) to prevent infinite transactions.
-        """
         start = self._tx_start_times.get(connection_id)
         if start is None:
             return
@@ -330,7 +294,6 @@ class DatabaseModule(BaseModule):
         duration: float = 0.0,
         error: str | None = None,
     ) -> None:
-        """Record a query in the history buffer."""
         import datetime
         entry = {
             "connection_id": connection_id,
@@ -350,7 +313,6 @@ class DatabaseModule(BaseModule):
             self._query_history = self._query_history[-self._QUERY_HISTORY_MAX:]
 
     def _resolve_connection_for_read(self, connection_id: str) -> str:
-        """Resolve a connection ID for a read query, routing to replicas if available."""
         entry = self.pool._connections.get(connection_id)
         if not entry:
             return connection_id
@@ -366,7 +328,6 @@ class DatabaseModule(BaseModule):
         return connection_id
 
     async def _ensure_schema_cached(self, connection_id: str) -> list[Any]:
-        """Load schema into cache if not already cached. Returns tables list."""
         if not self.schema_cache.has(connection_id):
             adapter = self.pool.get_adapter(connection_id)
             schema = await adapter.introspect()
@@ -416,7 +377,6 @@ class DatabaseModule(BaseModule):
                     error=str(exc),
                     exc_info=True,
                 )
-
 
     @action(
         description=(
@@ -504,7 +464,6 @@ class DatabaseModule(BaseModule):
         except (ValueError, SQLAlchemyError) as exc:
             return ActionResult(success=False, error=str(exc))
 
-
     @action(
         description="Close a named database connection. Use connection_id='*' to close all. Example: disconnect(connection_id='main')",
         params_model=DisconnectParams,
@@ -544,7 +503,6 @@ class DatabaseModule(BaseModule):
             },
         )
 
-
     @action(
         description="List all active database connections with metadata. Example: list_connections()",
         params_model=ListConnectionsParams,
@@ -562,7 +520,6 @@ class DatabaseModule(BaseModule):
                 "count": len(connections),
             },
         )
-
 
     @action(
         description=(
@@ -656,7 +613,6 @@ class DatabaseModule(BaseModule):
             return ActionResult(success=False, error=str(exc))
         except SQLAlchemyError as exc:
             return ActionResult(success=False, error=f"Query failed: {exc}")
-
 
     @action(
         description=(
@@ -784,7 +740,6 @@ class DatabaseModule(BaseModule):
         except SQLAlchemyError as exc:
             return ActionResult(success=False, error=f"Bulk insert failed: {exc}")
 
-
     @action(
         description=(
             "Internal: execute a SELECT query and return rows. Hidden from LLM agents - "
@@ -906,7 +861,6 @@ class DatabaseModule(BaseModule):
         except SQLAlchemyError as exc:
             return ActionResult(success=False, error=f"Query failed: {exc}")
 
-
     @action(
         description=(
             "Internal: list tables with columns/FK/indexes. Hidden from LLM agents - "
@@ -949,7 +903,6 @@ class DatabaseModule(BaseModule):
             return ActionResult(success=False, error=str(exc))
         except SQLAlchemyError as exc:
             return ActionResult(success=False, error=f"Introspection failed: {exc}")
-
 
     @action(
         description=(
@@ -1004,7 +957,6 @@ class DatabaseModule(BaseModule):
             return ActionResult(success=False, error=str(exc))
         except SQLAlchemyError as exc:
             return ActionResult(success=False, error=f"Introspection failed: {exc}")
-
 
     @action(
         description=(
@@ -1108,7 +1060,6 @@ class DatabaseModule(BaseModule):
             return ActionResult(success=False, error=str(exc))
         except SQLAlchemyError as exc:
             return ActionResult(success=False, error=f"Describe failed: {exc}")
-
 
     @action(
         description=(
@@ -1222,8 +1173,8 @@ class DatabaseModule(BaseModule):
                 # Timeout exceeded - rollback to release locks before reporting.
                 try:
                     await adapter.rollback()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("module best-effort block failed: %s", exc)
                 self._tx_start_times.pop(connection_id, None)
                 return ActionResult(
                     success=False,
@@ -1278,7 +1229,6 @@ class DatabaseModule(BaseModule):
             },
         )
 
-
     @action(
         description=(
             "Internal: extract schema as IndexEntry + Relation data for the index module. "
@@ -1326,15 +1276,10 @@ class DatabaseModule(BaseModule):
             },
         )
 
-
     def _get_table_annotations(
         self, connection_id: str, table: str,
     ) -> dict[str, Any]:
-        """Get all annotations for a table (table-level + column-level)."""
         return self._annotations.get(connection_id, {}).get(table, {})
-
-
-    # ── Interactive database actions ────────────────────────────────
 
     @action(
         description=(
@@ -1430,7 +1375,6 @@ class DatabaseModule(BaseModule):
 
     @staticmethod
     def _validate_sql(query: str) -> str | None:
-        """Basic SQL validation - catch common LLM mistakes before hitting the database."""
         q = query.strip()
         if not q:
             return "Empty query"
@@ -1449,7 +1393,6 @@ class DatabaseModule(BaseModule):
 
     @staticmethod
     def _enhance_sql_error(error: str | None, query: str) -> str:
-        """Add helpful hints to SQL error messages."""
         if not error:
             return "Unknown SQL error"
         err = str(error)
@@ -1738,12 +1681,7 @@ class DatabaseModule(BaseModule):
         }
 
     def get_context_snippet(self) -> str | None:
-        """Complementary context for database module.
-
-        Schema details and annotations are already injected by
-        _auto_describe_databases in bootstrap, so this only adds
-        usage instructions when connections exist.
-        """
+        """Complementary context for database module."""
         connections = self.pool.list_connections()
         if not connections:
             return None
@@ -1781,9 +1719,7 @@ class DatabaseModule(BaseModule):
             "supported_constraints": self.CONSTRAINTS,
         })
 
-
 def _table_to_dict(table: Any) -> dict[str, Any]:
-    """Convert a TableInfo dataclass to a dict suitable for ActionResult."""
     return {
         "name": table.name,
         "schema": table.schema,
@@ -1793,19 +1729,11 @@ def _table_to_dict(table: Any) -> dict[str, Any]:
         "comment": table.comment,
     }
 
-
 def _build_index_entries(
     source_id: str,
     tables: list[Any],
     annotations: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Build IndexEntry + Relation dicts from introspected tables.
-
-    Returns data in the format expected by ``index._scan_remote``:
-    entries as dicts matching IndexEntry fields, relations as dicts
-    matching Relation fields. Business annotations are merged into
-    summaries and metadata.
-    """
     import hashlib
 
     annotations = annotations or {}
@@ -1901,30 +1829,17 @@ def _build_index_entries(
 
     return entries, relations
 
-
 def _make_entry_id(source_id: str, path: str, name: str) -> str:
-    """Deterministic entry ID - mirrors index.types.make_entry_id."""
     import hashlib
     raw = f"{source_id}:{path}:{name}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
-
 def _resolve_secret(env_var: str | None) -> str | None:
-    """Resolve a password from an environment variable name.
-
-    Returns None if env_var is None or the variable is not set.
-    """
     if not env_var:
         return None
     return os.environ.get(env_var)
 
-
 def _resolve_policy(data: dict[str, Any]) -> DatabasePolicy:
-    """Resolve a policy dict into a DatabasePolicy instance.
-
-    Supports presets: ``{"preset": "readonly"}``, ``{"preset": "safe_write"}``,
-    ``{"preset": "unrestricted"}``, or a full custom dict of DatabasePolicy fields.
-    """
     preset = data.get("preset")
     if preset:
         presets = {
@@ -1940,5 +1855,4 @@ def _resolve_policy(data: dict[str, Any]) -> DatabasePolicy:
             )
         return factory()
     return DatabasePolicy(**{k: v for k, v in data.items() if v is not None})
-
 

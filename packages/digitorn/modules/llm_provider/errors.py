@@ -1,35 +1,14 @@
-"""Provider-level error types.
-
-Distinct exceptions for the cases the runtime needs to react to
-specifically (no-retry for terminal billing/quota, fallback brain
-swap for transient billing, …). Generic provider errors keep
-flowing as plain ``Exception`` / ``RuntimeError`` like before.
-
-This module is import-cheap: no I/O, no SQLA, no external deps.
-The ``Exception`` subclasses carry structured fields the runtime can
-forward to the user-facing error event without having to re-parse
-the LLM provider's response body.
-"""
+"""Provider-level error types."""
 
 from __future__ import annotations
 
 from typing import Optional
 
-
 class ProviderError(RuntimeError):
-    """Base class for daemon-side provider errors. Lets callers
-    catch all provider-related issues without picking up unrelated
-    ``RuntimeError`` instances raised by other modules."""
-
+    """Base class for daemon-side provider errors."""
 
 class QuotaExceededError(ProviderError):
-    """The gateway has refused the call because the user is over
-    quota (or has an active block). Different from a transient
-    rate-limit: retry will keep failing until ``retry_after``.
-
-    The runtime catches this BEFORE the provider's blind 429-retry
-    loop wastes time on repeated calls.
-    """
+    """Gateway refused the call: user is over quota or blocked. Not retriable until `retry_after`."""
 
     def __init__(
         self,
@@ -48,9 +27,7 @@ class QuotaExceededError(ProviderError):
         self.window = window
         self.limit_value = limit_value
         self.actual_value = actual_value
-        # ISO-8601 timestamp of when the block expires. The runtime
-        # forwards this in the user-facing event so the frontend can
-        # show "quota resets at ..." without parsing the message.
+        # ISO-8601 timestamp of when the block expires.
         self.retry_after = retry_after
 
     def to_payload(self) -> dict:
@@ -68,31 +45,12 @@ class QuotaExceededError(ProviderError):
             out["retry_after"] = self.retry_after
         return out
 
-
 def parse_quota_exceeded(
     status_code: int,
     body: object,
     fallback_message: str = "Quota exceeded",
 ) -> Optional[QuotaExceededError]:
-    """Return a populated ``QuotaExceededError`` if ``body`` matches
-    the gateway's 429 quota_exceeded shape, otherwise ``None``.
-
-    The gateway sends::
-
-        HTTP/1.1 429
-        {"detail": {
-            "code": "quota_exceeded",
-            "reason": "...",
-            "metric": "tokens_input",
-            "window": "per_day",
-            "limit": 1000000,
-            "actual": 1050000,
-            "retry_after": "2026-05-06T00:00:00+00:00"
-        }}
-
-    Some clients (LiteLLM, the openai SDK) wrap this differently; we
-    accept both ``{"detail": {...}}`` and ``{...}`` at the top level.
-    """
+    """Return a populated `QuotaExceededError` for the gateway's 429."""
     if status_code != 429:
         return None
     if not isinstance(body, dict):

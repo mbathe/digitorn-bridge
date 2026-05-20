@@ -1,33 +1,4 @@
-"""Generic worker binary -- ``digitorn-worker``.
-
-One binary, configurable module set. Launched by the supervisor
-(or manually by ops) with an env-var or CLI flag pointing at its
-config block in ``~/.digitorn/config.yaml``.
-
-CLI::
-
-    digitorn-worker --id heavy --port 18000 \
-                    --modules shell,llm_provider,web,mcp
-
-Environment::
-
-    DIGITORN_WORKER_ID=heavy
-    DIGITORN_WORKER_PORT=18000
-    DIGITORN_WORKER_MODULES=shell,llm_provider,web,mcp
-    DIGITORN_WORKERS_SECRET=<32-byte b64url>
-
-At startup the worker:
-  1. Reads its config from CLI flags / env / settings file.
-  2. Loads the requested modules via the existing module loader
-     (Phase 2 -- the wiring is not in this skeleton).
-  3. Runs ``module.on_start()`` for each loaded module.
-  4. Mounts the routes from ``routes.py``.
-  5. Binds 127.0.0.1:<port> with winloop on Windows / uvloop on
-     Linux (same loop policy as ``digitorn-api``).
-
-Phase 1 status: the app boots, exposes /health and /modules, and
-serves the route placeholders. Real module loading is Phase 2.
-"""
+"""Generic worker binary -- `digitorn-worker`."""
 from __future__ import annotations
 
 import logging
@@ -47,17 +18,7 @@ logger = logging.getLogger(__name__)
 
 cli = typer.Typer(add_completion=False, no_args_is_help=False)
 
-
 def _load_shared_secret(override: str | None = None) -> str:
-    """Read the daemon/worker shared secret. ``override`` wins; else
-    ``DIGITORN_WORKERS_SECRET`` env; else
-    ``~/.digitorn/.workers-secret`` (auto-created on first boot).
-
-    The supervisor is responsible for creating that file on first
-    install with 32 random bytes (mode 0600) and propagating it via
-    env to spawned workers. The worker keeps a fallback file-read
-    so a manual ``digitorn-worker`` invocation Just Works.
-    """
     if override:
         return override
     env = os.environ.get("DIGITORN_WORKERS_SECRET")
@@ -66,9 +27,6 @@ def _load_shared_secret(override: str | None = None) -> str:
     secret_path = Path.home() / ".digitorn" / ".workers-secret"
     if secret_path.exists():
         return secret_path.read_text(encoding="utf-8").strip()
-    # Generate one. The daemon (Phase 4) will normally have done
-    # this at install time; this branch is defensive for ad-hoc
-    # ``digitorn-worker`` runs in dev.
     import secrets
     secret = secrets.token_urlsafe(32)
     secret_path.parent.mkdir(parents=True, exist_ok=True)
@@ -86,28 +44,8 @@ def _load_shared_secret(override: str | None = None) -> str:
     )
     return secret
 
-
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """Worker process lifecycle.
-
-    Boot path:
-      1. Discover and load only the modules in ``app.state.hosted_modules``
-         via the standard ``digitorn.core.loader.load_modules`` -- the
-         same loader the daemon uses, so module discovery, platform
-         guards, and TOML-declared dependencies behave identically.
-      2. Build a ``ServiceBus`` and register every loaded module so
-         cross-module calls inside the worker work natively.
-      3. Run each module's ``on_start()`` lifecycle hook. Failures
-         are logged but don't abort the worker boot -- the
-         offending module's actions return errors at dispatch time.
-      4. Stash everything on ``app.state.modules`` /
-         ``app.state.service_bus`` so the route handlers can dispatch.
-
-    Shutdown reverses the above: call ``on_stop()`` on every module
-    in registration order, swallowing exceptions so a misbehaving
-    module can't block the worker exit.
-    """
     app.state.started_at = time.monotonic()
     app.state.modules = {}
     app.state.service_bus = None
@@ -123,7 +61,7 @@ async def _lifespan(app: FastAPI):
             from digitorn.modules.registry import ModuleRegistry
             from digitorn.core.loader import load_modules
             registry = ModuleRegistry()
-            # ``enabled=`` + ``load_all=False`` restricts the loader
+            # `enabled=` + `load_all=False` restricts the loader
             # to exactly the modules this worker is responsible for.
             load_results = load_modules(
                 registry,
@@ -210,7 +148,6 @@ async def _lifespan(app: FastAPI):
                     module_id, exc,
                 )
 
-
 def create_app(
     *,
     worker_id: str,
@@ -231,7 +168,6 @@ def create_app(
     app.state.phase = "1-skeleton"
     app.include_router(router)
     return app
-
 
 @cli.command()
 def run(
@@ -264,9 +200,7 @@ def run(
         "info", "--log-level",
     ),
 ) -> None:
-    """Boot one worker process. Idempotent: safe to invoke under
-    a supervisor that restarts on crash.
-    """
+    """Boot one worker process. Idempotent: safe to invoke under."""
     module_list = [m.strip() for m in modules.split(",") if m.strip()]
     if not module_list:
         # An empty worker is valid (e.g. early dev / health-only smoke
@@ -286,11 +220,8 @@ def run(
         port=port,
     )
 
-    # Match the loop policy used by ``digitorn-api`` so the worker
-    # gets winloop on Windows and uvloop / asyncio on POSIX. The
-    # daemon's policy installer is the canonical implementation;
-    # import here to keep the worker import-light when not on
-    # Windows.
+    # Mirror the daemon's loop policy (winloop on Windows, uvloop on
+    # POSIX).
     try:
         from digitorn.core.server import (  # noqa: F401  (side-effects)
             _install_windows_event_loop_policy,
@@ -308,13 +239,9 @@ def run(
         loop=loop_name,
     )
 
-
 def main() -> None:
-    """Entry point for the ``digitorn-worker`` script. Wired in
-    ``pyproject.toml`` under ``[tool.poetry.scripts]``.
-    """
+    """Entry point for the `digitorn-worker` script. Wired."""
     cli()
-
 
 if __name__ == "__main__":
     main()

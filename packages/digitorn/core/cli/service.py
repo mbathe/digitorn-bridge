@@ -1,15 +1,4 @@
-"""CLI commands for system service management.
-
-    digitorn service install     Install as system service
-    digitorn service uninstall   Remove the system service
-    digitorn service start       Start the service
-    digitorn service stop        Stop the service
-    digitorn service status      Show service status
-    digitorn service logs        Show recent service logs
-
-Cross-platform: delegates to Windows (sc.exe), Linux (systemd),
-or macOS (launchd) backend automatically.
-"""
+"""CLI commands for system service management."""
 
 from __future__ import annotations
 
@@ -37,9 +26,6 @@ def _get_backend():
     return backend
 
 
-# ── Public helpers (used by setup.py) ──
-
-
 def install_service() -> None:
     """Install the system service (called by setup wizard)."""
     _get_backend().install()
@@ -48,9 +34,6 @@ def install_service() -> None:
 def start_service() -> None:
     """Start the system service (called by setup wizard)."""
     _get_backend().start()
-
-
-# ── CLI commands ──
 
 
 @service_cli.command("install")

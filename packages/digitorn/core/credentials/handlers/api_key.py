@@ -1,17 +1,4 @@
-"""ApiKeyHandler - the most common case.
-
-Handles plain API keys: OpenAI, Anthropic, DeepSeek, any service that
-exposes a single bearer-token authentication. The handler:
-
-- Validates the declared fields (regex + required)
-- Does NOT have a native refresh mechanism (API keys never expire
-  from the provider's side unless revoked manually)
-- Implements ``refresh`` as a ``test_live_connection`` call so the
-  proactive worker can mark a revoked key as ``invalid``
-- The live test is **opt-in**: if the schema has a ``test_endpoint``
-  field, we hit it with the key and expect a 2xx. Otherwise the test
-  is a no-op.
-"""
+"""ApiKeyHandler - the most common case."""
 
 from __future__ import annotations
 
@@ -43,21 +30,7 @@ class ApiKeyHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Hit the declared test endpoint if any.
-
-        The schema can declare::
-
-            test:
-              method: GET
-              url: "https://api.openai.com/v1/models"
-              auth_header: "Authorization: Bearer {{field.api_key}}"
-              expected_status: 200
-
-        Without a recipe the handler falls back to a generic ping of
-        ``fields.base_url`` (the custom-template field) with the user's
-        chosen auth header - that way the user gets real feedback even
-        on credentials that aren't in the catalogue.
-        """
+        """Hit the declared test endpoint if any."""
         test = schema_provider.get("test")
         if not test:
             return await _ping_with_auth(fields)
@@ -99,13 +72,7 @@ class ApiKeyHandler(CredentialHandler):
 async def _ping_with_auth(
     fields: dict[str, Any] | None,
 ) -> tuple[bool, str | None]:
-    """Generic fallback test for custom api_key credentials.
-
-    Probes the user-supplied ``base_url`` with the configured auth
-    header (Authorization: Bearer by default, custom header when
-    ``auth_header`` field is set). Treats 401/403 as auth failure
-    and any successful TCP/TLS exchange as "endpoint reachable".
-    """
+    """Generic fallback test for custom api_key credentials."""
     fields = fields or {}
     api_key = str(fields.get("api_key") or "").strip()
     base_url = str(fields.get("base_url") or "").strip()
@@ -134,13 +101,7 @@ async def _ping_with_auth(
         credential: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> dict[str, Any]:
-        """Re-validate the API key - not a real refresh (keys don't expire).
-
-        Called by the proactive worker periodically. If the live test
-        passes, bumps ``last_validated_at`` and keeps status=valid. If
-        it fails, flips status to ``invalid`` so the runtime refuses
-        to use it and the user is notified.
-        """
+        """Re-validate the API key - not a real refresh (keys don't expire)."""
         ok, err = await self.test_live_connection(
             credential.get("fields") or {}, schema_provider,
         )

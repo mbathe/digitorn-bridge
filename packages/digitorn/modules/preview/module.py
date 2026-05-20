@@ -1,40 +1,4 @@
-"""Preview Module - universal live canvas for Digitorn apps.
-
-Agents push state and events to a per-session preview stream that the
-app's ``web/`` UI reads via Socket.IO (namespace ``/events``, room
-``session:{session_id}``). This gives any app (digitorn-builder,
-future workflow editors, multi-agent orchestrators, …) an n8n-style
-live canvas **without writing a single line of frontend code** when
-the app uses the default React SDK.
-
-The module is stateless across the process in the sense that all
-state lives inside a per-session ``PreviewSessionState``. Events are
-published via the Socket.IO bus injected by the bootstrap.
-
-Actions (all broadcast live to any connected browser for the session):
-
-    preview.set_state(key, value)    update a scalar value in the state map
-    preview.patch_state(patch)       merge a dict into the state map
-    preview.get_state()              read the current state map
-    preview.clear()                  reset everything
-
-    preview.push_node(node)          add or replace a canvas node
-    preview.update_node(id, updates) partial update of an existing node
-    preview.highlight_node(id, status)  set status: idle|running|done|error
-    preview.remove_node(id)
-
-    preview.push_edge(edge)
-    preview.remove_edge(id)
-
-    preview.emit(event_type, data)   free-form event pushed to the stream
-
-Each mutation publishes one ``preview:*`` event on the session room
-(via ``SessionBus.emit`` - same envelope.seq + history_log persistence
-as every other session event) and schedules a debounced flush of the
-in-memory state to ``state.json`` under
-``{workspace}/.digitorn/sessions/{sid}/`` (the single source of truth
-for the next reconnect).
-"""
+"""Preview Module - universal live canvas for Digitorn apps."""
 
 from __future__ import annotations
 
@@ -44,21 +8,20 @@ import re
 from contextvars import ContextVar
 from typing import Any
 
-
 # Per-asyncio-task active session pointer. Replaces the previous
-# instance-level ``self._active_session_id`` which was a CRITICAL race
-# condition: the preview module is ``isolation=shared``, so a single
+# instance-level `self._active_session_id` which was a CRITICAL race
+# condition: the preview module is `isolation=shared`, so a single
 # instance serves every session in the daemon. With a flat instance
 # variable, two concurrent agent turns from different sessions would
-# race on the same memory cell - one turn could ``set_active_session``,
-# yield at the next ``await``, and a second turn would overwrite the
+# race on the same memory cell - one turn could `set_active_session`,
+# yield at the next `await`, and a second turn would overwrite the
 # pointer; when the first turn resumed, its tool calls would land in
 # the WRONG session's resources, silently leaking files / nodes /
 # slides across the user / session boundary.
 #
-# ``ContextVar`` solves this because every asyncio task carries its
+# `ContextVar` solves this because every asyncio task carries its
 # own copy of the active context - reads and writes are local to the
-# task, and ``asyncio.create_task(...)`` snapshots the parent context
+# task, and `asyncio.create_task(...)` snapshots the parent context
 # at creation so spawned agent tasks inherit the right session
 # without explicit propagation. Same pattern Flask / FastAPI use for
 # the per-request state.
@@ -81,10 +44,6 @@ from digitorn.modules.preview.store import (
 
 logger = logging.getLogger(__name__)
 
-
-# ── Config model (compile-time validation via CONFIG_MODEL) ──────
-
-
 class PreviewModuleConfig(BaseModel):
     """Pydantic config for the preview module (validated at compile time)."""
 
@@ -92,26 +51,19 @@ class PreviewModuleConfig(BaseModel):
 
     workspace: str = Field(default="", description="Auto-injected by the daemon.")
 
-
-# ─────────────────────────── params ────────────────────────────
-
-
 class SetStateParams(BaseModel):
     """Set a single scalar in the session's preview state map."""
     key: str = Field(..., description="State key, e.g. 'current_state', 'yaml', 'progress'.")
     value: Any = Field(..., description="Arbitrary JSON-serialisable value.")
 
-
 class PatchStateParams(BaseModel):
     """Merge a dict of key/value updates into the state map."""
     patch: dict[str, Any] = Field(..., description="Fields to merge.")
-
 
 class EmitParams(BaseModel):
     """Push a free-form event to the preview stream."""
     event_type: str = Field(..., description="Event category, e.g. 'compile_attempt', 'user_answered'.")
     data: dict[str, Any] = Field(default_factory=dict, description="Event payload.")
-
 
 class PushNodeParams(BaseModel):
     """Add or replace a canvas node (ReactFlow-shaped)."""
@@ -128,22 +80,18 @@ class PushNodeParams(BaseModel):
     data: dict[str, Any] = Field(default_factory=dict, description="Arbitrary payload attached to the node.")
     status: str = Field(default="idle", description="idle | running | done | error")
 
-
 class UpdateNodeParams(BaseModel):
     """Partial update to an existing node."""
     id: str = Field(..., description="Node id to update.")
     updates: dict[str, Any] = Field(..., description="Fields to merge into the node.")
 
-
 class HighlightNodeParams(BaseModel):
-    """Shortcut to set a node's ``status`` field and broadcast it."""
+    """Shortcut to set a node's `status` field and broadcast it."""
     id: str = Field(..., description="Node id.")
     status: str = Field(..., description="idle | running | done | error")
 
-
 class RemoveNodeParams(BaseModel):
     id: str = Field(..., description="Node id to remove.")
-
 
 class PushEdgeParams(BaseModel):
     """Add or replace a canvas edge (ReactFlow-shaped)."""
@@ -156,26 +104,20 @@ class PushEdgeParams(BaseModel):
     label: str = Field(default="", description="Optional label displayed on the edge.")
     data: dict[str, Any] = Field(default_factory=dict)
 
-
 class RemoveEdgeParams(BaseModel):
     id: str = Field(..., description="Edge id to remove.")
 
-
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
-
 
 def _slugify(text: str, fallback: str) -> str:
     s = _SLUG_RE.sub("-", (text or "").strip().lower()).strip("-")
     return s or fallback
 
-
 class GetStateParams(BaseModel):
     """No params - returns the full snapshot."""
 
-
 class ClearParams(BaseModel):
     """No params - wipes the session's preview state."""
-
 
 class SetResourceParams(BaseModel):
     """Upsert a resource into a named channel."""
@@ -183,26 +125,21 @@ class SetResourceParams(BaseModel):
     id: str = Field(..., description="Unique id within the channel.")
     payload: dict[str, Any] = Field(default_factory=dict, description="Arbitrary payload.")
 
-
 class PatchResourceParams(BaseModel):
     """Merge fields into an existing resource. Creates it if absent."""
     channel: str = Field(...)
     id: str = Field(...)
     patch: dict[str, Any] = Field(...)
 
-
 class DeleteResourceParams(BaseModel):
     channel: str = Field(...)
     id: str = Field(...)
 
-
 class ListResourcesParams(BaseModel):
     channel: str = Field(...)
 
-
 class ClearChannelParams(BaseModel):
     channel: str = Field(...)
-
 
 class BulkSetResourcesParams(BaseModel):
     """Upsert many resources in one event (snapshot/import)."""
@@ -210,21 +147,8 @@ class BulkSetResourcesParams(BaseModel):
     items: dict[str, dict[str, Any]] = Field(..., description="Map of id → payload.")
     replace: bool = Field(default=False, description="If true, drop existing channel before insert.")
 
-
-# ─────────────────────────── module ────────────────────────────
-
-
 class PreviewModule(BaseModule):
-    """Per-session live preview for Digitorn apps.
-
-    All actions resolve the current session via the
-    ``_ACTIVE_SESSION_VAR`` ContextVar set by ``set_active_session``.
-    Each mutation publishes a ``preview:*`` event on the session
-    room (envelope.seq stamped by SessionBus, persisted in
-    history_log) and schedules a debounced flush to ``state.json``
-    on disk - which is the single source of truth that's read back
-    on reconnect.
-    """
+    """Per-session live preview for Digitorn apps."""
 
     MODULE_ID = "preview"
     VERSION = "1.0.0"
@@ -244,39 +168,18 @@ class PreviewModule(BaseModule):
     def __init__(self) -> None:
         super().__init__()
         self._store = PreviewSessionStore()
-        # Socket.IO bridge - set by bootstrap to emit events on the bus.
         self._event_bus: Any | None = None
         self._bus_app_id: str | None = None
-        # Debounced flush: a burst of agent writes within
-        # ``_persist_debounce_s`` collapses into one ``state.json``
-        # write. Pending timers are cancelled on cleanup + force-
-        # flushed on abort / shutdown.
+        # Debounced flush: bursts of agent writes collapse into one
+        # `state.json` write; pending timers are flushed on shutdown.
         self._persist_debounce_s: float = 0.5
         self._pending_flushes: dict[str, asyncio.Task] = {}
-        # Per-session WORKDIR. This is the path the workspace module's
-        # ``sync_to_disk`` writes user-visible files to (the agent's
-        # working directory). Sessions without an entry have no preview
-        # persistence (transient state only - tests, CLI).
+        # Per-session paths: workdir (agent files) + daemon-private dir
+        # (state.json, baselines, `__sdk__/`).
         self._session_workspaces: dict[str, str] = {}
-        # Per-session DAEMON-PRIVATE dir (always under
-        # ``~/.digitorn/workspaces/{app}/{sid}/``). state.json,
-        # baselines, hidden ``__sdk__/`` namespaces live here so the
-        # daemon never pollutes the user's workdir with .digitorn/.
-        # Falls back to the workdir entry above when not set (legacy
-        # apps that don't propagate the daemon path explicitly).
         self._session_daemon_dirs: dict[str, str] = {}
 
     def _resolve_app_id(self) -> str:
-        """Return the current call's app_id, per-task accurate.
-
-        ``_bus_app_id`` is set on the shared instance at each app's
-        deploy time, so the LAST deploy wins and ``bus.session_key()``
-        sends events to the wrong room when a non-last app emits.
-        Reading ``ctx.app_id`` from the per-task ContextVar fixes it;
-        fall back to ``_bus_app_id`` for code paths with no ctx
-        (background flush, snapshot writer). Mirror of
-        ``workspace._resolve_app_id`` and ``web_preview._app_id_str``.
-        """
         try:
             ctx = self._context_var.get()
         except Exception:
@@ -284,21 +187,10 @@ class PreviewModule(BaseModule):
         ctx_app = getattr(ctx, "app_id", "") if ctx is not None else ""
         return ctx_app or (self._bus_app_id or "")
 
-    # ── session wiring ────────────────────────────────────────
-
     def set_active_session(
         self, session_id: str | None, user_id: str | None = None,
     ) -> None:
-        """Set the active session id (and owning user) for the CURRENT
-        asyncio task.
-
-        Stored in module-level ContextVars so concurrent agent turns
-        from different sessions never see each other's pointer.
-        Tasks spawned with ``asyncio.create_task`` inherit a snapshot
-        of the caller's context, so the active session correctly
-        propagates from the request handler down into the agent loop
-        and its tool dispatch.
-        """
+        """Set the active session id (and owning user) for the CURRENT."""
         _ACTIVE_SESSION_VAR.set(session_id)
         _ACTIVE_USER_VAR.set(user_id)
         if session_id and user_id:
@@ -312,17 +204,7 @@ class PreviewModule(BaseModule):
         daemon_dir: str | None = None,
         set_active: bool = True,
     ) -> PreviewSessionState:
-        """Bring a session online and reconcile in-memory state with
-        ``state.json`` on disk.
-
-        ``workspace`` is the agent-facing WORKDIR (``sync_to_disk``
-        target). ``daemon_dir`` is the daemon-private session dir
-        (under ``~/.digitorn/workspaces/{app}/{sid}/``) that owns
-        ``state.json``, baselines, ``__sdk__/`` and other private
-        files. Both default to None for backward compat - sessions
-        without an explicit daemon_dir still flush state.json into
-        the workspace path (legacy single-tree behaviour).
-        """
+        """Bring a session online and reconcile in-memory state."""
         if set_active:
             _ACTIVE_SESSION_VAR.set(session_id)
             _ACTIVE_USER_VAR.set(user_id)
@@ -337,21 +219,8 @@ class PreviewModule(BaseModule):
         return state
 
     async def _hydrate_from_disk(self, state: PreviewSessionState) -> None:
-        """Overlay the on-disk ``state.json`` onto ``state``.
-
-        Idempotent and non-destructive: keys present in memory but
-        absent on disk survive. Per-channel resource dicts are merged
-        key-by-key.
-
-        For each resource, the ``updated_at`` timestamp arbitrates: if
-        the in-memory copy is newer (an in-flight write that has not
-        yet flushed), keep it; otherwise the disk version wins. Without
-        this guard, a reconnect during an active agent turn would
-        clobber the in-memory state with a stale on-disk snapshot, and
-        the agent's most recent write would silently disappear.
-        """
         # Read state.json from the DAEMON-PRIVATE dir first (where
-        # ``flush_to_disk`` writes); fall back to the workdir for
+        # `flush_to_disk` writes); fall back to the workdir for
         # legacy session that pre-date the workspace/workdir split.
         ws = (
             self._session_daemon_dirs.get(state.session_id)
@@ -425,30 +294,20 @@ class PreviewModule(BaseModule):
         return self._store.get_or_create(self._resolve_session_id())
 
     async def on_stop(self) -> None:
-        """Force-flush every active session's ``state.json`` so a daemon
-        kill does not lose the last debounce window's mutations."""
+        """Force-flush every active session's `state.json` so a daemon."""
         try:
             await self.flush_all()
         except Exception as exc:
             logger.warning("preview_on_stop_flush_failed: %s", exc)
 
     async def cleanup_session(self, session_id: str) -> None:
-        """Flush + drop in-memory state for a session.
-
-        Flush runs first so ``state.json`` reflects the final in-memory
-        state - what a subsequent reopen expects to read.
-        """
+        """Flush + drop in-memory state for a session."""
         await self._flush_now(session_id)
         task = self._pending_flushes.pop(session_id, None)
         if task is not None and not task.done():
             task.cancel()
         self._store.drop(session_id)
-        # Drop per-session lookup tables so they don't grow unbounded
-        # across the daemon's lifetime. ``activate_session`` adds an
-        # entry every time but the cleanup chain used to forget these
-        # two dicts -- multi-session apps (100s of sessions/day) saw
-        # ``_session_workspaces`` / ``_session_daemon_dirs`` keep
-        # stale entries forever.
+        # Drop per-session lookup tables to keep them bounded across daemon lifetime.
         self._session_workspaces.pop(session_id, None)
         self._session_daemon_dirs.pop(session_id, None)
 
@@ -460,10 +319,7 @@ class PreviewModule(BaseModule):
             except Exception as exc:
                 logger.warning("preview_flush_shutdown_failed sid=%s: %s", sid, exc)
 
-    # ── Durable snapshot plumbing ─────────────────────────────
-
     def _schedule_persist(self, session_id: str) -> None:
-        """Leading-edge debounced flush. Caps staleness at one debounce window."""
         if not session_id:
             return
         existing = self._pending_flushes.get(session_id)
@@ -488,24 +344,11 @@ class PreviewModule(BaseModule):
             self._pending_flushes.pop(session_id, None)
 
     async def _flush_now(self, session_id: str) -> None:
-        """Write the in-memory snapshot to ``state.json`` on disk.
-
-        ``state.json`` lives under
-        ``{workspace}/.digitorn/sessions/{sid}/`` - that JSON file is
-        the single source of truth for preview state. Sessions
-        without a workspace dir (apps with ``workspace_mode: none``,
-        or tests with no preview persistence at all) are silently
-        skipped: their state lives in memory for the duration of
-        the process and dies at restart.
-        """
         state = self._store.get(session_id)
         if state is None:
             return
-        # state.json must land under the DAEMON-PRIVATE dir, not in
-        # the user's workdir - otherwise we pollute their project with
-        # ``.digitorn/`` metadata. Fall back to the workdir entry only
-        # when the daemon dir hasn't been registered (transitional
-        # behaviour for sessions that pre-date the split).
+        # state.json lives in the daemon-private dir so we never write
+        # `.digitorn/` into the user's workdir.
         ws = (
             self._session_daemon_dirs.get(session_id)
             or self._session_workspaces.get(session_id)
@@ -514,15 +357,8 @@ class PreviewModule(BaseModule):
         if not ws:
             return
 
-        # Materialise the snapshot synchronously BEFORE handing off to
-        # the thread pool. ``state.resources`` is a live dict that any
-        # concurrent ``set_resource`` mutates in place; iterating it
-        # inside the worker thread (or even just letting Python
-        # advance through nested dicts while the loop yields) risks
-        # ``RuntimeError: dictionary changed size during iteration``
-        # or a torn snapshot. Building a fully deep-copied tree here
-        # under the same task that owns the event loop guarantees a
-        # consistent point-in-time view.
+        # Build the snapshot on this task so the thread-pool worker
+        # sees a stable copy (`state.resources` mutates concurrently).
         snapshot_state = dict(state.state)
         snapshot_resources = {
             ch: {
@@ -558,23 +394,12 @@ class PreviewModule(BaseModule):
             state = self._store.get_or_create(session_id)
         return state.snapshot()
 
-    # ── internal publish helper ───────────────────────────────
-
     async def _publish(
         self,
         session_state: PreviewSessionState,
         event_type: str,
         data: dict[str, Any],
     ) -> None:
-        """Broadcast a state change to the session room and schedule
-        a disk flush.
-
-        The wire envelope picks up its ordering ``seq`` from
-        ``SessionBus.emit`` (single source of truth, also persisted in
-        ``history_log``). No per-event ``preview_seq`` field is added
-        to the payload - clients dedup on ``envelope.event_id`` and
-        order by ``envelope.seq`` like every other session event.
-        """
         bus = self._event_bus
         if bus is None:
             logger.warning(
@@ -599,11 +424,9 @@ class PreviewModule(BaseModule):
                 )
 
         # Schedule a debounced disk flush. A burst of N mutations in
-        # ``_persist_debounce_s`` collapses into one ``state.json``
+        # `_persist_debounce_s` collapses into one `state.json`
         # write.
         self._schedule_persist(session_state.session_id)
-
-    # ── actions ────────────────────────────────────────────────
 
     @action(
         description="Set a single key in the session's live preview state map.",
@@ -770,11 +593,8 @@ class PreviewModule(BaseModule):
     )
     async def bulk_set_resources(self, params: BulkSetResourcesParams) -> ActionResult:
         sess = self._session()
-        # Build the new channel snapshot OFF the live dict, then swap
-        # it in atomically. The previous "clear() then loop-insert"
-        # pattern left a window where a concurrent ``set_resource``
-        # could land between the clear and the next insert and get
-        # silently dropped.
+        # Build the snapshot then swap atomically (a `clear` + reinsert
+        # loop would race with concurrent `set_resource` calls).
         items = {rid: dict(p) for rid, p in params.items.items()}
         if params.replace:
             sess.resources[params.channel] = items

@@ -1,7 +1,7 @@
 """Rate limiter - per-app and per-user request throttling.
 
 Supports DiskCache (default) and Redis (multi-host) via the
-``KeyValueBackend`` abstraction.
+`KeyValueBackend` abstraction.
 
 Implements a sliding window counter algorithm:
     - Each window is `window_seconds` long (default: 60s)
@@ -64,13 +64,13 @@ class RateLimitExceeded(Exception):
 class RateLimiter:
     """Per-app sliding window rate limiter.
 
-    Backed by any ``KeyValueBackend`` (DiskCache or Redis).
+    Backed by any `KeyValueBackend` (DiskCache or Redis).
     Thread-safe and cross-process safe.
 
     Args:
         default_rpm: Default requests per minute for all apps.
         window: Window size in seconds.
-        backend_url: Backend URL - ``redis://...`` for Redis, or None for DiskCache.
+        backend_url: Backend URL - `redis://...` for Redis, or None for DiskCache.
         directory: DiskCache directory (ignored if backend_url is Redis).
         backend: Pre-constructed backend instance (overrides url/directory).
     """
@@ -98,7 +98,7 @@ class RateLimiter:
     def check(self, app_id: str, user_id: str | None = None) -> None:
         """Check rate limits (app-level, then user-level if user_id given).
 
-        Increments counters and raises ``RateLimitExceeded``
+        Increments counters and raises `RateLimitExceeded`
         if either limit would be exceeded.
         """
         now = time.time()

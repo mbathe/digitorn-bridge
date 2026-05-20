@@ -1,10 +1,4 @@
-"""ContextualRetrieval - Anthropic pattern for chunk enrichment.
-
-Before embedding, each chunk gets a LLM-generated context prefix that
-situates it within the full document. Improves retrieval by 49% (Anthropic benchmark).
-
-This strategy wraps the ingestion phase, not the retrieval phase.
-"""
+"""ContextualRetrieval - Anthropic pattern for chunk enrichment."""
 
 from __future__ import annotations
 
@@ -21,7 +15,6 @@ _CONTEXT_PROMPT = (
     "the overall document. Focus on what makes this chunk unique and searchable. "
     "Respond with ONLY the context, no preamble."
 )
-
 
 class ContextualEnricher:
     """Generates context prefixes for chunks before embedding."""

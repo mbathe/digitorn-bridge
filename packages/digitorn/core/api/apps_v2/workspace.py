@@ -1,8 +1,4 @@
-"""Routes for the workspace group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the workspace group, extracted from the legacy `apps.py`."""
 
 from __future__ import annotations
 
@@ -105,27 +101,16 @@ from ._shared import (
 router = APIRouter(tags=["apps"])
 
 
-# Max bytes accepted by writeback - 10 MB. Higher than typical source
-# files but well below daemon OOM territory. Configurable later if a
-# real use case needs more.
 _WRITEBACK_MAX_BYTES = 10 * 1024 * 1024
 
 
 def _safe_relative_path(file_path: str) -> str | None:
-    """Normalise a workspace-relative path and reject traversals.
-
-    Returns the cleaned forward-slash path, or ``None`` if it tries
-    to escape the workspace (``..``, absolute, drive letter, ...).
-    Used by every endpoint that accepts a path-as-URL-segment.
-    """
+    """Normalise a workspace-relative path and reject traversals."""
     if not file_path:
         return None
     p = file_path.replace("\\", "/").strip("/")
     if not p:
         return None
-    # Reject obviously bad segments. We do this on the raw string
-    # rather than ``Path.resolve()`` because we want a workspace-
-    # relative result without touching the filesystem.
     parts = p.split("/")
     for seg in parts:
         if not seg or seg in (".", ".."):
@@ -136,45 +121,27 @@ def _safe_relative_path(file_path: str) -> str | None:
     return "/".join(parts)
 
 
-
 @router.get("/{app_id}/sessions/{session_id}/workspace", response_model=AppResponse)
 async def get_session_workspace(request: Request, app_id: str, session_id: str) -> AppResponse:
-    """Full workspace snapshot for a session - durable + in-memory state merged.
-
-    Returns everything the client needs to re-render the session view
-    identically on reopen:
-
-    - ``workspace`` / ``workspace_mode`` - physical workspace dir (if any)
-    - ``render_mode`` / ``entry_file`` - from the top-level ``workspace:`` YAML
-    - ``snapshot`` - the live preview state tree (``state`` map, ``resources``
-      channels, last ``seq``). Hydrated from DB on first read after a
-      daemon restart, then live-updated by every tool call.
-    - ``git`` - git status of the physical workspace (if present)
-    """
+    """Full workspace snapshot for a session - durable + in-memory state merged."""
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     manager = _get_manager(request)
     if not _is_deployed(request, app_id):
         _raise_not_deployed(request, app_id)
 
-    # BUG-076: reject anonymous / cross-user workspace peeking.
+    # reject anonymous / cross-user workspace peeking.
     session = await _require_session_access(request, app_id, session_id)
     _uid = session.user_id if session is not None else (
         getattr(request.state, "user_id", None) or "local"
     )
 
-    # Post-scoping refactor: _deployed is keyed by (scope, owner, app_id).
-    # Use the scope-aware manager.get() to resolve.
     deployed = manager.get(app_id, user_id=_caller_user_id(request))
     if not deployed:
         _raise_not_deployed(request, app_id)
 
     import os
     ws_mode = getattr(deployed.compiled.execution, "workspace_mode", "auto")
-    # Per-session workdir wins: it's the agent-facing path the user
-    # sees in the UI (file tree, editor, status bar). The compiled YAML
-    # workspace is only a fallback for legacy ``fixed``/``none`` apps
-    # that don't go through the per-session create flow.
     session_workdir = (
         (getattr(session, "workdir", "") or getattr(session, "workspace", ""))
         if session is not None else ""
@@ -203,11 +170,6 @@ async def get_session_workspace(request: Request, app_id: str, session_id: str) 
         result["entry_file"] = getattr(ws_block, "entry_file", None)
         result["title"] = getattr(ws_block, "title", None)
 
-    # Hydrated preview snapshot (state + resources). Pulls from the
-    # in-memory store first; the store is itself seeded from
-    # ``state.json`` on disk on first ``activate_session`` call, so
-    # reopening a session from a cold client still renders the last
-    # saved state.
     preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
     snapshot: dict[str, Any] = {
         "state": {}, "resources": {}, "hydrated": False,
@@ -231,9 +193,6 @@ async def get_session_workspace(request: Request, app_id: str, session_id: str) 
     result["snapshot"] = snapshot
 
     if workspace:
-        # Off-loop: 3 ``subprocess.run`` git calls with 3-5s timeouts.
-        # Even on the happy path each takes 50-200ms, enough to drop
-        # Socket.IO pings under load.
         import asyncio as _asyncio
         result["git"] = await _asyncio.to_thread(_get_workspace_status, workspace)
 
@@ -245,12 +204,7 @@ async def get_session_workspace(request: Request, app_id: str, session_id: str) 
 async def get_code_snapshot(
     request: Request, app_id: str, session_id: str,
 ) -> AppResponse:
-    """File tree + metadata for the code editor - NO content.
-
-    Preview module is preferred (it carries live validation / pending-diff
-    metadata). For apps without preview we fall back to listing files on
-    disk in the session workspace so the explorer still renders.
-    """
+    """File tree + metadata for the code editor - NO content."""
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     manager = _get_manager(request)
@@ -277,9 +231,6 @@ async def get_code_snapshot(
         import os as _os
         from pathlib import Path as _Path
         sess = await manager.get_session(app_id, session_id, user_id=_uid)
-        # Walk the AGENT-facing workdir, not the daemon-private
-        # workspace - the explorer should show the user's files,
-        # never the daemon's internal state (baselines, __sdk__/).
         ws = (
             (getattr(sess, "workdir", "") or getattr(sess, "workspace", ""))
             if sess else ""
@@ -327,22 +278,14 @@ async def get_code_snapshot(
 async def export_session_workspace(
     request: Request, app_id: str, session_id: str,
 ) -> AppResponse:
-    """Export the full workspace snapshot as a portable JSON object.
-
-    The returned payload can be POSTed to ``/workspace/import`` on any
-    session of the same app (or ``/workspace/fork`` to create a new one).
-    Suitable for "Save a copy", cross-user hand-off, or project
-    templates.
-    """
+    """Export the full workspace snapshot as a portable JSON object."""
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     manager = _get_manager(request)
     if not _is_deployed(request, app_id):
         _raise_not_deployed(request, app_id)
 
-    # BUG-066 + cross-user guard: use the shared helper so the 404 we
-    # return is indistinguishable from every other session route and
-    # the owner lookup uses the same uid resolution path as GET /sessions.
+    # shared helper keeps the 404 + uid resolution identical to other session routes.
     session = await _require_session_access(request, app_id, session_id)
     _uid = session.user_id
 
@@ -383,13 +326,7 @@ async def export_session_workspace(
 async def file_history_endpoint(
     request: Request, app_id: str, session_id: str, file_path: str,
 ) -> AppResponse:
-    """History of baseline revisions for a file - latest first.
-
-    MUST be declared BEFORE the ``/files/{file_path:path}`` catch-all
-    that follows. FastAPI route matching is first-match in declaration
-    order; with the catch-all earlier, the ``/history`` suffix would be
-    consumed as part of ``file_path`` and the request would return 404.
-    """
+    """History of baseline revisions for a file - latest first."""
     _validate_id(session_id, "session_id")
     session = await _require_session_access(request, app_id, session_id)
     ws = getattr(session, "workspace", "") or ""
@@ -417,30 +354,7 @@ async def get_file_content(
     include_baseline: bool = False,
     raw: bool = False,
 ):
-    """Fetch the full content of a single workspace file (lazy-loaded).
-
-    Works for apps with or without the ``preview`` module - if preview is
-    loaded, we serve from its in-memory resources (current live state).
-    Otherwise we fall back to reading the file directly from the session
-    workspace on disk (apps that only use ``filesystem``/``workspace``
-    without streaming preview events still need to serve their files).
-
-    With ``include_baseline=true`` the response also includes the
-    last-approved baseline content + a pending unified diff - used by the
-    diff viewer when the user clicks "review changes".
-
-    With ``raw=true`` and the workspace payload carries a ``file_id`` (i.e.
-    the file was ingested via the chat composer paperclip or the SDK's
-    ``ingestFile()`` -> ``register_attachment`` path), this route serves
-    the ORIGINAL binary bytes from the file_store directly via
-    ``FileResponse`` instead of the JSON envelope. Use case: iframe
-    document viewers (PDF.js, docx-preview, image preview) that need the
-    pre-extraction bytes, not the text extracted for the agent.
-
-    The ``raw`` mode is a no-op (falls back to JSON) for workspace files
-    written by the agent itself (no ``file_id``) - the agent-written
-    content IS the file, there's no separate binary.
-    """
+    """Fetch the full content of a single workspace file (lazy-loaded)."""
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     await _require_session_access(request, app_id, session_id)
@@ -459,11 +373,6 @@ async def get_file_content(
     payload: dict[str, Any] | None = None
     resolved_path = safe_rel
     file_path = safe_rel
-    # Absolute on-disk path of the file when we fall through to the
-    # disk-fallback branch. Used by the ``raw=true`` path to serve
-    # binary files (PDF compiled by tectonic, images, etc.) directly
-    # from disk via FileResponse, without forcing them through
-    # text-mode UTF-8 decode that would corrupt the bytes.
     disk_target: str | None = None
 
     # Preview-based path (current live resources).
@@ -482,12 +391,6 @@ async def get_file_content(
                         resolved_path = k
                         break
 
-    # Disk fallback - works for apps without preview module, OR when the
-    # file was written outside the preview pipeline (filesystem module,
-    # shell output, etc.). Hidden namespaces (``__sdk__/``, ``.app/``,
-    # ``.digitorn/``) live under the daemon-private workspace; regular
-    # files live under the agent's workdir. Pick the right root for the
-    # path being read.
     if payload is None:
         import os as _os
         sess = await manager.get_session(app_id, session_id, user_id=_uid)
@@ -512,14 +415,8 @@ async def get_file_content(
                 raise HTTPException(status_code=400, detail="path escapes workspace")
             if _os.path.isfile(target):
                 disk_target = target
-                # For raw=true on a disk-only file, we serve binary
-                # directly below — do NOT bother opening in text mode
-                # (would corrupt PDFs / images / fonts).
                 if raw:
                     payload = {
-                        # Empty content marker so the raw branch can
-                        # short-circuit on `disk_target` without going
-                        # through text decode.
                         "content": "",
                         "size": _os.path.getsize(target),
                         "mtime": _os.path.getmtime(target),
@@ -544,11 +441,6 @@ async def get_file_content(
     if payload is None:
         raise HTTPException(status_code=404, detail=f"file not found: {file_path}")
 
-    # Raw binary mode: when the caller asks for ``raw=true`` AND this
-    # file came from the ingest pipeline (paperclip / SDK ingestFile),
-    # serve the ORIGINAL bytes from the file_store. The workspace
-    # payload only stores the post-extraction TEXT — for an iframe PDF
-    # viewer or DOCX renderer we need the pre-extraction binary.
     if raw:
         from starlette.responses import FileResponse
         file_id = payload.get("file_id") if isinstance(payload, dict) else None
@@ -573,13 +465,6 @@ async def get_file_content(
                     "Cache-Control": "private, max-age=300",
                 },
             )
-        # No file_id, but the file lives on disk (e.g. a PDF compiled
-        # by tectonic / latexmk / cargo / pandoc as a side-effect of
-        # the lint pipeline -- workspace doesn't track it as a
-        # resource but it IS on disk in the session workdir). Serve
-        # the bytes directly via FileResponse so the SDK's Blob
-        # consumer gets a real binary (was returning corrupted UTF-8
-        # JSON before this fallback).
         if disk_target is not None:
             import mimetypes
             mime, _ = mimetypes.guess_type(disk_target)
@@ -588,21 +473,10 @@ async def get_file_content(
                 media_type=mime or "application/octet-stream",
                 headers={
                     "Content-Disposition": "inline",
-                    # Compiled artifacts (tectonic-produced main.pdf,
-                    # latexmk output, etc.) update on every save. The
-                    # preview iframe's debounced retry hits this route
-                    # 0-3 s after the workspace publishes the .tex
-                    # update; an in-flight compile may not have
-                    # finished yet at the first call, so we must NOT
-                    # let the browser cache the stale snapshot.
                     "Cache-Control": "no-store, no-cache, must-revalidate",
                     "Pragma": "no-cache",
                 },
             )
-        # ``raw=true`` requested but nothing serviceable as binary
-        # (agent-written virtual file, no on-disk artifact). Fall
-        # through to the JSON envelope; the caller can use the text
-        # path or wait for the next compile.
 
     out: dict[str, Any] = {
         "path": resolved_path,
@@ -636,11 +510,7 @@ async def get_file_content(
 async def get_preview_snapshot(
     request: Request, app_id: str, session_id: str,
 ) -> AppResponse:
-    """Lightweight snapshot for the preview pane - state + non-files channels.
-
-    Returns: ``{state, resources: {<channel>: {...}} (without "files"), seq}``.
-    Use this to render the live preview canvas without pulling file content.
-    """
+    """Lightweight snapshot for the preview pane - state + non-files channels."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -704,12 +574,7 @@ async def writeback_file_endpoint(
 async def delete_file_endpoint(
     request: Request, app_id: str, session_id: str, file_path: str,
 ) -> AppResponse:
-    """User-side delete - remove a file from the session workspace.
-
-    Mirror of ``WsDelete`` exposed to agents but invocable by the SDK
-    iframe / web client without needing an LLM turn. Requires session
-    access auth like all workspace mutations.
-    """
+    """User-side delete - remove a file from the session workspace."""
     _validate_id(session_id, "session_id")
     await _require_session_access(request, app_id, session_id)
     safe_rel = _safe_relative_path(file_path)
@@ -742,31 +607,7 @@ async def ingest_source_endpoint(
     file: UploadFile = File(...),
     target_dir: str = Form("sources"),
 ):
-    """Ingest a binary file as a workspace source / attachment with
-    server-side text extraction.
-
-    The chat composer paperclip already does this for attachments — same
-    pymupdf / python-docx / pure-text fall-through pipeline used by
-    ``POST /messages``. This endpoint exposes the SAME path to the
-    preview SDK so iframe apps can offer their own "add source"
-    affordance without the user having to round-trip through the chat
-    composer. Target directory is parameterised so a single endpoint
-    serves both ``sources/`` (default, manual curation) and
-    ``attachments/`` (parity with chat composer).
-
-    Effect:
-      1. Read the upload's bytes into the file store
-      2. Sniff format from bytes + filename hint
-      3. ``extract_text(path, format_hint=fmt)`` → plain text
-      4. ``workspace.register_attachment(target_dir=<dir>)`` writes
-         the extracted text to the files channel under
-         ``<dir>/<sanitised_name>`` (idempotent overwrite)
-
-    For pure-text uploads (``text/*``, ``.md``, ``.txt``, ``.csv``, ...)
-    the extractor returns the raw content unchanged — no double-encode.
-
-    Returns the workspace-relative path + lines count.
-    """
+    """Ingest a binary file as a workspace source / attachment with"""
     _validate_id(session_id, "session_id")
     await _require_session_access(request, app_id, session_id)
 
@@ -796,10 +637,6 @@ async def ingest_source_endpoint(
     if ws_module is None:
         raise HTTPException(status_code=400, detail="App has no workspace module")
 
-    # Persist the upload through the same file_store the chat composer
-    # uses. The store decodes base64 already, so we re-encode here.
-    # Round-trip cost is acceptable for files we're going to extract
-    # text from anyway (orders of magnitude cheaper than pymupdf).
     import base64
     from digitorn.core.file_store import get_file_store
     from digitorn.core.file_extract import extract_text
@@ -870,17 +707,7 @@ async def upload_file_endpoint(
     file: UploadFile = File(...),
     auto_approve: str = Form("false"),
 ):
-    """Binary file upload (avatars, images, archives, etc.).
-
-    Multipart-encoded so we don't pay the +33% base64 overhead in
-    transit. The file's bytes go straight to the workspace at
-    ``file_path``. For text files the existing JSON ``PUT
-    /workspace/files/{path}`` route is more idiomatic.
-
-    The workspace module's ``write`` action accepts string content;
-    binary blobs are written as latin-1-encoded strings (1:1 byte
-    mapping, no normalisation) so the round-trip is loss-less.
-    """
+    """Binary file upload (avatars, images, archives, etc.)."""
     _validate_id(session_id, "session_id")
     await _require_session_access(request, app_id, session_id)
     safe_rel = _safe_relative_path(file_path)
@@ -901,10 +728,6 @@ async def upload_file_endpoint(
     if ws_module is None:
         raise HTTPException(status_code=400, detail="App has no workspace module")
     from digitorn.modules.workspace.module import WritebackParams
-    # Latin-1 round-trips raw bytes through Python's str type without
-    # mangling (each byte maps to one codepoint). The workspace module
-    # writes the bytes back with the same encoding when the path's
-    # extension hints at binary.
     content = raw.decode("latin-1")
     auto = (auto_approve or "false").lower() in ("true", "1", "yes")
     result = await ws_module.writeback_file(
@@ -940,10 +763,6 @@ async def approve_file_endpoint(
     from digitorn.modules.workspace.module import ApproveFileParams
     result = await ws_module.approve_file(ApproveFileParams(path=safe_rel))
     if not result.success:
-        # BUG-065: returning 200 + success:false is contradictory -
-        # the HTTP status said OK while the body said "this operation
-        # failed". Surface the failure as an HTTP error so clients that
-        # branch on status_code get the right signal.
         raise HTTPException(
             status_code=400,
             detail={"error": result.error or "approve_failed", "data": result.data},
@@ -1004,7 +823,6 @@ async def reject_file_endpoint(
     from digitorn.modules.workspace.module import RejectFileParams
     result = await ws_module.reject_file(RejectFileParams(path=safe_rel))
     if not result.success:
-        # BUG-065: returning 200 + success:false is contradictory.
         raise HTTPException(
             status_code=400,
             detail={"error": result.error or "reject_failed", "data": result.data},
@@ -1076,13 +894,7 @@ async def fork_session_workspace(
     request: Request, app_id: str, session_id: str,
     body: WorkspaceForkRequest,
 ) -> AppResponse:
-    """Fork a session's workspace into a brand new session.
-
-    Creates a fresh session (new id, fresh chat history) and copies the
-    source workspace snapshot wholesale - so the user can keep editing
-    the same React app / slide deck / workspace without polluting the
-    conversation history.
-    """
+    """Fork a session's workspace into a brand new session."""
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     manager = _get_manager(request)
@@ -1164,34 +976,7 @@ async def get_workspace_changes(
     include_diffs: bool = False,
     only_pending: bool = True,
 ) -> AppResponse:
-    """Aggregated view of workspace files with pending changes.
-
-    Reads the snapshot through ``WorkspaceCacheService`` (so the warm
-    path is sub-millisecond, the warm-with-stat path ~5-15 ms, and the
-    cold path goes through the full disk hydration once) and returns a
-    compact projection of the ``files`` channel:
-
-      - filtered to files with pending insertions / deletions OR
-        ``validation == "pending"`` (override with ``only_pending=false``
-        to also see approved files);
-      - stripped of file content - only metadata that the Changes
-        page needs (path, ins, del, totals, status, git_status, ...).
-        The pre-existing ``GET /preview`` route shipped the FULL content
-        of every workspace file, which made the Changes panel take
-        seconds to render on real projects.
-      - aggregated totals (count, total_ins_pending, total_del_pending,
-        total_ins_lifetime, total_del_lifetime).
-
-    ``include_diffs=true`` opts into the per-file ``unified_diff_pending``
-    payload. Off by default because the diff text dominates the payload
-    size for sessions with hefty edits - prefer fetching it lazily via
-    ``GET /workspace/files/{path}?include_baseline=true`` when the user
-    actually expands a hunk.
-
-    Live updates flow as before through ``preview:resource_set`` /
-    ``preview:resource_patched`` events on the session socket. This
-    route is only the cold-load shortcut.
-    """
+    """Aggregated view of workspace files with pending changes."""
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     if not _is_deployed(request, app_id):
@@ -1216,10 +1001,6 @@ async def get_workspace_changes(
 
     user_id = getattr(request.state, "user_id", None)
 
-    # Resolve workdir (same lookup as ``GET /preview``). The cache scans
-    # this dir for signature changes - we want it pointed at the agent's
-    # workdir (where the user's files live) rather than the daemon-
-    # private workspace (which only holds baselines + ``__sdk__/``).
     workspace_path = ""
     try:
         manager = _get_manager(request)
@@ -1279,7 +1060,7 @@ async def get_workspace_changes(
         del_pending = int(payload.get("deletions_pending") or 0)
         validation = payload.get("validation") or "approved"
         # Default filter: only show files with actual pending work.
-        # ``only_pending=false`` returns the full set.
+        # `only_pending=false` returns the full set.
         if only_pending and ins_pending == 0 and del_pending == 0 and validation != "pending":
             continue
         entry: dict[str, Any] = {
@@ -1308,9 +1089,6 @@ async def get_workspace_changes(
         total_ins_lifetime += entry["total_insertions"]
         total_del_lifetime += entry["total_deletions"]
 
-    # Sort by path for deterministic UI rendering. Clients can re-sort
-    # client-side if they want (most recent first, by depth, etc.) but
-    # alphabetic is the same default both Flutter and web already use.
     out_files.sort(key=lambda e: e["path"])
 
     return AppResponse(success=True, data={
@@ -1352,12 +1130,7 @@ async def import_session_workspace(
     request: Request, app_id: str, session_id: str,
     body: WorkspaceImportRequest,
 ) -> AppResponse:
-    """Import a snapshot into an existing session.
-
-    Overwrites (``replace=True``) or merges (``replace=False``) the
-    current in-memory state and force-flushes ``state.json`` so
-    reopening the session yields the imported view.
-    """
+    """Import a snapshot into an existing session."""
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     manager = _get_manager(request)

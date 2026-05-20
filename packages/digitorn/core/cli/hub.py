@@ -1,21 +1,4 @@
-"""Hub CLI commands.
-
-Two layers of commands:
-
-**Offline / direct hub** (no daemon needed):
-    digitorn hub pack <package_dir> [-o output]
-        Bundle a package directory into a .tar.gz archive, with sane
-        exclusions (node_modules, __pycache__, .git, ...).
-    digitorn hub publish <archive> --publisher <slug> [--hub URL] [--token TOKEN]
-        Upload an archive to a remote hub via API token.
-
-**Daemon-mediated** (use the local daemon's session):
-    digitorn hub login                              Authenticate against the hub
-    digitorn hub logout                             Drop cached hub session
-    digitorn hub me                                 Who am I on the hub?
-    digitorn hub search <query> [--tag T] [--category C]
-    digitorn hub install <publisher>/<package>[@version]
-"""
+"""Hub CLI commands."""
 from __future__ import annotations
 
 import io
@@ -54,9 +37,7 @@ _EXCLUDE_FILE_SUFFIXES = (".pyc", ".pyo")
 _EXCLUDE_FILE_NAMES = {".DS_Store", "Thumbs.db", ".env", ".env.local"}
 
 
-# ────────────────────────────────────────────────────────────────────
 # Offline: pack
-# ────────────────────────────────────────────────────────────────────
 
 
 def _read_manifest(package_dir: Path) -> dict[str, Any]:
@@ -132,9 +113,7 @@ def pack_package(
     )
 
 
-# ────────────────────────────────────────────────────────────────────
 # Direct hub: publish
-# ────────────────────────────────────────────────────────────────────
 
 
 def _hub_url(explicit: str | None) -> str:
@@ -238,20 +217,6 @@ def publish_archive(
     )
 
 
-# ────────────────────────────────────────────────────────────────────
-# Daemon-mediated: install
-# ────────────────────────────────────────────────────────────────────
-#
-# Browse / search / detail / reviews / reports / stats CLI commands
-# were removed when the Hub started accepting central RS256 JWTs
-# natively (see digitorn_hub.auth.central). Use the web client at
-# https://app.digitorn.ai or hit https://hub.digitorn.ai/api/v1/*
-# directly with a Bearer token from the central auth service.
-#
-# Install stays here because it has to download archives + atomically
-# deploy them on the daemon's filesystem - intrinsically a
-# daemon-local operation.
-
 @hub_cli.command(name="install")
 def hub_install(
     target: Annotated[
@@ -305,10 +270,6 @@ def hub_install(
         console.print(f"[red]Install failed ({r.status_code}):[/red] {r.text[:500]}")
         raise typer.Exit(1)
     out = r.json()
-    # The daemon wraps the InstallResult under ``out['result']`` so the
-    # top-level shape can stay stable for future extensions
-    # (``out`` itself only carries the request echo: package_id,
-    # publisher, scope). Read display fields from the nested result.
     result = out.get("result", {})
     console.print(
         f"[green]✓ Installed[/green] [cyan]{out['package_id']}[/cyan]"

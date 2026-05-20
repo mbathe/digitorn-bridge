@@ -1,15 +1,4 @@
-"""Source location tracking for behavior YAML.
-
-Loads YAML with ``ruamel.yaml`` (round-trip mode), which preserves
-line and column info on every node. Lets the validator emit errors
-like::
-
-    behavior/strict.yaml:14:7: rule_definitions[0].condition: ...
-
-Multi-file support: when ``{{behavior.X}}`` inlines a profile from
-``./behavior/X.yaml``, we remember that rules[N].source_file points
-to that file and not the main ``app.yaml``.
-"""
+"""Source location tracking for behavior YAML."""
 
 from __future__ import annotations
 
@@ -25,11 +14,8 @@ except ImportError:
     _YAML = None
     _RUAMEL_AVAILABLE = False
 
-
 class SourceMap:
-    """Maps dotted path (rule_definitions[3].condition.counter_gte)
-    to (source_file, line, col) for error reporting.
-    """
+    """Maps dotted path (rule_definitions[3].condition.counter_gte)."""
 
     def __init__(self) -> None:
         self._map: dict[str, tuple[str, int, int]] = {}
@@ -64,9 +50,7 @@ class SourceMap:
             return f"{file}:{line}"
         return file
 
-
 def _parent_path(path: str) -> str:
-    """'rule_definitions[0].condition.x' → 'rule_definitions[0].condition'."""
     last_dot = path.rfind(".")
     last_bracket = path.rfind("[")
     cut = max(last_dot, last_bracket)
@@ -74,15 +58,10 @@ def _parent_path(path: str) -> str:
         return ""
     return path[:cut]
 
-
 def load_with_source(
     yaml_path: str | Path,
 ) -> tuple[dict, SourceMap] | tuple[None, SourceMap]:
-    """Load a YAML file and build a source map of line numbers.
-
-    Returns (data, source_map). If ruamel is not available, returns
-    (data, empty_source_map) so callers still work without line info.
-    """
+    """Load a YAML file and build a source map of line numbers."""
     src_map = SourceMap()
     p = Path(yaml_path).resolve()
     src_map.set_default_file(str(p))
@@ -102,9 +81,7 @@ def load_with_source(
     _walk(data, src_map, "", str(p))
     return _to_plain(data), src_map
 
-
 def _walk(node: Any, src_map: SourceMap, path: str, file: str) -> None:
-    """Walk a ruamel-parsed tree, recording line info for each path."""
     lc = getattr(node, "lc", None)
     if lc is not None:
         # lc.line/col are 0-based; make them 1-based for user display
@@ -130,9 +107,7 @@ def _walk(node: Any, src_map: SourceMap, path: str, file: str) -> None:
                 src_map.set(child_path, file, (item_lc[0] or 0) + 1, (item_lc[1] or 0) + 1)
             _walk(item, src_map, child_path, file)
 
-
 def _to_plain(node: Any) -> Any:
-    """Convert ruamel CommentedMap/CommentedSeq to plain dict/list."""
     if isinstance(node, dict) or hasattr(node, "items"):
         return {k: _to_plain(v) for k, v in node.items()}
     if isinstance(node, list) or (hasattr(node, "__iter__") and not isinstance(node, (str, bytes))):
@@ -142,24 +117,12 @@ def _to_plain(node: Any) -> Any:
             pass
     return node
 
-
 def overlay_included_file(
     src_map: SourceMap,
     included_yaml_path: str | Path,
     at_parent_path: str,
 ) -> None:
-    """When ``{{behavior.X}}`` or ``{{include:Y}}`` inlines another
-    YAML file at ``at_parent_path`` in the main doc, overlay that
-    file's line numbers so errors deeper than ``at_parent_path``
-    are reported from the included file.
-
-    Example::
-
-        overlay_included_file(sm, "./behavior/strict.yaml",
-                              at_parent_path="behavior.profile")
-        # Now sm.get("behavior.profile.rule_definitions[2].condition")
-        # returns ./behavior/strict.yaml:XX:YY
-    """
+    """When `{{behavior.X}}` or `{{include:Y}}` inlines another."""
     if not _RUAMEL_AVAILABLE:
         return
 

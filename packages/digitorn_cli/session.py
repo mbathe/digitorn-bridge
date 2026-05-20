@@ -1,8 +1,4 @@
-"""CLISession - Dual-mode abstraction for slash command handlers.
-
-Provides a uniform interface so slash commands work identically in
-standalone mode (direct RuntimeApp calls) and daemon mode (HTTP API calls).
-"""
+"""CLISession - Dual-mode abstraction for slash command handlers."""
 
 from __future__ import annotations
 

@@ -1,38 +1,4 @@
-"""Generic YAML-driven rule evaluator + state tracker.
-
-Everything is declarative - rules, state tracking, conditions, messages.
-No hardcoded tool names or file-specific logic.
-
-Rule format::
-
-    {
-        "id": "read_before_edit",
-        "trigger": ["edit"],           # or "*" for all tools
-        "when": "pre_tool",            # pre_tool | post_tool | on_text
-        "action": "warn",              # block | warn | remind
-        "condition": { ... },          # see evaluate_condition()
-        "message": "...",              # template with {target}, {counter:X}, etc.
-        "description": "...",          # for prompt injection
-    }
-
-State tracking format::
-
-    {
-        "sets": {
-            "read_files": {"add_on": ["read"], "target": "file_path"},
-        },
-        "counters": {
-            "changes_since_test": {
-                "increment_on": ["edit", "write"],
-                "reset_on": ["bash"],
-                "reset_when": {"tool": "bash", "param": "command", "matches": "pytest|npm test"},
-            },
-        },
-        "flags": {
-            "has_web_searched": {"set_on": ["web.search"]},
-        },
-    }
-"""
+"""Generic YAML-driven rule evaluator + state tracker."""
 
 from __future__ import annotations
 
@@ -43,9 +9,6 @@ from typing import Any
 from digitorn.modules.behavior.state import BhvSessionState
 
 logger = logging.getLogger(__name__)
-
-
-# ── Default state tracking (coding profile - backward compat) ──
 
 DEFAULT_STATE_TRACKING: dict[str, Any] = {
     "sets": {
@@ -94,9 +57,6 @@ DEFAULT_STATE_TRACKING: dict[str, Any] = {
         },
     },
 }
-
-
-# ── Default rule definitions (replaces hardcoded rules.py) ──
 
 DEFAULT_RULE_DEFINITIONS: list[dict[str, Any]] = [
     {
@@ -252,16 +212,10 @@ DEFAULT_RULE_DEFINITIONS: list[dict[str, Any]] = [
     },
 ]
 
-
-# ── Tool name matching ──
-
 def _bare(tool_name: str) -> str:
-    """'filesystem.edit' → 'edit', 'edit' → 'edit'."""
     return tool_name.rsplit(".", 1)[-1] if "." in tool_name else tool_name
 
-
 def _tool_matches(tool_name: str, triggers: list[str] | str) -> bool:
-    """Check if a tool matches a trigger list."""
     if triggers == "*" or triggers == ["*"]:
         return True
     if isinstance(triggers, str):
@@ -274,11 +228,7 @@ def _tool_matches(tool_name: str, triggers: list[str] | str) -> bool:
             return True
     return False
 
-
-# ── Target extraction ──
-
 def _extract_target(params: dict[str, Any], tracking_cfg: dict | None = None) -> str:
-    """Extract the primary target from tool params."""
     # If tracking config specifies which param, use that
     if tracking_cfg:
         target_param = tracking_cfg.get("target", "file_path")
@@ -296,9 +246,6 @@ def _extract_target(params: dict[str, Any], tracking_cfg: dict | None = None) ->
         if val:
             return str(val)
     return ""
-
-
-# ── State tracking ──
 
 def update_state(
     state: BhvSessionState,
@@ -352,9 +299,6 @@ def update_state(
         if tn in unset_on or bare in unset_on or any(bare == _bare(t) for t in unset_on):
             state.set_flag(flag_name, False)
 
-
-# ── Condition evaluator ──
-
 def evaluate_condition(
     condition: dict[str, Any],
     state: BhvSessionState,
@@ -368,28 +312,24 @@ def evaluate_condition(
     if not condition:
         return True  # No condition = always fires
 
-    # ── target_not_in_set ──
     if "target_not_in_set" in condition:
         set_name = condition["target_not_in_set"]
         set_cfg = (tracking or {}).get("sets", {}).get(set_name, {})
         target = _extract_target(params, set_cfg)
         return bool(target) and target not in state.get_set(set_name)
 
-    # ── target_in_set ──
     if "target_in_set" in condition:
         set_name = condition["target_in_set"]
         set_cfg = (tracking or {}).get("sets", {}).get(set_name, {})
         target = _extract_target(params, set_cfg)
         return bool(target) and target in state.get_set(set_name)
 
-    # ── counter_gte ──
     if "counter_gte" in condition:
         cfg = condition["counter_gte"]
         name = cfg.get("name", "")
         value = cfg.get("value", 0)
         return state.get_counter(name) >= value
 
-    # ── param_matches ──
     if "param_matches" in condition:
         cfg = condition["param_matches"]
         param_name = cfg.get("param", "")
@@ -402,7 +342,6 @@ def evaluate_condition(
         except re.error:
             return False
 
-    # ── param_contains ──
     if "param_contains" in condition:
         cfg = condition["param_contains"]
         param_name = cfg.get("param", "")
@@ -410,38 +349,31 @@ def evaluate_condition(
         param_val = str(params.get(param_name, ""))
         return value.lower() in param_val.lower()
 
-    # ── flag_is ──
     if "flag_is" in condition:
         cfg = condition["flag_is"]
         name = cfg.get("name", "")
         value = cfg.get("value", True)
         return state.get_flag(name) == value
 
-    # ── no_text_before_tools ──
     if condition.get("no_text_before_tools"):
         return not state.plan_stated
 
-    # ── first_tool_this_turn ──
     if condition.get("first_tool_this_turn"):
         return state.tool_calls_this_turn == 0
 
-    # ── consecutive_gte ──
     if "consecutive_gte" in condition:
         threshold = condition["consecutive_gte"]
         upcoming = (state.consecutive_same_tool + 1) if tool_name.lower() == state.last_tool_name.lower() else 1
         return upcoming >= threshold
 
-    # ── tool_calls_this_turn_eq ──
     if "tool_calls_this_turn_eq" in condition:
         return state.tool_calls_this_turn == condition["tool_calls_this_turn_eq"]
 
-    # ── target_exists_on_disk ──
     if condition.get("target_exists_on_disk"):
         import os
         target = _extract_target(params, None)
         return bool(target) and os.path.exists(target)
 
-    # ── text_matches (for on_text rules) ──
     if "text_matches" in condition:
         pattern = condition["text_matches"]
         try:
@@ -449,7 +381,6 @@ def evaluate_condition(
         except re.error:
             return False
 
-    # ── result_has_lint_errors ──
     if condition.get("result_has_lint_errors"):
         lint = None
         if isinstance(result, dict):
@@ -460,7 +391,6 @@ def evaluate_condition(
             return any(isinstance(d, dict) and d.get("severity") == "error" for d in lint)
         return False
 
-    # ── Composites ──
     if "all" in condition:
         return all(
             evaluate_condition(c, state, tool_name, params, result, agent_text, tracking)
@@ -479,9 +409,6 @@ def evaluate_condition(
     # Unknown condition - don't fire
     logger.warning("behavior: unknown condition type: %s", list(condition.keys()))
     return False
-
-
-# ── Message templating ──
 
 def render_message(
     template: str,
@@ -526,9 +453,6 @@ def render_message(
 
     return msg
 
-
-# ── Main evaluator entry points ──
-
 class Violation:
     """A detected rule violation."""
     __slots__ = ("rule_id", "level", "message")
@@ -549,7 +473,6 @@ class Violation:
             return f"[BEHAVIOR WARNING] {self.message}\nRule: {self.rule_id}"
         else:
             return f"[BEHAVIOR REMINDER] {self.message}\nRule: {self.rule_id}"
-
 
 def check_rules(
     rule_defs: list[dict[str, Any]],
@@ -586,7 +509,6 @@ def check_rules(
             ))
 
     return violations
-
 
 def build_prompt_section(rule_defs: list[dict[str, Any]]) -> str:
     """Build a compact prompt section from rule definitions."""

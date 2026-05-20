@@ -1,23 +1,4 @@
-"""AppSyncer - persist a CompiledApp directly to the database.
-
-Single source of truth on disk: ``~/.digitorn/apps/<scoped>/`` (the
-install dir, written by the InstallFlow). The syncer no longer copies
-assets into a separate ``bundle-<hash>/`` directory. Every deploy:
-
-    CompiledApp  ──►  DB rows
-       │                ├── Application (yaml_content + yaml_hash + meta)
-       │                ├── AppProfile
-       │                ├── AppModuleGrant
-       │                └── AppModuleConfig
-
-``yaml_content`` is kept on the Application row as a fallback for
-content-only deploys whose install dir has been wiped.
-
-Usage::
-
-    syncer = AppSyncer()
-    await syncer.sync(compiled_app)
-"""
+"""AppSyncer - persist a CompiledApp directly to the database."""
 
 from __future__ import annotations
 
@@ -40,7 +21,6 @@ log = get_logger(__name__)
 
 
 def _compute_yaml_hash(compiled: CompiledApp) -> str:
-    """Deterministic hash of the compiled app for change detection."""
     import json
 
     canonical = {
@@ -75,12 +55,7 @@ def _compute_yaml_hash(compiled: CompiledApp) -> str:
 
 
 class AppSyncer:
-    """Sync a CompiledApp to the database.
-
-    Idempotent: when ``yaml_hash`` is unchanged and ``force=False``,
-    the sync is a no-op. Otherwise the ``Application`` row is upserted
-    along with profile / grants / configs.
-    """
+    """Sync a CompiledApp to the database."""
 
     def __init__(self) -> None:
         self._profile_id: str | None = None
@@ -93,12 +68,7 @@ class AppSyncer:
         scope: str = "system",
         owner_user_id: str = "",
     ) -> bool:
-        """Upsert all DB records from the compiled app.
-
-        Multi-tenant: keyed by ``(app_id, scope, owner_user_id)``.
-
-        Returns True if anything was written, False if no-op.
-        """
+        """Upsert all DB records from the compiled app."""
         from digitorn.core.database import _session_factory
         if _session_factory is None:
             log.warning("app_sync_skip: database not initialized")
@@ -183,7 +153,6 @@ class AppSyncer:
 
     @staticmethod
     def _resolve_yaml_content(compiled: CompiledApp) -> str:
-        """Return the raw YAML content for fallback storage."""
         if compiled.raw_yaml:
             return compiled.raw_yaml
         if compiled.source_path and compiled.source_path.exists():

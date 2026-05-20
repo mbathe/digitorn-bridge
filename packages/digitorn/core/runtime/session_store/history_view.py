@@ -1,17 +1,4 @@
-"""Render a SessionState as the legacy ``/history`` API payload.
-
-The OLD path queried Postgres ``history_log`` for two parallel streams:
-``messages`` (kind='message' rows) and ``events`` (kind='event' rows),
-with cursor-based pagination by seq. This module produces the same
-shape from the in-memory SessionState the new SessionStore maintains.
-
-Strict ordering: every output entry carries ``seq``, sorted ascending.
-Pagination is O(log N) via ``bisect`` on the events list (it's already
-in seq order by SeqAllocator construction).
-
-No duplicate suppression beyond what apply_projection already does -
-state.messages is the canonical projection of user/assistant turns.
-"""
+"""Render a SessionState as the legacy `/history` API payload."""
 
 from __future__ import annotations
 
@@ -22,9 +9,6 @@ from digitorn.core.runtime.session_store.session_state import SessionState
 from digitorn.core.runtime.session_store.types import Event, Message
 
 
-# Streaming/lifecycle deltas that the live UI already animated. Excluded
-# from replay because their effect is captured in the assembled
-# assistant_message + tool_call/tool_result events that DO appear.
 _REPLAY_NOISE_TYPES = frozenset({
     "token", "thinking_delta",
     "out_token", "in_token",
@@ -34,17 +18,12 @@ _REPLAY_NOISE_TYPES = frozenset({
     "agent_progress",
     "behavior:warning", "behavior:remind",
     "hook",
-    # Streaming partial snapshots used only for crash recovery. The
-    # live UI already saw the tokens; clients reload via the
-    # assembled ``assistant_message``. Surfacing these in /events
-    # would 10x the payload for nothing.
     "assistant_message_partial",
 })
 
 
 def _message_to_dict(msg: Message) -> dict[str, Any]:
-    """Render a projected Message as the legacy ``messages[]`` shape:
-    role, content, seq, tool_call_id, tool_calls, optional thinking."""
+    """Render a projected Message as the legacy `messages[]` shape:"""
     return {
         "role": msg.role,
         "content": msg.content,
@@ -57,15 +36,9 @@ def _message_to_dict(msg: Message) -> dict[str, Any]:
 
 
 def _event_to_dict(ev: Event) -> dict[str, Any]:
-    """Render an Event as the legacy ``events[]`` shape. Promotes
-    contract fields (event_id / op_id / op_type / op_state) from
-    payload to envelope top-level so the client reducer reads them
-    directly. Mirrors the legacy DB row mapping."""
+    """Render an Event as the legacy `events[]` shape. Promotes"""
     payload = dict(ev.payload or {})
     return {
-        # The legacy contract used the DB row id; the new store has no
-        # row id. ``seq`` is unique-per-session and monotone, which is
-        # what every dedup/sort key in the client actually relies on.
         "id": int(ev.seq),
         "ts": ev.ts,
         "seq": int(ev.seq),
@@ -89,9 +62,7 @@ def _event_to_dict(ev: Event) -> dict[str, Any]:
 def render_messages(
     state: SessionState, *, include_system: bool = False,
 ) -> list[dict[str, Any]]:
-    """Return state.messages projected as the legacy ``messages[]``
-    array. When ``include_system=False``, system messages are dropped
-    (matches legacy ``_build_history_turns`` behavior)."""
+    """Return state.messages projected as the legacy `messages[]`"""
     out: list[dict[str, Any]] = []
     for msg in state.messages:
         if not include_system and msg.role == "system":
@@ -102,15 +73,11 @@ def render_messages(
 
 
 def _filter_events(events: list[Event]) -> list[Event]:
-    """Drop streaming-chunk noise that the UI already animated live."""
     return [e for e in events if e.type not in _REPLAY_NOISE_TYPES]
 
 
 def _index_seq_array(events: list[Event]) -> list[int]:
-    """Build the sorted seq array used by ``bisect`` for O(log N)
-    pagination cursors. Cheap to recompute per request -- the events
-    list is already small (at most a few thousand per session), and
-    bisect needs an actual list anyway."""
+    """Build the sorted seq array used by `bisect` for O(log N)"""
     return [e.seq for e in events]
 
 
@@ -119,14 +86,7 @@ def paginate_events_forward(
     since_seq: int = 0,
     limit: int = 50000,
 ) -> tuple[list[dict[str, Any]], int, int, bool]:
-    """Forward pagination: events with seq > since_seq, capped at limit.
-
-    Returns ``(events, total, next_seq, has_more)``:
-      * ``events``  - rendered legacy event dicts, ASC by seq
-      * ``total``   - total events for this session (after noise filter)
-      * ``next_seq`` - cursor for the next page (last_seq + 1)
-      * ``has_more`` - True iff more events past this page exist
-    """
+    """Forward pagination: events with seq > since_seq, capped at limit."""
     filtered = _filter_events(state.events)
     total = len(filtered)
     seqs = _index_seq_array(filtered)
@@ -134,14 +94,6 @@ def paginate_events_forward(
     page = filtered[start:start + max(int(limit), 0)]
     rendered = [_event_to_dict(e) for e in page]
     if rendered:
-        # Cursor contract: ``next_seq`` is the highest seq the caller
-        # has consumed. The filter is strict ``seq > since_seq`` (via
-        # bisect_right), so passing ``last_seq`` back returns events
-        # starting at ``last_seq + 1`` -- contiguous, no skip.
-        # NOTE: returning ``last_seq + 1`` AS the cursor caused a
-        # one-event-per-page gap when the next event existed at exactly
-        # ``last_seq + 1`` -- bisect_right skipped past it. This was the
-        # silent bug inherited from the legacy SQL path.
         next_seq = int(rendered[-1]["seq"])
         has_more = (start + len(page)) < total
     else:
@@ -155,20 +107,7 @@ def paginate_events_backward(
     before_seq: int = 0,
     limit: int = 50000,
 ) -> tuple[list[dict[str, Any]], int, int, bool]:
-    """Backward pagination: most recent ``limit`` events with seq <
-    before_seq, then snap the page boundary to the latest
-    ``user_message`` so rendered turns are always complete.
-
-    ``before_seq=0`` means "start from the end" (newest first).
-
-    Returns ``(events, total, prev_seq, has_more_back)``:
-      * ``events``       - rendered legacy event dicts, ASC by seq
-      * ``total``        - total events for this session
-      * ``prev_seq``     - oldest seq in this page (cursor for next
-                           backward call)
-      * ``has_more_back``- True iff at least one event with seq <
-                           prev_seq still exists
-    """
+    """Backward pagination: most recent `limit` events with seq <"""
     filtered = _filter_events(state.events)
     total = len(filtered)
     if total == 0:
@@ -209,32 +148,7 @@ def render_history_payload(
     before_seq: int | None = None,
     events_limit: int = 50000,
 ) -> dict[str, Any]:
-    """One-shot helper for ``GET /sessions/{sid}/history``. Returns the
-    full legacy-shaped payload (messages + events + pagination cursors)
-    derived entirely from in-memory ``SessionState``. Single read, no
-    Postgres roundtrip, no duplicate suppression needed (state.messages
-    is the canonical projection).
-
-    Sync contract fields the client uses to detect daemon restart and
-    history truncation (see ``digitorn_web/src/stores/chat.ts``
-    ``_loadHistory``):
-
-      * ``current_seq`` — the daemon's highest known seq for this
-        session AT THE MOMENT this snapshot was taken. The client
-        treats this as the floor for live Socket.IO events: anything
-        with ``seq <= current_seq`` is already in the response.
-      * ``oldest_seq`` — the lowest seq present in the journaled
-        events. Combined with ``since_seq`` the client can detect
-        truncation (events evicted from the journal).
-      * ``truncated`` — set when the client passed ``since_seq=N`` but
-        the journal's oldest event has ``seq > N+1``: there's a gap
-        the client cannot fill from the journal, so it must wipe its
-        local timeline and do a full re-seed.
-
-    ``instance_id`` is NOT added here — it belongs to the daemon
-    process, not the session state. The API layer (``sessions.py``)
-    injects it from ``digitorn.core.instance.get_instance_id()``.
-    """
+    """One-shot helper for `GET /sessions/{sid}/history`"""
     messages = render_messages(state, include_system=include_system)
     if before_seq is not None:
         events, total, prev_seq, has_more_back = paginate_events_backward(
@@ -253,18 +167,10 @@ def render_history_payload(
             )[3] if prev_seq > 0 else False
         )
 
-    # Sync contract: report what we know about the session's seq
-    # space so the client can detect daemon restart, journal
-    # truncation, and the position it must catch up to.
     filtered = _filter_events(state.events)
     oldest_seq = int(filtered[0].seq) if filtered else 0
     current_seq = int(state.last_seq)
     client_since = int(since_seq or 0)
-    # Truncation: the client asked for everything after seq=N, but
-    # the journal's oldest event has seq > N+1. The events between
-    # N+1 and (oldest_seq - 1) are gone. The client must wipe and
-    # re-seed. Skipped when ``since_seq=0`` (the client is doing a
-    # fresh open and expects the full snapshot anyway).
     truncated = (
         client_since > 0
         and oldest_seq > 0
@@ -281,18 +187,9 @@ def render_history_payload(
         "events_has_more": has_more,
         "events_prev_seq": prev_seq,
         "events_has_more_back": has_more_back,
-        # Sync contract (see docstring): client compares
-        # ``instance_id`` (added by the API layer) against its stored
-        # value to detect daemon restart, and uses ``truncated`` /
-        # ``current_seq`` / ``oldest_seq`` to decide between
-        # incremental catch-up and full re-seed.
         "current_seq": current_seq,
         "oldest_seq": oldest_seq,
         "truncated": truncated,
-        # Partial assistant streams that haven't been promoted to a
-        # final ``assistant_message`` yet (daemon was killed mid-turn,
-        # or the turn is still in flight). Keyed by agent-slot seq.
-        # Empty dict in the common case.
         "streaming_partials": dict(state.streaming_partials)
             if state.streaming_partials else {},
     }

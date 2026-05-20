@@ -18,7 +18,6 @@ BUILTIN_RERANKERS: dict[str, str] = {
 
 DEFAULT_RERANKER = "minilm-l6"
 
-
 class CrossEncoderReranker:
     """Singleton cross-encoder reranker with lazy model loading."""
 

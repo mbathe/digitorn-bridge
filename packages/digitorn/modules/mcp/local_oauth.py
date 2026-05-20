@@ -1,18 +1,4 @@
-"""Local OAuth callback server for standalone CLI mode.
-
-When running `digitorn run --standalone`, there's no daemon HTTP server
-to handle OAuth callbacks.  This module provides a lightweight temporary
-HTTP server that:
-
-1. Starts on a random local port
-2. Serves the OAuth callback endpoint
-3. Exchanges the authorization code for tokens
-4. Shuts down automatically after the callback is received
-
-Usage::
-
-    token_data = await run_local_oauth_flow(oauth_manager, auth_config, server_id)
-"""
+"""Local OAuth callback server for standalone CLI mode."""
 
 from __future__ import annotations
 
@@ -48,7 +34,6 @@ _ERROR_HTML = """\
 </body>
 </html>"""
 
-
 async def run_local_oauth_flow(
     oauth_manager: OAuthManager,
     auth_config: OAuthProviderConfig,
@@ -57,24 +42,7 @@ async def run_local_oauth_flow(
     user_id: str = "cli_user",
     timeout: float = 300.0,
 ) -> dict[str, Any]:
-    """Run a complete OAuth flow with a local callback server.
-
-    Opens the user's browser for authorization and waits for the
-    callback. Returns the token response dict on success.
-
-    Args:
-        oauth_manager: The OAuthManager instance (holds pending states).
-        auth_config: Provider config for this MCP server.
-        server_id: MCP server ID.
-        user_id: User identifier (default ``"cli_user"`` for standalone).
-        timeout: Max seconds to wait for the callback.
-
-    Returns:
-        Token response dict (access_token, refresh_token, etc.)
-
-    Raises:
-        OAuthLocalError: If the flow fails or times out.
-    """
+    """Run a complete OAuth flow with a local callback server."""
     port = 8913
     if not auth_config.redirect_uri:
         auth_config.redirect_uri = f"http://localhost:{port}/callback"
@@ -173,7 +141,6 @@ async def run_local_oauth_flow(
     finally:
         server.shutdown()
         server_thread.join(timeout=2.0)
-
 
 class OAuthLocalError(Exception):
     """Raised when the local OAuth flow fails."""

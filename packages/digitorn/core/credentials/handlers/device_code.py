@@ -1,21 +1,4 @@
-"""DeviceCodeHandler - OAuth 2.0 Device Authorization Grant (RFC 8628).
-
-Designed for input-constrained devices (TVs, CLIs, IoT) where the
-browser flow happens on a SECONDARY device. The daemon:
-
-  1. Calls `/device/code` on the provider, gets `device_code` +
-     `user_code` + `verification_uri`.
-  2. Shows the `user_code` + `verification_uri` to the user.
-  3. Polls `/token` with `device_code` until the user has logged in
-     on their phone/laptop and approved.
-  4. Receives `access_token` + `refresh_token`, stores via the store.
-
-Real-world consumers: GitHub CLI (`gh auth login`), Anthropic Claude
-Code CLI, AWS IAM Identity Center sign-in.
-
-Storage shape is identical to OAuth2 - what differs is only the
-acquisition flow.
-"""
+"""DeviceCodeHandler - OAuth 2.0 Device Authorization Grant (RFC 8628)."""
 
 from __future__ import annotations
 

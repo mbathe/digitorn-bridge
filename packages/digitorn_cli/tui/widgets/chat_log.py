@@ -1,12 +1,11 @@
-"""ChatLog - scrollable message area using VerticalScroll + Static children.
-
-Each message/tool call is a Static widget mounted into a VerticalScroll.
-The spinner is the last widget, always right after the last message.
-VerticalScroll handles all scrolling - no RichLog internal scroll conflicts.
-"""
+"""ChatLog - scrollable message area using VerticalScroll + Static children."""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 import re
 import threading
 import time
@@ -32,7 +31,6 @@ _TREE_END = "\u2514\u2500"  # └─ sub-item (last)
 _RAIL_TEXT = "\u2502"        # │  model response rail
 _RAIL_THINK = "\u250a"      # ┊  thinking rail
 _THINK_MAX = 5               # visible thinking lines before collapse
-
 
 
 def _extract_brief_from_data(label: str, data: dict) -> str:
@@ -84,7 +82,7 @@ def _format_timing(elapsed: float) -> str:
 
 
 class ChatLog(VerticalScroll):
-    """Main scrollable message area. Each entry is a Static child."""
+    """Main scrollable message area."""
 
     DEFAULT_CSS = """
     ChatLog {
@@ -183,8 +181,8 @@ class ChatLog(VerticalScroll):
         for child in to_remove:
             try:
                 child.remove()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("chat_log best-effort block failed: %s", exc)
         # Add indicator at top (if not already present)
         if not has_indicator:
             self._msg_count += 1
@@ -208,8 +206,8 @@ class ChatLog(VerticalScroll):
             if child.id != "spinner-bar":
                 try:
                     child.remove()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("chat_log best-effort block failed: %s", exc)
         self._msg_count = 0
         self._tool_widgets.clear()
         self._tool_start_times.clear()
@@ -264,7 +262,6 @@ class ChatLog(VerticalScroll):
             t.append(f"{value}\n", style="#e2e8f0")
         self._append(t, indent=True)
 
-    # ── User messages ──────────────────────────────────────────────
 
     def add_user_message(self, text: str) -> None:
         # New turn - reset response widget so next stream creates a fresh one
@@ -277,7 +274,6 @@ class ChatLog(VerticalScroll):
         t.append(text, style="#f1f5f9")
         self._append(t)
 
-    # ── Tool calls ─────────────────────────────────────────────────
 
     def _fit_detail(self, verb: str, detail: str, extra: str = "") -> str:
         """Shorten detail to fit on one line with the verb, dot, and extra text.
@@ -517,7 +513,6 @@ class ChatLog(VerticalScroll):
             return "python"  # Rough guess
         return None
 
-    # ── Brief result summaries ─────────────────────────────────────
 
     @staticmethod
     def _get_data(result: Any) -> dict:
@@ -530,7 +525,7 @@ class ChatLog(VerticalScroll):
         return {}
 
     def _brief_result(self, verb: str, result: Any) -> str:
-        """One-line summary for tool result. Returns empty string if nothing useful."""
+        """One-line summary for tool result."""
         data = self._get_data(result)
         if not data:
             return ""
@@ -620,7 +615,6 @@ class ChatLog(VerticalScroll):
         t.append(text, style=style)
         self._append(t, indent=True)
 
-    # ── Edit diff preview ────────────────────────────────────────
 
     # Diff code column width (background extends to this width)
     @property
@@ -631,7 +625,6 @@ class ChatLog(VerticalScroll):
         except Exception:
             return 80
 
-    # ── Pygments syntax highlighting for diff lines ──
 
     # Token type → color (Monokai-inspired, works on dark backgrounds)
     _TOKEN_COLORS: dict[str, str] = {}  # Lazily populated
@@ -680,7 +673,7 @@ class ChatLog(VerticalScroll):
 
     @classmethod
     def _get_lexer(cls, path: str):
-        """Get a Pygments lexer for a file path. Uses Pygments' 597 built-in lexers."""
+        """Get a Pygments lexer for a file path."""
         import os
         ext = os.path.splitext(path)[1].lower()
         if not ext:
@@ -734,17 +727,7 @@ class ChatLog(VerticalScroll):
             t.append(" " * (pad_to - char_count), style=f"on {bg}")
 
     def _show_edit_diff(self, result: Any) -> None:
-        """Show diff in Claude Code style with background colors + syntax highlight.
-
-        Format:
-          ⎿  Added 3 lines, removed 1 line
-              315    max_risk_level: medium
-              316    grant:
-              317 -    old_code()           ← red background
-              317 +    new_code()           ← green background + keyword colors
-              318 +    extra_line()
-              319    context_after
-        """
+        """Render an edit diff with red/green backgrounds and syntax highlight."""
         data = self._get_data(result)
         if not data:
             return
@@ -761,7 +744,6 @@ class ChatLog(VerticalScroll):
         added = sum(1 for l in lines if l.startswith("+") and not l.startswith("@@"))
         removed = sum(1 for l in lines if l.startswith("-"))
 
-        # ── Summary line (⎿  Added N lines, removed M lines) ──
         summary = Text()
         summary.append(f"{_SUB} ", style="#334155")
         parts: list[str] = []
@@ -772,7 +754,6 @@ class ChatLog(VerticalScroll):
         summary.append(", ".join(parts) or "No changes", style="#94a3b8")
         self._append(summary, indent=True)
 
-        # ── Diff lines ──
         show = lines[:self._MAX_DIFF_LINES]
         overflow = len(lines) - len(show)
 
@@ -840,12 +821,6 @@ class ChatLog(VerticalScroll):
             t.append(f"     \u2026 +{overflow} more lines", style="#475569")
             self._append(t, indent=True)
 
-    # ── Streaming (block-based rendering) ─────────────────────────
-    #
-    # Instead of showing tokens character-by-character, we accumulate
-    # in a buffer while the spinner shows the live token count.
-    # At paragraph boundaries (\n\n) the buffer is flushed as rendered
-    # Markdown, then the spinner resumes for the next block.
 
     def start_streaming(self) -> None:
         # Don't collapse thinking here - it belongs to the current turn.
@@ -854,25 +829,15 @@ class ChatLog(VerticalScroll):
         self._streaming_active = True
         self._streaming_widget = None
         self._streaming_flushed = ""  # All content already flushed as blocks
-        # Do NOT clear _stream_text_acc - the agent thread may have already
-        # written deltas via the fast-path in _make_poster before this runs.
-        # The timer will drain them on the next tick.
-        # Start timer to drain text accumulator at 10fps
         if self._stream_flush_timer is None:
             self._stream_flush_timer = self.set_interval(0.1, self._drain_stream_acc)
 
     def add_token(self, delta: str) -> None:
-        """Called from agent thread (via call_from_thread) or directly.
-
-        Appends to thread-safe accumulator; the timer drains it.
-        """
+        """Called from agent thread (via call_from_thread) or directly."""
         if not self._streaming_active:
             self.start_streaming()
         self._stream_text_acc.append(delta)
 
-    # Regex for sentence-ending punctuation followed by space or newline.
-    # Matches: ". ", "! ", "? ", ".\n", "!\n", "?\n" - safe split points
-    # that won't cut words. Also matches ":" followed by newline (list intros).
     _SENTENCE_END_RE = re.compile(r'[.!?:]\s')
 
     def _drain_stream_acc(self) -> None:
@@ -887,15 +852,7 @@ class ChatLog(VerticalScroll):
         self._flush_streaming_blocks()
 
     def _find_block_boundary(self, buf: str) -> int:
-        """Find the best split point in buf - returns index AFTER the boundary.
-
-        Priority:
-        1. Paragraph break (\\n\\n) - strongest boundary
-        2. Line break after a complete sentence (. / ! / ? at end of line)
-        3. Any sentence end followed by space (mid-paragraph sentence boundary)
-
-        Returns -1 if no good boundary found.
-        """
+        """Find the best split point in buf; returns index AFTER the boundary, or -1."""
         # 1. Paragraph break - always best
         idx = buf.rfind("\n\n")
         if idx != -1:
@@ -957,8 +914,8 @@ class ChatLog(VerticalScroll):
         if self._stream_flush_timer is not None:
             try:
                 self._stream_flush_timer.stop()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("chat_log best-effort block failed: %s", exc)
             self._stream_flush_timer = None
         # Drain remaining accumulated text
         if self._stream_text_acc:
@@ -993,14 +950,7 @@ class ChatLog(VerticalScroll):
 
     @staticmethod
     def _is_pure_narration(text: str) -> bool:
-        """Detect ONLY tool call narration that duplicates what the TUI already shows.
-
-        A narration is strictly: a single short line like "Reading /path/to/file"
-        or "Listing /dir → Reading /file" - just a verb + path, nothing else.
-
-        Real agent responses (explanations, answers, summaries) must NEVER be
-        filtered, even if short or starting with a verb-like word.
-        """
+        """Detect tool call narration that duplicates what the TUI already shows."""
         if not text or not text.strip():
             return False
         stripped = text.strip()
@@ -1052,16 +1002,11 @@ class ChatLog(VerticalScroll):
         # and orphaned text in the accumulator (race condition recovery).
         self.end_streaming()
 
-    # ── Thinking (streamed progressively) ───────────────────────
 
     _THINK_STYLE = "italic #8a94a8"
 
     def start_thinking_stream(self) -> None:
-        """Start streaming thinking content.
-
-        Does NOT clear _thinking_text_acc - agent thread may have already
-        written deltas before this runs (call_from_thread ordering).
-        """
+        """Start streaming thinking content."""
         self._end_streaming_if_active()
         try:
             self._collapse_previous_thinking()
@@ -1077,9 +1022,6 @@ class ChatLog(VerticalScroll):
 
     def _flush_thinking(self) -> None:
         """Timer callback: drain accumulator and render any new thinking content."""
-        # Drain thread-safe accumulator into buffer.
-        # MUST use [:] + .clear() to keep the same list object - _make_poster
-        # holds a direct reference to this list from the agent thread.
         if self._thinking_text_acc:
             pending = self._thinking_text_acc[:]
             self._thinking_text_acc.clear()
@@ -1089,8 +1031,8 @@ class ChatLog(VerticalScroll):
             if self._thinking_timer is not None:
                 try:
                     self._thinking_timer.stop()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("chat_log best-effort block failed: %s", exc)
                 self._thinking_timer = None
             return
         if not self._thinking_buf.strip():
@@ -1123,8 +1065,8 @@ class ChatLog(VerticalScroll):
         if self._thinking_timer is not None:
             try:
                 self._thinking_timer.stop()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("chat_log best-effort block failed: %s", exc)
             self._thinking_timer = None
         # Drain any remaining accumulated text (keep same list reference)
         if self._thinking_text_acc:
@@ -1205,7 +1147,7 @@ class ChatLog(VerticalScroll):
     def _render_thinking_text(self, text: str, label: bool = True,
                               as_markdown: bool = False,
                               collapsed: bool = False) -> Text | Markdown:
-        """Render thinking text with ┊ rail. Collapses after _THINK_MAX lines."""
+        """Render thinking text with ┊ rail."""
         clean = text.strip()
         lines = clean.split("\n")
 
@@ -1261,7 +1203,6 @@ class ChatLog(VerticalScroll):
         self._last_thinking_content = text.strip()
         self._last_thinking_widget = widget
 
-    # ── Agent response ─────────────────────────────────────────────
 
     def add_response(self, content: str) -> None:
         self._end_streaming_if_active()
@@ -1276,12 +1217,11 @@ class ChatLog(VerticalScroll):
             css_class="rail-response",
         )
 
-    # ── Hook events ────────────────────────────────────────────────
 
     _compaction_widget: Static | None = None
 
     def add_hook(self, action_type: str, phase: str, details: dict | None = None) -> None:
-        """Display hook events. Compaction uses an animated inline widget."""
+        """Display hook events."""
         if action_type == "compact_context":
             if phase == "start":
                 self._spacer()
@@ -1321,23 +1261,17 @@ class ChatLog(VerticalScroll):
                 t.append("Injecting context", style="#f59e0b dim")
                 self._append(t, indent=True)
 
-    # ── Approval display ──────────────────────────────────────────
 
     _RISK_COLORS = {"high": "#ef4444", "medium": "#f59e0b", "low": "#22c55e"}
     _RISK_ICONS = {"high": "\u26a0", "medium": "\u25c6", "low": _DOT}
 
     def add_approval_request(self, tool_name: str, params: dict, risk_level: str) -> None:
-        """Display an approval request inline.
-
-        Special handling for 'ask_user' tool: renders the question prominently
-        and the content as markdown (for plans, code reviews, etc.).
-        """
+        """Display an approval request inline."""
         self._end_streaming_if_active()
         self._spacer()
         color = self._RISK_COLORS.get(risk_level, "#f59e0b")
         icon = self._RISK_ICONS.get(risk_level, "\u25c6")
 
-        # ── ask_user: enhanced rendering with markdown content ──
         if tool_name == "ask_user":
             question = params.get("question", "")
             content = params.get("content")
@@ -1381,7 +1315,6 @@ class ChatLog(VerticalScroll):
             self.scroll_end(animate=False)
             return
 
-        # ── Standard approval request (non ask_user) ──
         # Header
         t = Text()
         t.append(f"{icon} ", style=f"bold {color}")
@@ -1436,7 +1369,6 @@ class ChatLog(VerticalScroll):
         self._append(t, indent=True)
         self.scroll_end(animate=False)
 
-    # ── Undo display ────────────────────────────────────────────
 
     def add_undo_result(self, result: dict | None) -> None:
         t = Text()
@@ -1458,7 +1390,6 @@ class ChatLog(VerticalScroll):
         self._append(t)
         self.scroll_end(animate=False)
 
-    # ── Parallel group display ───────────────────────────────────
 
     def add_parallel_group(self, results: list[dict], elapsed_ms: float) -> None:
         """Display run_parallel results as a grouped tree with briefs."""
@@ -1537,7 +1468,6 @@ class ChatLog(VerticalScroll):
 
         self.scroll_end(animate=False)
 
-    # ── Agent group display ─────────────────────────────────────
 
     _AGENT_ICONS = {
         "spawned": "\u25cc",     # ◌
@@ -1661,7 +1591,6 @@ class ChatLog(VerticalScroll):
             self._agent_group_widget.update(t)
         self.scroll_end(animate=False)
 
-    # ── Separator & Error ──────────────────────────────────────────
 
     def add_separator(self) -> None:
         # Update tool group header with final count
@@ -1671,8 +1600,8 @@ class ChatLog(VerticalScroll):
             t.append(f"{self._turn_tool_count} tool calls", style="bold #5769f7")
             try:
                 self._turn_group_widget.update(t)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("chat_log best-effort block failed: %s", exc)
         self._turn_tool_count = 0
         self._turn_group_widget = None
         self._append(Text(""))

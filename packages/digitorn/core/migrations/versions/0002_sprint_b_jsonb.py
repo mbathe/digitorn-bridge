@@ -4,25 +4,25 @@ Revision ID: 0002
 Revises: 0001
 Create Date: 2026-05-05
 
-Convert every ``json`` column in the public schema to ``jsonb`` and
+Convert every `json` column in the public schema to `jsonb` and
 attach GIN indexes to the columns the dashboard / runtime actually
 search through.
 
 Why JSONB:
-    * Indexable (``json`` is not).
-    * Operator-rich: ``->``, ``->>``, ``@>``, ``?``, ``#>``.
+    * Indexable (`json` is not).
+    * Operator-rich: `->`, `->>`, `@>`, `?`, `#>`.
     * Smaller on disk (binary representation).
     * Read latency 5-20x lower at scale.
 
-The cast ``column::jsonb`` is loss-less for valid JSON. Invalid rows
-(e.g. a corrupt ``{}`` literal stored as a TEXT cast) would fail the
-ALTER. We use ``USING column::jsonb`` so SQL parses each row; if a row
+The cast `column::jsonb` is loss-less for valid JSON. Invalid rows
+(e.g. a corrupt `{}` literal stored as a TEXT cast) would fail the
+ALTER. We use `USING column::jsonb` so SQL parses each row; if a row
 fails, the migration aborts cleanly and the operator can fix the
 offending row before re-running.
 
-GIN indexes use the ``jsonb_path_ops`` operator class on hot columns
-that the runtime queries with ``@>`` containment, and the default
-``jsonb_ops`` on columns the dashboard searches by key existence.
+GIN indexes use the `jsonb_path_ops` operator class on hot columns
+that the runtime queries with `@>` containment, and the default
+`jsonb_ops` on columns the dashboard searches by key existence.
 
 Idempotent: ALTER ... TYPE JSONB is a no-op if the column is already
 jsonb. CREATE INDEX uses IF NOT EXISTS.
@@ -81,18 +81,8 @@ def upgrade() -> None:
     if not _is_postgres():
         return
 
-    # ── 1. JSON → JSONB for every json column in public schema ──
-    # Done dynamically so we catch every column without naming each
-    # one. The cast ``USING column::jsonb`` re-encodes existing rows.
-    #
-    # Disk-safe variant: ALTER COLUMN TYPE rewrites the entire table
-    # (the on-disk format changes), so for large tables this needs
-    # ~2× the table size in temporary disk. On Neon free tier the
-    # total project budget is 512 MB, so we skip tables whose total
-    # size already exceeds 50 MB. The skipped tables can be migrated
-    # later via ``digitorn db jsonb-large`` once free disk allows.
-    # A NOTICE is emitted per skipped table so the operator sees
-    # exactly what's still pending.
+    # JSON → JSONB across every `public` column; tables over 50 MB
+    # are deferred (the ALTER rewrites the table, ~2× disk).
     op.execute("""
     DO $$
     DECLARE
@@ -156,11 +146,7 @@ def upgrade() -> None:
     finally:
         op.execute("BEGIN")
 
-    # ── 3. Update default expressions: ``'{}'`` → ``'{}'::jsonb`` ─
-    # Existing DEFAULT clauses on the converted columns may still
-    # carry ``'{}'`` as a plain string literal; PostgreSQL keeps it
-    # working via implicit cast, but pinning the default to jsonb is
-    # cleaner and avoids per-INSERT cast cost.
+    # Pin DEFAULT expressions to `'{}'::jsonb` to avoid per-INSERT casts.
     op.execute("""
     DO $$
     DECLARE

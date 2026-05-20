@@ -1,16 +1,4 @@
-"""Module requirements system - dependency management à la VS Code.
-
-Each module declares external requirements (binaries, packages) in its
-digitorn-module.toml via ``[[requires]]`` entries. The daemon can list
-all requirements, check their status, and install them on demand.
-
-Install strategies by package manager:
-  - pip/pipx: direct install (no sudo needed)
-  - npm: global install (npm i -g)
-  - go: go install
-  - cargo: cargo install
-  - system: guide only (apt, brew, etc. - needs sudo)
-"""
+"""Module requirements system."""
 
 from __future__ import annotations
 
@@ -32,14 +20,14 @@ class Requirement:
     """A single external requirement declared by a module."""
 
     name: str
-    binary: str  # binary name to check with shutil.which (empty for python packages)
-    role: str  # human description
-    module_id: str  # declaring module
-    kind: str = "binary"  # "binary" or "python"
+    binary: str
+    role: str
+    module_id: str
+    kind: str = "binary"
     optional: bool = True
-    install: dict[str, str] = field(default_factory=dict)  # manager → command
+    install: dict[str, str] = field(default_factory=dict)
     installed: bool = False
-    path: str = ""  # resolved binary path or module location
+    path: str = ""
 
     def check(self) -> bool:
         """Check if this requirement is satisfied."""
@@ -51,9 +39,7 @@ class Requirement:
         return self.installed
 
     def _check_python(self) -> bool:
-        """Check if a Python package is importable."""
         import importlib
-        # Map package names to import names
         import_map = {
             "beautifulsoup4": "bs4",
             "python-pptx": "pptx",
@@ -85,11 +71,7 @@ class Requirement:
         }
 
 
-# ── Package manager detection ───────────────────────────────────
-
-
 def _detect_platform() -> str:
-    """Detect the current platform."""
     import platform
     system = platform.system().lower()
     if system == "darwin":
@@ -100,19 +82,16 @@ def _detect_platform() -> str:
 
 
 def _detect_available_managers() -> dict[str, str]:
-    """Detect which package managers are available on this system."""
     managers: dict[str, str] = {}
 
-    # Cross-platform managers
     cross = ("pip", "pip3", "pipx", "npm", "go", "cargo")
 
-    # OS-specific managers
     plat = _detect_platform()
     if plat == "linux":
         os_specific = ("apt", "dnf", "pacman", "snap")
     elif plat == "macos":
         os_specific = ("brew",)
-    else:  # windows
+    else:
         os_specific = ("winget", "choco", "scoop")
 
     for name in (*cross, *os_specific):
@@ -120,33 +99,23 @@ def _detect_available_managers() -> dict[str, str]:
         if path:
             managers[name] = path
 
-    # Normalize pip3 → pip
     if "pip3" in managers and "pip" not in managers:
         managers["pip"] = managers["pip3"]
     return managers
 
 
-# ── TOML parsing ────────────────────────────────────────────────
-
-
 def _parse_requires_from_toml(toml_path: Path) -> list[dict[str, Any]]:
-    """Parse [[requires]] entries from a digitorn-module.toml."""
     with toml_path.open("rb") as f:
         data = tomllib.load(f)
     return data.get("requires", [])
 
 
-# ── Public API ──────────────────────────────────────────────────
-
-
 def scan_all_requirements() -> list[Requirement]:
     """Scan all modules and return their requirements with install status."""
     reqs: list[Requirement] = []
-    seen: set[str] = set()  # dedupe by binary name
+    seen: set[str] = set()
 
     for base_dir in all_module_dirs():
-        # all_module_dirs() returns parent dirs (e.g. packages/digitorn/modules/)
-        # We need to scan each subdirectory for digitorn-module.toml
         subdirs = [base_dir] if (base_dir / "digitorn-module.toml").exists() else []
         if base_dir.is_dir():
             subdirs.extend(d for d in sorted(base_dir.iterdir()) if d.is_dir())
@@ -156,12 +125,10 @@ def scan_all_requirements() -> list[Requirement]:
             if not toml_path.exists():
                 continue
 
-            # Read module_id
             with toml_path.open("rb") as f:
                 data = tomllib.load(f)
             module_id = data.get("module", {}).get("module_id", module_dir.name)
 
-            # Explicit [[requires]] entries (binaries + custom)
             for entry in data.get("requires", []):
                 binary = entry.get("binary", "")
                 if not binary or binary in seen:
@@ -180,7 +147,6 @@ def scan_all_requirements() -> list[Requirement]:
                 req.check()
                 reqs.append(req)
 
-            # Auto-detect Python package requirements from [module].requirements
             pip_reqs = data.get("module", {}).get("requirements", [])
             for pkg in pip_reqs:
                 if pkg in seen:
@@ -203,15 +169,10 @@ def scan_all_requirements() -> list[Requirement]:
 
 
 def get_install_command(req: Requirement, managers: dict[str, str] | None = None) -> tuple[str, list[str]] | None:
-    """Pick the best install command for a requirement.
-
-    Returns (manager_name, command_parts) or None if no method available.
-    Prefers: pip > npm > go > cargo > pipx > system guide.
-    """
+    """Pick the best install command. Prefers pip > npm > go > cargo > pipx > system."""
     if managers is None:
         managers = _detect_available_managers()
 
-    # Priority order: direct package managers first
     for mgr in ("pip", "npm", "go", "cargo", "pipx"):
         if mgr in req.install and mgr in managers:
             pkg = req.install[mgr]
@@ -226,16 +187,12 @@ def get_install_command(req: Requirement, managers: dict[str, str] | None = None
             elif mgr == "cargo":
                 return mgr, [managers["cargo"], "install", pkg]
 
-    # System package managers (may need sudo or elevation)
     system_cmds: dict[str, list[str]] = {
-        # Linux
         "snap": ["sudo", "snap", "install"],
         "apt": ["sudo", "apt", "install", "-y"],
         "dnf": ["sudo", "dnf", "install", "-y"],
         "pacman": ["sudo", "pacman", "-S", "--noconfirm"],
-        # macOS
         "brew": ["brew", "install"],
-        # Windows
         "winget": ["winget", "install", "--accept-package-agreements"],
         "choco": ["choco", "install", "-y"],
         "scoop": ["scoop", "install"],
@@ -245,9 +202,7 @@ def get_install_command(req: Requirement, managers: dict[str, str] | None = None
         if mgr in req.install and mgr in managers:
             pkg = req.install[mgr]
             cmd = list(system_cmds[mgr])
-            # snap supports flags like --classic in the pkg string
             cmd.extend(pkg.split())
-            # Use real path for non-sudo managers
             if cmd[0] != "sudo" and mgr in managers:
                 cmd[0] = managers[mgr]
             return mgr, cmd
@@ -271,7 +226,6 @@ async def install_requirement(req: Requirement) -> dict[str, Any]:
 
     mgr_name, cmd_parts = cmd_info
 
-    # System package managers need sudo - return guide instead of executing
     if cmd_parts[0] == "sudo":
         return {
             "success": False,

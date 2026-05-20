@@ -55,18 +55,11 @@ _STRONG_UNCERTAINTY = re.compile(
     re.IGNORECASE,
 )
 
-
 def _resolve_path(params: dict) -> str:
-    """Extract file path from tool params."""
     return params.get("file_path") or params.get("path") or params.get("filepath") or ""
 
-
 def _bare(tool_name: str) -> str:
-    """Get bare action name: 'filesystem.edit' → 'edit'."""
     return tool_name.rsplit(".", 1)[-1] if "." in tool_name else tool_name
-
-
-# ── Violation result ────────────────────────────────────────────────
 
 class BhvViolation:
     """A detected rule violation or reminder."""
@@ -79,10 +72,6 @@ class BhvViolation:
         self.message = message
 
     def format(self) -> str:
-        # Authoritative voice matching ``core/runtime/system_directives``:
-        # imperative second-person, markdown section header, no apology.
-        # The model treats these with the same authority as the runtime's
-        # other supervisor directives instead of as advisory chatter.
         if self.level == "block":
             return (
                 f"## TOOL BLOCKED (rule: {self.rule_id})\n"
@@ -103,13 +92,9 @@ class BhvViolation:
             f"{self.message}"
         )
 
-
 # Backward-compat aliases (linter renames these - export all variants)
 Violation = BhvViolation
 BehaviorViolation = BhvViolation  # noqa: F841
-
-
-# ── Built-in rule checks ───────────────────────────────────────────
 
 def check_pre_tool(
     rules: dict,
@@ -122,7 +107,6 @@ def check_pre_tool(
     violations: list[Violation] = []
     tn = tool_name.lower()
 
-    # ── read_before_edit ──
     if rules.get("read_before_edit") and tn in _EDIT_TOOLS:
         fp = _resolve_path(params)
         if fp and fp not in state.read_files:
@@ -132,7 +116,6 @@ def check_pre_tool(
                 f"Call Read('{fp}') to see the current content, then re-issue the edit.",
             ))
 
-    # ── read_before_write_existing ──
     if rules.get("read_before_write_existing") and tn in _WRITE_TOOLS:
         fp = _resolve_path(params)
         if fp and fp not in state.read_files and os.path.exists(fp):
@@ -143,7 +126,6 @@ def check_pre_tool(
                 f"Do not blind-overwrite.",
             ))
 
-    # ── search_before_read ──
     max_blind = rules.get("max_blind_reads", 3)
     if rules.get("search_before_read") and tn in _READ_TOOLS:
         fp = _resolve_path(params)
@@ -155,7 +137,6 @@ def check_pre_tool(
                 f"before reading more files.",
             ))
 
-    # ── no_bash_for_files ──
     if rules.get("no_bash_for_files") and tn in _BASH_TOOLS:
         command = params.get("command", "")
         if _FILE_OP_COMMANDS.search(command):
@@ -166,7 +147,6 @@ def check_pre_tool(
                 f"instead. They are faster, tracked by the runtime, and audited.",
             ))
 
-    # ── no_blind_exploration ──
     if rules.get("no_blind_exploration") and tn in _BASH_TOOLS:
         command = params.get("command", "")
         if _BLIND_EXPLORE_COMMANDS.search(command):
@@ -177,7 +157,6 @@ def check_pre_tool(
                 f"or Grep('pattern') for content.",
             ))
 
-    # ── confirm_destructive ──
     if rules.get("confirm_destructive") and tn in _BASH_TOOLS:
         command = params.get("command", "")
         if _DESTRUCTIVE_COMMANDS.search(command):
@@ -188,7 +167,6 @@ def check_pre_tool(
                 f"re-issuing this command. Do not bypass this check.",
             ))
 
-    # ── confirm_complex_plans ──
     threshold = rules.get("changes_before_test_reminder", 3)
     if rules.get("confirm_complex_plans") and tn in (_EDIT_TOOLS | _WRITE_TOOLS):
         if state.changes_since_test >= threshold * 2 and not state.plan_stated:
@@ -199,7 +177,6 @@ def check_pre_tool(
                 f"get explicit validation, then continue.",
             ))
 
-    # ── plan_before_execute ──
     if rules.get("plan_before_execute") and state.tool_calls_this_turn == 0:
         if not state.plan_stated and not agent_text.strip():
             violations.append(Violation(
@@ -209,7 +186,6 @@ def check_pre_tool(
                 "then call the tools.",
             ))
 
-    # ── max_sequential_same_tool ──
     max_seq = rules.get("max_sequential_same_tool", 8)
     # +1 because post_tool hasn't incremented yet for this call
     upcoming_count = (state.consecutive_same_tool + 1) if tool_name.lower() == state.last_tool_name.lower() else 1
@@ -222,7 +198,6 @@ def check_pre_tool(
             f"switch to a different approach.",
         ))
 
-    # ── Custom rules (pre_tool) ──
     for custom in rules.get("custom", []):
         if custom.get("enforce") != "pre_tool":
             continue
@@ -239,7 +214,6 @@ def check_pre_tool(
 
     return violations
 
-
 def check_post_tool(
     rules: dict,
     state: BhvSessionState,
@@ -252,7 +226,6 @@ def check_post_tool(
     tn = tool_name.lower()
     fp = _resolve_path(params)
 
-    # ── Update state ──
     state.on_tool_call(tool_name)
 
     if tn in _READ_TOOLS and fp:
@@ -271,7 +244,6 @@ def check_post_tool(
         if _TEST_COMMANDS.search(command):
             state.on_test_run()
 
-    # ── verify_after_edit ──
     if rules.get("verify_after_edit") and tn in _EDIT_TOOLS and fp:
         reminders.append(Violation(
             "verify_after_edit", "remind",
@@ -279,7 +251,6 @@ def check_post_tool(
             f"change landed as intended.",
         ))
 
-    # ── test_after_changes ──
     threshold = rules.get("changes_before_test_reminder", 3)
     if rules.get("test_after_changes") and tn in (_EDIT_TOOLS | _WRITE_TOOLS):
         if state.changes_since_test >= threshold:
@@ -290,7 +261,6 @@ def check_post_tool(
                 f"before they pile up.",
             ))
 
-    # ── always_lint_check ──
     if rules.get("always_lint_check") and tn in (_EDIT_TOOLS | _WRITE_TOOLS):
         lint = None
         if isinstance(result, dict):
@@ -307,7 +277,6 @@ def check_post_tool(
                     f"next file.",
                 ))
 
-    # ── delegate_complex ──
     if rules.get("delegate_complex") and state.tool_calls_this_turn >= 8:
         # Only remind once per turn (check if we already reminded)
         if state.tool_calls_this_turn == 8:
@@ -318,7 +287,6 @@ def check_post_tool(
                 f"in parallel and do not consume your context.",
             ))
 
-    # ── delegate_large_reads ──
     if rules.get("delegate_large_reads") and tn in _READ_TOOLS:
         if state.reads_since_search >= 5:
             reminders.append(Violation(
@@ -327,7 +295,6 @@ def check_post_tool(
                 "exploration to a sub-agent. Your context window is finite.",
             ))
 
-    # ── Custom rules (post_tool) ──
     for custom in rules.get("custom", []):
         if custom.get("enforce") != "post_tool":
             continue
@@ -343,7 +310,6 @@ def check_post_tool(
 
     return reminders
 
-
 def check_agent_text(
     rules: dict,
     state: BhvSessionState,
@@ -355,7 +321,6 @@ def check_agent_text(
     if text and text.strip():
         state.plan_stated = True
 
-    # ── web_search_when_unknown ──
     if rules.get("web_search_when_unknown") and text:
         is_uncertain = (
             _UNCERTAIN_FACT_PHRASES.search(text)
@@ -370,15 +335,11 @@ def check_agent_text(
 
     return violations
 
-
-# ── Custom condition evaluator ──────────────────────────────────────
-
 def _check_custom_condition(
     condition: dict,
     params: dict[str, Any],
     state: BhvSessionState,
 ) -> bool:
-    """Evaluate a custom rule condition."""
     if not condition:
         return True  # No condition = always matches
 

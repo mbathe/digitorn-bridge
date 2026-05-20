@@ -1,21 +1,10 @@
-"""MCP protocol - JSON-RPC 2.0 message types and MCP-specific methods.
-
-Implements the Model Context Protocol (MCP) wire format:
-- JSON-RPC 2.0 request/response/notification
-- MCP lifecycle: initialize, initialized, ping
-- MCP capabilities: tools/list, tools/call, resources/list, resources/read,
-  prompts/list, prompts/get
-
-All messages are serialized as JSON. Transport is responsible for framing
-(newline-delimited for stdio, SSE for HTTP).
-"""
+"""MCP protocol - JSON-RPC 2.0 message types and MCP-specific methods."""
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
 from typing import Any
-
 
 @dataclass
 class JsonRpcRequest:
@@ -32,7 +21,6 @@ class JsonRpcRequest:
         if self.id is not None:
             msg["id"] = self.id
         return json.dumps(msg)
-
 
 @dataclass
 class JsonRpcResponse:
@@ -58,7 +46,6 @@ class JsonRpcResponse:
             error=error,
         )
 
-
 @dataclass
 class JsonRpcError:
     """A JSON-RPC 2.0 error object."""
@@ -66,7 +53,6 @@ class JsonRpcError:
     code: int
     message: str
     data: Any = None
-
 
 @dataclass
 class JsonRpcNotification:
@@ -80,7 +66,6 @@ class JsonRpcNotification:
         if self.params is not None:
             msg["params"] = self.params
         return json.dumps(msg)
-
 
 @dataclass
 class MCPToolDef:
@@ -102,7 +87,6 @@ class MCPToolDef:
             meta=data.get("_meta", {}),
         )
 
-
 @dataclass
 class MCPResourceDef:
     """An MCP resource definition (from resources/list)."""
@@ -120,7 +104,6 @@ class MCPResourceDef:
             description=data.get("description", ""),
             mime_type=data.get("mimeType", ""),
         )
-
 
 @dataclass
 class MCPPromptDef:
@@ -142,7 +125,6 @@ class MCPPromptDef:
             arguments=args,
         )
 
-
 @dataclass
 class MCPPromptArgument:
     """An argument for an MCP prompt template."""
@@ -158,7 +140,6 @@ class MCPPromptArgument:
             description=data.get("description", ""),
             required=data.get("required", False),
         )
-
 
 @dataclass
 class MCPToolResult:
@@ -188,7 +169,6 @@ class MCPToolResult:
                 parts.append(f"[Resource: {res.get('uri', 'unknown')}]")
         return "\n".join(parts)
 
-
 MCP_PROTOCOL_VERSION = "2024-11-05"
 
 MCP_CLIENT_INFO = {
@@ -197,7 +177,6 @@ MCP_CLIENT_INFO = {
 }
 
 MCP_CLIENT_CAPABILITIES: dict[str, Any] = {}
-
 
 def build_initialize(request_id: int | str) -> JsonRpcRequest:
     """Build an initialize request."""
@@ -211,21 +190,17 @@ def build_initialize(request_id: int | str) -> JsonRpcRequest:
         id=request_id,
     )
 
-
 def build_initialized() -> JsonRpcNotification:
     """Build the initialized notification (sent after initialize response)."""
     return JsonRpcNotification(method="notifications/initialized")
-
 
 def build_ping(request_id: int | str) -> JsonRpcRequest:
     """Build a ping request."""
     return JsonRpcRequest(method="ping", id=request_id)
 
-
 def build_tools_list(request_id: int | str) -> JsonRpcRequest:
     """Build a tools/list request."""
     return JsonRpcRequest(method="tools/list", id=request_id)
-
 
 def build_tools_call(
     request_id: int | str,
@@ -238,11 +213,9 @@ def build_tools_call(
         params["arguments"] = arguments
     return JsonRpcRequest(method="tools/call", params=params, id=request_id)
 
-
 def build_resources_list(request_id: int | str) -> JsonRpcRequest:
     """Build a resources/list request."""
     return JsonRpcRequest(method="resources/list", id=request_id)
-
 
 def build_resources_read(
     request_id: int | str, uri: str
@@ -254,11 +227,9 @@ def build_resources_read(
         id=request_id,
     )
 
-
 def build_prompts_list(request_id: int | str) -> JsonRpcRequest:
     """Build a prompts/list request."""
     return JsonRpcRequest(method="prompts/list", id=request_id)
-
 
 def build_prompts_get(
     request_id: int | str,
@@ -273,14 +244,12 @@ def build_prompts_get(
         method="prompts/get", params=params, id=request_id
     )
 
-
 def parse_tools_list(result: Any) -> list[MCPToolDef]:
     """Parse tools/list response result."""
     if not isinstance(result, dict):
         return []
     tools = result.get("tools", [])
     return [MCPToolDef.from_dict(t) for t in tools if isinstance(t, dict)]
-
 
 def parse_resources_list(result: Any) -> list[MCPResourceDef]:
     """Parse resources/list response result."""
@@ -289,14 +258,12 @@ def parse_resources_list(result: Any) -> list[MCPResourceDef]:
     resources = result.get("resources", [])
     return [MCPResourceDef.from_dict(r) for r in resources if isinstance(r, dict)]
 
-
 def parse_prompts_list(result: Any) -> list[MCPPromptDef]:
     """Parse prompts/list response result."""
     if not isinstance(result, dict):
         return []
     prompts = result.get("prompts", [])
     return [MCPPromptDef.from_dict(p) for p in prompts if isinstance(p, dict)]
-
 
 def parse_tool_result(result: Any) -> MCPToolResult:
     """Parse tools/call response result."""

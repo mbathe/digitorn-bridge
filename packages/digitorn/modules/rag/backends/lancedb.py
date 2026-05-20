@@ -1,8 +1,4 @@
-"""LanceDB vector backend - embedded, columnar, zero-config.
-
-Requires: pip install lancedb
-Always persistent (directory-based). Excellent for local/embedded use.
-"""
+"""LanceDB vector backend - embedded, columnar, zero-config."""
 
 from __future__ import annotations
 
@@ -13,7 +9,6 @@ from typing import Any
 from .base import CollectionInfo, Document, SearchResult, VectorBackend
 
 logger = logging.getLogger(__name__)
-
 
 class LanceDBBackend(VectorBackend):
 
@@ -126,8 +121,8 @@ class LanceDBBackend(VectorBackend):
             try:
                 tbl.delete(f"doc_id = '{doc_id}'")
                 deleted += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("lancedb best-effort block failed: %s", exc)
         return deleted
 
     async def get(self, collection: str, ids: list[str]) -> list[Document]:
@@ -144,8 +139,8 @@ class LanceDBBackend(VectorBackend):
                     row = rows[0]
                     meta = json.loads(row.get("metadata", "{}")) if isinstance(row.get("metadata"), str) else {}
                     docs.append(Document(doc_id=doc_id, text=row.get("text", ""), metadata=meta))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("lancedb best-effort block failed: %s", exc)
         return docs
 
     async def count(self, collection: str) -> int:

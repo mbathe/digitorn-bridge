@@ -1,19 +1,4 @@
-"""Service bus - central registry for inter-module communication.
-
-Modules register services they provide; other modules call services by name.
-All calls route through the provider's ``execute()`` method so that security
-decorators, audit trail, and rate limiting still apply.
-
-Architecture::
-
-    ComputerControlModule
-        ctx.call_service("vision", "parse_screen", {})
-            +-- ServiceBus.call("vision", "parse_screen", {})
-                    +-- vision_module.execute("parse_screen", {})
-                            +-- vision_module._action_parse_screen({})
-
-No direct imports between modules - the ServiceBus is the only mediator.
-"""
+"""Service bus - central registry for inter-module communication."""
 
 from __future__ import annotations
 
@@ -28,7 +13,6 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-
 @dataclass
 class ServiceRegistration:
     """Internal record of a registered service."""
@@ -39,16 +23,8 @@ class ServiceRegistration:
     methods: list[str] = field(default_factory=list)
     description: str = ""
 
-
 class ServiceBus:
-    """Central service registry and dispatcher.
-
-    Usage::
-
-        bus = ServiceBus()
-        bus.register_service("vision", vision_module, ["parse_screen", "find_element"])
-        result = await bus.call("vision", "parse_screen", {"mode": "full"})
-    """
+    """Central service registry and dispatcher."""
 
     def __init__(self) -> None:
         self._services: dict[str, ServiceRegistration] = {}
@@ -60,15 +36,7 @@ class ServiceBus:
         methods: list[str] | None = None,
         description: str = "",
     ) -> None:
-        """Register a service provided by a module.
-
-        Args:
-            name:        Service name (e.g. ``"vision"``).
-            provider:    Module instance providing the service.
-            methods:     Available methods.  If empty, auto-discovered from
-                         ``_action_*`` methods on the provider.
-            description: Human-readable service description.
-        """
+        """Register a service provided by a module."""
         resolved_methods = methods or []
         if not resolved_methods:
             resolved_methods = [
@@ -118,22 +86,7 @@ class ServiceBus:
     async def call(
         self, service: str, method: str, params: dict[str, Any] | None = None
     ) -> Any:
-        """Call a service method.
-
-        Routes through the provider's ``execute()`` method so all security
-        decorators and audit trails remain active.
-
-        Args:
-            service: Registered service name.
-            method:  Action/method to invoke.
-            params:  Parameters dict.
-
-        Returns:
-            The result from the provider's action handler.
-
-        Raises:
-            ServiceNotFoundError: If no service with this name is registered.
-        """
+        """Call a service method."""
         reg = self._services.get(service)
         if reg is None:
             raise ServiceNotFoundError(service=service)
@@ -166,11 +119,7 @@ class ServiceBus:
         return reg.provider if reg else None
 
     def collect_workspace_cards(self) -> list[dict[str, Any]]:
-        """Collect workspace cards from all modules that provide them.
-
-        Calls ``workspace_card()`` on each registered provider.
-        Modules return None to opt out (the default).
-        """
+        """Collect workspace cards from all modules that provide them."""
         cards: list[dict[str, Any]] = []
         seen: set[str] = set()
         for reg in self._services.values():

@@ -1,8 +1,4 @@
-"""Textual Message subclasses - the callback bridge.
-
-Runtime callbacks (on_token, on_tool_call, etc.) post these Messages
-to the TUI's event loop. Widget handlers update the display.
-"""
+"""Textual Message subclasses - the callback bridge."""
 
 from __future__ import annotations
 
@@ -20,7 +16,7 @@ class TokenReceived(Message):
 
 
 class StreamDone(Message):
-    """Text streaming completed. Finalize as Markdown."""
+    """Text streaming completed."""
 
 
 class OutTokenCount(Message):
@@ -201,10 +197,7 @@ class NotificationResult(Message):
 
 
 class HistoryLoaded(Message):
-    """Session history loaded - restore the chat UI.
-
-    Contains messages, events, memory snapshot, and session metadata.
-    """
+    """Session history loaded - restore the chat UI."""
 
     def __init__(self, messages: list, events: list,
                  memory: dict | None = None,

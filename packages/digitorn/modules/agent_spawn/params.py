@@ -1,10 +1,4 @@
-"""Agent spawn - unified Agent tool with mode dispatch via hidden params.
-
-The LLM sees only 2 params: prompt + description.
-Everything else is hidden - advanced modes for sophisticated coordinators.
-
-Design: identical to Shell (1 tool, N modes via params).
-"""
+"""Agent spawn - unified Agent tool with mode dispatch via hidden params."""
 
 from __future__ import annotations
 
@@ -12,17 +6,9 @@ from pydantic import BaseModel, Field
 
 _HIDDEN = {"hidden": True}
 
-
 class AgentParams(BaseModel):
-    """Launch, monitor, or manage sub-agents.
+    """Launch, monitor, or manage sub-agents."""
 
-    Simple usage:
-      Agent(prompt='Find all API endpoints')
-
-    The agent runs in its own isolated context and returns its result.
-    """
-
-    # ── Visible to LLM (what a 1B model needs) ──────────────
     prompt: str | None = Field(
         default=None,
         description=(
@@ -35,7 +21,6 @@ class AgentParams(BaseModel):
         description="Short label for the UI (e.g. 'Search API endpoints').",
     )
 
-    # ── Hidden: mode dispatch ────────────────────────────────
     agent_id: str | None = Field(
         default=None,
         json_schema_extra=_HIDDEN,
@@ -66,21 +51,12 @@ class AgentParams(BaseModel):
         description="List all agents with their status.",
     )
 
-    # ── spawn config ─────────────────────────────────
-    # BUG-016: ``specialist`` used to be hidden from the LLM schema.
-    # With ``additionalProperties: false`` + strict-tool-mode, any call
-    # like ``Agent(prompt=..., specialist='web_researcher')`` was
-    # rejected at the provider layer - so in practice the coordinator
-    # could never actually dispatch to a specialist, and deepresearch
-    # degenerated to one generic worker doing everything. Exposing the
-    # field lets the registered specialists (see ``agents:`` block in
-    # the app YAML) actually get picked.
     specialist: str | None = Field(
         default=None,
         description=(
             "Optional specialist agent id to run under (e.g. "
             "'web_researcher', 'writer', 'explore'). Must match one "
-            "of the ``agents:`` declared in the app YAML. Omit for "
+            "of the `agents:` declared in the app YAML. Omit for "
             "the default general-purpose worker."
         ),
     )

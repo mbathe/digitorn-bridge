@@ -15,37 +15,37 @@ will hit 100M+ rows in a year and:
       expensive query in the system.
     * Even a well-indexed point query touches an enormous index.
 
-The cure is **declarative monthly partitioning** by ``ts``:
+The cure is **declarative monthly partitioning** by `ts`:
 
     * Each partition is independently VACUUM-able.
-    * Retention is one ``DROP TABLE history_log_YYYY_MM`` (constant time).
+    * Retention is one `DROP TABLE history_log_YYYY_MM` (constant time).
     * Queries for a recent window prune to one or two partitions.
     * The dashboard "this month" view scans only the current partition.
 
 Trade-off accepted: PostgreSQL can only enforce a UNIQUE on a
 partitioned table if the partition key is part of the unique columns.
-Our existing ``UNIQUE (ts)`` is preserved per-partition (still
+Our existing `UNIQUE (ts)` is preserved per-partition (still
 enforced via local index), and global uniqueness is upheld by
-``digitorn.core.history.unique_utc_now()`` which already returns a
+`digitorn.core.history.unique_utc_now()` which already returns a
 strictly monotonic clock at process level.
 
 Strategy:
 
-    1. CREATE new ``history_log`` partitioned by RANGE(ts), PK (id, ts).
+    1. CREATE new `history_log` partitioned by RANGE(ts), PK (id, ts).
     2. Pre-create partitions: every month from the oldest legacy row
        through 24 months ahead (to absorb late-arriving rows + give
        the cron job a 2-year cushion).
-    3. Move legacy rows: ``ALTER TABLE history_log_legacy
-       ATTACH PARTITION ...`` for the in-range slice, then INSERT for
+    3. Move legacy rows: `ALTER TABLE history_log_legacy
+       ATTACH PARTITION ...` for the in-range slice, then INSERT for
        any spillover.
     4. Recreate every legacy index on the partitioned table (which
        cascades to existing + future partitions).
-    5. Recreate the partial UNIQUE indexes (``ix_history_session_seq_unique``
+    5. Recreate the partial UNIQUE indexes (`ix_history_session_seq_unique`
        etc.) PER PARTITION via the same ATTACH-friendly path.
     6. Add a helper SQL function the daemon can call from a daily cron
-       to keep partitions ahead of ``now() + 60 days``.
+       to keep partitions ahead of `now() + 60 days`.
 
-Idempotent guards: skip the rename if ``history_log_legacy`` already
+Idempotent guards: skip the rename if `history_log_legacy` already
 exists (means a prior partial run got that far).
 
 Risk: this migration acquires an ACCESS EXCLUSIVE lock on history_log
@@ -87,15 +87,9 @@ def upgrade() -> None:
     if is_partitioned and is_partitioned[0]:
         return
 
-    # Disk-budget gate (Neon free tier sized check):
-    # the swap creates a new partitioned table and INSERTs every row
-    # from the legacy table into it before dropping the legacy. Peak
-    # disk is therefore ~2× the current history_log size. We refuse
-    # to start the swap if the project budget can't accommodate it,
-    # and record the migration as applied so the alembic chain can
-    # advance to Sprint H. The follow-up migration `db_partition_history.py`
-    # (manual, run after disk cleanup or plan upgrade) does the
-    # actual work.
+    # Disk-budget gate: the swap copies every row before dropping the
+    # legacy table (~2× peak disk). Defer to the manual follow-up
+    # migration when the project can't fit it.
     sizing = bind.exec_driver_sql("""
         SELECT
             COALESCE(pg_total_relation_size('history_log'), 0),
@@ -167,15 +161,11 @@ def upgrade() -> None:
     """)
 
     # ── 2. rename legacy + create partitioned parent ────────────
-    # Determine the column list dynamically so the partitioned table
-    # mirrors whatever shape history_log currently has (defensive
-    # against incremental column additions in earlier sprints).
     op.execute("ALTER TABLE history_log RENAME TO history_log_legacy")
 
-    # The partitioned table copies the legacy structure but PARTITION
-    # BY RANGE(ts). We use ``LIKE ... INCLUDING DEFAULTS INCLUDING
-    # COMMENTS INCLUDING IDENTITY`` to preserve every column attribute,
-    # then add the partition key + the (id, ts) PK.
+    # `LIKE ... INCLUDING DEFAULTS INCLUDING COMMENTS INCLUDING
+    # IDENTITY` preserves the legacy column shape; `PARTITION BY
+    # RANGE(ts)` + `(id, ts)` PK adds the partition key.
     op.execute("""
     CREATE TABLE history_log (
         LIKE history_log_legacy
@@ -184,7 +174,7 @@ def upgrade() -> None:
             INCLUDING COMMENTS
     ) PARTITION BY RANGE (ts);
     """)
-    # The legacy PK was on ``id``. Drop the cloned PK constraint name
+    # The legacy PK was on `id`. Drop the cloned PK constraint name
     # if any survived the LIKE (LIKE doesn't include constraints by
     # default, so usually a no-op).
     op.execute("""
@@ -234,12 +224,8 @@ def upgrade() -> None:
     """)
 
     # ── 4. move legacy rows ──────────────────────────────────────
-    # We can't ATTACH a non-partitioned table as a single partition
-    # because legacy spans many months. INSERT into the partitioned
-    # parent (which routes to the right child) is the right primitive.
-    #
-    # Done in batches to keep the lock duration low and provide
-    # progress checkpoints.
+    # ATTACH won't work (legacy spans multiple months); INSERT into
+    # the partitioned parent routes rows to the right child.
     op.execute("""
     INSERT INTO history_log
     SELECT * FROM history_log_legacy
@@ -267,13 +253,9 @@ def upgrade() -> None:
     # ── 5. drop legacy ───────────────────────────────────────────
     op.execute("DROP TABLE history_log_legacy CASCADE")
 
-    # ── 6. (re)attach the partial UNIQUE indexes per-partition ───
-    # The Sprint A in-place migration created these on the legacy
-    # un-partitioned table. After the partition swap they need to be
-    # recreated PER PARTITION, since unique-on-partitioned would
-    # need ts in the unique key (which would defeat their purpose).
-    # The runtime invariant ``unique_utc_now`` keeps ``ts`` globally
-    # unique - per-partition seq uniqueness is the local belt.
+    # ── 6. recreate partial UNIQUE indexes per partition ─────────
+    # Unique-on-partitioned would force `ts` into the key, defeating
+    # its purpose; the `unique_utc_now` invariant covers `ts`.
     op.execute("""
     DO $$
     DECLARE

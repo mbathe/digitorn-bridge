@@ -1,13 +1,4 @@
-"""Session management for channel activations - durable persistence.
-
-Handles three session strategies:
-- ``per_event``:  Fresh session per inbound event (no history).
-- ``shared``:     Persistent session per (provider, source) - conversation continues.
-- ``template``:   Session key from a rendered template (e.g. ``wa-{{event.source}}``).
-
-Shared sessions are persisted to the database. On daemon restart,
-conversations resume exactly where they left off.
-"""
+"""Session management for channel activations - durable persistence."""
 
 from __future__ import annotations
 
@@ -20,7 +11,6 @@ from digitorn.modules.channels.adapter import InboundEvent
 from digitorn.modules.channels.template import render
 
 logger = logging.getLogger(__name__)
-
 
 class ChannelSessionManager:
     """Manages sessions for channel activations with durable persistence."""
@@ -159,7 +149,6 @@ class ChannelSessionManager:
             self._evict_oldest_locked()
 
     def _evict_oldest_locked(self) -> None:
-        """Internal eviction - caller must hold _dict_lock."""
         to_remove = max(1, len(self._locks) // 10)
         keys = list(self._locks.keys())[:to_remove]
         for key in keys:

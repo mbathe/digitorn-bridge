@@ -14,13 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 def _exact_count(provider: Any, text: str) -> int:
-    """Return the exact token count of ``text`` for ``provider.model``
-    via litellm. Used as the ground-truth fallback when the LLM stream
-    didn't report a ``usage`` block (Ollama, some OpenAI-compat APIs,
-    older Anthropic streams). Routes through ``BaseLLMProvider.count_tokens``
-    which loads the right local tokenizer for the configured model -
-    no estimation, no heuristic. Returns 0 only on truly empty input
-    or a catastrophic failure (which the caller treats as no info)."""
     if not text:
         return 0
     if provider is not None and hasattr(provider, "count_tokens"):
@@ -28,9 +21,6 @@ def _exact_count(provider: Any, text: str) -> int:
             return int(provider.count_tokens(text))
         except Exception:
             logger.debug("provider.count_tokens failed", exc_info=True)
-    # Provider unavailable (sub-agent ctx without provider attached).
-    # Last-resort: tiktoken cl100k_base via the shared helper. Better
-    # than char/4 and avoids the daemon stalling on a missing import.
     try:
         from digitorn.core.runtime.session_metrics import _count_tokens
         return _count_tokens(text)
@@ -39,17 +29,10 @@ def _exact_count(provider: Any, text: str) -> int:
 
 
 def _fix_win_backslashes(s: str) -> str:
-    """Fix unescaped Windows backslashes in JSON strings from LLMs.
-
-    LLMs often produce ``"C:\\Users\\..."`` with single backslashes that are
-    invalid JSON escapes (``\\U``, ``\\D``, etc.).  We selectively double
-    backslashes that are not already valid JSON escape sequences.
-    """
     try:
         json.loads(s)
         return s
     except json.JSONDecodeError:
-        # Replace \ not followed by a valid JSON escape char with \\
         fixed = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', s)
         return fixed
 
@@ -58,44 +41,26 @@ _THINK_OPEN = "<think>"
 _THINK_CLOSE = "</think>"
 _THINK_CLOSE_LEN = len(_THINK_CLOSE)
 
-# Markers emitted by models that output tool calls inline in the content
-# (qwen2.5, some deepseek fine-tunes). When one of these appears in the
-# stream, we stop forwarding tokens to the client so the raw JSON / tag
-# noise never flashes on screen. The extract_tool pass later rescues
-# the call from the full content.
-#
-# Includes CJK translations because qwen switches language based on
-# recent context - a Chinese user gets `工具调用:` instead of `tool_call:`.
 _INLINE_TOOL_MARKERS = (
     "<tool_call>",
     "tool_calls:",
     "tool_call:",
-    "run_parallel(",      # qwen Python-call-syntax
+    "run_parallel(",
     "parallel_tool_use(",
     "parallel_tools(",
     "batch_tools(",
-    "工具调用:",           # Chinese (Simplified)
-    "工具调用 :",          # Chinese with space
-    "工具呼叫:",           # Chinese (Traditional)
-    "ツール呼び出し:",     # Japanese
-    "herramientas:",      # Spanish (less common but seen in wild)
+    "工具调用:",
+    "工具调用 :",
+    "工具呼叫:",
+    "ツール呼び出し:",
+    "herramientas:",
 )
 _INLINE_TOOL_MAX_MARKER_LEN = max(len(m) for m in _INLINE_TOOL_MARKERS)
 
-# Leading wrapper some models emit - `content: "..."` around the
-# actual assistant reply. We strip this prefix (and its matching
-# closing quote) so the user sees clean text.
 _CONTENT_WRAPPER_RE = re.compile(r'^\s*content\s*:\s*"', re.IGNORECASE)
 
 
 def _coerce_tool_arguments_fragment(value: Any) -> str:
-    """Normalize a streamed tool-argument fragment to a JSON string.
-
-    Most providers stream tool arguments as JSON text fragments, but some
-    providers (notably Anthropic final tool blocks) may already provide parsed
-    ``dict`` objects.  The runtime accumulator stores fragments uniformly as
-    strings, so dict/list payloads are serialized here.
-    """
     if value is None:
         return ""
     if isinstance(value, str):
@@ -109,22 +74,6 @@ def _coerce_tool_arguments_fragment(value: Any) -> str:
 
 
 async def _finalize_streaming_on_abort(ctx: Any, state: Any) -> None:
-    """Awaited counterpart of [_schedule_streaming_persist] for the abort
-    path. Writes whatever the model produced before the cut into
-    ``history_log`` BEFORE the agent loop re-raises CancelledError.
-
-    Status flipped to ``'complete'`` so:
-    1. ``save_messages``' streaming-bridge will not try to overwrite
-       this row from ``messages[seq]`` (the abort path never appends
-       the assistant message to ``messages``, so messages[seq] would
-       be out-of-bounds and the bridge is a no-op anyway, but the
-       'complete' status is a hard guarantee).
-    2. The frontend has no need for a separate 'interrupted' label;
-       the user-visible signal is the abort event on the bus.
-
-    Best-effort: every step is wrapped, the function never raises -
-    losing the partial is bad, crashing the abort is worse.
-    """
     if ctx is None or state is None:
         return
     seq = getattr(ctx, "_streaming_assistant_seq", None)
@@ -141,8 +90,6 @@ async def _finalize_streaming_on_abort(ctx: Any, state: Any) -> None:
     try:
         parts = getattr(state, "content_parts", []) or []
         partial = "".join(parts)
-        # Same think-tag stripping as the live path. We persist what the
-        # user would have seen, not the raw chain-of-thought.
         partial = re.sub(r"<think>.*?</think>", "", partial, flags=re.DOTALL)
         if not partial:
             return
@@ -165,62 +112,27 @@ async def _finalize_streaming_on_abort(ctx: Any, state: Any) -> None:
                 create_if_missing=True,
             )
 
-        # Off-main-loop: ``upsert_streaming_assistant`` reaches asyncpg
-        # which writes to Postgres over SSL; on Windows IOCP the
-        # ``ssl.write`` syscall blocks synchronously when the SSL
-        # context renegotiates -- observed as 20+ second event-loop
-        # stalls. The PersistWorker has its own asyncio loop + a
-        # psycopg3 engine that doesn't trip this pathology, so we
-        # submit the finalize there instead of awaiting on the main
-        # loop. Fire-and-forget: the abort caller wants to propagate
-        # CancelledError now, not wait on a slow DB write.
         try:
             from digitorn.core.runtime.persist_worker import get_default_worker
             get_default_worker().submit(_do_finalize)
         except Exception as exc:
             logger.debug(
-                "finalize_streaming_on_abort: worker submit failed (%s); "
-                "falling back to inline await",
+                "finalize_streaming_on_abort: worker submit failed (%s); falling back to inline await",
                 exc,
             )
-            # Last-resort inline await -- can stall but preserves the
-            # legacy behaviour during pre-worker boot phases.
             await _do_finalize()
     except Exception as exc:
         logger.debug("finalize_streaming_on_abort failed: %s", exc)
 
 
-# Strong refs for fire-and-forget streaming persists. Without this set,
-# ``asyncio.create_task(_run())`` returns a Task that the loop tracks
-# only weakly; under GC pressure (long sessions, big payloads) the task
-# is collected before its DB upsert runs, silently dropping the
-# in-flight assistant snapshot. Frontend reconnect mid-stream then sees
-# a stale partial. Pattern mirrors ``_BG_SESSION_PERSIST_TASKS`` in
-# ``manager_v2/_chat.py``.
 _BG_STREAMING_PERSIST_TASKS: set[asyncio.Task] = set()
 
-# Same strong-ref trick for thinking-callback coroutines spawned from
-# the sync ``_handle_native_thinking._fire``. Without this, a callback
-# that returns a coroutine sees its task GC'd before it runs - silent
-# loss of thinking observers (e.g. live token counters, UI updates).
 _BG_THINKING_CB_TASKS: set[asyncio.Task] = set()
 
 
 def _schedule_streaming_persist(
     ctx: Any, content: str, *, status: str = "streaming",
 ) -> None:
-    """Kick off a fire-and-forget UPSERT of the in-flight assistant
-    message in ``history_log``. Caller keeps streaming without waiting
-    for the DB round-trip. ``status='streaming'`` during the turn;
-    the flush path at turn-end flips it to ``'complete'``.
-
-    Requires ``ctx`` to carry ``app_id``, ``session_id`` and a
-    ``_streaming_assistant_seq`` int set by the agent loop right
-    before it calls ``streaming_chat`` (the seq where the new
-    assistant message will land when the turn's ``messages`` list is
-    persisted). When that seed is missing (e.g. sub-agent contexts)
-    we silently skip - no durability guarantee, but also no crash.
-    """
     if ctx is None:
         return
     seq = getattr(ctx, "_streaming_assistant_seq", None)
@@ -254,14 +166,6 @@ def _schedule_streaming_persist(
         except Exception as exc:
             logger.debug("streaming_persist_scheduled_failed: %s", exc)
 
-    # Route to the PersistWorker (dedicated thread + its own asyncio
-    # loop + its own psycopg3 SQLAlchemy engine). The previous
-    # ``asyncio.create_task(_run())`` ran on the MAIN loop, which
-    # meant every 500ms streaming-snapshot persist hit ``asyncpg`` on
-    # the main loop. ``asyncpg`` writes go through OpenSSL ``ssl.write``
-    # which on Windows IOCP can block synchronously when the SSL
-    # context renegotiates -- observed as 20+ second event-loop stalls
-    # (loop-stall.log gap_s=21.50). The worker isolates the DB hop.
     submitted = False
     try:
         from digitorn.core.runtime.persist_worker import get_default_worker
@@ -272,8 +176,6 @@ def _schedule_streaming_persist(
         logger.debug("streaming_persist_worker_submit_failed: %s", exc)
 
     if not submitted:
-        # Fallback path: schedule on the main loop. Kept so unit
-        # tests / pre-worker boot phases still get *some* durability.
         try:
             _t = asyncio.create_task(
                 _run(), name=f"streaming-persist:{app_id}:{session_id}",
@@ -281,7 +183,6 @@ def _schedule_streaming_persist(
             _BG_STREAMING_PERSIST_TASKS.add(_t)
             _t.add_done_callback(_BG_STREAMING_PERSIST_TASKS.discard)
         except RuntimeError:
-            # No running loop -- degrade gracefully (shutdown).
             pass
 
 
@@ -293,17 +194,6 @@ async def streaming_chat(
     cb: AgentTurnCallbacks,
     ctx: Any = None,
 ) -> tuple[str, list[dict], Any]:
-    """Stream a chat response and return (content, tool_calls, response).
-
-    All UI callbacks are wrapped in try/except - a callback error must
-    never crash the agent loop or interrupt the LLM stream.
-
-    ``ctx`` - optional AgentContext; when passed, the stream upserts
-    the in-flight assistant text into ``history_log`` every 500ms so a
-    fresh client opening the session mid-turn can rehydrate the bubble
-    from the message row, and a daemon crash mid-turn never loses the
-    partial response.
-    """
     state = _StreamState(cb, ctx=ctx)
     state.input_messages = messages
     state.input_tools = tools
@@ -316,21 +206,6 @@ async def streaming_chat(
         _stream_completed = True
     finally:
         if not _stream_completed:
-            # Interruption path - covers both CancelledError (user
-            # pressed Stop) AND provider/network errors. The 500 ms
-            # throttle on _schedule_streaming_persist means the last
-            # fire-and-forget upsert can be up to half a second behind
-            # the actual stream, and any task queued just before the
-            # interruption may have been killed before it ran. Take
-            # one AWAITED final pass so the row in history_log carries
-            # every token the model produced before the cut.
-            #
-            # Status flipped to 'complete' so save_messages' streaming
-            # bridge will not try to overwrite this row from
-            # messages[seq] (which won't have the assistant message in
-            # the abort path). Wrapped in a broad try/except - losing
-            # the partial is bad, masking the original interruption is
-            # worse.
             try:
                 await _finalize_streaming_on_abort(ctx, state)
             except Exception:
@@ -339,17 +214,6 @@ async def streaming_chat(
     content = re.sub(r"<think>.*?</think>\s*", "", "".join(state.content_parts), flags=re.DOTALL)
     tool_calls = _finalize_tool_calls(state)
 
-    # DeepSeek V4 thinking mode: accumulated native reasoning must be
-    # returned on the response so agent_loop can replay it on next turn.
-    # `_reasoning_full` is the full stream (never cleared by flush).
-    # Distinguish two cases:
-    #   - thinking-mode emitted at least one reasoning chunk on this
-    #     turn (even empty string) -> _was_in_native_thinking=True ->
-    #     return "" or the joined parts. Empty string is a valid
-    #     "thinking happened, the model emitted nothing" answer; V4
-    #     still requires the field on next API call.
-    #   - non-thinking model never set the flag -> return None so
-    #     downstream skips adding the field altogether.
     _reasoning_parts = getattr(state, "_reasoning_full", None) or []
     _saw_thinking = bool(getattr(state, "_was_in_native_thinking", False))
     if _reasoning_parts:
@@ -366,13 +230,12 @@ async def streaming_chat(
     fake.raw = {}
     fake.usage = state.last_usage
     fake.finish_reason = state.finish_reason
-    fake.stop_reason = state.finish_reason  # Anthropic uses stop_reason
+    fake.stop_reason = state.finish_reason
     fake.reasoning_content = native_reasoning
     return content, tool_calls, fake
 
 
 class _StreamState:
-    """Mutable state accumulated during a single stream."""
 
     __slots__ = (
         "cb", "ctx", "content_parts", "tool_calls", "last_usage", "finish_reason",
@@ -400,65 +263,25 @@ class _StreamState:
         self._tool_acc: list[dict[str, Any]] = []
         self._stream_done_fired = False
         self._think_buf = ""
-        # `_in_think` tracks the TEXT-TAG thinking state (inside
-        # `<think>…</think>`). `_in_native_thinking` tracks the provider
-        # NATIVE thinking mode (chunk.thinking field). Mixing these
-        # flags caused the daemon to classify normal content deltas as
-        # "still inside thinking" right after a native-thinking burst,
-        # producing thinking snapshots that contained the actual
-        # response text appended with no delimiter.
+        # `_in_think` tracks <think> text-tag state; `_in_native_thinking` tracks provider chunk.thinking - mixing them pollutes thinking snapshots.
         self._in_think = False
         self._in_native_thinking = False
-        # Sticky bit: True once any native-thinking chunk arrived this
-        # stream. Used at flush time to distinguish "model didn't emit
-        # reasoning at all" (don't add the field on next call) from
-        # "thinking-mode model finished without reasoning content"
-        # (add empty string - V4 requires the field on every assistant
-        # turn whose conversation has thinking enabled).
+        # sticky bit - distinguishes "model never emitted reasoning" from "thinking-mode emitted nothing"; V4 requires the field on every assistant turn.
         self._was_in_native_thinking = False
         self._think_content: list[str] = []
-        # Full reasoning accumulated across the entire stream (never cleared).
-        # DeepSeek V4 thinking mode requires this to be replayed to the API
-        # on the next turn, unlike _think_content which is cleared on flush.
+        # full reasoning is never cleared - DeepSeek V4 requires replay; _think_content clears on flush.
         self._reasoning_full: list[str] = []
-        # Once a marker like `tool_calls:` or `<tool_call>` is seen, we
-        # stop forwarding any further visible content to the client so
-        # the raw call noise never flashes on screen. The full content
-        # is still accumulated in content_parts for extract_tool.
         self._inline_tool_gate = False
-        # Rolling tail buffer - holds the last N chars that might be the
-        # prefix of a marker (e.g. "<too" waiting for "l_call>").
         self._inline_tool_hold = ""
-        # Track if the response starts with `content: "...` wrapper.
-        # When active, we strip the prefix AND the matching trailing `"`
-        # right before the tool-call marker.
         self._content_wrapper_active = False
         self._content_wrapper_checked = False
         self._prev_completion_tokens: int = 0
         self._last_snapshot_at: float = 0.0
         self._last_live_count_at: float = 0.0
-        # Set once the provider sends a streaming usage chunk with a
-        # real ``completion_tokens`` value - disables our litellm live
-        # counter so the two sources don't fight over the cursor.
         self._provider_streams_usage: bool = False
-        # Per-thinking-block cursor. Reset to 0 each time a thinking
-        # block opens (`thinking_started` / `_in_think` flips True),
-        # so each block carries its OWN tokenized count instead of the
-        # message-wide cumulative. Same rolling-tokenize trick as the
-        # text counter, scoped to ``self._think_content``.
         self._prev_thinking_tokens: int = 0
         self._last_thinking_count_at: float = 0.0
-        # Per-tool live progress while the LLM streams the args JSON.
-        # Keyed by call_id; each entry tracks the accumulated args
-        # text, last emitted token count, and last emit timestamp so
-        # we can throttle the litellm tokenize to 250ms regardless of
-        # how fast args fragments arrive. Emptied as each call is
-        # finalized - the existing tool_start / tool_call lifecycle
-        # takes over from there.
         self._streaming_tool_calls: dict[str, dict[str, Any]] = {}
-        # Captured by streaming_chat() so the flush-time fallback can
-        # estimate prompt_tokens for providers that don't send usage
-        # (Ollama, DeepSeek without include_usage, older llama.cpp).
         self.input_messages: list[dict] | None = None
         self.input_tools: list[dict] | None = None
 
@@ -471,24 +294,9 @@ class _StreamState:
 
         self._track_usage(chunk)
 
-        # `is not None` (not truthy) - DeepSeek V4 emits empty string
-        # for trivial turns ("thinking mode is on but the model had
-        # nothing to reason about"). The empty string still counts -
-        # the API requires `reasoning_content` to be replayed on every
-        # subsequent call. Truthy guard dropped `""` -> response
-        # `reasoning_content` stayed None -> next turn 400'd with
-        # "The reasoning_content in the thinking mode must be passed
-        # back to the API."
         if chunk_thinking is not None:
             self._handle_native_thinking(chunk_thinking)
 
-        # If a content delta arrives while native thinking is active,
-        # that signals the model exited thinking - flush the accumulated
-        # thinking block BEFORE routing the delta to content. Without
-        # this, the text-tag filter (`_filter_think_tags`) saw delta
-        # while `_in_think` was True (set by text-tag parser) OR the
-        # native-thinking buffer kept growing with response text
-        # appended, producing a polluted `thinking` snapshot at flush.
         if delta and self._in_native_thinking:
             await self._flush_native_thinking(delta)
 
@@ -503,21 +311,12 @@ class _StreamState:
             if visible:
                 visible = self._filter_inline_tool_markers(visible)
             if visible:
-                # Refresh the live completion-token count BEFORE
-                # firing the token event so the count we attach is
-                # accurate at the moment the delta lands. Throttled
-                # to 250ms - litellm is local but still O(n) on the
-                # accumulated text.
                 import time as _time
                 now = _time.monotonic()
                 if now - self._last_live_count_at >= 0.25:
                     self._last_live_count_at = now
                     self._maybe_emit_live_out_count()
                 await _fire_token(self.cb, visible, self._prev_completion_tokens)
-                # Mid-stream snapshot for reconnect durability: every
-                # 500ms emit + persist the accumulated content so late
-                # joiners see what the assistant has written so far
-                # (tokens themselves are ephemeral by design).
                 if now - self._last_snapshot_at >= 0.5:
                     self._last_snapshot_at = now
                     try:
@@ -539,27 +338,14 @@ class _StreamState:
             self.tool_calls.append(self._current_tool)
             self._current_tool = None
             self._tool_args_buf = []
-            # Sweep ALL pending streams, not just _current_tool. In
-            # parallel tool use the LLM emits N concurrent tool_use
-            # blocks; _current_tool only tracks the most recent one,
-            # so finalizing it alone leaves the other N-1 with stale
-            # frozen token counts in the UI.
             self._finalize_all_pending_streams()
 
     async def flush(self) -> None:
         if self._current_tool is not None:
             self._current_tool["function"]["arguments"] = "".join(self._tool_args_buf)
             self.tool_calls.append(self._current_tool)
-        # Sweep every remaining stream (see _finalize_all_pending_streams)
-        # — runs whether or not _current_tool was set, because parallel
-        # tool calls populate _streaming_tool_calls directly without
-        # always going through _current_tool.
         self._finalize_all_pending_streams()
 
-        # If the stream ends while still in native-thinking mode (no
-        # content ever followed), emit the accumulated thinking now.
-        # Without this, a short model reply where the whole answer fit
-        # inside native thinking would never produce a `thinking` event.
         if self._in_native_thinking and self._think_content:
             text = "".join(self._think_content).strip()
             if text:
@@ -577,14 +363,6 @@ class _StreamState:
             except Exception:
                 logger.debug("on_token callback error (finalize)", exc_info=True)
 
-        # Fallback: if the provider never reported usage OR reported it
-        # with prompt_tokens=0 (Ollama's openai-compat streams a final
-        # usage chunk with only completion_tokens populated - prompt
-        # stays at 0 which would otherwise freeze the UI pressure gauge
-        # at 0), estimate BOTH prompt_tokens (from captured input
-        # messages + tools schema) AND completion_tokens (from accumulated
-        # output). Without this, the session's cumulative `tokens.prompt`
-        # stays stuck at 0 forever.
         _reported_prompt = (
             getattr(self.last_usage, "prompt_tokens", 0) or 0
             if self.last_usage is not None else 0
@@ -605,28 +383,14 @@ class _StreamState:
             text = "".join(self.content_parts)
             provider = getattr(self.ctx, "provider", None) if self.ctx else None
 
-            # Off-loop: every tokenizer call below is litellm-backed,
-            # CPU-bound, and on first hit triggers a model load (multi-MB
-            # for HF tokenizers). Bundle the whole counting block into
-            # one thread hop so we don't pay the off-loop overhead per
-            # token call.
             input_messages = list(self.input_messages or [])
             input_tools = list(self.input_tools or [])
 
             def _count_all() -> tuple[int, int]:
-                # Ground-truth via litellm tokenizer for THIS provider's
-                # model - same path as ``BaseLLMProvider.count_tokens``.
-                # No char/4 heuristic, no CJK approximation: the exact
-                # token count the LLM API would have charged us,
-                # computed locally without a network round-trip.
                 _out = max(_exact_count(provider, text), 1)
                 _in = 0
                 if input_messages:
                     try:
-                        # ``input_messages`` may be dicts OR ChatMessage
-                        # dataclass instances. Build a uniform
-                        # list-of-dicts and let the provider's message
-                        # tokenizer count the boilerplate too.
                         def _field(obj, name, default=""):
                             if isinstance(obj, dict):
                                 return obj.get(name, default)
@@ -674,8 +438,6 @@ class _StreamState:
 
             estimated_in, estimated_out = await _asyncio.to_thread(_count_all)
 
-            # Prefer reported values when they look real; substitute
-            # estimates only for the missing/zero fields.
             final_prompt = _reported_prompt if _reported_prompt > 0 else estimated_in
             final_completion = _reported_completion if _reported_completion > 0 else estimated_out
             self.last_usage = TokenUsage(
@@ -684,8 +446,6 @@ class _StreamState:
                 total_tokens=final_prompt + final_completion,
             )
             if _reported_completion == 0 and self.cb.on_out_token is not None:
-                # Subtract whatever the live counter already emitted
-                # during streaming so the cumulative total stays exact.
                 remaining = estimated_out - self._prev_completion_tokens
                 if remaining > 0:
                     try:
@@ -728,13 +488,6 @@ class _StreamState:
         args_fragment: str = "",
         force: bool = False,
     ) -> None:
-        """Emit a ``tool_call_streaming`` callback for live progress.
-
-        ``args_fragment`` is appended to the per-call buffer; the count
-        is then re-tokenized via litellm (throttled to 250ms unless
-        ``force=True`` - used for the very first emit when the name
-        appears, so the UI gets the placeholder immediately even
-        though count=0)."""
         cb = self.cb.on_tool_call_streaming
         if cb is None or not call_id:
             return
@@ -771,14 +524,6 @@ class _StreamState:
             count = entry["count"]
         entry["count"] = count
 
-        # Incremental ``intent`` extraction. When the app opts into
-        # ``ui.tool_calls.inject_intent: true``, the schema puts ``intent``
-        # as the FIRST property of every tool, so the LLM emits it before
-        # any real arg. As soon as the closing quote of its string value
-        # streams in, we capture the verb and surface it to the UI — the
-        # Lovable-style progress line ("Analyzing requirements, …") needs
-        # this BEFORE tool_start fires. Sticky: once captured for a
-        # call_id, never overwritten.
         if not entry["intent"]:
             captured = _scan_intent_value(entry["args_text"])
             if captured:
@@ -786,7 +531,6 @@ class _StreamState:
         try:
             cb(call_id, entry["name"], count, entry["intent"])
         except TypeError:
-            # Backwards-compat: older callbacks without the intent param.
             try:
                 cb(call_id, entry["name"], count)
             except Exception:
@@ -795,24 +539,6 @@ class _StreamState:
             logger.debug("on_tool_call_streaming callback error", exc_info=True)
 
     def _finalize_tool_call_streaming(self, call_id: str) -> None:
-        """One last emit when a call is finalized so the UI sees the
-        end value, then drop the entry. Lets the frontend swap the
-        placeholder for the real tool_start card without missing the
-        last few tokens that arrived between the previous tick and
-        finalization.
-
-        Intent fallback: ``inject_intent: true`` puts ``intent`` as
-        the FIRST required field of every tool schema, but some models
-        (DeepSeek V4 in particular) drop it occasionally on tools with
-        large args payloads (``WsWrite`` / ``WsEdit`` where ``content``
-        is a whole file). When that happens the frontend stays on its
-        ``"Working"`` placeholder for the entire call duration. Patch
-        it here: if the LLM never gave us an intent, synthesize one
-        from the canonical TOOL_LABELS dict so the UI shows a coherent
-        verb (``"Writing file"``, ``"Editing file"``, etc.) instead of
-        the generic placeholder. Real intents from compliant models
-        still win — this only fires when ``entry["intent"]`` is empty.
-        """
         if call_id and call_id in self._streaming_tool_calls:
             entry = self._streaming_tool_calls.get(call_id) or {}
             if not entry.get("intent"):
@@ -823,18 +549,6 @@ class _StreamState:
             self._streaming_tool_calls.pop(call_id, None)
 
     def _finalize_all_pending_streams(self) -> None:
-        """Force a final ``tool_call_streaming`` emit for every entry
-        still in the dict and drop them all. Called at stream end so
-        parallel tool use (N concurrent ``tool_use`` blocks - Claude
-        Sonnet 4.5 routinely fires 10 at once) doesn't leave 9 stale
-        chips in the UI with frozen token counts. Without this, only
-        ``self._current_tool`` got its final emit; every other call_id
-        accumulated args silently in the buffer but never re-emitted
-        the updated count - the frontend showed e.g. ``WsWrite · 2
-        tokens`` and never moved despite the daemon having the full
-        count internally. List-copy because ``_fire_tool_call_streaming``
-        doesn't pop, but ``pop`` after the emit MUTATES the dict mid-
-        iteration if we used the keys() view directly."""
         pending = list(self._streaming_tool_calls.keys())
         if pending:
             logger.info(
@@ -847,10 +561,6 @@ class _StreamState:
         self._streaming_tool_calls.clear()
 
     def _thinking_token_count(self) -> int:
-        """Tokenize the currently-active thinking block via litellm
-        and return the cumulative count (always monotonically rising
-        within a single thinking block - drops back to 0 only when
-        ``_think_content`` is cleared on block close)."""
         if not self._think_content:
             return 0
         provider = getattr(self.ctx, "provider", None) if self.ctx else None
@@ -862,11 +572,7 @@ class _StreamState:
             return self._prev_thinking_tokens
 
     def _maybe_emit_live_out_count(self) -> None:
-        """Emit incremental ``out_token`` deltas during streaming using
-        litellm-tokenized accumulated content. Only fires when the
-        provider hasn't been streaming ``usage`` chunks itself - once a
-        real usage update lands, ``_track_usage`` takes over via the
-        same ``_prev_completion_tokens`` cursor, and we step aside."""
+        """Emit incremental `out_token` deltas during streaming using"""
         if self.cb.on_out_token is None:
             return
         if self._provider_streams_usage:
@@ -896,10 +602,6 @@ class _StreamState:
         def _fire(cb: Any, *args: Any) -> None:
             if cb is None:
                 return
-            # Backward-compat: callers may pass extra trailing args
-            # (e.g. token count) that older callback definitions don't
-            # accept. On TypeError, retry with one fewer arg until the
-            # call succeeds or we run out of args.
             attempts = list(range(len(args), -1, -1))
             for n in attempts:
                 try:
@@ -907,8 +609,6 @@ class _StreamState:
                     if _inspect.iscoroutine(res):
                         try:
                             loop = _asyncio.get_running_loop()
-                            # Strong-ref the task so it isn't GC'd before
-                            # it runs - same trap as ``_schedule_streaming_persist``.
                             _t = loop.create_task(res)
                             _BG_THINKING_CB_TASKS.add(_t)
                             _t.add_done_callback(_BG_THINKING_CB_TASKS.discard)
@@ -924,12 +624,6 @@ class _StreamState:
                     logger.debug("native_thinking callback error", exc_info=True)
                     return
 
-        # `_in_native_thinking` is distinct from `_in_think` (which is
-        # owned by the text-tag parser in `_filter_think_tags`). Mixing
-        # the two caused normal content deltas after a native-thinking
-        # burst to be classified as more thinking - the daemon then
-        # emitted a `thinking` snapshot containing the real response
-        # text glued after the thinking, no delimiter.
         if not self._in_native_thinking:
             self._in_native_thinking = True
             self._was_in_native_thinking = True
@@ -938,9 +632,6 @@ class _StreamState:
             _fire(self.cb.on_thinking_started)
         self._think_content.append(text)
         self._reasoning_full.append(text)
-        # Throttled per-block tokenize: once every 250ms refresh the
-        # cumulative thinking-token count for THIS block. Each delta
-        # carries the latest known count as its second positional arg.
         import time as _time
         _now = _time.monotonic()
         if _now - self._last_thinking_count_at >= 0.25:
@@ -951,15 +642,7 @@ class _StreamState:
         _fire(self.cb.on_thinking_delta, text, self._prev_thinking_tokens)
 
     async def _flush_native_thinking(self, delta: str) -> None:
-        """Close an ongoing native-thinking session and emit the
-        snapshot. Called when a content delta arrives (native thinking
-        is complete) or when the stream terminates. Content deltas
-        themselves must NOT be captured here - only the accumulated
-        `_think_content` is flushed.
-        """
         if self._in_native_thinking and self._think_content:
-            # Final tokenize before clearing - gives the snapshot
-            # event the exact per-block count.
             cnt = self._thinking_token_count()
             if cnt > self._prev_thinking_tokens:
                 self._prev_thinking_tokens = cnt
@@ -975,21 +658,6 @@ class _StreamState:
             self._in_think = False
 
     async def _fire_assistant_snapshot(self) -> None:
-        """Persist the in-flight assistant text to history_log every
-        500 ms so a daemon crash mid-turn never loses the response and
-        a fresh client opening the session mid-stream can rehydrate
-        the bubble from the message row.
-
-        We deliberately do NOT publish on the event bus here. Live
-        clients already receive every token delta; rebroadcasting the
-        accumulated text to them caused the timeline to duplicate any
-        text segment that came before a tool call (the snapshot
-        carries the full concat without segment markers, while the
-        token stream had already split the timeline into [text, tool,
-        text] blocks). Mid-turn rejoin is now served by replaying the
-        token events in the durable history log; the snapshot lives
-        only in the message row for crash recovery.
-        """
         ctx = self.ctx
         if ctx is None:
             return
@@ -997,51 +665,25 @@ class _StreamState:
         import re as _re
         visible_only = _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL)
         _schedule_streaming_persist(ctx, visible_only, status="streaming")
-        # Yield to the event loop so the persist task can start and
-        # other coroutines (token emission, heartbeat, abort signal)
-        # get a chance to run between chunks. Without this, on bursty
-        # provider streams the chunk handler stays cooperative-blocked
-        # for long stretches because none of its callees await.
         await asyncio.sleep(0)
 
     def _filter_inline_tool_markers(self, visible: str) -> str:
-        """Suppress output once we see a tool-call marker in the stream.
-
-        Models like qwen2.5 emit their tool calls as text inside the
-        content stream, e.g.::
-
-            content: "I will read ..."
-            tool_calls: [<tool_call>{"name": "read", "arguments": {...}}]
-
-        Also emit CJK variants (`工具调用:`) when prompted in Chinese.
-        Also wrap their whole reply with `content: "..."`.
-
-        We:
-        1. Strip the leading `content: "` wrapper if present at start.
-        2. Buffer tail chars to catch markers split across chunks.
-        3. On marker detection, close the gate + strip trailing wrapper `"`.
-        """
         if self._inline_tool_gate:
             return ""
 
-        # Step 1: check for `content: "` wrapper on first real chunk.
         if not self._content_wrapper_checked:
             combined_probe = self._inline_tool_hold + visible
-            # Need enough chars to decide (up to `content: "` length)
             if len(combined_probe.lstrip()) >= len('content: "') or "\n" in combined_probe:
                 self._content_wrapper_checked = True
                 m = _CONTENT_WRAPPER_RE.match(combined_probe)
                 if m:
                     self._content_wrapper_active = True
-                    # Consume the matched prefix
                     after = combined_probe[m.end():]
                     self._inline_tool_hold = ""
                     visible = after
                 else:
-                    # No wrapper - carry on with normal flow.
                     pass
             else:
-                # Not enough yet - keep buffering.
                 self._inline_tool_hold = combined_probe
                 return ""
 
@@ -1058,15 +700,12 @@ class _StreamState:
         if earliest < len(buf):
             self._inline_tool_gate = True
             out = buf[:earliest]
-            # Strip trailing wrapper quote + whitespace if the model
-            # closed its `content: "..."` before the marker.
             if self._content_wrapper_active:
                 out = out.rstrip()
                 if out.endswith('"'):
                     out = out[:-1].rstrip()
             return out
 
-        # No marker yet - but the tail may be the start of one.
         tail_len = min(_INLINE_TOOL_MAX_MARKER_LEN - 1, len(buf))
         tail = buf[-tail_len:] if tail_len > 0 else ""
         tail_low = tail.lower()
@@ -1077,14 +716,9 @@ class _StreamState:
                 held = tail[-k:]
                 break
 
-        # When the `content: "..."` wrapper is active, also hold back the
-        # trailing closing quote (and any whitespace after it) so that if
-        # the marker arrives in the next chunk we can strip the quote
-        # without it ever reaching the client.
         if self._content_wrapper_active and not held:
             stripped_tail = buf.rstrip()
             if stripped_tail.endswith('"'):
-                # Hold the quote + trailing whitespace
                 quote_idx = buf.rfind('"')
                 held = buf[quote_idx:]
 
@@ -1170,18 +804,6 @@ class _StreamState:
         tag = _THINK_OPEN
         for k in range(1, min(len(tag), len(self._think_buf) + 1)):
             if self._think_buf.endswith(tag[:k]):
-                # Buffer ends on a k-char prefix of ``<think>``. Keep
-                # those chars for the next delta so a split open tag
-                # is still detected.
-                # Edge case: when the ENTIRE buffer is the partial
-                # tag (k == len(buf)), ``before`` is empty and the
-                # buffer is unchanged. The caller's ``while
-                # self._think_buf`` would spin forever. Signal
-                # no-progress with ``None`` so the outer loop breaks
-                # and waits for more input. This hits every time a
-                # stream chunk ends exactly on ``<``, ``<t``, ``<th``
-                # - common when the LLM emits HTML like ``<table>``
-                # or ``<title>``.
                 if k >= len(self._think_buf):
                     return None
                 before = self._think_buf[:-k]
@@ -1216,10 +838,6 @@ class _StreamState:
             if tc.get("arguments"):
                 arg_frag = _coerce_tool_arguments_fragment(tc["arguments"])
                 entry["args_parts"].append(arg_frag)
-            # Live UX: fire the placeholder immediately on the first
-            # chunk that carries the tool name (force=True so count=0
-            # lands right away), then throttled 250ms ticks as args
-            # stream in.
             call_id = entry.get("id") or ""
             if call_id and (new_name or arg_frag):
                 self._fire_tool_call_streaming(
@@ -1230,9 +848,6 @@ class _StreamState:
         new_name = False
         if tc.get("name"):
             if self._current_tool is not None:
-                # Previous in-flight call ends here - finalize its
-                # streaming progress so the UI swaps the placeholder
-                # for the real card.
                 prev_id = self._current_tool.get("id") or ""
                 self._current_tool["function"]["arguments"] = "".join(self._tool_args_buf)
                 self.tool_calls.append(self._current_tool)
@@ -1262,14 +877,6 @@ _INTENT_RX = __import__("re").compile(
 
 
 def _scan_intent_value(args_text: str) -> str:
-    """Extract the ``intent`` string value from a streaming JSON buffer.
-
-    Returns the value only when the closing quote has arrived (i.e. the
-    string is fully formed). Empty string while still incomplete — the
-    caller uses this as "no intent yet, stay sticky on the previous".
-    Schema places ``intent`` as the FIRST property, so this typically
-    fires within the first ~50 bytes of args streaming.
-    """
     if not args_text or '"intent"' not in args_text:
         return ""
     m = _INTENT_RX.search(args_text)
@@ -1281,14 +888,7 @@ def _scan_intent_value(args_text: str) -> str:
         return m.group(1)
 
 
-# Fallback intent table — derives a sensible present-continuous verb
-# for tools the LLM forgot to fill ``intent`` on. Keyed by both short
-# names (``WsEdit``) and FQNs (``workspace.edit``). The handler in
-# ``_finalize_tool_call_streaming`` only consults this when the LLM
-# stream produced no ``intent`` value, so compliant models are
-# untouched.
 _FALLBACK_INTENT_BY_NAME: dict[str, str] = {
-    # workspace
     "WsWrite": "Writing file",
     "workspace.write": "Writing file",
     "WsEdit": "Editing file",
@@ -1301,28 +901,23 @@ _FALLBACK_INTENT_BY_NAME: dict[str, str] = {
     "workspace.grep": "Searching code",
     "WsDelete": "Deleting file",
     "workspace.delete": "Deleting file",
-    # filesystem
     "Write": "Writing file",
     "Edit": "Editing file",
     "Read": "Reading file",
     "Glob": "Searching files",
     "Grep": "Searching code",
     "Delete": "Deleting file",
-    # shell
     "Bash": "Running command",
     "shell.bash": "Running command",
     "shell.background_run": "Running command",
     "background_run": "Running command",
-    # web
     "WebFetch": "Fetching page",
     "web.fetch": "Fetching page",
     "WebSearch": "Searching the web",
     "web.search": "Searching the web",
     "web.extract": "Extracting page",
-    # preview / publish
     "PreviewPublish": "Publishing preview",
     "preview.publish": "Publishing preview",
-    # memory (rarely missing intent but covered for completeness)
     "TaskCreate": "Creating task",
     "TaskUpdate": "Updating task",
     "Remember": "Remembering",
@@ -1330,50 +925,27 @@ _FALLBACK_INTENT_BY_NAME: dict[str, str] = {
     "memory.task_update": "Updating task",
     "memory.remember": "Remembering",
     "memory.set_goal": "Setting goal",
-    # discovery meta
     "SearchTools": "Searching tools",
     "GetTool": "Reading tool info",
     "ExecuteTool": "Executing tool",
-    # agent spawn
     "Agent": "Spawning agent",
     "agent_spawn.agent": "Spawning agent",
 }
 
 
 def _default_intent_for_tool(name: str) -> str:
-    """Return a fallback verb when the LLM forgot to emit ``intent``.
-
-    Falls back to ``"Running <name>"`` for tools not in the table —
-    always non-empty so the frontend never gets stuck on its
-    generic ``"Working"`` placeholder.
-    """
     if not name:
         return ""
     if name in _FALLBACK_INTENT_BY_NAME:
         return _FALLBACK_INTENT_BY_NAME[name]
-    # Heuristic for unknown tools: ``WsXxx`` → ``Running WsXxx``,
-    # ``mod.action`` → ``Running action``. Keeps things readable
-    # without inflating the table for every plugin.
     short = name.split(".", 1)[-1] if "." in name else name
     return f"Running {short}"
 
 
 def _recover_partial_json(args_str: str, tool_name: str) -> dict:
-    """Try to recover parameters from truncated/malformed JSON.
-
-    Common case: the LLM generates a huge 'content' field that gets
-    truncated in streaming, breaking the JSON. We try to extract
-    whatever key-value pairs we can.
-
-    RT22: tracks whether the recovery is "complete" (full JSON repaired)
-    or "partial" (regex extraction from truncated text). Partial results
-    include a __truncated marker so the caller can refuse to execute
-    operations that should not run with incomplete params (e.g. SQL).
-    """
     import re
     result = {}
 
-    # Try adding closing braces to fix truncated JSON
     fixed = args_str.rstrip()
     for suffix in ['"}', '"}}}', '"}}', '"}]', '}']:
         try:
@@ -1383,9 +955,7 @@ def _recover_partial_json(args_str: str, tool_name: str) -> dict:
         except json.JSONDecodeError:
             continue
 
-    # Extract string values with regex: "key": "value" or "key": "value..."
     truncated_keys: list[str] = []
-    # Use a positive look-ahead anchor to detect TRUNCATED values (no closing ")
     for m in re.finditer(r'"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)("|$)', args_str):
         key, val, closer = m.group(1), m.group(2), m.group(3)
         try:
@@ -1393,10 +963,8 @@ def _recover_partial_json(args_str: str, tool_name: str) -> dict:
         except Exception:
             result[key] = val
         if closer != '"':
-            # Value was truncated mid-string - mark it
             truncated_keys.append(key)
 
-    # Extract non-string values: "key": true/false/null/number
     for m in re.finditer(r'"(\w+)"\s*:\s*(true|false|null|\d+(?:\.\d+)?)\b', args_str):
         key, val = m.group(1), m.group(2)
         if val == "true":
@@ -1421,7 +989,6 @@ def _recover_partial_json(args_str: str, tool_name: str) -> dict:
 
 
 def _finalize_tool_calls(state: _StreamState) -> list[dict]:
-    """Merge accumulated and delta tool calls, parse JSON arguments."""
     tool_calls = list(state.tool_calls)
 
     for entry in state._tool_acc:
@@ -1433,10 +1000,7 @@ def _finalize_tool_calls(state: _StreamState) -> list[dict]:
             try:
                 parsed = json.loads(_fix_win_backslashes(args_str))
             except json.JSONDecodeError:
-                # Streaming may produce truncated JSON - try to recover
                 parsed = _recover_partial_json(args_str, entry["name"])
-        # RT14: use uuid suffix instead of len() to avoid collision across
-        # multiple turns in the same session.
         import uuid as _uuid
         final_id = entry["id"] or f"call_{_uuid.uuid4().hex[:12]}"
         tool_calls.append({
@@ -1444,9 +1008,6 @@ def _finalize_tool_calls(state: _StreamState) -> list[dict]:
             "type": "function",
             "function": {"name": entry["name"], "arguments": parsed},
         })
-        # Final live-progress emit so the frontend gets the end value
-        # before the placeholder is swapped for the real tool_start
-        # card. No-op when streaming was never seen for this entry.
         state._finalize_tool_call_streaming(final_id)
 
     for tc in tool_calls:
@@ -1455,7 +1016,6 @@ def _finalize_tool_calls(state: _StreamState) -> list[dict]:
             try:
                 tc["function"]["arguments"] = json.loads(_fix_win_backslashes(args))
             except json.JSONDecodeError:
-                # RT3: try to recover partial JSON before falling back to {}
                 tool_name = tc["function"].get("name", "")
                 recovered = _recover_partial_json(args, tool_name)
                 tc["function"]["arguments"] = recovered if recovered else {}
@@ -1464,13 +1024,6 @@ def _finalize_tool_calls(state: _StreamState) -> list[dict]:
 
 
 async def emit_thinking(on_thinking: Any, text: str, count: int = 0) -> None:
-    """Call on_thinking safely - handles sync and async callbacks.
-
-    ``count`` is the litellm-tokenized cumulative count for THIS
-    thinking block - used by the frontend to render the per-block
-    counter. Backward-compat: callbacks that only accept ``(text)``
-    are called without the count via TypeError fallback.
-    """
     if on_thinking is None or not text or not text.strip():
         return
     clean = text.strip()
@@ -1490,14 +1043,6 @@ async def emit_thinking(on_thinking: Any, text: str, count: int = 0) -> None:
 
 
 async def _fire_token(cb: AgentTurnCallbacks, text: str, count: int = 0) -> None:
-    """Fire on_token callback, handling sync/async.
-
-    ``count`` is the running cumulative completion-token count at the
-    moment this delta was emitted - sourced from either the provider's
-    streaming ``usage`` chunks or our litellm live counter (whichever
-    is active). Passed through to the SSE ``token`` event so the
-    frontend can update its counter without a separate event stream.
-    """
     if cb.on_token is None:
         return
     try:

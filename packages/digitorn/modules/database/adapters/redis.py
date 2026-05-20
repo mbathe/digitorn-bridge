@@ -1,31 +1,4 @@
-"""Redis async adapter - maps key spaces to the DatabaseAdapter protocol.
-
-Uses ``redis.asyncio`` (formerly aioredis). Key prefixes map to "tables",
-key metadata (type, TTL, encoding) map to "columns".
-
-Query format:
-    Redis command strings, parsed with ``shlex.split``::
-
-        GET user:123
-        HGETALL user:123
-        LRANGE messages:inbox 0 -1
-        SMEMBERS tags:python
-        ZRANGE leaderboard 0 10 WITHSCORES
-        KEYS user:*
-        SCAN 0 MATCH user:* COUNT 100
-
-        SET user:123 '{"name": "Alice"}'
-        HSET user:123 name Alice age 30
-        LPUSH messages:inbox "hello"
-        SADD tags:python "asyncio" "typing"
-        ZADD leaderboard 100 alice 95 bob
-        DEL user:123
-        EXPIRE user:123 3600
-
-        RENAME old_key new_key
-        TYPE key_name
-        TTL key_name
-"""
+"""Redis async adapter - maps key spaces to the DatabaseAdapter protocol."""
 
 from __future__ import annotations
 
@@ -62,22 +35,14 @@ _READ_COMMANDS = frozenset({
     "DBSIZE", "INFO", "CONFIG",
 })
 
-
 class RedisAdapter:
-    """Async Redis adapter.
-
-    Maps Redis key spaces to the database adapter protocol:
-      - Key prefixes (before the first ``:``) are treated as "tables".
-      - Key type (string, hash, list, set, zset, stream) maps to column type.
-      - ``introspect()`` scans keys and groups by prefix.
-    """
+    """Async Redis adapter."""
 
     def __init__(self) -> None:
         self._client: Any = None
         self._db_index: int = 0
         self._in_transaction: bool = False
         self._pipeline: Any = None
-
 
     @property
     def connected(self) -> bool:
@@ -86,7 +51,6 @@ class RedisAdapter:
     @property
     def driver_name(self) -> str:
         return "redis"
-
 
     async def connect(self, url: str, **options: Any) -> None:
         try:
@@ -125,7 +89,6 @@ class RedisAdapter:
         if self._client:
             await self._client.aclose()
             self._client = None
-
 
     async def execute(
         self, query: str, params: list[Any] | None = None,
@@ -181,7 +144,6 @@ class RedisAdapter:
         result = await self._client.execute_command(cmd, *args)
 
         return _normalize_result(cmd, args, result, limit)
-
 
     async def introspect(self, schema: str | None = None) -> SchemaInfo:
         self._assert_connected()
@@ -257,11 +219,7 @@ class RedisAdapter:
         return tables
 
     async def get_columns(self, table: str) -> list[ColumnInfo]:
-        """Get column info for a key prefix.
-
-        For hash keys, samples actual hash fields as columns.
-        For other types, returns the generic key/value/ttl structure.
-        """
+        """Get column info for a key prefix."""
         self._assert_connected()
 
         keys = []
@@ -349,7 +307,6 @@ class RedisAdapter:
             total_count=len(rows),
         )
 
-
     async def begin(self) -> None:
         self._assert_connected()
         if self._in_transaction:
@@ -371,7 +328,6 @@ class RedisAdapter:
         self._pipeline = None
         self._in_transaction = False
 
-
     async def explain(
         self, query: str, params: list[Any] | None = None, analyze: bool = False,
     ) -> list[dict[str, Any]]:
@@ -392,7 +348,6 @@ class RedisAdapter:
             return await self._client.ping()
         except Exception:
             return False
-
 
     async def list_items(
         self, patterns: list[str] | None = None,
@@ -450,13 +405,11 @@ class RedisAdapter:
                 checksums.append(ItemChecksum(id=item_id, hash=""))
         return checksums
 
-
     def _assert_connected(self) -> None:
         if not self._client:
             raise RuntimeError("Not connected. Call connect() first.")
 
     async def _get_value(self, key: str, key_type: str) -> Any:
-        """Read a key's value based on its type."""
         try:
             if key_type == "string":
                 return await self._client.get(key)
@@ -476,7 +429,6 @@ class RedisAdapter:
             return None
 
     async def _infer_hash_columns(self, keys: list[str]) -> list[ColumnInfo]:
-        """Infer columns from hash key fields."""
         field_count: Counter = Counter()
         total_sampled = 0
 
@@ -506,9 +458,7 @@ class RedisAdapter:
 
         return columns
 
-
 def _redis_value_type(key_type: str) -> str:
-    """Map Redis key type to a more descriptive value type."""
     return {
         "string": "string",
         "hash": "object",
@@ -518,9 +468,7 @@ def _redis_value_type(key_type: str) -> str:
         "stream": "array<id,fields>",
     }.get(key_type, key_type)
 
-
 def _substitute_args(args: list[str], params: list[Any]) -> list[str]:
-    """Replace :p0, :p1, ... placeholders in command arguments."""
     result = []
     for arg in args:
         for i, val in enumerate(params):
@@ -533,11 +481,9 @@ def _substitute_args(args: list[str], params: list[Any]) -> list[str]:
         result.append(arg)
     return result
 
-
 def _normalize_result(
     cmd: str, args: list[str], result: Any, limit: int,
 ) -> FetchResult:
-    """Normalize a Redis command result into FetchResult rows."""
     if result is True or result is False:
         return FetchResult(
             columns=["result"],
@@ -587,9 +533,7 @@ def _normalize_result(
         total_count=1,
     )
 
-
 def _redis_command_complexity(cmd: str) -> str:
-    """Return Big-O complexity for common Redis commands."""
     complexities = {
         "GET": "O(1)", "SET": "O(1)", "DEL": "O(1)", "EXISTS": "O(1)",
         "HGET": "O(1)", "HSET": "O(1)", "HGETALL": "O(N)",
@@ -601,9 +545,7 @@ def _redis_command_complexity(cmd: str) -> str:
     }
     return complexities.get(cmd, "unknown")
 
-
 def _sanitize_redis_url(url: str) -> str:
-    """Remove password from Redis URL for logging."""
     if "@" in url:
         parts = url.split("@")
         scheme_part = parts[0]

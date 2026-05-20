@@ -1,7 +1,4 @@
-"""RSS/Atom feed adapter - inbound only.
-
-Polls RSS/Atom feeds for new entries. Deduplicates by entry ID/link.
-"""
+"""RSS/Atom feed adapter - inbound only."""
 
 from __future__ import annotations
 
@@ -20,7 +17,6 @@ from digitorn.modules.channels.adapter import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 class RssAdapter(BaseChannelAdapter):
     """RSS/Atom feed polling trigger - inbound only."""

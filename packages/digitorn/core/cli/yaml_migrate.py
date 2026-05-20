@@ -1,34 +1,4 @@
-"""CLI: digitorn yaml migrate-credentials.
-
-Walks an app.yaml file (or every YAML in a directory) and rewrites
-legacy credential patterns into the new declarative `credential:`
-block.
-
-Patterns recognised:
-  * Inline brain config carrying ``api_key: "{{env.X}}"`` or
-    ``api_key: "{{secret.X}}"``. Migrated to:
-      brain:
-        ...
-        credential:
-          ref: <slug>          # derived from the env/secret name
-          scope: per_user      # default - user can edit afterwards
-          provider: <name>     # taken from `brain.provider` when present
-        config:
-          api_key: "{{env.X}}"  # left as fallback for dev
-          ...
-  * Module config carrying the same templates - same migration path.
-
-Behaviour:
-  * Files are NEVER edited in place by default. The migrated YAML
-    goes to stdout (so the user can pipe it to a diff tool first).
-  * ``--write`` rewrites in place after creating a `<file>.bak`
-    backup.
-  * Multiple files via ``--recursive``.
-
-The migration is conservative: it ADDS the `credential:` block but
-keeps the existing template strings as a fallback. A second run of
-the CLI is a no-op (it detects the existing block and skips).
-"""
+"""CLI: digitorn yaml migrate-credentials."""
 
 from __future__ import annotations
 
@@ -54,14 +24,7 @@ _TEMPLATE_RE = re.compile(
 
 
 def _slugify_to_ref(name: str, fallback: str) -> str:
-    """Build a `credential.ref` slug from an env-style name.
-
-    `DEEPSEEK_API_KEY` -> `deepseek_main`
-    `OPENAI_API_KEY`   -> `openai_main`
-    `XYZ_TOKEN`        -> `xyz_main`
-    Falls back to `<provider>_main` when the slug doesn't carry a
-    recognisable provider hint.
-    """
+    """Build a `credential.ref` slug from an env-style name."""
     n = (name or "").lower()
     for suffix in ("_api_key", "_token", "_key", "_secret"):
         if n.endswith(suffix):
@@ -73,14 +36,7 @@ def _slugify_to_ref(name: str, fallback: str) -> str:
 
 
 def _migrate_yaml_text(text: str) -> tuple[str, int]:
-    """Walk a YAML doc and inject `credential:` under every brain
-    block that carries a legacy template AND doesn't already have
-    one.
-
-    The implementation is line-oriented (no full YAML parse) so the
-    output preserves comments, blank lines, and the user's exact
-    indentation. Return value: (new_text, n_migrations).
-    """
+    """Walk a YAML doc and inject `credential:` under every brain"""
     lines = text.splitlines(keepends=False)
     out: list[str] = []
     n_migrations = 0
@@ -89,9 +45,6 @@ def _migrate_yaml_text(text: str) -> tuple[str, int]:
     while i < len(lines):
         line = lines[i]
         stripped = line.strip()
-        # Detect a brain block header. Two indentations are common:
-        #   "    brain:"  (4-space, agent brain under list item)
-        #   "  brain:"    (2-space, behavior brain)
         m = re.match(r"^(\s*)brain:\s*$", line)
         if not m:
             out.append(line)
@@ -153,9 +106,6 @@ def _migrate_yaml_text(text: str) -> tuple[str, int]:
         )
         ref_slug = _slugify_to_ref(env_match.group(1), provider_name)
 
-        # Insert the credential block after the brain header (i.e.
-        # before the first child line). This places it at the top of
-        # the brain block so it's clearly visible.
         out.append(line)
         cred_block_lines = [
             f"{child_indent}credential:",
@@ -204,15 +154,15 @@ def migrate_v2(
     """Reshape a legacy (flat) app.yaml into the canonical nested form.
 
     The v2 schema groups every field under one of seven top-level
-    blocks: ``app``, ``runtime``, ``agents``, ``tools``, ``security``,
-    ``ui``, ``dev``. This command applies the same alias pass the
-    runtime uses (``schema_aliases.apply_schema_aliases``) and dumps
+    blocks: `app`, `runtime`, `agents`, `tools`, `security`,
+    `ui`, `dev`. This command applies the same alias pass the
+    runtime uses (`schema_aliases.apply_schema_aliases`) and dumps
     the result back to YAML so the file becomes the canonical shape.
 
     Idempotent: re-running on an already-migrated file is a no-op.
 
     Comments are preserved on a best-effort basis. When a field moves
-    location (e.g. ``execution.greeting`` -> ``ui.greeting``) the
+    location (e.g. `execution.greeting` -> `ui.greeting`) the
     comment travels with the value but the surrounding comment may
     drift to a different line. Diff and review before committing.
     """
@@ -295,8 +245,8 @@ def migrate_credentials(
         help="When TARGET is a directory, walk subdirs.",
     ),
 ) -> None:
-    """Migrate ``{{env.X}}`` / ``{{secret.X}}`` patterns into
-    declarative ``credential:`` blocks.
+    """Migrate `{{env.X}}` / `{{secret.X}}` patterns into
+    declarative `credential:` blocks.
 
     Run this once when adopting the new credential system. Re-running
     is a no-op for already-migrated files.
@@ -334,9 +284,6 @@ def migrate_credentials(
     )
 
 
-# ─── digitorn yaml lint ────────────────────────────────────────
-
-
 @yaml_cli.command("lint")
 def lint(
     target: Path = typer.Argument(
@@ -369,9 +316,9 @@ def lint(
     - **infos**: opportunities to harden (no system_prompt, no fallback
       brain, missing schema_version, ...).
 
-    With ``--fix``, the linter applies the auto-fixable issues
+    With `--fix`, the linter applies the auto-fixable issues
     (deprecation lifts, schema_version stamping, dead capability
-    cleanup) and writes the result with a ``.bak`` backup.
+    cleanup) and writes the result with a `.bak` backup.
     """
     import yaml as _yaml
     from digitorn.core.app.compiler import AppYAMLCompiler
@@ -416,10 +363,6 @@ def lint(
                 canonical = {"schema_version": 2, **canonical}
                 fixes_applied.append("stamped schema_version: 2")
 
-        # Compile-time validation via the real compiler with all
-        # modules loaded - catches schema errors, broken cross-refs,
-        # AND module-existence issues (missing module declared in
-        # capabilities but not loaded by the daemon).
         try:
             from digitorn.core.loader import load_modules
             from digitorn.modules.registry import ModuleRegistry
@@ -513,9 +456,6 @@ def lint(
         f"\n[bold]Lint done.[/bold] {total_issues} issue(s){f', {total_fixes} fix(es) applied' if fix else ''} "
         f"across {len(paths)} file(s).",
     )
-
-
-# ─── digitorn yaml explain ─────────────────────────────────────
 
 
 @yaml_cli.command("explain")

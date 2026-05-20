@@ -1,16 +1,4 @@
-"""ContextBuilderModule - Tool Discovery Engine + Primitive Capabilities.
-
-System module that manages tool discovery (5 meta-tools) and exposes
-universal primitive capabilities for parallel execution, background task
-management, persistent watchers, and scheduling.
-
-Architecture: thin facade composing 3 action mixins:
-    - MetaToolsMixin      - search/get/execute/list/browse + run_parallel
-    - BackgroundActionsMixin - background_run/status/result/cancel/list/wait
-    - WatcherActionsMixin - watch_start/stop/pause/resume/status/list/history
-
-Scheduling lives in the dedicated cron_native module (schedule + cancel_schedule).
-"""
+"""ContextBuilderModule - Tool Discovery Engine + Primitive Capabilities."""
 
 from __future__ import annotations
 
@@ -20,30 +8,18 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-
-# Per-asyncio-task ExecutionContext for tool dispatch through this
-# module. ``context_builder`` is a per-app singleton: many sessions of
-# the same app share one instance. Storing ``_exec_context`` on the
-# instance produced a cross-session race - session A would set it, hit
-# an ``await``, session B would overwrite it, and A's resume would
-# read B's session_id / user_id / workspace. A contextvar gives each
-# asyncio task its own copy of the value while keeping the same
-# attribute syntax via the descriptor below.
+# contextvar per asyncio task so concurrent sessions of the same
+# (singleton) context_builder instance can't overwrite each other's
+# ExecutionContext / AgentContext mid-await.
 _EXEC_CTX_VAR: contextvars.ContextVar[Any] = contextvars.ContextVar(
     "context_builder_exec_ctx", default=None,
 )
-
-# Same per-task isolation for the AgentContext (carries approval_queue,
-# memory_module, agent_id, etc.). ``_chat_locked`` does
-# ``cb._agent_context = ctx`` once per turn, which would race between
-# concurrent sessions of the same app without contextvar backing.
 _AGENT_CTX_VAR: contextvars.ContextVar[Any] = contextvars.ContextVar(
     "context_builder_agent_ctx", default=None,
 )
 
-
 class _ExecContextDescriptor:
-    """Read/write ``_exec_context`` via the per-task contextvar."""
+    """Read/write `_exec_context` via the per-task contextvar."""
 
     def __get__(self, obj: Any, objtype: Any = None) -> Any:
         if obj is None:
@@ -53,9 +29,8 @@ class _ExecContextDescriptor:
     def __set__(self, obj: Any, value: Any) -> None:
         _EXEC_CTX_VAR.set(value)
 
-
 class _AgentContextDescriptor:
-    """Read/write ``_agent_context`` via the per-task contextvar."""
+    """Read/write `_agent_context` via the per-task contextvar."""
 
     def __get__(self, obj: Any, objtype: Any = None) -> Any:
         if obj is None:
@@ -103,10 +78,6 @@ from digitorn.modules.manifest import ModuleManifest
 
 logger = logging.getLogger(__name__)
 
-
-# ── Config model (compile-time validation via CONFIG_MODEL) ──────
-
-
 class ContextBuilderConfig(BaseModel):
     """Pydantic config for the context_builder module (validated at compile time)."""
 
@@ -114,20 +85,13 @@ class ContextBuilderConfig(BaseModel):
 
     workspace: str = Field(default="", description="Auto-injected by the daemon.")
 
-
 class ContextBuilderModule(
     MetaToolsMixin,
     BackgroundActionsMixin,
     WatcherActionsMixin,
     BaseModule,
 ):
-    """Tool Discovery Engine + Primitive Capabilities + Persistent Watchers.
-
-    Manages a pre-computed ToolIndex and exposes:
-    - meta-tools for agent-driven tool discovery and execution
-    - primitive capabilities for parallel execution and background tasks
-    - watcher actions for persistent periodic monitoring
-    """
+    """Tool Discovery Engine + Primitive Capabilities + Persistent Watchers."""
 
     MODULE_ID = "context_builder"
     VERSION = "2.0.0"
@@ -135,22 +99,14 @@ class ContextBuilderModule(
     MODULE_TYPE = "system"
     CONFIG_MODEL = ContextBuilderConfig
 
-    # Bind the descriptors at the class level so ``cb._exec_context = ...``
-    # and ``cb._agent_context = ...`` write to per-asyncio-task contextvars.
-    # Without this, plain instance attributes would shadow the descriptors
-    # and a single shared cb instance would race between concurrent
-    # sessions of the same app (session A sets, hits await, session B
-    # overwrites, A's resume sees B's session_id / approval_queue).
     _exec_context: Any = _ExecContextDescriptor()  # type: ignore[assignment]
     _agent_context: Any = _AgentContextDescriptor()  # type: ignore[assignment]
 
     def __init__(self) -> None:
         super().__init__()
         self._index: ToolIndex = ToolIndex()
-        # Per-session background tasks (key = session_id)
         self._background_tasks: dict[str, dict[str, UniversalBackgroundTask]] = {}
         self._watchers: dict[str, Watcher] = {}
-        # Per-session notification queues (key = session_id, "_standalone" for CLI)
         self._bg_notifications: dict[str, asyncio.Queue[dict[str, Any]]] = {}
         self._job_store: Any | None = None
         self._scheduler: Any | None = None
@@ -158,28 +114,13 @@ class ContextBuilderModule(
         self._skills: list[dict[str, str]] = []
         self._session_id: str | None = None
         self._channel_registry: Any | None = None
-        # ``_exec_context`` is a per-task contextvar (declared as a
-        # class-level descriptor above). Don't initialize an instance
-        # attribute here - that would shadow the descriptor and reopen
-        # the cross-session race the descriptor exists to fix.
         self._usage_counts: dict[str, int] = {}
-        # Optional relay: called on every push_module_notification so the
-        # event bus can emit bg_task_update SSE events to the frontend.
-        # Signature: (session_id: str, notification: dict) -> None
+        # Optional relay (session_id, notification) -> None
         self._on_notification_relay: Any | None = None
-        # Optional wake-up bridge: invoked synchronously by
-        # ``push_module_notification`` for terminal sub-agent events
-        # (completed/failed/timeout/cancelled). The manager wires a
-        # ``schedule_immediate_check_notifications`` callback here so
-        # the coordinator's loop wakes within milliseconds of a
-        # sub-agent finishing, rather than waiting for the 1s
-        # polling tick. Signature: (app_id, session_id, user_id) -> None
+        # Optional wake-up bridge for terminal sub-agent events.
         self._on_terminal_agent_event: Any | None = None
 
-    # ── Prompt injection ─────────────────────────────────
-
     # Each mixin provides its own _prompt_sections_xxx() method.
-    # This collector gathers them all, sorted by priority.
     _MIXIN_SECTION_METHODS = (
         "_prompt_sections_meta",
         "_prompt_sections_background",
@@ -200,8 +141,6 @@ class ContextBuilderModule(
                         method_name, exc_info=True,
                     )
         return sections
-
-    # ── Index management ─────────────────────────────────
 
     def set_index(self, index: ToolIndex) -> None:
         self._index = index
@@ -234,10 +173,8 @@ class ContextBuilderModule(
             return False
 
         old_count = self._index.total_tools
-        # Track stale FQNs to detect adds/removes/renames (not just count changes)
         old_mcp_fqns = {fqn for fqn, t in self._index.tools.items() if "mcp" in t.tags}
         try:
-            # Remove stale MCP tools before re-indexing
             for fqn in old_mcp_fqns:
                 self._index.tools.pop(fqn, None)
 
@@ -247,10 +184,8 @@ class ContextBuilderModule(
             new_count = self._index.total_tools
             new_mcp_fqns = {fqn for fqn, t in self._index.tools.items() if "mcp" in t.tags}
 
-            # CB21: rebuild semantic index whenever the MCP tool SET changes,
-            # not just when the count grows. Add, remove, AND rename trigger
-            # rebuild - otherwise the semantic index has ghost embeddings for
-            # disconnected tools, returning phantom search results.
+            # rebuild semantic index on any tool-set change (add/remove/rename),
+            # not just count change -- ghost embeddings would otherwise survive.
             tools_changed = old_mcp_fqns != new_mcp_fqns
             if tools_changed:
                 added = len(new_mcp_fqns - old_mcp_fqns)
@@ -259,9 +194,6 @@ class ContextBuilderModule(
                     "context_builder: MCP index refreshed (added=%d removed=%d)",
                     added, removed,
                 )
-                # Audit#3 BUG#2: rebuild semantic index in background to avoid
-                # blocking the agent loop. Embedding all tools can take 500ms+
-                # for large MCP setups (5000+ tools).
                 self._schedule_semantic_rebuild()
             return tools_changed
         except Exception as exc:
@@ -269,20 +201,12 @@ class ContextBuilderModule(
             return False
 
     def _schedule_semantic_rebuild(self) -> None:
-        """Schedule a semantic index rebuild in the background.
-
-        Audit#3 BUG#2: avoids blocking the agent loop on large embedding
-        operations. Uses a single-flight pattern - if a rebuild is already
-        in progress, this is a no-op.
-        """
-        # Single-flight: skip if a rebuild is already pending or running
         existing = getattr(self, "_semantic_rebuild_task", None)
         if existing is not None and not existing.done():
             return
 
         async def _do_rebuild() -> None:
             try:
-                # Run the CPU-bound embed work in a thread to not block the loop
                 from digitorn.modules.context_builder.embeddings import SemanticIndex
                 new_sem = await asyncio.to_thread(SemanticIndex.build, self._index)
                 if new_sem is not None:
@@ -296,7 +220,6 @@ class ContextBuilderModule(
         try:
             self._semantic_rebuild_task = asyncio.create_task(_do_rebuild())
         except RuntimeError:
-            # No running event loop - fall back to sync rebuild
             try:
                 from digitorn.modules.context_builder.embeddings import SemanticIndex
                 new_sem = SemanticIndex.build(self._index)
@@ -304,8 +227,6 @@ class ContextBuilderModule(
                     self._index.semantic_index = new_sem
             except Exception as exc:
                 logger.warning("context_builder: sync semantic rebuild failed: %s", exc)
-
-    # ── Job/watcher persistence ──────────────────────────
 
     def set_job_store(self, job_store: Any) -> None:
         self._job_store = job_store
@@ -366,10 +287,7 @@ class ContextBuilderModule(
     def index(self) -> ToolIndex:
         return self._index
 
-    # ── Notification queue ───────────────────────────────
-
     def _notification_session_id(self) -> str:
-        """Resolve current session id for notification routing."""
         ctx = self._context_var.get()
         if ctx is not None and ctx.session_id:
             return ctx.session_id
@@ -377,8 +295,7 @@ class ContextBuilderModule(
 
     def _get_notification_queue(self, session_id: str | None = None) -> asyncio.Queue[dict[str, Any]]:
         sid = session_id or self._notification_session_id()
-        # Bounded queue (1000 max) to prevent unbounded memory growth if a session
-        # never drains. push_module_notification handles QueueFull gracefully.
+        # Bounded queue: push_module_notification handles QueueFull.
         return self._bg_notifications.setdefault(sid, asyncio.Queue(maxsize=1000))
 
     def drain_bg_notifications(self, session_id: str | None = None) -> list[dict[str, Any]]:
@@ -402,9 +319,8 @@ class ContextBuilderModule(
                     if task is not None and not task.done():
                         return True
         except (RuntimeError, AttributeError):
-            pass  # Dict changed during iteration - safe to skip
+            pass
 
-        # Check if ANY session has pending notifications
         if any(not q.empty() for q in self._bg_notifications.values()):
             return True
 
@@ -431,8 +347,6 @@ class ContextBuilderModule(
         return False
 
     def push_module_notification(self, notification: dict[str, Any]) -> None:
-        # Route to the correct session queue; session_id comes from the notification
-        # (set by runner.py / background tasks) or falls back to current context
         sid = notification.get("session_id") or self._notification_session_id()
         queue = self._get_notification_queue(sid)
         try:
@@ -442,19 +356,13 @@ class ContextBuilderModule(
                 "bg_notification_queue_full (module notification) tool=%s session=%s",
                 notification.get("tool_name", "?"), sid,
             )
-        # Relay to event bus for real-time frontend updates (SSE/Socket.IO)
         if self._on_notification_relay is not None:
             try:
                 self._on_notification_relay(sid, notification)
-            except Exception:
-                pass  # Never block the notification pipeline
-        # Direct push wake-up for sub-agent terminal events. Bridges
-        # the gap between ``a sub-agent just finished`` and ``the
-        # coordinator's loop wakes up to consume the result``. The
-        # 1-second polling loop in ``start_notification_poller``
-        # remains as a safety net for any notification that slipped
-        # past this fast path. Bounded to terminal events to avoid
-        # waking the coordinator on every progress heartbeat.
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
+        # fast-path wake-up so the coordinator's loop reacts to
+        # sub-agent terminal events within ms instead of the 1s poll.
         if self._on_terminal_agent_event is not None:
             ntype = notification.get("type", "")
             if ntype in (
@@ -464,17 +372,14 @@ class ContextBuilderModule(
             ):
                 try:
                     self._on_terminal_agent_event(notification, sid)
-                except Exception:
-                    pass  # Never block the notification pipeline
+                except Exception as exc:
+                    logger.debug("module best-effort block failed: %s", exc)
 
     def cleanup_session_queue(self, session_id: str) -> None:
         """Remove a session's notification queue."""
         self._bg_notifications.pop(session_id, None)
 
-    # ── Background tasks (session-scoped) ─────────────────
-
     def _bg_session_id(self) -> str:
-        """Resolve session id for background task scoping."""
         ctx = self._context_var.get()
         if ctx is not None and ctx.session_id:
             return ctx.session_id
@@ -485,14 +390,7 @@ class ContextBuilderModule(
         return self._background_tasks.setdefault(sid, {})
 
     async def cleanup_session_bg_tasks(self, session_id: str) -> None:
-        """Cancel and remove all background tasks for a session.
-
-        Awaits the cancellation so the asyncio tasks have actually
-        unwound before this method returns. Without the await, the
-        ``cancel()`` is best-effort - the abort handler thinks bg
-        cleanup is done while the tasks are still mid-flight, racing
-        with the next dispatch.
-        """
+        """Cancel and await all background tasks for a session."""
         tasks = self._background_tasks.pop(session_id, {})
         pending: list[Any] = []
         for task in tasks.values():
@@ -504,10 +402,8 @@ class ContextBuilderModule(
             import asyncio as _asyncio
             try:
                 await _asyncio.gather(*pending, return_exceptions=True)
-            except Exception:
-                pass
-
-    # ── Watcher persistence helpers ──────────────────────
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
 
     def _persist_watcher(self, watcher: Watcher, app_id: str | None = None) -> None:
         if self._job_store is None:
@@ -543,8 +439,6 @@ class ContextBuilderModule(
             return
         aid = app_id or getattr(self, "_app_id", "default")
         self._job_store.delete_watcher(aid, watcher_id)
-
-    # ── Lifecycle ────────────────────────────────────────
 
     async def on_start(self) -> None:
         pass

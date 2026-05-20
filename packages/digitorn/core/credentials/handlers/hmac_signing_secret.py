@@ -1,14 +1,4 @@
-"""HmacSigningSecretHandler - shared secret for HMAC request signing.
-
-Used by:
-  - Webhook receivers that verify incoming requests are signed by the
-    expected sender (Stripe, GitHub, Slack delivery signatures).
-  - Outgoing webhook senders that need to sign their own requests.
-  - Internal service mesh with HMAC-based auth.
-
-The secret is one byte string; the algorithm is declared per-provider
-(SHA-256 default, sometimes SHA-1 for legacy).
-"""
+"""HmacSigningSecretHandler - shared secret for HMAC request signing."""
 
 from __future__ import annotations
 
@@ -76,13 +66,7 @@ class HmacSigningSecretHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Compute a sample HMAC and confirm the algorithm + secret work.
-
-        There is no remote endpoint to ping for a signing secret, so
-        the test is a self-check: hash a known string with the chosen
-        algorithm, fail if hashlib refuses (algorithm name typo) or
-        the secret is too short.
-        """
+        """Compute a sample HMAC and confirm the algorithm + secret work."""
         import hashlib
         import hmac as _hmac
         secret = (fields or {}).get("secret", "")

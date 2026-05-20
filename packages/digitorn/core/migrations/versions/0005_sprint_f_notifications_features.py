@@ -6,26 +6,26 @@ Create Date: 2026-05-05
 
 Three additive moves:
 
-1. Fuse ``inbox_devices`` and ``inbox_notification_prefs`` into a
-   single ``user_devices`` table. The split was historical: prefs
+1. Fuse `inbox_devices` and `inbox_notification_prefs` into a
+   single `user_devices` table. The split was historical: prefs
    were per-user (one row), devices were 0..N. The runtime now needs
    per-device prefs (a user disables push on their phone but keeps it
    on their tablet), and joining the two tables on every push send is
    wasteful. Result: one row per (user_id, fcm_token) with
-   ``prefs`` JSONB inline.
+   `prefs` JSONB inline.
 
-2. NEW ``feature_flags`` table for runtime feature gating
+2. NEW `feature_flags` table for runtime feature gating
    (% rollout, allowlist, conditions). Replaces ad-hoc env vars.
 
-3. NEW ``audit_actions_catalog`` listing every action_key the
-   ``credential_audit`` / ``history_log`` tables reference, with
+3. NEW `audit_actions_catalog` listing every action_key the
+   `credential_audit` / `history_log` tables reference, with
    severity + retention. Lets the dashboard show human labels and
    the cleanup job apply per-action retention.
 
-4. Soft delete columns on ``applications`` and ``agent_runs``.
+4. Soft delete columns on `applications` and `agent_runs`.
 
 Idempotent (CREATE TABLE IF NOT EXISTS, ALTER COLUMN IF NOT EXISTS).
-The migration COPIES from the legacy tables into ``user_devices`` and
+The migration COPIES from the legacy tables into `user_devices` and
 LEAVES the legacy tables in place. A follow-up sprint can drop them
 once all writes are routed to user_devices.
 """
@@ -139,10 +139,8 @@ def upgrade() -> None:
         "FOR EACH ROW EXECUTE FUNCTION digitorn_set_updated_at()"
     )
 
-    # Backfill from legacy tables. Take prefs from
-    # inbox_notification_prefs (user-level) and merge into the per-device
-    # row. The first device per user wins the prefs; subsequent devices
-    # start with the same prefs and can be tuned later.
+    # Backfill: merge `inbox_notification_prefs` (user-level) into
+    # the per-device row; first device wins, the rest can retune.
     op.execute("""
     INSERT INTO user_devices (
         id, user_id, platform, device_name, app_version, fcm_token,

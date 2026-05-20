@@ -1,12 +1,4 @@
-"""Linux sandbox backend - Landlock + seccomp + cgroups.
-
-Orchestrates the three Linux isolation mechanisms:
-    1. Landlock: filesystem access control (kernel-level)
-    2. seccomp: syscall filtering (kernel-level)
-    3. cgroups v2: resource limits via systemd (optional)
-
-All three are applied without root privileges.
-"""
+"""Linux sandbox backend: Landlock + seccomp + cgroups."""
 
 from __future__ import annotations
 
@@ -104,27 +96,17 @@ class LinuxSandbox:
     def _apply_network_filter(
         self, profile: SandboxProfile, guard: SandboxGuard,
     ) -> None:
-        """Enforce allowed_hosts at OS level.
-
-        When network is allowed but restricted to specific hosts:
-        1. Pre-resolve hostnames to IPs
-        2. Install iptables OUTPUT rules (only works in network namespace)
-        3. Drop all other outbound traffic
-
-        Falls back to logging a warning if iptables is not available.
-        """
         if not profile.allow_network:
-            return  # Network blocked entirely by seccomp, no need for host filter
+            return
 
         if not profile.allowed_hosts:
-            return  # No host restrictions
+            return
 
         allowed_ips = _resolve_hosts_to_ips(profile.allowed_hosts)
         if not allowed_ips:
             guard.warnings.append("network_filter: no hosts resolved, all outbound blocked")
             return
 
-        # Try iptables-based filtering (works in network namespace)
         try:
             ok = _apply_iptables_filter(allowed_ips)
             if ok:
@@ -137,12 +119,11 @@ class LinuxSandbox:
         except Exception as exc:
             logger.debug("iptables_filter_failed: %s", exc)
 
-        # Store resolved IPs for application-level enforcement
         profile._resolved_allowed_ips = allowed_ips  # type: ignore[attr-defined]
         guard.warnings.append(
             f"network_filter: iptables not available, "
             f"allowed_hosts enforced at application level only "
-            f"({len(profile.allowed_hosts)} hosts → {len(allowed_ips)} IPs)"
+            f"({len(profile.allowed_hosts)} hosts -> {len(allowed_ips)} IPs)"
         )
 
     def _apply_cgroups(
@@ -163,9 +144,6 @@ class LinuxSandbox:
             guard.warnings.append(f"cgroups: {exc}")
 
 
-# ── cgroups v2 via systemd ────────────────────────────────────────
-
-
 def _cgroups_available() -> bool:
     try:
         import shutil
@@ -175,10 +153,6 @@ def _cgroups_available() -> bool:
 
 
 def _apply_cgroups_limits(profile: SandboxProfile) -> None:
-    """Apply resource limits via systemd user scope.
-
-    Creates a transient scope for the current process.
-    """
     import subprocess
 
     cmd = [
@@ -209,16 +183,11 @@ def _apply_cgroups_limits(profile: SandboxProfile) -> None:
     )
 
 
-# ── Helpers ───────────────────────────────────────────────────────
-
-
 def _resolve_hosts_to_ips(hosts: set[str]) -> set[str]:
-    """Pre-resolve hostnames to IP addresses for network filtering."""
     import socket
 
     ips: set[str] = set()
     for host in hosts:
-        # Already an IP?
         try:
             socket.inet_pton(socket.AF_INET, host)
             ips.add(host)
@@ -232,7 +201,6 @@ def _resolve_hosts_to_ips(hosts: set[str]) -> set[str]:
         except OSError:
             pass
 
-        # Resolve hostname
         try:
             results = socket.getaddrinfo(host, None, socket.AF_UNSPEC, socket.SOCK_STREAM)
             for family, _, _, _, sockaddr in results:
@@ -240,7 +208,6 @@ def _resolve_hosts_to_ips(hosts: set[str]) -> set[str]:
         except socket.gaierror:
             logger.warning("network_filter: cannot resolve host '%s'", host)
 
-    # Always allow loopback
     ips.add("127.0.0.1")
     ips.add("::1")
 
@@ -248,11 +215,6 @@ def _resolve_hosts_to_ips(hosts: set[str]) -> set[str]:
 
 
 def _apply_iptables_filter(allowed_ips: set[str]) -> bool:
-    """Apply iptables OUTPUT filter to restrict outbound to allowed IPs.
-
-    Only works inside a network namespace (otherwise requires root).
-    Returns True if successfully applied.
-    """
     import shutil
     import subprocess
 
@@ -261,29 +223,25 @@ def _apply_iptables_filter(allowed_ips: set[str]) -> bool:
         return False
 
     try:
-        # Allow loopback
         subprocess.run(
             [iptables, "-A", "OUTPUT", "-o", "lo", "-j", "ACCEPT"],
             check=True, capture_output=True, timeout=5,
         )
 
-        # Allow established connections (responses)
         subprocess.run(
             [iptables, "-A", "OUTPUT", "-m", "state",
              "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"],
             check=True, capture_output=True, timeout=5,
         )
 
-        # Allow specific IPs
         for ip in allowed_ips:
             if ":" in ip:
-                continue  # Skip IPv6 for iptables (need ip6tables)
+                continue
             subprocess.run(
                 [iptables, "-A", "OUTPUT", "-d", ip, "-j", "ACCEPT"],
                 check=True, capture_output=True, timeout=5,
             )
 
-        # Drop everything else
         subprocess.run(
             [iptables, "-A", "OUTPUT", "-j", "DROP"],
             check=True, capture_output=True, timeout=5,

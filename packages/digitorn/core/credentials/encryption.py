@@ -1,30 +1,4 @@
-"""AES-256-GCM encryption for credential fields.
-
-Every credential's ``fields`` dict is JSON-encoded then encrypted with
-AES-256-GCM before it lands in the database. The master key lives in
-``~/.digitorn/master.key`` (mode 0600, never committed). It is
-auto-generated on the first boot and never rotated automatically -
-rotation is a manual operation (see ``rotate_master_key`` in this
-module, used by the CLI command ``digitorn credentials rotate-key``).
-
-Design choices:
-
-- **AES-256-GCM** because it is authenticated (detects tampering),
-  fast, and standard. ChaCha20-Poly1305 would also work.
-- **Per-record nonce**: each encrypt call generates a fresh 12-byte
-  nonce and stores it alongside the ciphertext. Never reuse a nonce
-  with the same key.
-- **JSON serialisation of the field dict**: we encrypt the whole
-  ``{field_name: value}`` blob as one payload, not per field, so a
-  single AES-GCM call covers an entire credential and the key
-  handlers work with plain dicts.
-- **Master key override via env var**: ``DIGITORN_MASTER_KEY`` can be
-  set at daemon startup to use a base64-encoded key from the
-  environment (useful for Docker / Kubernetes where secrets come from
-  the orchestrator). The env var takes precedence over the file.
-- **Base64-urlsafe** for the on-disk representation so humans can
-  inspect the file without hex-decoding.
-"""
+"""AES-256-GCM encryption for credential fields."""
 
 from __future__ import annotations
 
@@ -52,16 +26,7 @@ class CredentialEncryptionError(Exception):
 
 
 def load_or_create_master_key(path: Path | None = None) -> bytes:
-    """Return the master key, auto-generating it on first boot if needed.
-
-    Priority order:
-
-    1. ``DIGITORN_MASTER_KEY`` env var (base64-urlsafe, 32 bytes after decoding)
-    2. ``<path>`` file (default: ``~/.digitorn/master.key``)
-    3. Generate a new key and write it to ``<path>`` (mode 0600)
-
-    Returns the raw 32-byte key.
-    """
+    """Return the master key, auto-generating it on first boot if needed."""
     # 1. Env var override - lets Docker / k8s inject the key at boot
     env_key = os.environ.get(ENV_VAR_NAME)
     if env_key:
@@ -114,14 +79,7 @@ def load_or_create_master_key(path: Path | None = None) -> bytes:
 
 
 class Cipher:
-    """Thin wrapper around AESGCM for encrypt/decrypt of a JSON dict.
-
-    Usage::
-
-        cipher = Cipher(master_key_bytes)
-        ciphertext, nonce = cipher.encrypt({"api_key": "sk-..."})
-        plaintext = cipher.decrypt(ciphertext, nonce)
-    """
+    """Thin wrapper around AESGCM for encrypt/decrypt of a JSON dict."""
 
     def __init__(self, key: bytes) -> None:
         if len(key) != KEY_LEN:
@@ -159,23 +117,11 @@ class Cipher:
             ) from exc
 
 
-# ────────────────────────────────────────────────────────────────────
 # Helpers for display - mask a secret without decrypting it
-# ────────────────────────────────────────────────────────────────────
 
 
 def mask_secret(value: str, keep: int = 4) -> str:
-    """Return a masked preview of a secret for display purposes.
-
-    Shows the last ``keep`` characters preceded by a sentinel. Used by
-    the HTTP routes to tell the Flutter client "this field is set"
-    without leaking the real value.
-
-    Examples::
-
-        mask_secret("sk-ant-abcdefghij")   → "sk-...hij*"
-        mask_secret("xyz", keep=4)          → "****"  (too short)
-    """
+    """Return a masked preview of a secret for display purposes."""
     if not isinstance(value, str) or len(value) <= keep + 3:
         return "****"
     prefix = value[:3]
@@ -183,9 +129,7 @@ def mask_secret(value: str, keep: int = 4) -> str:
     return f"{prefix}...{suffix}"
 
 
-# ────────────────────────────────────────────────────────────────────
 # Key rotation - manual, used by a CLI command, not the runtime
-# ────────────────────────────────────────────────────────────────────
 
 
 def rotate_master_key(
@@ -193,20 +137,7 @@ def rotate_master_key(
     new_key: bytes | None = None,
     path: Path | None = None,
 ) -> bytes:
-    """Generate a new master key and write it to disk.
-
-    The caller is responsible for **re-encrypting every stored
-    credential** with the new key before the old one is lost - this
-    function only writes the new key file. Returns the new key.
-
-    Typically wired to a ``digitorn credentials rotate-key`` CLI
-    command that:
-
-    1. Calls this function to generate the new key
-    2. Opens the credential store with the old key
-    3. Decrypts each record + re-encrypts with the new key
-    4. Replaces the file with the new key at the end
-    """
+    """Generate a new master key and write it to disk."""
     target = path or DEFAULT_KEY_PATH
     new = new_key or AESGCM.generate_key(bit_length=KEY_LEN * 8)
     b64 = base64.urlsafe_b64encode(new).decode("ascii")

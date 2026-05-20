@@ -1,27 +1,4 @@
-"""GcpServiceAccountHandler - Google Cloud service account JSON key.
-
-A GCP service account is provisioned in the Cloud Console; downloading
-its key produces a JSON document like::
-
-    {
-      "type": "service_account",
-      "project_id": "...",
-      "private_key_id": "...",
-      "private_key": "-----BEGIN PRIVATE KEY-----\n...",
-      "client_email": "sa@...iam.gserviceaccount.com",
-      "client_id": "...",
-      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-      "token_uri": "https://oauth2.googleapis.com/token",
-      ...
-    }
-
-The user uploads the JSON; the handler stores it encrypted. The
-runtime injector writes it to a temp file and exports
-GOOGLE_APPLICATION_CREDENTIALS=<path> so the GCP SDKs find it
-transparently.
-
-The handler validates the JSON shape and key format before saving.
-"""
+"""GcpServiceAccountHandler - Google Cloud service account JSON key."""
 
 from __future__ import annotations
 
@@ -112,12 +89,7 @@ class GcpServiceAccountHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Parse the JSON and exchange it for an access token if possible.
-
-        Live exchange validates the key against Google's STS - the
-        only true way to know the SA was not revoked. Falls back to
-        a parse-only check when google-auth isn't available.
-        """
+        """Parse the JSON and exchange it for an access token if possible."""
         sa = (fields or {}).get("service_account_json", "")
         if not sa:
             return False, "service_account_json is empty"

@@ -1,9 +1,4 @@
-"""CLI commands for module management.
-
-    digitorn modules list              - List all loaded modules
-    digitorn modules info <module_id>  - Show module details and actions
-    digitorn modules health <module_id> - Health check a module
-"""
+"""CLI commands for module management."""
 
 from __future__ import annotations
 

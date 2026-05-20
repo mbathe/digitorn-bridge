@@ -6,7 +6,6 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-
 def _tokenize(text: str) -> list[str]:
     try:
         from digitorn.modules.context_builder.scoring import tokenize
@@ -15,13 +14,11 @@ def _tokenize(text: str) -> list[str]:
         import re
         return [t.lower() for t in re.split(r"\W+", text) if len(t) >= 2]
 
-
 @dataclass
 class _DocEntry:
     doc_id: str
     term_freqs: dict[str, int]
     doc_len: int
-
 
 class BM25Index:
     def __init__(self, k1: float = 1.5, b: float = 0.75) -> None:

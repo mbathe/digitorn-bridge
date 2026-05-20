@@ -1,28 +1,10 @@
-"""Filesystem module - parameter models for 5 ultra-powerful actions.
-
-Design principles (inspired by Claude Code):
-  1. MINIMAL visible params → LLM makes fewer mistakes
-  2. POWERFUL implementation → hidden params + smart defaults
-  3. CLEAR feedback → metadata + recovery hints + previews
-  4. ERROR-FRIENDLY → suggestions + closest matches on failure
-
-Param design:
-  - Only essential params visible to LLM
-  - Implementation details (encoding, fuzzy matching, etc.) hidden via json_schema_extra={"hidden": True}
-  - Names match Claude Code exactly: file_path, limit, offset, etc.
-  - Internal code uses .path alias via validation_alias for backward compat
-"""
+"""Filesystem module - parameter models for the 5 actions."""
 
 from __future__ import annotations
 
 from pydantic import BaseModel, Field, AliasChoices
 
 _HIDDEN = {"hidden": True}
-
-
-# ============================================================================
-# 5 CORE ACTIONS (ultra-simple + ultra-powerful)
-# ============================================================================
 
 class ReadParams(BaseModel):
     """Read a file with line numbers. Always read before editing."""
@@ -70,12 +52,8 @@ class ReadParams(BaseModel):
         start = (self.offset or 0) + 1
         return start + self.limit - 1
 
-
 class WriteParams(BaseModel):
-    """Write a file. Creates parent directories automatically.
-
-    Use Edit for small changes - Write is for NEW files or complete rewrites.
-    """
+    """Write a file. Creates parent directories automatically."""
 
     file_path: str = Field(
         ...,
@@ -96,12 +74,8 @@ class WriteParams(BaseModel):
     def path(self) -> str:
         return self.file_path
 
-
 class EditParams(BaseModel):
-    """Find-and-replace in a file. old_string must be EXACT text from the file.
-
-    For insertions at a specific line, use insert_at_line instead of old_string.
-    """
+    """Find-and-replace in a file. old_string must be EXACT text from the file."""
 
     file_path: str = Field(
         ...,
@@ -137,12 +111,8 @@ class EditParams(BaseModel):
     def path(self) -> str:
         return self.file_path
 
-
 class GlobParams(BaseModel):
-    """Find files by name pattern. Returns paths sorted by modification time.
-
-    For regex-based content search, use Grep instead.
-    """
+    """Find files by name pattern. Returns paths sorted by modification time."""
 
     pattern: str = Field(
         ...,
@@ -164,12 +134,8 @@ class GlobParams(BaseModel):
     include_hidden: bool = Field(False, json_schema_extra=_HIDDEN)
     follow_symlinks: bool = Field(False, json_schema_extra=_HIDDEN)
 
-
 class GrepParams(BaseModel):
-    """Search file contents for a regex pattern. Use before Read to find what to edit.
-
-    Powered by ripgrep for speed. Use Glob for filename-based search.
-    """
+    """Search file contents for a regex pattern. Use before Read to find what to edit."""
 
     pattern: str = Field(
         ...,
@@ -206,16 +172,3 @@ class GrepParams(BaseModel):
     def include(self) -> str | None:
         return self.glob
 
-
-# ============================================================================
-# REMOVED ACTIONS → Use Bash instead
-# ============================================================================
-# - ls       → bash ls
-# - mv       → bash mv
-# - cp       → bash cp
-# - rm       → bash rm
-# - mkdir    → bash mkdir -p (or Write auto-creates parents)
-# - insert   → Edit with insert_at_line
-# - find     → Glob with type filtering
-# - file_stat → bash stat
-# - undo     → git via bash

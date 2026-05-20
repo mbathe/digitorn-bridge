@@ -1,9 +1,4 @@
-"""Digitorn - Configuration API routes.
-
-    GET   /api/config          Read current configuration
-    PATCH /api/config          Update configuration at runtime
-    GET   /api/config/browse   Browse filesystem directories
-"""
+"""Digitorn - Configuration API routes."""
 
 from __future__ import annotations
 
@@ -42,7 +37,6 @@ class ConfigPatchResponse(BaseModel):
 
 
 def _flatten_keys(data: dict[str, Any], prefix: str = "") -> list[str]:
-    """Flatten nested dict keys to dot notation."""
     keys = []
     for k, v in data.items():
         full = f"{prefix}.{k}" if prefix else k
@@ -65,18 +59,7 @@ async def patch_config(
     body: ConfigPatchRequest,
     request: Request,
 ) -> ConfigPatchResponse:
-    """Apply partial configuration changes at runtime.
-
-    ADMIN ONLY. Any authenticated user could previously issue this and
-    flip `auth_enabled: false` / sandbox settings / CORS origins. That
-    was an immediate privilege escalation - a freshly-registered
-    `developer` user could disable the JWT layer globally and then
-    exfiltrate every other user's apps and sessions.
-
-    Changes are applied to the in-memory settings singleton.
-    Some fields (server.host, server.port, database.url, …)
-    require a restart to take effect - they are listed in the response.
-    """
+    """Apply partial configuration changes at runtime."""
     perms = list(getattr(request.state, "permissions", []) or [])
     roles = list(getattr(request.state, "roles", []) or [])
     is_admin = "*" in perms or "admin" in roles or "*" in roles

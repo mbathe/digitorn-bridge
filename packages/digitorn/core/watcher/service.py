@@ -90,9 +90,9 @@ class SourceWatcherService:
         If a watcher already exists for this source_id, it is stopped
         and replaced with the new config.
 
-        For non-filesystem sources, pass ``service_bus`` and ``module_id``
-        to use the ServiceBusPollingWatcher which delegates ``list_items``
-        and ``checksum`` calls to the owning module.
+        For non-filesystem sources, pass `service_bus` and `module_id`
+        to use the ServiceBusPollingWatcher which delegates `list_items`
+        and `checksum` calls to the owning module.
         """
         if config.source_id in self._watchers:
             await self.unwatch(config.source_id)

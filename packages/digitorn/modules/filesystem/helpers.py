@@ -1,11 +1,4 @@
-"""Filesystem helpers - error recovery, fuzzy matching, smart feedback.
-
-Principles:
-  1. HELP THE LLM RECOVER - suggest alternatives when errors happen
-  2. SHOW WHAT CHANGED - metadata + diffs for preview
-  3. PREVENT MISTAKES - warn about edge cases (binary files, encoding, etc.)
-  4. STAY SIMPLE - explanations short, actionable
-"""
+"""Filesystem helpers - error recovery, fuzzy matching, smart feedback."""
 
 from __future__ import annotations
 
@@ -18,14 +11,12 @@ from typing import Any, NamedTuple
 
 logger = logging.getLogger(__name__)
 
-
 class FuzzyMatch(NamedTuple):
     """A fuzzy-matched string from file content."""
     text: str
     start_line: int
     end_line: int
     similarity: float
-
 
 class EditResult(NamedTuple):
     """Result of an edit operation with metadata."""
@@ -38,7 +29,6 @@ class EditResult(NamedTuple):
     error: str | None
     suggestion: str | None  # Recovery hint for LLM
     closest_matches: list[FuzzyMatch] | None  # If fuzzy match failed
-
 
 class ReadResult(NamedTuple):
     """Result of a read operation with metadata."""
@@ -53,30 +43,10 @@ class ReadResult(NamedTuple):
     file_exists: bool
     error: str | None
 
-
-# ============================================================================
-# INDENTATION REPAIR - preserve file's indent when fuzzy match used
-# ============================================================================
-
 def _detect_indent(line: str) -> str:
-    """Return the leading whitespace of a line."""
     return line[: len(line) - len(line.lstrip())]
 
-
 def _reindent_replacement(old: str, new: str, matched: str) -> str:
-    """Re-indent new_string to match the file's actual indentation.
-
-    When fuzzy matching finds a block with different indentation than what
-    the LLM sent, the replacement must adopt the file's indent level.
-
-    Example:
-        old (from LLM):     "def foo():\\n    return 42"      (0 + 4 indent)
-        matched (in file):  "    def foo():\\n        return 42"  (4 + 8 indent)
-        new (from LLM):     "def foo():\\n    return 99"      (0 + 4 indent)
-        result:             "    def foo():\\n        return 99"  (4 + 8 indent)
-
-    If old and matched have the same indentation, returns new unchanged.
-    """
     old_lines = old.split("\n")
     matched_lines = matched.split("\n")
     new_lines = new.split("\n")
@@ -116,29 +86,13 @@ def _reindent_replacement(old: str, new: str, matched: str) -> str:
 
     return "\n".join(result_lines)
 
-
-# ============================================================================
-# FUZZY MATCHING - Help LLM find strings that almost match
-# ============================================================================
-
 def fuzzy_find_old_string(
     old: str,
     content: str,
     threshold: float = 0.85,
     max_suggestions: int = 3,
 ) -> tuple[int, int] | None:
-    """Find exact match or fuzzy match of old_string in content.
-
-    Returns (start_pos, end_pos) in the ORIGINAL content if found, None otherwise.
-
-    Strategy cascade (stops at first match):
-    1. Exact match
-    2. Per-line trailing whitespace normalization
-    3. CRLF normalization
-    4. Whitespace collapse (tabs→spaces, multi-space→single)
-    5. Indentation-agnostic matching
-    6. Fuzzy block matching (SequenceMatcher at threshold)
-    """
+    """Find exact match or fuzzy match of old_string in content."""
     # Strategy 1: Exact match
     start = content.find(old)
     if start != -1:
@@ -169,13 +123,7 @@ def fuzzy_find_old_string(
     # Strategy 6: Fuzzy block matching (multiline SequenceMatcher)
     return _fuzzy_block_match(old, content, threshold)
 
-
 def _match_strip_trailing_per_line(old: str, content: str) -> tuple[int, int] | None:
-    """Strip trailing whitespace from each line, then find the match.
-
-    Returns position in the ORIGINAL content (not the stripped version).
-    This is the #1 most common LLM mismatch.
-    """
     old_lines = old.split("\n")
     old_stripped = [line.rstrip() for line in old_lines]
     content_lines = content.split("\n")
@@ -209,13 +157,7 @@ def _match_strip_trailing_per_line(old: str, content: str) -> tuple[int, int] | 
         return (char_start, char_end)
     return None
 
-
 def _match_whitespace_collapsed(old: str, content: str) -> tuple[int, int] | None:
-    """Collapse all whitespace runs to single space, find match, map back.
-
-    Handles: tabs vs spaces, double-spaces, mixed indentation.
-    Maps position back to the original content by walking both strings.
-    """
     old_collapsed = re.sub(r"[ \t]+", " ", old)
     content_collapsed = re.sub(r"[ \t]+", " ", content)
 
@@ -250,14 +192,7 @@ def _match_whitespace_collapsed(old: str, content: str) -> tuple[int, int] | Non
         return (original_start, i)
     return None
 
-
 def _match_indentation_agnostic(old: str, content: str) -> tuple[int, int] | None:
-    """Match ignoring leading AND trailing whitespace per line.
-
-    Returns position in the ORIGINAL content. Finds the block in content
-    whose lines match old's lines after stripping both leading and trailing
-    whitespace. This handles the common combo: different indent + trailing ws.
-    """
     old_lines = old.split("\n")
     old_stripped = [line.strip() for line in old_lines]
     content_lines = content.split("\n")
@@ -279,18 +214,11 @@ def _match_indentation_agnostic(old: str, content: str) -> tuple[int, int] | Non
 
     return None
 
-
 def _fuzzy_block_match(
     old: str,
     content: str,
     threshold: float = 0.85,
 ) -> tuple[int, int] | None:
-    """Use SequenceMatcher for fuzzy multiline matching.
-
-    Slides a window of old_lines length across content, scores each
-    candidate block, returns the best one above threshold.
-    Returns positions in the ORIGINAL content.
-    """
     content_lines = content.split("\n")
     old_lines = old.split("\n")
     n = len(old_lines)
@@ -318,7 +246,6 @@ def _fuzzy_block_match(
             return (char_start, char_end)
 
     return None
-
 
 def find_closest_matches(
     old: str,
@@ -353,11 +280,6 @@ def find_closest_matches(
 
     return result
 
-
-# ============================================================================
-# FILE DETECTION - binary, image, PDF, notebook
-# ============================================================================
-
 _BINARY_EXTENSIONS = frozenset({
     ".bin", ".exe", ".dll", ".so", ".dylib", ".a",
     ".o", ".obj", ".lib",
@@ -372,7 +294,6 @@ _IMAGE_EXTENSIONS = frozenset({
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".svg", ".tiff", ".tif",
 })
 
-
 def is_binary_file(path: str, content_sample: bytes | None = None) -> bool:
     """Detect if a file is binary by extension or content."""
     ext = Path(path).suffix.lower()
@@ -384,25 +305,17 @@ def is_binary_file(path: str, content_sample: bytes | None = None) -> bool:
 
     return False
 
-
 def is_image_file(path: str) -> bool:
     """Detect if file is an image."""
     return Path(path).suffix.lower() in _IMAGE_EXTENSIONS
-
 
 def is_pdf_file(path: str) -> bool:
     """Detect if file is a PDF."""
     return Path(path).suffix.lower() == ".pdf"
 
-
 def is_notebook_file(path: str) -> bool:
     """Detect if file is a Jupyter notebook."""
     return Path(path).suffix.lower() == ".ipynb"
-
-
-# ============================================================================
-# ERROR RECOVERY HINTS - Help LLM fix mistakes
-# ============================================================================
 
 def suggest_edit_recovery(
     error: str,
@@ -440,7 +353,6 @@ def suggest_edit_recovery(
 
     return f"Edit failed: {error}. Try reading the file again with Read first."
 
-
 def suggest_read_recovery(
     path: str,
     error: str,
@@ -459,7 +371,6 @@ def suggest_read_recovery(
         return f"Encoding issue. Detect encoding: `file -i {path}` via Bash."
 
     return f"Read failed: {error}."
-
 
 def suggest_glob_recovery(
     pattern: str,
@@ -480,11 +391,6 @@ def suggest_glob_recovery(
         f"No matches for pattern '{pattern}'. Suggestions:\n" +
         "\n".join(f"  - {s}" for s in suggestions)
     )
-
-
-# ============================================================================
-# DIFF GENERATION - Show what changed (for preview/frontend)
-# ============================================================================
 
 def generate_diff_preview(before: str, after: str, context_lines: int = 3) -> str:
     """Generate a simple diff preview (not full unified diff, just key changes)."""
@@ -512,11 +418,6 @@ def generate_diff_preview(before: str, after: str, context_lines: int = 3) -> st
         return preview
 
     return f"Changed {len(changed_lines)} lines"
-
-
-# ============================================================================
-# METADATA - info for frontend preview
-# ============================================================================
 
 def gather_file_metadata(path: str) -> dict[str, Any]:
     """Gather metadata about a file for frontend display."""

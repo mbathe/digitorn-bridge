@@ -1,15 +1,4 @@
-"""LLM Notification Channel - the default, always-available channel.
-
-Delivers notifications to the LLM agent's conversation loop. If the
-app has an active consumer (CLI or API session), the notification is
-pushed directly to the in-memory queue. Otherwise, it is buffered
-in the KV store for delivery when the consumer reconnects.
-
-This channel is special:
-- Always registered as the default fallback
-- Has direct access to the context_builder's notification queue
-- Does not need external credentials or network access
-"""
+"""LLM Notification Channel - the default, always-available channel."""
 
 from __future__ import annotations
 
@@ -28,14 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class LLMNotificationChannel(BaseOutputChannel):
-    """Deliver notifications to the LLM agent via bg_notifications queue.
-
-    Two-tier delivery:
-    1. **Direct**: If the app's context_builder is registered and has
-       an active ``_bg_notifications`` queue → push immediately.
-    2. **Buffer**: If no active consumer → buffer in KV store for later
-       delivery when ``check_notifications()`` is called.
-    """
+    """Deliver notifications to the LLM agent via bg_notifications queue."""
 
     CHANNEL_ID = "llm_notification"
     CHANNEL_NAME = "LLM Agent Notification"

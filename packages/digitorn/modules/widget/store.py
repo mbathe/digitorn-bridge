@@ -1,15 +1,4 @@
-"""Per-session widget runtime store - mirrors PreviewSessionStore.
-
-Holds, for each ``session_id``:
-
-- A map of mounted widgets (``widget_id`` → tree, ctx, zone)
-- A monotonic seq counter so clients can dedupe on reconnect
-- A persistent global state map (the ``state.*`` scope, scope=global)
-- A subscriber fan-out queue list
-
-Nothing is persisted to disk by default. The ``state.global`` scope
-is mirrored to the daemon's KV store via the API routes if needed.
-"""
+"""Per-session widget runtime store - mirrors PreviewSessionStore."""
 
 from __future__ import annotations
 
@@ -18,15 +7,11 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
-
 _MAX_EVENTS = 500
-
 
 @dataclass
 class MountedWidget:
-    """One widget mounted in a session - tracked so updates / close
-    can find it by ``widget_id``.
-    """
+    """One widget mounted in a session - tracked so updates / close."""
 
     widget_id: str
     zone: str  # inline | chat_side | workspace | modal
@@ -49,7 +34,6 @@ class MountedWidget:
             "mounted_at": self.mounted_at,
         }
 
-
 @dataclass
 class WidgetEvent:
     """One delta event pushed to subscribers."""
@@ -67,10 +51,9 @@ class WidgetEvent:
             "timestamp": self.timestamp,
         }
 
-
 @dataclass
 class WidgetSessionState:
-    """Everything the ``widget`` module tracks for one session."""
+    """Everything the `widget` module tracks for one session."""
 
     session_id: str
     mounted: dict[str, MountedWidget] = field(default_factory=dict)
@@ -98,7 +81,6 @@ class WidgetSessionState:
         self.state.clear()
         self.events.clear()
         self._seq = 0
-
 
 class WidgetSessionStore:
     """Process-wide store of per-session widget state."""

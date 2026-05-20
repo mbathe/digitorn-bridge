@@ -1,15 +1,14 @@
-"""Base LLM provider protocol and shared types.
-
-All provider backends implement ``BaseLLMProvider`` so the module can
-dispatch to any provider through a single interface.
-"""
+"""Base LLM provider protocol and shared types."""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 import abc
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
-
 
 @dataclass
 class ChatMessage:
@@ -22,7 +21,6 @@ class ChatMessage:
     tool_calls: list[dict[str, Any]] | None = None
     reasoning_content: str | None = None
 
-
 @dataclass
 class TokenUsage:
     """Token consumption for a single request."""
@@ -32,7 +30,6 @@ class TokenUsage:
     total_tokens: int = 0
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
-
 
 @dataclass
 class ChatResponse:
@@ -46,7 +43,6 @@ class ChatResponse:
     raw: dict[str, Any] = field(default_factory=dict)
     reasoning_content: str | None = None
 
-
 @dataclass
 class StreamChunk:
     """A single chunk from a streaming response."""
@@ -56,7 +52,6 @@ class StreamChunk:
     usage: TokenUsage | None = None
     tool_calls: list[dict[str, Any]] | None = None
     thinking: str | None = None  # Native thinking content (Anthropic extended thinking)
-
 
 @dataclass
 class ProviderCapabilities:
@@ -70,7 +65,6 @@ class ProviderCapabilities:
     max_context_window: int = 0
     max_output_tokens: int = 0
 
-
 @dataclass
 class ProviderInfo:
     """Metadata about a configured provider instance."""
@@ -81,13 +75,8 @@ class ProviderInfo:
     capabilities: ProviderCapabilities = field(default_factory=ProviderCapabilities)
     extra: dict[str, Any] = field(default_factory=dict)
 
-
 class BaseLLMProvider(abc.ABC):
-    """Abstract base for all LLM provider backends.
-
-    Each backend handles one SDK/API family (Anthropic native, OpenAI-compat).
-    The module layer manages named instances and dispatch.
-    """
+    """Abstract base for all LLM provider backends."""
 
     def __init__(
         self,
@@ -110,19 +99,7 @@ class BaseLLMProvider(abc.ABC):
         self._client: Any = None
 
     def clone(self, *, provider_id_suffix: str = "") -> "BaseLLMProvider":
-        """Return a brand-new provider instance with the same config.
-
-        Each clone gets its own SDK client (and therefore its own httpx
-        connection pool) when ``initialize()`` runs. Use this to give
-        sub-agents independent network paths so 50 concurrent agents
-        don't queue on one shared 100-connection pool. The clone's
-        ``provider_id`` is suffixed with ``provider_id_suffix`` (default
-        empty - keep the original id) so logs / metrics can attribute
-        traffic to the originating agent.
-
-        Subclasses that take extra ``__init__`` args (e.g. OpenAICompat's
-        ``provider_hint``) override this to forward those too.
-        """
+        """Return a brand-new provider instance with the same config."""
         new_id = (
             f"{self.provider_id}:{provider_id_suffix}"
             if provider_id_suffix else self.provider_id
@@ -136,9 +113,7 @@ class BaseLLMProvider(abc.ABC):
             max_retries=self.max_retries,
             default_params=dict(self.default_params),
         )
-        # Tag so callers (e.g. agent_spawn) know to ``await close()`` it
-        # at agent end - leaking the SDK client leaks an httpx pool +
-        # all its TCP connections per finished sub-agent.
+        # tagged so callers can `await close()` and release the httpx pool.
         clone._is_clone = True  # type: ignore[attr-defined]
         return clone
 
@@ -186,30 +161,11 @@ class BaseLLMProvider(abc.ABC):
         """Release resources. Override if the SDK client needs cleanup."""
         self._client = None
 
-    # ── Token counting (model-aware, real values) ──────────────────
-    #
-    # Both helpers route through ``litellm.token_counter`` which loads
-    # the right local tokenizer per model - ``tiktoken`` for OpenAI /
-    # GPT-style BPE, the Anthropic tokenizer for Claude 3+ (no network
-    # call), HuggingFace tokenizers for Mistral / Llama / Qwen / Gemini.
-    # The model name comes from ``self.model`` so each provider
-    # instance counts against its actual configured model - not a
-    # generic estimate. Cached internally by litellm.
-    #
-    # Subclasses CAN override when they have a tighter, exact tokenizer
-    # bundled with their SDK and litellm misses the model. All counts
-    # are best-effort: a token-count error never raises - falls back
-    # to a char/4 heuristic so UI pressure indicators stay alive.
-
     def _model_for_tokenizer(self) -> str:
-        """The model identifier passed to litellm. Subclasses can
-        override to disambiguate (e.g. ``deepseek/deepseek-chat``
-        instead of bare ``deepseek-chat``)."""
         return self.model
 
     def count_tokens(self, text: str) -> int:
-        """Token count for a free-form string under this provider's
-        model. Routes through litellm.token_counter."""
+        """Token count for a free-form string under this provider's model."""
         if not text:
             return 0
         try:
@@ -217,17 +173,14 @@ class BaseLLMProvider(abc.ABC):
             return int(token_counter(
                 model=self._model_for_tokenizer(), text=text,
             ))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("base best-effort block failed: %s", exc)
         return max(1, len(text) // 4)
 
     def count_message_tokens(
         self, messages: list[dict[str, Any]],
     ) -> int:
-        """Token count for an OpenAI-format conversation under this
-        provider's model. Each dict must have ``role`` + ``content``.
-        Counts boilerplate (per-message overhead) too - this is the
-        number the LLM API will bill you for on the prompt side."""
+        """Token count for an OpenAI-format conversation; includes per-message overhead."""
         if not messages:
             return 0
         try:
@@ -235,8 +188,8 @@ class BaseLLMProvider(abc.ABC):
             return int(token_counter(
                 model=self._model_for_tokenizer(), messages=messages,
             ))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("base best-effort block failed: %s", exc)
         total = 0
         for m in messages:
             c = m.get("content", "")
@@ -250,64 +203,37 @@ class BaseLLMProvider(abc.ABC):
                             total += len(t) // 4
         return max(1, total)
 
-    # ── Token counting (model-aware, real values) ──────────────────
-    #
-    # Both helpers route through ``tokencost`` which selects the right
-    # tokenizer per model: ``tiktoken`` for OpenAI / DeepSeek / GPT-style
-    # BPE models, the Anthropic beta token-counting API for Claude 3+,
-    # and ``cl100k_base`` as a last-resort fallback for unknown models.
-    # Subclasses can override when they have a tighter, exact tokenizer
-    # bundled with their SDK (e.g. an in-process Anthropic tokenizer).
-    #
-    # All counts are best-effort - if the lookup fails the fallback is
-    # the rough char/4 heuristic so callers (UI pressure indicators,
-    # context-budget estimators) never crash on a token-count error.
-
     def count_tokens(self, text: str) -> int:
-        """Return the token count of ``text`` for this provider's model.
-
-        Used for system prompt + tool schema + standalone string sizing.
-        Anthropic doesn't expose a stateless string tokenizer through
-        ``tokencost``; this method falls back to a wrapped messages call
-        (``user`` role, single message) so the same signature works for
-        every provider.
-        """
+        """Return the token count of `text` for this provider's model."""
         if not text:
             return 0
         try:
             from tokencost import count_string_tokens
             return int(count_string_tokens(text, model=self.model))
         except ValueError:
-            # tokencost raises ValueError for Anthropic - wrap in a
-            # 1-message conversation and route through the messages path.
+            # tokencost raises ValueError for Anthropic; wrap as a
+            # 1-message conversation.
             try:
                 return self.count_message_tokens(
                     [{"role": "user", "content": text}],
                 )
-            except Exception:
-                pass
-        except Exception:
-            pass
-        # Heuristic fallback so the UI never sees a 500.
+            except Exception as exc:
+                logger.debug("base best-effort block failed: %s", exc)
+        except Exception as exc:
+            logger.debug("base best-effort block failed: %s", exc)
         return max(1, len(text) // 4)
 
     def count_message_tokens(
         self, messages: list[dict[str, Any]],
     ) -> int:
-        """Return the token count for an OpenAI-format message list.
-
-        Each message must be a dict with ``role`` and ``content`` keys
-        (system/user/assistant/tool). Used to size full conversations,
-        tool-call payloads, and any structured prompt the LLM sees.
-        """
+        """Return the token count for an OpenAI-format message list."""
         if not messages:
             return 0
         try:
             from tokencost import count_message_tokens as _cmt
             return int(_cmt(messages, model=self.model))
-        except Exception:
-            pass
-        # Heuristic fallback - sum of content char/4 across messages.
+        except Exception as exc:
+            logger.debug("base best-effort block failed: %s", exc)
         total = 0
         for m in messages:
             c = m.get("content", "")
@@ -322,10 +248,6 @@ class BaseLLMProvider(abc.ABC):
         return max(1, total)
 
     def _merge_params(self, **overrides: Any) -> dict[str, Any]:
-        """Merge default_params with per-request overrides.
-
-        Explicit overrides (non-None) win over defaults.
-        """
         merged = dict(self.default_params)
         for k, v in overrides.items():
             if v is not None:

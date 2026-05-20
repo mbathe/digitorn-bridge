@@ -1,26 +1,4 @@
-"""JSONL backend for the local mode (one file per session).
-
-Each session gets its own ``runs.jsonl`` under
-``<root>/<app_id>/<external_sid>/``. Every operation appends one
-line; lines are independent, parseable with ``jq``, and a session's
-full history is one ``cat <file>``.
-
-Compared to the previous ``<YYYY>/<MM>/<run_id>.jsonl`` layout this
-new layout:
-
-  * Bounds file size to one session (vs the daemon's lifetime).
-  * Lets two parallel sessions append without contending on a
-    shared month directory's name lookups.
-  * Makes ``rm -rf <session_dir>`` the one cleanup command.
-
-Every line carries enough context (``run_id``, ``sequence``,
-``kind``) so a reader can reconstruct the run's full state by
-filtering on ``run_id`` within the session file.
-
-The ``run_id -> session_dir`` mapping is delegated to
-``PerSessionRouter`` so this backend doesn't need to scan files
-to find a run's session.
-"""
+"""JSONL backend for the local mode (one file per session)."""
 
 from __future__ import annotations
 
@@ -50,7 +28,6 @@ class JsonFileBackend:
         )
         self._router = PerSessionRouter(self._root)
 
-    # ── lifecycle ────────────────────────────────────────────────
 
     async def setup(self) -> None:
         await self._router.setup()
@@ -58,7 +35,6 @@ class JsonFileBackend:
     async def teardown(self) -> None:
         await self._router.teardown()
 
-    # ── helpers ──────────────────────────────────────────────────
 
     def _file_for_lookup(self, run_id: str) -> Optional[Path]:
         d = self._router.session_dir_for_lookup(run_id)
@@ -74,12 +50,8 @@ class JsonFileBackend:
             try:
                 os.fsync(f.fileno())
             except OSError:
-                # Network filesystems may not support fsync; the
-                # buffered flush above is durable enough for an
-                # observability log.
                 pass
 
-    # ── writes ───────────────────────────────────────────────────
 
     async def start_run(
         self,

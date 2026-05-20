@@ -1,11 +1,4 @@
-"""Loop guards - detect and break infinite tool-call loops.
-
-The DETECTION logic lives here (counters, thresholds, signature
-hashing). The MESSAGES the LLM sees come from
-``digitorn.core.runtime.system_directives`` — keep them centralised so
-the supervisor voice stays consistent and the wording can be revised
-in one place across all enforcement paths.
-"""
+"""Loop guards - detect and break infinite tool-call loops."""
 
 from __future__ import annotations
 
@@ -35,28 +28,22 @@ _INCREMENTAL_ACTIONS = frozenset({
 })
 
 _RESEARCH_ACTIONS = frozenset({
-    # Web
     "search", "web__search", "web_search",
     "fetch", "web__fetch", "web_fetch",
     "fetch_page", "http__fetch_page",
     "get", "http__get",
-    # Filesystem (read-heavy workflows are normal)
     "read", "filesystem__read", "read_file", "filesystem__read_file",
     "find", "filesystem__find",
     "grep", "filesystem__grep",
     "glob", "filesystem__glob",
     "write", "filesystem__write",
     "edit", "filesystem__edit",
-    # Shell (git workflows = many consecutive bash calls)
     "bash", "shell__bash",
-    # Memory
     "task_create", "memory__task_create",
     "task_update", "memory__task_update",
     "remember", "memory__remember",
     "set_goal", "memory__set_goal",
-    # Agent (parallel spawns = multiple agent calls)
     "agent", "agent_spawn__agent",
-    # Discovery
     "run_parallel",
 })
 
@@ -79,23 +66,9 @@ class LoopState:
     consecutive_same_tool: int = 0
     max_consecutive_same_tool: int = 30
 
-    # Hard kill switch: when the soft notes have been ignored for this
-    # many failures in a row, agent_loop is told to break the turn
-    # rather than keep iterating. The soft-note threshold above
-    # (``max_consecutive_failures``) is a hint to the LLM; this one is
-    # an enforcement ceiling for the daemon. Was 24 originally -- the
-    # ``digitorn-lovable`` zombie ran 1947 retries before the user
-    # aborted, 24 capped that. After observing the LLM keeps emitting
-    # ``name=""`` even with the soft note in its context, lowered to 12
-    # so the kill fires within ~6-8s of stream time. Soft note still
-    # has 4 iterations (8 -> 12) to nudge a recoverable failure (wrong
-    # path, transient network) before the hard kill ends the turn.
+    # daemon-enforced hard ceiling above the soft-note threshold so a runaway turn ends within ~6-8s of stream time.
     max_consecutive_failures_hard: int = 12
 
-    # Set to True by ``_check_consecutive_failures`` once the hard cap
-    # fires. ``agent_loop`` reads it after each tool call and breaks
-    # the turn with a structured ``loop_kill`` result so the LLM stream
-    # is finalised cleanly (final ``message_done`` event + DB persist).
     kill_turn_reason: str = ""
 
     @classmethod
@@ -118,10 +91,7 @@ def check_tool_health(
     ok: bool,
     result_len: int,
 ) -> list[str]:
-    """Run all loop-detection checks after a tool call.
-
-    Returns a list of deferred system notes to inject.
-    """
+    """Run all loop-detection checks after a tool call."""
     notes: list[str] = []
     notes.extend(_check_consecutive_failures(state, tool_name, ok))
     notes.extend(_check_repetition(state, tool_name, tool_args))
@@ -130,21 +100,23 @@ def check_tool_health(
     return notes
 
 
+_SENTINEL_TOOL_NAMES = frozenset({"", "unknown", "?", "null"})
+
+
 def _check_consecutive_failures(
     state: LoopState, tool_name: str, ok: bool,
 ) -> list[str]:
     if not ok:
+        if tool_name in _SENTINEL_TOOL_NAMES:
+            logger.warning("loop_guard_skip_sentinel_failure tool=%r", tool_name)
+            return []
         if tool_name == state.last_failed_tool:
             state.consecutive_failures += 1
         else:
             state.last_failed_tool = tool_name
             state.consecutive_failures = 1
 
-        # Hard ceiling: the soft note below was ignored. The daemon now
-        # signals agent_loop to break the turn. We do NOT reset the
-        # counter here so a subsequent ``ok=True`` is still required to
-        # clear it (see else-branch below) -- prevents oscillation where
-        # an intermittent failure flips the kill flag on/off.
+        # do NOT reset the counter here - a subsequent ok=True clears it (avoids kill-flag oscillation on intermittent failures).
         if (
             state.consecutive_failures >= state.max_consecutive_failures_hard
             and not state.kill_turn_reason
@@ -166,11 +138,7 @@ def _check_consecutive_failures(
             )]
 
         if state.consecutive_failures >= state.max_consecutive_failures:
-            # Soft note: leave the counter so we can keep accumulating
-            # toward the hard cap above. Previous behaviour reset it
-            # here, which meant the LLM got the SAME note every N
-            # failures but no escalation -- exactly the pattern that
-            # let digitorn-lovable rack up 1947 retries.
+            # keep the counter so it accumulates toward the hard cap (escalation, not flat repetition).
             logger.warning(
                 "Retry loop (soft note): %s failed %d times",
                 tool_name, state.consecutive_failures,
@@ -235,7 +203,7 @@ def _check_large_read(
     read_tools = ("filesystem.read", "filesystem__read", "read")
 
     if tool_name in read_tools and ok and result_len > 8000:
-        line_count = result_len // 60  # rough estimate
+        line_count = result_len // 60
         notes.append(SYS_HINT_LARGE_READ.format(
             lines=line_count, chars=result_len,
         ))

@@ -1,31 +1,4 @@
-"""VaultTransitProvider - envelope encryption via HashiCorp Vault Transit.
-
-Vault's Transit secrets engine acts as encryption-as-a-service: the
-key material lives in Vault, never leaves. The daemon authenticates
-to Vault (token, AppRole, K8s, etc.), then calls
-`POST /transit/encrypt/{key}` to wrap a DEK and `POST /transit/decrypt/{key}`
-to unwrap.
-
-Configuration:
-
-    DIGITORN_KMS=vault
-    VAULT_ADDR=https://vault.internal:8200
-    VAULT_TOKEN=hvs.XXXXX                       # OR
-    VAULT_ROLE_ID + VAULT_SECRET_ID             # AppRole
-    VAULT_TRANSIT_KEY=digitorn-master           # name of the transit key
-    VAULT_TRANSIT_MOUNT=transit                 # mount point (default: transit)
-    VAULT_NAMESPACE=                            # Vault Enterprise namespace
-
-Required Vault policy:
-
-    path "transit/encrypt/digitorn-master" { capabilities = ["update"] }
-    path "transit/decrypt/digitorn-master" { capabilities = ["update"] }
-    path "transit/keys/digitorn-master"    { capabilities = ["read"] }
-
-The transit key MUST exist before first use. Provision via:
-
-    vault write -f transit/keys/digitorn-master type=aes256-gcm96
-"""
+"""VaultTransitProvider - envelope encryption via HashiCorp Vault Transit."""
 
 from __future__ import annotations
 
@@ -204,6 +177,6 @@ class VaultTransitProvider:
             if self._client is not None and hasattr(self._client, "adapter"):
                 # hvac uses requests; close the session.
                 self._client.adapter.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("vault_provider best-effort block failed: %s", exc)
         self._client = None

@@ -1,9 +1,4 @@
-"""Smart cache for MCP tool results.
-
-Only tools explicitly listed in ``cacheable_tools`` per server are cached.
-Live data (emails, issues, messages) must NOT be cached because it can change
-from outside the agent's control.  Modeled after ``database/cache.py``.
-"""
+"""Smart cache for MCP tool results."""
 
 from __future__ import annotations
 
@@ -17,7 +12,6 @@ from typing import Any
 from digitorn.modules.base import ActionResult
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class _CacheEntry:
@@ -34,18 +28,8 @@ class _CacheEntry:
     def age_ms(self) -> float:
         return (time.monotonic() - self.created_at) * 1000
 
-
 class MCPToolCache:
-    """Per-server MCP tool result cache with TTL and LRU eviction.
-
-    Only tools explicitly listed in ``cacheable_tools`` for a given server
-    are cached.  This avoids stale results for live data (emails, issues)
-    that can change from outside the agent's control.
-
-    The cache lives on the ``MCPModule`` instance → per-app isolation is
-    guaranteed by ``registry.create()``.  No locking needed (single event
-    loop per app).
-    """
+    """Per-server MCP tool result cache with TTL and LRU eviction."""
 
     def __init__(
         self,
@@ -62,7 +46,6 @@ class MCPToolCache:
         self._misses = 0
         self._invalidations = 0
         self._evictions = 0
-
 
     def configure_server(
         self,
@@ -93,7 +76,6 @@ class MCPToolCache:
     def _max_size_for(self, server_id: str) -> int:
         return self._server_max_size.get(server_id, self._default_max_size)
 
-
     @staticmethod
     def make_key(tool_name: str, params: dict[str, Any]) -> str:
         """Deterministic cache key from tool name + sorted params."""
@@ -105,9 +87,8 @@ class MCPToolCache:
         )
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
-
     def get(self, server_id: str, cache_key: str) -> _CacheEntry | None:
-        """Return cached entry if valid, else ``None``."""
+        """Return cached entry if valid, else `None`."""
         store = self._stores.get(server_id)
         if store is None:
             self._misses += 1
@@ -146,7 +127,6 @@ class MCPToolCache:
             created_at=time.monotonic(),
         )
 
-
     def invalidate_server(self, server_id: str) -> int:
         """Clear ALL entries for *server_id*.  Returns count cleared."""
         store = self._stores.pop(server_id, None)
@@ -161,7 +141,6 @@ class MCPToolCache:
         total = sum(len(s) for s in self._stores.values())
         self._stores.clear()
         self._invalidations += total
-
 
     def info(self) -> dict[str, Any]:
         """Debug stats."""

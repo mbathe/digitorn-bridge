@@ -1,15 +1,9 @@
-"""Session-level usage tracking and tool result formatting.
-
-Keeps agent_loop.py lean - all accumulation logic lives here.
-"""
+"""Session-level usage tracking and tool result formatting."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
-
-
-# ── Token / usage tracking ──────────────────────────────────────
 
 
 @dataclass
@@ -47,22 +41,8 @@ class SessionUsage:
         }
 
 
-# ── Image tool result formatting ────────────────────────────────
-
-
 def format_image_tool_result(result_data: dict[str, Any]) -> list[dict[str, Any]]:
-    """Convert an image ActionResult into a multimodal content block.
-
-    If the tool result contains ``is_image=True``, returns a list of content
-    blocks suitable for the OpenAI/Anthropic messages format::
-
-        [
-            {"type": "text", "text": "Image: path/to/file.png (12345 bytes)"},
-            {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
-        ]
-
-    If the result is NOT an image, returns None (caller uses default formatting).
-    """
+    """Convert an image ActionResult into a multimodal content block."""
     if not isinstance(result_data, dict) or not result_data.get("is_image"):
         return None  # type: ignore[return-value]
 

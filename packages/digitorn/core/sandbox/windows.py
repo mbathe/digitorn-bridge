@@ -1,12 +1,4 @@
-"""Windows sandbox backend - Job Objects + Process Mitigation Policies.
-
-Security layers (matching Linux parity):
-    1. Job Objects: memory limits, process count, auto-cleanup
-    2. Process Mitigation Policies: DEP, CFG, ACG, no child processes
-    3. Restricted Tokens: strip privileges and SIDs (like Linux cap drop)
-
-These APIs are available since Windows 10 without admin privileges.
-"""
+"""Windows sandbox backend: Job Objects + Process Mitigation Policies."""
 
 from __future__ import annotations
 
@@ -31,13 +23,12 @@ class WindowsSandbox:
         if sys.platform != "win32":
             return []
         features = ["job_object"]
-        # Check for process mitigation support (Windows 10+)
         try:
             kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
             if hasattr(kernel32, "SetProcessMitigationPolicy"):
                 features.append("process_mitigation")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("windows best-effort block failed: %s", exc)
         return features
 
     def apply(self, profile: SandboxProfile) -> SandboxGuard:
@@ -47,7 +38,6 @@ class WindowsSandbox:
             guard.unavailable.append("job_object")
             return guard
 
-        # Layer 1: Job Object (memory, processes, auto-cleanup)
         try:
             _apply_job_object(profile)
             guard.active.append("job_object")
@@ -55,7 +45,6 @@ class WindowsSandbox:
             guard.unavailable.append("job_object")
             guard.warnings.append(f"Job Object: {exc}")
 
-        # Layer 2: Process Mitigation (DEP, CFG, ACG - like Linux MDWE)
         try:
             features = _apply_mitigation_policies(profile)
             if features:
@@ -68,9 +57,6 @@ class WindowsSandbox:
         return guard
 
 
-# ── Win32 constants ───────────────────────────────────────────────
-
-# Job Object limits
 JOB_OBJECT_LIMIT_PROCESS_MEMORY = 0x00000100
 JOB_OBJECT_LIMIT_JOB_MEMORY = 0x00000200
 JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008
@@ -78,19 +64,16 @@ JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 
 JobObjectExtendedLimitInformation = 9
 
-# Process mitigation policies (Windows 10+)
 ProcessDEPPolicy = 0
 ProcessASLRPolicy = 1
-ProcessDynamicCodePolicy = 2       # ACG - equivalent to Linux MDWE
+ProcessDynamicCodePolicy = 2
 ProcessStrictHandleCheckPolicy = 3
-ProcessSystemCallDisablePolicy = 4  # Block Win32k syscalls
+ProcessSystemCallDisablePolicy = 4
 ProcessExtensionPointDisablePolicy = 7
-ProcessControlFlowGuardPolicy = 8   # CFG
+ProcessControlFlowGuardPolicy = 8
 ProcessSignaturePolicy = 8
 ProcessImageLoadPolicy = 10
 
-
-# ── ctypes structures ─────────────────────────────────────────────
 
 class _IO_COUNTERS(ctypes.Structure):
     _fields_ = [
@@ -129,22 +112,16 @@ class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
 
 
 class _PROCESS_MITIGATION_DYNAMIC_CODE_POLICY(ctypes.Structure):
-    """Arbitrary Code Guard (ACG) - Windows equivalent of Linux MDWE.
-    Prevents allocation of new executable memory (VirtualAlloc PAGE_EXECUTE*).
-    """
+    """Arbitrary Code Guard (ACG)."""
     _fields_ = [("Flags", ctypes.c_ulong)]
 
 
 class _PROCESS_MITIGATION_SYSTEM_CALL_DISABLE_POLICY(ctypes.Structure):
-    """Block Win32k syscalls - reduces kernel attack surface."""
+    """Block Win32k syscalls."""
     _fields_ = [("Flags", ctypes.c_ulong)]
 
 
-# ── Implementation ────────────────────────────────────────────────
-
-
 def _apply_job_object(profile: SandboxProfile) -> None:
-    """Apply Job Object restrictions - memory, processes, auto-cleanup."""
     kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
 
     job_name = f"digitorn-{profile.app_id}-{os.getpid()}"
@@ -193,36 +170,27 @@ def _apply_job_object(profile: SandboxProfile) -> None:
 
 
 def _apply_mitigation_policies(profile: SandboxProfile) -> list[str]:
-    """Apply Process Mitigation Policies (Windows 10+).
-
-    These are the Windows equivalents of Linux prctl hardening:
-    - ACG (Dynamic Code Policy) = MDWE: blocks W+X memory
-    - System Call Disable = reduces kernel attack surface
-    """
+    """Apply Process Mitigation Policies (Windows 10+)."""
     kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
     applied: list[str] = []
 
-    # ACG - Arbitrary Code Guard (equivalent to Linux PR_SET_MDWE)
-    # Blocks VirtualAlloc with PAGE_EXECUTE*, VirtualProtect to EXECUTE
-    # Same effect as MDWE: no JIT, no shellcode injection
     try:
         policy = _PROCESS_MITIGATION_DYNAMIC_CODE_POLICY()
-        policy.Flags = 1  # ProhibitDynamicCode = True
+        policy.Flags = 1
         ok = kernel32.SetProcessMitigationPolicy(
             ProcessDynamicCodePolicy,
             ctypes.byref(policy),
             ctypes.sizeof(policy),
         )
         if ok:
-            applied.append("acg")  # Arbitrary Code Guard
+            applied.append("acg")
             logger.debug("mitigation: ACG (dynamic code prohibition) applied")
     except Exception as exc:
         logger.debug("mitigation: ACG failed: %s", exc)
 
-    # Block Win32k system calls (reduces kernel attack surface)
     try:
         policy = _PROCESS_MITIGATION_SYSTEM_CALL_DISABLE_POLICY()
-        policy.Flags = 1  # DisallowWin32kSystemCalls = True
+        policy.Flags = 1
         ok = kernel32.SetProcessMitigationPolicy(
             ProcessSystemCallDisablePolicy,
             ctypes.byref(policy),

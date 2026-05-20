@@ -40,13 +40,8 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection):
-    # ``render_as_batch=True`` on SQLite makes Alembic emit
-    # CREATE-INTO + RENAME for ALTER TABLE operations that SQLite
-    # doesn't natively support (drop column, modify type, modify
-    # default). On PostgreSQL the flag is harmless: native ALTER is
-    # used unconditionally so the per-table batch wrapper just adds
-    # a no-op nesting level. Required for self-hosted runtimes that
-    # default to SQLite.
+    # `render_as_batch=True` is required so SQLite gets the
+    # CREATE-INTO + RENAME shape for unsupported ALTER ops.
     is_sqlite = connection.dialect.name == "sqlite"
     context.configure(
         connection=connection,

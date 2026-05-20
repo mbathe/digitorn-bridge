@@ -1,8 +1,4 @@
-"""CLI commands for database maintenance.
-
-    digitorn db cleanup-seq-dups       Detect and clean duplicate seqs in history_log
-    digitorn db check-seq-monotonic    Verify per-session seq monotonicity
-"""
+"""CLI commands for database maintenance."""
 
 from __future__ import annotations
 
@@ -23,16 +19,7 @@ db_cli = typer.Typer(
 
 
 async def _ensure_engine() -> None:
-    """Open a minimal async engine + session factory pointed at the same
-    DB the daemon uses, WITHOUT running ``init_db``.
-
-    ``init_db`` does a lot more than open a connection: it runs
-    ``create_all``, three legacy migration helpers, and now the new
-    seq-unique index migration. Any of those failing (e.g. duplicates
-    blocking the unique index) would prevent the cleanup tool from
-    even starting - exactly when the operator needs it most. Keep the
-    bootstrap minimal so the cleanup tool always has a way in.
-    """
+    """Open a minimal async engine + session factory pointed at the same"""
     from sqlalchemy.ext.asyncio import (
         async_sessionmaker, create_async_engine,
     )
@@ -57,9 +44,6 @@ async def _ensure_engine() -> None:
     )
     factory = async_sessionmaker(bind=engine, expire_on_commit=False)
 
-    # Wire the global module-level singletons that ``get_session_factory``
-    # reads from - the rest of the script reuses the same path the
-    # daemon does.
     _db._engine = engine
     _db._session_factory = factory
 
@@ -71,14 +55,14 @@ def check_seq_monotonic(
         typer.Option("--fix", help="Renumber duplicate seqs (default: dry-run)."),
     ] = False,
 ) -> None:
-    """Find rows in ``history_log`` that violate per-scope seq uniqueness.
+    """Find rows in `history_log` that violate per-scope seq uniqueness.
 
     Two checks:
-      * (session_id, seq) duplicates for ``kind='event' AND session_id IS NOT NULL``
-      * (user_id,    seq) duplicates for ``kind='event' AND session_id IS NULL``
+      * (session_id, seq) duplicates for `kind='event' AND session_id IS NOT NULL`
+      * (user_id,    seq) duplicates for `kind='event' AND session_id IS NULL`
 
-    Without ``--fix`` this is read-only - it lists every duplicate cluster
-    so an operator can review before mutating data. With ``--fix`` the
+    Without `--fix` this is read-only - it lists every duplicate cluster
+    so an operator can review before mutating data. With `--fix` the
     older rows of each cluster are renumbered to fresh seqs above the
     scope's current MAX(seq), preserving every event's payload while
     restoring the universal-truth invariant the new UNIQUE INDEX requires.
@@ -98,7 +82,6 @@ async def _run_check(*, apply_fix: bool) -> None:
     fixed_session, fixed_user = 0, 0
 
     async with sf() as db:
-        # ── Session-scope duplicates ─────────────────────────────
         rows = (await db.execute(text(
             """
             SELECT session_id, seq, COUNT(*) AS cnt
@@ -126,7 +109,6 @@ async def _run_check(*, apply_fix: bool) -> None:
         else:
             console.print("[green]No session-seq duplicates.[/green]")
 
-        # ── User-scope duplicates (no session_id) ────────────────
         urows = (await db.execute(text(
             """
             SELECT user_id, seq, COUNT(*) AS cnt
@@ -163,12 +145,6 @@ async def _run_check(*, apply_fix: bool) -> None:
             console.print("Re-run with [cyan]--fix[/cyan] to apply.")
             return
 
-        # ── Apply renumbering ────────────────────────────────────
-        # Strategy: per duplicate cluster, keep the row with the
-        # smallest ts (the "first" ledger row) at its current seq;
-        # bump every other row to a fresh seq above the scope's
-        # current max. We renumber, never delete, so no row's
-        # payload disappears.
 
         if rows:
             console.print()
@@ -243,7 +219,7 @@ def cleanup_seq_dups(
         typer.Option("--fix", help="Apply the cleanup (default: dry-run)."),
     ] = False,
 ) -> None:
-    """Alias for ``check-seq-monotonic`` - renumber duplicate seqs in
-    ``history_log``. Run with ``--fix`` to apply, otherwise dry-run.
+    """Alias for `check-seq-monotonic` - renumber duplicate seqs in
+    `history_log`. Run with `--fix` to apply, otherwise dry-run.
     """
     asyncio.run(_run_check(apply_fix=apply_fix))

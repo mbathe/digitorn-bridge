@@ -6,7 +6,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-
 class ChunkingConfig(BaseModel):
     strategy: Literal["fixed", "sentence", "paragraph", "recursive"] = Field(
         "recursive", description="Text splitting strategy.",
@@ -14,12 +13,10 @@ class ChunkingConfig(BaseModel):
     size: int = Field(500, ge=50, le=10000, description="Target chunk size in characters.")
     overlap: int = Field(50, ge=0, le=500, description="Overlap between adjacent chunks.")
 
-
 class MultiQueryConfig(BaseModel):
     enabled: bool = False
     provider: str = Field("", description="LLM provider_id for query generation.")
     num_variants: int = Field(3, ge=2, le=10, description="Number of query variants.")
-
 
 class PipelineConfig(BaseModel):
     retrieval: Literal["hybrid", "semantic", "bm25"] = Field(
@@ -31,7 +28,6 @@ class PipelineConfig(BaseModel):
     final_top_k: int = Field(5, ge=1, le=100)
     multi_query: MultiQueryConfig | None = None
 
-
 class CacheConfig(BaseModel):
     enabled: bool = Field(True, description="Enable semantic caching of RAG responses.")
     backend: Literal["memory", "redis"] = "memory"
@@ -40,12 +36,10 @@ class CacheConfig(BaseModel):
     max_entries: int = Field(10000, ge=100)
     redis_url: str = Field("", description="Redis URL when backend=redis.")
 
-
 class CitationConfig(BaseModel):
     enabled: bool = Field(True, description="Inject source metadata into LLM context.")
     format: Literal["inline", "footnote", "structured"] = "inline"
     verify: bool = Field(False, description="Verify citations in LLM output post-generation.")
-
 
 class ContextualRetrievalConfig(BaseModel):
     enabled: bool = False
@@ -55,25 +49,21 @@ class ContextualRetrievalConfig(BaseModel):
         "", description="Custom template with {document} and {chunk} placeholders.",
     )
 
-
 class CragConfig(BaseModel):
     enabled: bool = False
     provider: str = Field("", description="LLM provider_id for quality evaluation.")
     confidence_threshold: float = Field(0.5, ge=0.0, le=1.0)
     fallback: Literal["broader_query", "none"] = "broader_query"
 
-
 class AdaptiveConfig(BaseModel):
     enabled: bool = False
     provider: str = Field("", description="LLM provider_id for query classification.")
     strategies: dict[str, PipelineConfig] = Field(default_factory=dict)
 
-
 class Text2SQLConfig(BaseModel):
     enabled: bool = False
     provider: str = Field("", description="LLM provider_id for SQL generation.")
     example_cache: bool = Field(True, description="Cache validated (question, SQL) pairs.")
-
 
 class TableConfig(BaseModel):
     columns: list[str] = Field(default_factory=list, description="Columns to index.")
@@ -82,13 +72,11 @@ class TableConfig(BaseModel):
     template: str = Field("", description="Row text template, e.g. '{name} ({dept}) - {bio}'.")
     max_rows: int = Field(50000, ge=1)
 
-
 class DatabaseSyncConfig(BaseModel):
     strategy: Literal["updated_at", "changelog", "notify"] = "updated_at"
     interval: int = Field(30, ge=5, le=3600, description="Poll interval in seconds.")
     auto_create_triggers: bool = True
     prune_after_hours: int = Field(24, ge=1)
-
 
 class DatabaseSourceConfig(BaseModel):
     type: Literal["database"] = "database"
@@ -98,7 +86,6 @@ class DatabaseSourceConfig(BaseModel):
         default_factory=dict, description="Explicit table configs. Unlisted tables are ignored.",
     )
 
-
 class FileSourceConfig(BaseModel):
     type: Literal["file"] = "file"
     path: str = Field(..., description="Directory path (supports {{variables}}).")
@@ -107,11 +94,9 @@ class FileSourceConfig(BaseModel):
     recursive: bool = True
     max_files: int = Field(1000, ge=1)
 
-
 class AutoIndexConfig(BaseModel):
     on_start: bool = True
     schedule: str = Field("", description="Cron expression for periodic re-indexing.")
-
 
 class BackendConfig(BaseModel):
     type: Literal["qdrant", "chroma", "lancedb", "pinecone", "pgvector", "elasticsearch"] = "qdrant"
@@ -124,16 +109,14 @@ class BackendConfig(BaseModel):
     dsn: str = Field("", description="PostgreSQL DSN for pgvector.")
     quantization: Literal["none", "int8", "binary"] = "none"
 
-
 class CustomEmbeddingConfig(BaseModel):
     id: str = Field(..., description="HuggingFace model ID.")
     dimensions: int = Field(..., ge=1)
     pooling: Literal["mean", "cls"] = "mean"
     model_file: str = "onnx/model.onnx"
 
-
 class RagConfig(BaseModel):
-    """Root configuration - ``rag: {}`` for zero-config, or detailed setup."""
+    """Root configuration - `rag: {}` for zero-config, or detailed setup."""
 
     model_config = {"extra": "forbid"}
 

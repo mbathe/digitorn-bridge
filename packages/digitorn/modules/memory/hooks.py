@@ -1,19 +1,4 @@
-"""Memory Hooks - automatic memory management during the agent loop.
-
-These hooks fire at specific points in the agent loop and manage
-memory transparently. The agent doesn't need to think about memory
-management - the system does it.
-
-Hooks are DYNAMIC - they only activate if the corresponding memory
-layer is enabled in config.
-
-Hook points:
-- **turn_start**: inject working memory + relevant context
-- **tool_result**: cache content, track entities, extract facts
-- **turn_end**: auto-detect completed todos, check goal drift
-- **compaction**: save working memory before, reinject after
-- **session_end**: consolidate episode, extract patterns
-"""
+"""Memory Hooks - automatic memory management during the agent loop."""
 
 from __future__ import annotations
 
@@ -24,16 +9,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
 def build_memory_prompt_section(memory_module: Any) -> str:
-    """Build the memory section for the system prompt.
-
-    Called by context_builder when building/rebuilding the system prompt.
-    Returns the full memory snapshot as a text block.
-
-    Only includes active layers - if only todo_list is enabled,
-    only the todo section appears.
-    """
+    """Build the memory section for the system prompt."""
     if memory_module is None:
         return ""
 
@@ -45,19 +22,11 @@ def build_memory_prompt_section(memory_module: Any) -> str:
 
     return store.render_full_snapshot()
 
-
 def build_memory_instructions(
     memory_module: Any,
     tool_injection: str = "discovery",
 ) -> str:
-    """Build memory usage instructions for the system prompt.
-
-    Adapts to the tool injection mode:
-    - **discovery**: agent uses execute_tool(name="memory.set_goal", params={...})
-    - **direct**: agent calls memory.set_goal({...}) or memory__set_goal({...}) directly
-
-    Dynamic - only describes active layers.
-    """
+    """Build memory usage instructions for the system prompt."""
     if memory_module is None:
         return ""
 
@@ -72,10 +41,10 @@ def build_memory_instructions(
     parts: list[str] = [
         "\n## Memory & Resume Protocol",
         "Your memory is shown above under MEMORY. It survives context",
-        "compaction AND session interruption — your tasks ARE your resume",
+        "compaction AND session interruption - your tasks ARE your resume",
         "protocol. If a turn crashes (network blip, daemon restart, abort,",
         "context overflow), the runtime re-injects your tasks and asks you",
-        "to continue from your ``in_progress`` entry. The cost of not",
+        "to continue from your `in_progress` entry. The cost of not",
         "checkpointing your intent in tasks is: on interrupt, the next turn",
         "has no idea what you were doing.",
         "",
@@ -88,23 +57,22 @@ def build_memory_instructions(
         "Rules:",
         "- Simple question / single-step work → just answer or just act,",
         "  no memory tools needed. Tasks come in batches (≥ 2) or not at",
-        "  all — a lone task is chrome noise (UI hides it) AND useless for",
+        "  all - a lone task is chrome noise (UI hides it) AND useless for",
         "  resume (1 task = no plan to recover).",
         "- Multi-step task → set_goal first, then TaskCreate for EACH step",
         "  BEFORE acting, then TaskUpdate as you progress. A plan that lives",
         "  only in your head dies with the process.",
-        "- Status honesty is non-negotiable. ``in_progress`` = I am here now.",
-        "  ``completed`` = done AND verified. Lying breaks resume.",
-        "- One task ``in_progress`` at a time. Switching focus → reset the",
-        "  previous one to ``pending`` or ``blocked`` first.",
-        "- Store durable findings with remember() — survives compaction and",
+        "- Status honesty is non-negotiable. `in_progress` = I am here now.",
+        "  `completed` = done AND verified. Lying breaks resume.",
+        "- One task `in_progress` at a time. Switching focus → reset the",
+        "  previous one to `pending` or `blocked` first.",
+        "- Store durable findings with remember() - survives compaction and",
         "  is visible to parallel workers on the same session.",
-        "- Your memory is auto-injected every turn — just read it, no query",
+        "- Your memory is auto-injected every turn - just read it, no query",
         "  tool needed.",
     ]
 
     return "\n".join(parts)
-
 
 def on_turn_start(
     memory_module: Any,
@@ -112,12 +80,7 @@ def on_turn_start(
     turn: int,
     session_id: str | None = None,
 ) -> None:
-    """Called at the start of each agent turn.
-
-    - Activates the correct session store
-    - Ensures working memory is in the system prompt
-    - Checks if goal needs to be set (first turn)
-    """
+    """Called at the start of each agent turn."""
     if memory_module is None:
         return
 
@@ -157,19 +120,13 @@ def on_turn_start(
             "so you can track progress effectively.",
         )
 
-
 def on_tool_result(
     memory_module: Any,
     tool_name: str,
     params: dict[str, Any],
     result: Any,
 ) -> None:
-    """Called after a tool execution completes.
-
-    - Cache file content (filesystem.read results)
-    - Track entities
-    - Extract facts from results
-    """
+    """Called after a tool execution completes."""
     if memory_module is None:
         return
 
@@ -182,19 +139,13 @@ def on_tool_result(
     if config.working_memory:
         _auto_track_entity(store, tool_name, params, result)
 
-
 def on_turn_end(
     memory_module: Any,
     messages: list[dict[str, Any]],
     turn: int,
     tool_calls_this_turn: list[dict[str, Any]],
 ) -> None:
-    """Called at the end of each agent turn.
-
-    - Auto-detect completed todos from tool results
-    - Check goal drift (goal guardian)
-    - Update progress
-    """
+    """Called at the end of each agent turn."""
     if memory_module is None:
         return
 
@@ -207,16 +158,11 @@ def on_turn_end(
     if config.runtime_goal_guardian and store.working.goal and turn > 2:
         _check_goal_drift(store, messages, turn)
 
-
 def on_compaction(
     memory_module: Any,
     messages: list[dict[str, Any]],
 ) -> str:
-    """Called during context compaction.
-
-    Returns the memory block to reinject AFTER compaction.
-    This ensures the agent never loses its cognitive state.
-    """
+    """Called during context compaction."""
     if memory_module is None:
         return ""
 
@@ -232,15 +178,12 @@ def on_compaction(
 
     return f"{snapshot}\n{instructions}"
 
-
 _MEMORY_MARKER_START = "═══ MEMORY ═══"
 _MEMORY_MARKER_END = "═══════════════"
-
 
 def _update_memory_in_messages(
     store: Any, config: Any, messages: list[dict[str, Any]],
 ) -> None:
-    """Update the memory section in the system message."""
     if not messages or messages[0].get("role") != "system":
         return
 
@@ -254,25 +197,15 @@ def _update_memory_in_messages(
     else:
         messages[0]["content"] = snapshot + "\n\n" + system_content
 
-
 def _inject_system_note(messages: list[dict[str, Any]], note: str) -> None:
-    """Inject a system note into the existing system message.
-
-    IMPORTANT: Never append a new system message - some providers
-    (Qwen/Alibaba) reject messages with role 'system' after the
-    conversation has started, especially between assistant(tool_calls)
-    and tool(results). Instead, append the note to messages[0].
-    """
     if messages and messages[0].get("role") == "system":
         messages[0]["content"] += f"\n\n{note}"
     else:
         messages.insert(0, {"role": "system", "content": note})
 
-
 def _auto_cache_file_content(
     store: Any, tool_name: str, params: dict[str, Any], result: Any,
 ) -> None:
-    """Auto-cache file content from filesystem.read results."""
     from digitorn.modules.memory.store import CachedContent
 
     path = params.get("path") or params.get("file_path", "")
@@ -302,11 +235,9 @@ def _auto_cache_file_content(
     store.working.active_entities[path] = cached.summary
     logger.debug("memory_auto_cached path=%s size=%d", path, len(content))
 
-
 def _auto_track_entity(
     store: Any, tool_name: str, params: dict[str, Any], result: Any,
 ) -> None:
-    """Auto-track entities from tool calls."""
     path = params.get("path") or params.get("file_path")
     if path and path not in store.working.active_entities:
         store.working.active_entities[path] = f"accessed via {tool_name}"
@@ -315,11 +246,9 @@ def _auto_track_entity(
     if directory and directory not in store.working.active_entities:
         store.working.active_entities[directory] = f"explored via {tool_name}"
 
-
 def _auto_advance_plan(
     store: Any, tool_calls: list[dict[str, Any]],
 ) -> None:
-    """Heuristic: if tools were called, the current step is likely progressing."""
     if not tool_calls:
         return
 
@@ -337,14 +266,9 @@ def _auto_advance_plan(
                 )
                 break
 
-
 def _check_goal_drift(
     store: Any, messages: list[dict[str, Any]], turn: int,
 ) -> None:
-    """Check if the agent is drifting from its goal.
-
-    Soft reminder after 3+ turns without goal-related activity.
-    """
     goal = store.working.goal.lower()
     if not goal:
         return

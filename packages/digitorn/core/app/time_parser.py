@@ -1,29 +1,4 @@
-"""Deterministic time expression parser - no LLM, pure regex.
-
-Parses natural-language time expressions (FR + EN) into scheduling
-instructions for the SchedulerService.
-
-Supported forms::
-
-    "in 5m"              "in 5 minutes"        "dans 5 minutes"
-    "in 2h"              "in 2 hours"           "dans 2 heures"
-    "in 30s"             "in 30 seconds"        "dans 30 secondes"
-    "in 1d"              "in 1 day"             "dans 1 jour"
-    "in 1h30m"           "in 1 hour 30 minutes"
-
-    "tomorrow at 9am"    "demain à 9h"          "demain à 9h30"
-    "today at 14:30"     "aujourd'hui à 14h30"
-    "2026-03-14T09:00:00Z"  (ISO 8601 passthrough)
-
-    "every day at 9am"      "tous les jours à 9h"
-    "every monday at 10am"  "tous les lundis à 10h"
-    "every hour"            "toutes les heures"
-    "every 5 minutes"       "toutes les 5 minutes"
-    "0 9 * * *"             (raw cron passthrough)
-
-Returns a ``ParsedTime`` with schedule_type, run_at, cron_expr, and
-interval_seconds - ready to feed into ScheduledJob.
-"""
+"""Deterministic time expression parser - no LLM, pure regex."""
 
 from __future__ import annotations
 
@@ -77,15 +52,7 @@ class ParsedTime:
 
 
 def parse_time(expr: str, *, now: datetime | None = None) -> ParsedTime:
-    """Parse a time expression into a ParsedTime.
-
-    Args:
-        expr: Natural-language or structured time expression.
-        now: Override current time (for testing). Defaults to UTC now.
-
-    Returns:
-        ParsedTime with schedule_type and the relevant field filled.
-    """
+    """Parse a time expression into a ParsedTime."""
     if now is None:
         now = datetime.now(timezone.utc)
 
@@ -122,7 +89,6 @@ def parse_time(expr: str, *, now: datetime | None = None) -> ParsedTime:
 
 
 def _try_iso8601(expr: str) -> ParsedTime | None:
-    """Try to parse as ISO 8601 datetime."""
     try:
         dt = datetime.fromisoformat(expr)
         if dt.tzinfo is None:
@@ -135,7 +101,6 @@ def _try_iso8601(expr: str) -> ParsedTime | None:
 _CRON_FIELD_RE = re.compile(r'^[\d*,/\-]+$')
 
 def _try_raw_cron(expr: str) -> ParsedTime | None:
-    """Try to parse as raw 5-field cron expression."""
     fields = expr.split()
     if len(fields) != 5:
         return None
@@ -150,7 +115,6 @@ _RELATIVE_COMPOUND_RE = re.compile(
 )
 
 def _try_relative(lower: str, now: datetime) -> ParsedTime | None:
-    """Parse relative delay: 'in 5m', 'dans 30 minutes'."""
     for prefix in ("in ", "dans ", "after ", "après "):
         if lower.startswith(prefix):
             lower = lower[len(prefix):]
@@ -162,7 +126,6 @@ def _try_relative(lower: str, now: datetime) -> ParsedTime | None:
 
 
 def _parse_duration_to_once(text: str, now: datetime) -> ParsedTime | None:
-    """Parse a duration string into a 'once' ParsedTime."""
     total = timedelta()
     found = False
     for match in _RELATIVE_COMPOUND_RE.finditer(text):
@@ -195,7 +158,6 @@ _TIME_RE = re.compile(
 )
 
 def _parse_time_of_day(text: str) -> tuple[int, int] | None:
-    """Extract (hour, minute) from a time-of-day string."""
     m = _TIME_RE.search(text)
     if not m:
         return None
@@ -212,7 +174,6 @@ def _parse_time_of_day(text: str) -> tuple[int, int] | None:
 
 
 def _try_absolute(lower: str, now: datetime) -> ParsedTime | None:
-    """Parse absolute time: 'tomorrow at 9am', 'demain à 9h'."""
     base_day = None
     if "tomorrow" in lower or "demain" in lower:
         base_day = now + timedelta(days=1)
@@ -251,7 +212,6 @@ def _try_absolute(lower: str, now: datetime) -> ParsedTime | None:
 
 
 def _try_recurring(lower: str, now: datetime) -> ParsedTime | None:
-    """Parse recurring: 'every day at 9am', 'tous les jours à 9h', 'every 5 minutes'."""
     recurring_text = None
     for prefix in ("every ", "tous les ", "toutes les ", "chaque "):
         if lower.startswith(prefix):
@@ -305,7 +265,6 @@ def _try_recurring(lower: str, now: datetime) -> ParsedTime | None:
 
 
 def _try_recurring_interval(text: str) -> ParsedTime | None:
-    """Parse 'N minutes/hours' as an interval schedule."""
     m = re.match(r'(\d+)\s+([a-zéè]+)', text)
     if not m:
         return None

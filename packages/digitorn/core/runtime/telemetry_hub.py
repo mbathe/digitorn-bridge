@@ -1,28 +1,4 @@
-"""Background telemetry collector for the daemon.
-
-This module is the SINGLE-WRITER source of daemon-health metrics for
-the admin dashboard. It runs ONE background asyncio task at 1 Hz that
-samples psutil + in-memory state into a bounded deque. Admin endpoints
-READ from the deque (microseconds); they never compute.
-
-Isolation contract — never violated:
-
-* No top-level import from any hot-path module. All cross-module reads
-  happen via lazy ``try/import`` inside collector helpers; a failed
-  import degrades that single metric to ``0`` and is logged once.
-* psutil reads run through ``asyncio.to_thread`` — never on the loop.
-* Each metric collector is wrapped in ``try/except``; one bad metric
-  cannot kill the collection task.
-* The collection task has a 2 s wall-clock cap per tick; if it
-  exceeds, the tick is dropped and the next tick starts fresh.
-* Subscribers (WebSocket consumers) receive snapshots via per-consumer
-  ``asyncio.Queue`` with overflow drop-oldest. A slow consumer can
-  never back-pressure the collector.
-
-Wiring is OFF by default. ``install_telemetry(app)`` from the lifespan
-starts the task; ``shutdown_telemetry()`` from the lifespan stops it.
-The daemon runs identically with telemetry disabled.
-"""
+"""Background telemetry collector for the daemon."""
 from __future__ import annotations
 
 import asyncio
@@ -45,14 +21,7 @@ _SUBSCRIBER_QUEUE_SIZE = 16
 
 @dataclass
 class TelemetrySnapshot:
-    """One tick of daemon health. All fields are optional / zero-safe
-    so a partial collection still yields a valid snapshot.
-
-    ``cpu_percent`` / ``rss_mb`` / ... are MAIN-process numbers only.
-    ``workers[*]`` carries per-worker metrics. ``family_*`` carries the
-    sum of main + every worker so the UI can show 'total daemon load'
-    in one tile.
-    """
+    """One tick of daemon health. All fields are optional / zero-safe"""
 
     ts: float
     cpu_percent: float = 0.0
@@ -88,15 +57,7 @@ class TelemetryHub:
         self._lag_task: asyncio.Task[None] | None = None
         self._stopping = False
         self._reported_import_failures: set[str] = set()
-        # Cached psutil.Process — created once and reused. Critical for
-        # cpu_percent: psutil computes the percentage as the delta between
-        # consecutive calls on the SAME Process instance, so a fresh one
-        # each tick always reports 0.0.
         self._psutil_proc: Any | None = None
-        # Per-worker cache keyed by PID. Same delta-trick applies for
-        # cpu_percent on workers: we keep the Process object alive across
-        # ticks. Stale entries (worker died and got respawned with a new
-        # PID) are evicted on each gather.
         self._psutil_workers: dict[int, Any] = {}
 
     async def start(self) -> None:
@@ -153,12 +114,7 @@ class TelemetryHub:
         self._subscribers.discard(q)
 
     async def _lag_loop(self) -> None:
-        """Event-loop lag probe. Sleeps `_LAG_PROBE_INTERVAL_SECONDS`
-        then measures how much the actual sleep exceeded the requested
-        value. Anything > 50 ms is a real lag signal.
-
-        Cost: one wake-up per 100 ms. Negligible.
-        """
+        """Event-loop lag probe. Sleeps `_LAG_PROBE_INTERVAL_SECONDS`"""
         target = _LAG_PROBE_INTERVAL_SECONDS
         try:
             while not self._stopping:
@@ -200,10 +156,6 @@ class TelemetryHub:
             logger.exception("telemetry_collect_loop_died: %s", exc)
 
     async def _collect_one(self) -> TelemetrySnapshot:
-        # The workers list is computed FIRST so ``_gather_psutil`` can
-        # see the live PIDs and enrich each row with cpu_percent / rss_mb.
-        # All heavy psutil work goes through ``to_thread`` in a single
-        # batch so we cross the GIL boundary once per tick.
         workers = self._gather_workers()
         ps_data = await asyncio.to_thread(self._gather_psutil, workers)
         queues = self._gather_queue_depths()
@@ -212,9 +164,6 @@ class TelemetryHub:
             queues["approvals"] = approvals
         db_pool = self._gather_db_pool()
 
-        # Family totals = main + sum(workers). We count main even if a
-        # worker metric failed (per-row try/except), so the sum reflects
-        # what we COULD see.
         family_cpu = ps_data.get("cpu_percent", 0.0) + sum(
             float(w.get("cpu_percent", 0.0) or 0.0) for w in workers
         )
@@ -243,16 +192,7 @@ class TelemetryHub:
         )
 
     def _gather_psutil(self, workers: list[dict[str, Any]]) -> dict[str, Any]:
-        """Per-metric ``try/except`` so one psutil failure (eg. an
-        access-denied on num_fds) doesn't blank the whole row of
-        tiles. Specific errors surface in the COLLECT ERRORS panel
-        so we can see exactly which call broke.
-
-        ``workers`` is mutated in place — each row gets ``cpu_percent``
-        and ``rss_mb`` fields from its own ``psutil.Process(pid)``.
-        Stale cache entries (worker respawned with a new PID) are
-        evicted here.
-        """
+        """Per-metric `try/except` so one psutil failure (eg. an"""
         out: dict[str, Any] = {"errors": []}
         try:
             import psutil
@@ -299,13 +239,6 @@ class TelemetryHub:
         except Exception as exc:
             out["errors"].append(f"fds:{type(exc).__name__}:{exc}")
 
-        # Enrich each worker row with cpu / rss aggregated across the
-        # whole process tree (launcher + every descendant). On Windows
-        # the PID we track is a thin launcher shim (~1 MB) that spawns
-        # the real FastAPI worker as a child (50-200 MB); we must sum
-        # both to surface the true footprint. We cache ``psutil.Process``
-        # for every PID we touch so cpu_percent deltas are meaningful -
-        # a fresh Process every tick always reports 0%.
         live_pids: set[int] = set()
         for w in workers:
             pid = int(w.get("pid") or 0)
@@ -329,10 +262,6 @@ class TelemetryHub:
             try:
                 cpu_total += float(wp.cpu_percent(interval=None))
                 rss_total += int(wp.memory_info().rss)
-                # Walk the full descendant tree once per tick. The
-                # ``children(recursive=True)`` call is cheap on Windows
-                # (job-object enumeration) and matches what Task Manager
-                # shows under "Process tree" for the worker.
                 for child in wp.children(recursive=True):
                     cpid = child.pid
                     tree_pids.append(cpid)
@@ -350,9 +279,6 @@ class TelemetryHub:
                     except (psutil.NoSuchProcess, psutil.AccessDenied):
                         self._psutil_workers.pop(cpid, None)
             except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
-                # Launcher itself died between gather_workers() and now.
-                # Drop ALL cache entries for this tree so the next tick
-                # re-discovers the respawn.
                 for tp in tree_pids:
                     self._psutil_workers.pop(tp, None)
                 out["errors"].append(
@@ -379,10 +305,7 @@ class TelemetryHub:
         return out
 
     def _gather_queue_depths(self) -> dict[str, int]:
-        """Cheap module-level queue probes. Per-app queues (approvals,
-        agent counts) are aggregated separately in
-        ``_gather_session_aggregates`` which walks ``app_manager._deployed``.
-        """
+        """Cheap module-level queue probes. Per-app queues (approvals,"""
         out: dict[str, int] = {}
         try:
             from digitorn.core.runtime.run_tracker import worker as _wkr
@@ -400,10 +323,6 @@ class TelemetryHub:
             lifecycle = getattr(self._app.state, "worker_lifecycle", None)
             if lifecycle is None:
                 return []
-            # Canonical attribute is ``_running: dict[str, _RunningWorker]``.
-            # Each ``_RunningWorker`` wraps a ``proc`` (subprocess.Popen)
-            # and a ``cfg`` (WorkerConfig). The subprocess is alive while
-            # ``proc.returncode is None``.
             running = getattr(lifecycle, "_running", None) or {}
             out: list[dict[str, Any]] = []
             for wid, rw in running.items():
@@ -424,13 +343,7 @@ class TelemetryHub:
         return []
 
     def _gather_session_aggregates(self) -> tuple[int, int, int | None]:
-        """Sessions / running agents / pending approvals — all reads
-        against ``app.state.app_manager._deployed`` which is the
-        canonical map of live apps. Returns ``(sessions, agents,
-        approvals_or_None)`` where ``approvals=None`` means we couldn't
-        compute it (app_manager not yet ready) so the caller can omit
-        the key rather than report a misleading zero.
-        """
+        """Sessions / running agents / pending approvals - all reads"""
         sessions = 0
         try:
             from digitorn.core.runtime.session_store.bridge import (
@@ -473,8 +386,8 @@ class TelemetryHub:
                     saw_any_approval_q = True
                     try:
                         approvals_total += len(pending)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("telemetry_hub best-effort block failed: %s", exc)
                 # Agents: each app has a Modules registry that may
                 # include the agent_spawn module instance.
                 modules = getattr(app, "modules", None) or {}

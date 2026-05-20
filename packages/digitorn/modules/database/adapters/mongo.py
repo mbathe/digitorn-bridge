@@ -1,29 +1,4 @@
-"""MongoDB async adapter - maps collections/documents to the DatabaseAdapter protocol.
-
-Uses ``motor`` (async MongoDB driver). Collections map to "tables", document
-fields (inferred by sampling) map to "columns".
-
-Query format for execute/fetch:
-    JSON string parsed into MongoDB operations::
-
-        {"collection": "users", "filter": {"age": {"$gt": 25}}}
-        {"collection": "users", "filter": {}, "projection": {"name": 1}, "sort": {"age": -1}}
-
-        {"collection": "users", "operation": "insert_one", "document": {"name": "Alice"}}
-        {"collection": "users", "operation": "insert_many", "documents": [{...}, {...}]}
-
-        {"collection": "users", "operation": "update_one",
-         "filter": {"name": "Alice"}, "update": {"$set": {"age": 31}}}
-        {"collection": "users", "operation": "update_many",
-         "filter": {"active": false}, "update": {"$set": {"archived": true}}}
-
-        {"collection": "users", "operation": "delete_one", "filter": {"name": "Alice"}}
-        {"collection": "users", "operation": "delete_many", "filter": {"archived": true}}
-
-        {"operation": "create_collection", "collection": "new_coll"}
-
-        {"operation": "drop_collection", "collection": "old_coll"}
-"""
+"""MongoDB async adapter - maps collections/documents to the DatabaseAdapter protocol."""
 
 from __future__ import annotations
 
@@ -52,19 +27,14 @@ logger = structlog.get_logger(__name__)
 
 _SCHEMA_SAMPLE_SIZE = 100
 
-
 class MongoAdapter:
-    """Async MongoDB adapter backed by motor.
-
-    Supports MongoDB 4.0+ (transactions require replica set).
-    """
+    """Async MongoDB adapter backed by motor."""
 
     def __init__(self) -> None:
         self._client: Any = None
         self._db: Any = None
         self._session: Any = None
         self._db_name: str = ""
-
 
     @property
     def connected(self) -> bool:
@@ -73,7 +43,6 @@ class MongoAdapter:
     @property
     def driver_name(self) -> str:
         return "mongodb"
-
 
     async def connect(self, url: str, **options: Any) -> None:
         try:
@@ -114,7 +83,6 @@ class MongoAdapter:
             self._client.close()
             self._client = None
             self._db = None
-
 
     async def execute(
         self, query: str, params: list[Any] | None = None,
@@ -201,7 +169,6 @@ class MongoAdapter:
         columns = sorted(columns_set)
         return FetchResult(columns=columns, rows=rows, total_count=len(rows))
 
-
     async def introspect(self, schema: str | None = None) -> SchemaInfo:
         self._assert_connected()
         tables = await self.list_tables(schema)
@@ -264,7 +231,6 @@ class MongoAdapter:
         columns = sorted(columns_set)
         return FetchResult(columns=columns, rows=rows, total_count=len(rows))
 
-
     async def begin(self) -> None:
         self._assert_connected()
         if self._session:
@@ -285,7 +251,6 @@ class MongoAdapter:
         await self._session.abort_transaction()
         await self._session.end_session()
         self._session = None
-
 
     async def explain(
         self, query: str, params: list[Any] | None = None, analyze: bool = False,
@@ -309,7 +274,6 @@ class MongoAdapter:
             return True
         except Exception:
             return False
-
 
     async def list_items(
         self, patterns: list[str] | None = None,
@@ -349,13 +313,11 @@ class MongoAdapter:
                 checksums.append(ItemChecksum(id=item_id, hash=""))
         return checksums
 
-
     def _assert_connected(self) -> None:
         if not self._client:
             raise RuntimeError("Not connected. Call connect() first.")
 
     async def _infer_columns(self, collection_name: str) -> list[ColumnInfo]:
-        """Infer document schema by sampling documents."""
         coll = self._db[collection_name]
         field_types: dict[str, Counter] = {}
         field_count: Counter = Counter()
@@ -390,7 +352,6 @@ class MongoAdapter:
         return columns
 
     async def _get_indexes(self, collection_name: str) -> list[IndexInfo]:
-        """Get indexes for a collection."""
         coll = self._db[collection_name]
         indexes = []
         async for idx in coll.list_indexes():
@@ -406,9 +367,7 @@ class MongoAdapter:
             ))
         return indexes
 
-
 def _mongo_type(value: Any) -> str:
-    """Map Python/BSON types to human-readable type strings."""
     if value is None:
         return "null"
     type_map = {
@@ -434,9 +393,7 @@ def _mongo_type(value: Any) -> str:
     }
     return bson_map.get(type_name, type_name)
 
-
 def _serialize_doc(doc: dict[str, Any]) -> dict[str, Any]:
-    """Serialize a MongoDB document to JSON-safe dict."""
     result = {}
     for key, value in doc.items():
         if hasattr(value, "__str__") and type(value).__name__ == "ObjectId":
@@ -456,9 +413,7 @@ def _serialize_doc(doc: dict[str, Any]) -> dict[str, Any]:
             result[key] = value
     return result
 
-
 def _substitute_params(obj: Any, params: list[Any] | None) -> Any:
-    """Replace :p0, :p1, ... placeholders in a MongoDB query object."""
     if not params:
         return obj
     if isinstance(obj, str):
@@ -475,9 +430,7 @@ def _substitute_params(obj: Any, params: list[Any] | None) -> Any:
         return [_substitute_params(item, params) for item in obj]
     return obj
 
-
 def _sanitize_mongo_url(url: str) -> str:
-    """Remove password from MongoDB URL for logging."""
     if "@" in url and ":" in url.split("@")[0]:
         parts = url.split("@")
         creds = parts[0]

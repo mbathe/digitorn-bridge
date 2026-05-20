@@ -1,32 +1,4 @@
-"""KV backend for the local mode (one dbm file per session, stdlib only).
-
-Each session gets its own ``runs.kv`` under
-``<root>/<app_id>/<external_sid>/``. Two parallel sessions write to
-two separate dbm files - no shared lock, true OS-level parallelism.
-``run:<run_id>`` and ``events:<run_id>`` keys live INSIDE one
-session's file; cross-session lookups go through the
-``PerSessionRouter``.
-
-Why this layout (vs the previous one-big-file approach):
-
-  * Bounded size: a session's file is bounded by its own activity,
-    not by the daemon's lifetime history.
-  * Real parallelism: dbm holds a per-file fcntl lock; with one
-    file per session, every session is independent.
-  * Operationally simple: deleting a session's data is one
-    ``rm -rf <session_dir>``.
-
-Stdlib only: dbm ships with Python on every platform. On Windows
-that means dbm.dumb (slow but works); on Linux usually dbm.gdbm.
-For higher throughput, swap to the ``sqlite`` backend - same
-per-session layout, faster engine.
-
-Concurrency: the worker is single-consumer per process. Each
-backend method opens the dbm file for the call and closes after.
-That's a tradeoff: per-call open is ~50us-1ms but it lets a
-crashing call leave a recoverable file (no half-flushed writes
-hiding behind a long-lived handle).
-"""
+"""KV backend for the local mode (one dbm file per session, stdlib only)."""
 
 from __future__ import annotations
 
@@ -47,7 +19,7 @@ _DB_FILENAME = "runs.kv"
 
 
 class KVBackend:
-    """Per-session dbm store. One ``runs.kv`` per session."""
+    """Per-session dbm store. One `runs.kv` per session."""
 
     def __init__(self, path: str | None = None, **_: Any) -> None:
         self._root = (
@@ -56,7 +28,6 @@ class KVBackend:
         )
         self._router = PerSessionRouter(self._root)
 
-    # ── lifecycle ────────────────────────────────────────────────
 
     async def setup(self) -> None:
         await self._router.setup()
@@ -64,7 +35,6 @@ class KVBackend:
     async def teardown(self) -> None:
         await self._router.teardown()
 
-    # ── helpers ──────────────────────────────────────────────────
 
     @staticmethod
     def _run_key(run_id: str) -> bytes:
@@ -90,7 +60,6 @@ class KVBackend:
         d = self._router.session_dir_for_lookup(run_id)
         return None if d is None else (d / _DB_FILENAME)
 
-    # ── writes (offloaded to a thread; dbm I/O is sync) ─────────
 
     async def start_run(
         self,

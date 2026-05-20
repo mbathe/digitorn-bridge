@@ -1,16 +1,10 @@
-"""Core types for the context_builder module.
-
-All data structures are plain dataclasses - no ORM, no Pydantic,
-no runtime overhead.  Everything is built once at bootstrap and
-read-only at execution time.
-"""
+"""Core types for the context_builder module."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
-
 
 class Decision(str, Enum):
     """Action execution policy for a tool."""
@@ -19,14 +13,9 @@ class Decision(str, Enum):
     APPROVE = "approve"
     BLOCK = "block"
 
-
 @dataclass(frozen=True, slots=True)
 class IndexedTool:
-    """A single tool entry in the index.
-
-    Pre-resolved at bootstrap: the ``module`` ref is a live instance,
-    ``policy_decision`` is already computed.  Zero lookups at runtime.
-    """
+    """A single tool entry in the index."""
 
     fqn: str
     module_id: str
@@ -44,7 +33,6 @@ class IndexedTool:
     tool_prompt: str = ""
     output_schema: dict[str, Any] | None = None
 
-
 @dataclass(frozen=True, slots=True)
 class CategoryInfo:
     """Summary of a module's visible tools."""
@@ -53,7 +41,6 @@ class CategoryInfo:
     summary: str
     tool_count: int
     tool_names: list[str]
-
 
 @dataclass(frozen=True, slots=True)
 class ScoredTool:
@@ -66,13 +53,9 @@ class ScoredTool:
     relevance: float
     tags: list[str] = field(default_factory=list)
 
-
 @dataclass
 class ToolIndex:
-    """Pre-computed inverted index over all visible tools.
-
-    Built once at bootstrap.  All lookups are O(1) dict access.
-    """
+    """Pre-computed inverted index over all visible tools."""
 
     tools: dict[str, IndexedTool] = field(default_factory=dict)
 

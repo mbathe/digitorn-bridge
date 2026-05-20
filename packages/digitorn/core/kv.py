@@ -1,30 +1,4 @@
-"""Key-value backend abstraction for sessions, rate limiting, and caches.
-
-Provides a unified interface with two implementations:
-    - ``DiskCacheBackend``: SQLite-backed, zero-config, single-host (default)
-    - ``RedisBackend``: Network-shared, multi-host production deployments
-
-Usage::
-
-    # Auto-detect from URL
-    backend = create_backend("redis://localhost:6379/0")
-    backend = create_backend("/path/to/dir")    # DiskCache
-    backend = create_backend(None)              # DiskCache default dir
-
-    # Direct
-    backend = DiskCacheBackend("/tmp/cache")
-    backend = RedisBackend("redis://localhost:6379/0")
-
-Both backends support:
-    - get/set/delete with optional TTL
-    - Atomic increment (for rate limiting)
-    - Transactional get-modify-set (for secondary indexes)
-
-Security:
-    - Redis backend uses JSON serialization (no pickle, no deserialization RCE)
-    - Dataclass reconstruction is whitelisted to internal types only
-    - Unknown ``__dataclass__`` types degrade to plain dicts (safe fallback)
-"""
+"""Key-value backend abstraction for sessions, rate limiting, and caches."""
 
 from __future__ import annotations
 
@@ -40,41 +14,25 @@ logger = logging.getLogger(__name__)
 class KeyValueBackend(Protocol):
     """Minimal key-value store interface."""
 
-    def get(self, key: str, default: Any = None) -> Any:
-        """Get a value by key. Returns default if missing/expired."""
-        ...
+    def get(self, key: str, default: Any = None) -> Any: ...
 
-    def set(self, key: str, value: Any, expire: float | None = None) -> None:
-        """Set a value with optional TTL in seconds."""
-        ...
+    def set(self, key: str, value: Any, expire: float | None = None) -> None: ...
 
-    def delete(self, key: str) -> bool:
-        """Delete a key. Returns True if it existed."""
-        ...
+    def delete(self, key: str) -> bool: ...
 
-    def incr(self, key: str, expire: float | None = None) -> int:
-        """Atomically increment a counter. Creates it at 1 if missing.
+    def incr(self, key: str, expire: float | None = None) -> int: ...
 
-        Returns the new value after increment.
-        """
-        ...
-
-    def close(self) -> None:
-        """Release resources."""
-        ...
+    def close(self) -> None: ...
 
 
 
 class DiskCacheBackend:
-    """SQLite-backed key-value store via DiskCache.
-
-    Cross-process safe on a single host. Zero external dependencies.
-    """
+    """SQLite-backed key-value store via DiskCache."""
 
     def __init__(
         self,
         directory: str | Path | None = None,
-        size_limit: int = 2**30,  # 1 GB
+        size_limit: int = 2**30,
     ) -> None:
         import diskcache
 
@@ -96,10 +54,7 @@ class DiskCacheBackend:
         return self._cache.pop(key) is not None
 
     def incr(self, key: str, expire: float | None = None) -> int:
-        # Atomic increment: transact() acquires an exclusive SQLite lock,
-        # so concurrent workers see serialized read-modify-write.  This
-        # ensures the rate limiter's incr-then-check pattern is free of
-        # TOCTOU races even under multi-worker deployments.
+        # transact() takes an exclusive SQLite lock => TOCTOU-safe
         with self._cache.transact():
             val = self._cache.get(key, 0) + 1
             self._cache.set(key, val, expire=expire)
@@ -110,7 +65,6 @@ class DiskCacheBackend:
 
     @property
     def volume(self) -> int:
-        """Disk usage in bytes."""
         return self._cache.volume()
 
     def __len__(self) -> int:
@@ -119,21 +73,13 @@ class DiskCacheBackend:
 
 
 class RedisBackend:
-    """Redis-backed key-value store for multi-host deployments.
-
-    Requires the ``redis`` package: ``pip install redis``.
-
-    Serialization uses JSON with type-aware encoding for Python objects
-    (dataclasses, sets, bytes, etc.).  No pickle - zero deserialization
-    attack surface even if Redis is compromised.
-    """
+    """Redis-backed key-value store for multi-host deployments."""
 
     def __init__(self, url: str = "redis://localhost:6379/0") -> None:
         import redis
 
         self._redis = redis.Redis.from_url(url, decode_responses=False)
         self._url = url
-        # Verify connection
         self._redis.ping()
         logger.info("redis_backend_connected: %s", self._mask_url(url))
 
@@ -154,18 +100,14 @@ class RedisBackend:
         return self._redis.delete(key) > 0
 
     def incr(self, key: str, expire: float | None = None) -> int:
-        # Redis INCR is natively atomic (single-threaded event loop),
-        # so the rate limiter's incr-then-check is TOCTOU-safe.
+        # Redis INCR is natively atomic
         val = self._redis.incr(key)
         if expire is not None and val == 1:
-            # Set TTL only on first creation
             self._redis.expire(key, int(expire))
         return val
 
     def close(self) -> None:
         self._redis.close()
-
-    # ── JSON serialization (replaces pickle - no deserialization RCE) ──
 
     @staticmethod
     def _serialize(value: Any) -> bytes:
@@ -187,13 +129,11 @@ class RedisBackend:
 
         return json.dumps(value, default=_encode, ensure_ascii=False).encode("utf-8")
 
-    # Dataclass types we allow to reconstruct from JSON.
-    # ONLY types from our own codebase - never arbitrary classes.
+    # ONLY codebase-internal types; never arbitrary classes
     _SAFE_DATACLASS_TYPES: dict[str, type] | None = None
 
     @classmethod
     def _get_safe_types(cls) -> dict[str, type]:
-        """Lazy-load the whitelist of reconstructable dataclass types."""
         if cls._SAFE_DATACLASS_TYPES is None:
             cls._SAFE_DATACLASS_TYPES = {}
             try:
@@ -220,7 +160,7 @@ class RedisBackend:
                 cls = safe.get(fqn)
                 if cls is None:
                     logger.warning("redis_blocked_dataclass: %s", fqn)
-                    return obj["__fields__"]  # Degrade to plain dict, no RCE
+                    return obj["__fields__"]
                 return cls(**obj["__fields__"])
             return obj
 
@@ -228,7 +168,6 @@ class RedisBackend:
 
     @staticmethod
     def _mask_url(url: str) -> str:
-        """Mask password in Redis URL for logging."""
         if "@" in url and ":" in url.split("@")[0]:
             parts = url.split("@")
             creds = parts[0]
@@ -238,12 +177,7 @@ class RedisBackend:
 
 
 class ResilientRedisBackend:
-    """Redis backend with automatic DiskCache fallback on failure.
-
-    Implements a simple circuit breaker: after ``failure_threshold``
-    consecutive errors, switches to DiskCache for ``recovery_timeout``
-    seconds before retrying Redis.
-    """
+    """Redis backend with automatic DiskCache fallback on failure."""
 
     def __init__(
         self,
@@ -276,7 +210,6 @@ class ResilientRedisBackend:
         if self._failures < self._failure_threshold:
             return False
         if self._time.time() >= self._circuit_open_until:
-            # Half-open: allow one attempt
             return False
         return True
 
@@ -316,7 +249,6 @@ class ResilientRedisBackend:
             return self._fallback.get(key, default)
 
     def set(self, key: str, value: Any, expire: float | None = None) -> None:
-        # Always write to fallback for durability during outage
         if self._is_circuit_open or not self._redis_available:
             self._fallback.set(key, value, expire=expire)
             return
@@ -358,15 +290,8 @@ class ResilientRedisBackend:
         self._fallback.close()
 
 
-# ── Async wrappers ──────────────────────────────────────────────────
-
-
 class AsyncKeyValueBackend:
-    """Async wrapper around any sync KeyValueBackend.
-
-    Runs all operations in a thread pool so they never block the event loop.
-    Use this with DiskCache or the sync RedisBackend.
-    """
+    """Async wrapper around any sync KeyValueBackend."""
 
     def __init__(self, backend: KeyValueBackend) -> None:
         self._backend = backend
@@ -391,25 +316,17 @@ class AsyncKeyValueBackend:
         import asyncio
         await asyncio.to_thread(self._backend.close)
 
-    # Sync access for backward compatibility (rate limiter, etc.)
     @property
     def sync(self) -> KeyValueBackend:
         return self._backend
 
 
 class NativeAsyncRedisBackend:
-    """True async Redis backend using redis.asyncio.
-
-    Zero thread overhead - all I/O is native asyncio.
-    Requires: pip install redis[async] (redis >= 4.2).
-
-    This is the production backend for multi-worker deployments.
-    Uses the same JSON serialization as RedisBackend (no pickle).
-    """
+    """True async Redis backend using redis.asyncio."""
 
     def __init__(self, url: str = "redis://localhost:6379/0") -> None:
         self._url = url
-        self._redis: Any = None  # Lazy init (needs event loop)
+        self._redis: Any = None
 
     async def _ensure_connected(self) -> Any:
         if self._redis is None:
@@ -460,14 +377,10 @@ class NativeAsyncRedisBackend:
 
     @property
     def sync(self) -> KeyValueBackend:
-        """Not available for native async - raises if called."""
         raise RuntimeError(
             "NativeAsyncRedisBackend has no sync interface. "
             "Use AsyncKeyValueBackend(RedisBackend(...)) if you need sync access."
         )
-
-
-# ── Factories ───────────────────────────────────────────────────────
 
 
 def create_async_backend(
@@ -477,26 +390,14 @@ def create_async_backend(
     size_limit: int = 2**30,
     native_async: bool = True,
 ) -> AsyncKeyValueBackend | NativeAsyncRedisBackend:
-    """Create an async backend.
-
-    For Redis URLs with native_async=True, returns a NativeAsyncRedisBackend
-    (zero thread overhead). Otherwise wraps the sync backend in AsyncKeyValueBackend.
-
-    Args:
-        url: Redis URL or filesystem path.
-        native_async: If True, use redis.asyncio for Redis URLs.
-    """
+    """Create an async backend."""
     url_str = str(url) if url is not None else None
 
     if url_str and url_str.startswith(("redis://", "rediss://")) and native_async:
         return NativeAsyncRedisBackend(url_str)
 
-    # Wrap sync backend in async wrapper
     sync_backend = create_backend(url, directory=directory, size_limit=size_limit)
     return AsyncKeyValueBackend(sync_backend)
-
-
-# Factory (sync - backward compatible)
 
 
 def create_backend(
@@ -505,29 +406,11 @@ def create_backend(
     directory: str | Path | None = None,
     size_limit: int = 2**30,
 ) -> KeyValueBackend:
-    """Create a backend from a URL or directory path.
-
-    Args:
-        url: Redis URL (``redis://...``) or filesystem path for DiskCache.
-             If None, uses DiskCache with ``directory`` or default path.
-        directory: Explicit directory for DiskCache (ignored if url is Redis).
-        size_limit: DiskCache size limit in bytes.
-
-    Returns:
-        A ``KeyValueBackend`` instance.
-
-    Examples::
-
-        create_backend()                                # DiskCache, default dir
-        create_backend("/tmp/my-cache")                 # DiskCache, custom dir
-        create_backend("redis://localhost:6379/0")      # Redis
-        create_backend("redis://:password@host:6379/1") # Redis with auth
-    """
+    """Create a backend from a URL or directory path."""
     url_str = str(url) if url is not None else None
 
     if url_str and url_str.startswith(("redis://", "rediss://")):
         return ResilientRedisBackend(url_str)
 
-    # DiskCache: url is treated as directory path, or use explicit directory
     disk_dir = url_str or directory
     return DiskCacheBackend(directory=disk_dir, size_limit=size_limit)

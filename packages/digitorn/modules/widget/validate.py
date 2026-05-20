@@ -1,29 +1,9 @@
-"""Server-side re-validation of submitted form values.
-
-The Flutter client validates form inputs locally (`required`,
-`regex`, `min`, `max`, `type_hint`) before letting the user submit.
-But a malicious or buggy client can bypass that, so the daemon
-re-runs the same checks against the values it receives in
-``POST /widgets/action body.form``.
-
-This module:
-
-1. Walks the app's compiled widgets tree to find every form input
-   node by ``name`` (across chat_side / workspace_tabs / modals /
-   inline)
-2. Builds a ``{name: rules}`` map of validation rules
-3. Runs the rules against the submitted form values
-4. Returns ``(ok, errors)`` - caller surfaces a 400 with the errors
-
-The validation rules per primitive type are taken from the spec
-(§5.4 Input).
-"""
+"""Server-side re-validation of submitted form values."""
 
 from __future__ import annotations
 
 import re
 from typing import Any
-
 
 _INPUT_PRIMITIVES = {
     "text_input", "textarea", "select", "multi_select",
@@ -31,9 +11,7 @@ _INPUT_PRIMITIVES = {
     "date", "time", "datetime", "file_upload", "code_editor",
 }
 
-
 def _walk_inputs(node: Any, out: dict[str, dict[str, Any]]) -> None:
-    """Collect every input node by name from a widget tree."""
     if node is None:
         return
     if isinstance(node, list):
@@ -63,7 +41,6 @@ def _walk_inputs(node: Any, out: dict[str, dict[str, Any]]) -> None:
         if child is not None:
             _walk_inputs(child, out)
 
-
 def collect_form_inputs(widgets_cfg: Any) -> dict[str, dict[str, Any]]:
     """Walk every widget zone and return a {input_name: spec} map."""
     out: dict[str, dict[str, Any]] = {}
@@ -80,18 +57,11 @@ def collect_form_inputs(widgets_cfg: Any) -> dict[str, dict[str, Any]]:
         _walk_inputs(inline.tree, out)
     return out
 
-
 def validate_form_values(
     inputs: dict[str, dict[str, Any]],
     values: dict[str, Any],
 ) -> tuple[bool, dict[str, str]]:
-    """Re-run client-side validation rules against submitted values.
-
-    Returns ``(ok, errors)`` where ``errors`` is ``{field_name: msg}``.
-    Unknown fields (not declared in any input) are ignored - they're
-    typically passed through from form scope but not bound to a
-    declared widget.
-    """
+    """Re-run client-side validation rules against submitted values."""
     errors: dict[str, str] = {}
 
     for name, spec in inputs.items():

@@ -1,18 +1,4 @@
-"""Digitorn - Application YAML compiler and bootstrapper.
-
-Translates declarative app YAML definitions into validated action sequences
-and runtime constraints, then executes them against live modules.
-
-Usage::
-
-    from digitorn.core.app import AppYAMLCompiler, AppBootstrapper
-
-    compiler = AppYAMLCompiler(registry)
-    compiled = compiler.compile_file(Path("my-app.yaml"))
-
-    bootstrapper = AppBootstrapper(registry, service_bus)
-    result = await bootstrapper.bootstrap(compiled)
-"""
+"""Digitorn - Application YAML compiler and bootstrapper."""
 
 from digitorn.core.app.bootstrapper import AppBootstrapper, BootstrapResult
 from digitorn.core.app.compiler import AppYAMLCompiler, CompiledApp

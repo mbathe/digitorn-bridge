@@ -1,10 +1,4 @@
-"""Database sync strategies - detect row-level changes without Kafka.
-
-Three pure-SQL strategies:
-- updated_at: poll WHERE updated_at > watermark
-- changelog: auto-created triggers + changelog table
-- notify: PostgreSQL LISTEN/NOTIFY (optimization over updated_at)
-"""
+"""Database sync strategies - detect row-level changes without Kafka."""
 
 from __future__ import annotations
 
@@ -16,7 +10,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass(slots=True)
 class ChangeRecord:
     table: str
@@ -24,7 +17,6 @@ class ChangeRecord:
     operation: str  # INSERT | UPDATE | DELETE
     timestamp: float = 0.0
     data: dict[str, Any] = field(default_factory=dict)
-
 
 class SyncStrategy(ABC):
     @abstractmethod
@@ -46,7 +38,6 @@ class SyncStrategy(ABC):
         wm = data.get("watermark")
         if wm is not None:
             self.set_watermark(wm)
-
 
 class UpdatedAtSync(SyncStrategy):
     """Poll rows where updated_at > last watermark."""
@@ -99,7 +90,6 @@ class UpdatedAtSync(SyncStrategy):
 
     def set_watermark(self, value: Any) -> None:
         self._watermark = str(value)
-
 
 class ChangelogSync(SyncStrategy):
     """Poll a _rag_changelog table populated by auto-created triggers."""
@@ -197,8 +187,8 @@ class ChangelogSync(SyncStrategy):
             await bus.call("database", "execute_query", {
                 "connection_id": connection_id, "query": query,
             })
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("sync best-effort block failed: %s", exc)
 
     def get_watermark(self) -> Any:
         return self._last_seq
@@ -206,12 +196,8 @@ class ChangelogSync(SyncStrategy):
     def set_watermark(self, value: Any) -> None:
         self._last_seq = int(value)
 
-
 class NotifySync(SyncStrategy):
-    """PostgreSQL LISTEN/NOTIFY - wakes the poller immediately.
-
-    Falls back to updated_at between notifications for reliability.
-    """
+    """PostgreSQL LISTEN/NOTIFY - wakes the poller immediately."""
 
     def __init__(self) -> None:
         self._inner = UpdatedAtSync()
@@ -237,7 +223,6 @@ class NotifySync(SyncStrategy):
 
     def set_watermark(self, value: Any) -> None:
         self._inner.set_watermark(value)
-
 
 def create_sync(strategy: str) -> SyncStrategy:
     if strategy == "changelog":

@@ -1,8 +1,4 @@
-"""digitorn doctor - system health and prerequisites checker.
-
-Verifies that all required tools and dependencies are available
-for running MCP servers and the daemon itself.
-"""
+"""digitorn doctor - system health and prerequisites checker."""
 
 from __future__ import annotations
 

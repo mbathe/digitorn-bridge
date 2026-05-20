@@ -1,23 +1,4 @@
-"""SessionState: the in-memory canonical state for one chat session.
-
-Holds:
-  * ``events`` -- the FULL append-only journal (every event, including
-    every streaming chunk -- token, thinking_delta, heartbeat, hook,
-    tool_call_streaming, ...). This is the authoritative log.
-  * Live projections (messages, tool_calls, todos, ...) -- cached
-    views the agent loop reads in O(1). Anyone can rebuild them by
-    replaying ``events`` from seq=0; if a projection ever diverges
-    from the journal, the journal wins.
-  * Cache management metadata (last_accessed_at, bytes_estimate,
-    pinned, closed).
-
-Thread-safety: mutations happen on the daemon's main asyncio loop or
-the persist worker thread. The internal list/dict ops are GIL-atomic
-in CPython, so a single-writer-per-session contract is sufficient and
-no per-state lock is needed for the canonical structures. The
-``InMemorySessionStore`` enforces single-writer-per-session at append
-time.
-"""
+"""SessionState: the in-memory canonical state for one chat session."""
 
 from __future__ import annotations
 
@@ -62,13 +43,6 @@ class SessionState:
     pending_approvals: dict[str, ApprovalRequest] = field(default_factory=dict)
     todos: list[Todo] = field(default_factory=list)
     memory_facts: dict[str, str] = field(default_factory=dict)
-    # Working-memory and semantic-memory state driven by the
-    # ``memory_*`` event family. ``goal`` is the agent's current
-    # top-level objective set via ``memory_goal_set``;
-    # ``semantic_facts`` is the per-session log of facts emitted via
-    # ``memory_fact_added`` / removed via ``memory_fact_forgotten``.
-    # Both feed ``_state_to_conv_session`` so MemoryStore restores the
-    # exact working state at session resume without replay-from-scratch.
     goal: str = ""
     semantic_facts: list[dict[str, Any]] = field(default_factory=list)
     workspace_files: dict[str, FileState] = field(default_factory=dict)
@@ -81,70 +55,25 @@ class SessionState:
     ended_at: str | None = None
     closed: bool = False
 
-    # Chat-level metadata absorbed from the legacy ConversationSession
-    # so the new SessionStore is the SINGLE source of truth (Phase 1
-    # of the SessionStore-unification refactor).
-    #
-    # ``title``         : derived projection from the first user_message
-    #                     (~80 char prefix) -- powers the sidebar list.
-    # ``turn_count``    : incremented on every ``assistant_message`` event.
-    # ``workspace``     : daemon-private per-session dir under
-    #                     ``~/.digitorn/workspaces/{app}/{sid}/``. Where
-    #                     state.json + baselines + hidden ``__sdk__/``
-    #                     live. Stamped at session create.
-    # ``workdir``       : the agent's working directory. Defaults to
-    #                     ``workspace`` when the app's ``runtime.workdir_mode``
-    #                     is ``none`` (the typical case). When the app
-    #                     declares ``required``, ``workdir`` is the
-    #                     user-provided path passed at session create.
-    # ``interrupted``   : True when the session ended via abort instead
-    #                     of natural turn completion -- enables smart
-    #                     resume (synthesized "interrupted" tool_results
-    #                     fill the orphan tool_call gaps).
-    # ``interrupted_at``: ISO timestamp of the most recent abort.
     title: str = ""
     turn_count: int = 0
     workspace: str = ""
     workdir: str = ""
     interrupted: bool = False
     interrupted_at: str | None = None
-    # Active composer mode id ("" / None = no mode in effect).
-    # Read on every POST /messages: when the client-supplied
-    # ``body.mode`` differs from this stored value, the dispatcher
-    # treats it as a mode switch and injects a fresh ``system_message``
-    # describing the new mode's directive + allowed / blocked tools
-    # before the LLM call. Surviving across restarts is important so
-    # the cold-load path doesn't re-inject the directive on every
-    # resume of an already-active mode.
     active_mode_id: str | None = None
 
     pinned: bool = False
     last_accessed_at: float = field(default_factory=time.monotonic)
-    # Phase 6: separate idle-clock for the bg snapshot worker. Only
-    # ``append_event`` advances this; reads (open/get) do NOT. Avoids a
-    # busy-read pattern from keeping the session permanently "active"
-    # in the eyes of the snapshot worker.
     last_event_at: float = field(default_factory=time.monotonic)
     bytes_estimate: int = 0
 
-    # Latest compaction applied to this session, or None if no
-    # compaction has run yet. When set: state.events / state.messages
-    # are bounded post-cutoff, the small projections (todos, memory,
-    # workspace, ...) are loaded from snapshot.json and kept full.
     applied_compaction: Compaction | None = None
 
     cost_total: float = 0.0
     tokens_in: int = 0
     tokens_out: int = 0
 
-    # Crash-recovery buffer for in-flight assistant streams.
-    # Keyed by the agent-loop's assistant message ``seq`` (the slot
-    # number in the agent's working messages list, NOT the SessionStore
-    # event seq). Values are the latest streamed-so-far text. Cleared
-    # by the ``assistant_message`` projection when the turn's final
-    # ``save_messages`` lands. If the daemon crashes mid-stream, the
-    # cold-load path can read these to reconstruct partial assistant
-    # text the user already saw on the wire.
     streaming_partials: dict[int, str] = field(default_factory=dict)
 
     def event_count(self) -> int:
@@ -154,8 +83,7 @@ class SessionState:
         self.last_accessed_at = time.monotonic()
 
     def summary(self) -> dict[str, object]:
-        """Summary line for the session index. Stable, JSON-friendly,
-        ~150 bytes typical."""
+        """Summary line for the session index. Stable, JSON-friendly,"""
         return {
             "session_id": self.session_id,
             "app_id": self.app_id,

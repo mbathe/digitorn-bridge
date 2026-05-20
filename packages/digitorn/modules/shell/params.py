@@ -1,13 +1,4 @@
-"""Shell module - one ultra-powerful bash action.
-
-Ultra-powerful bash tool that handles:
-  - Sync execution: normal commands (wait for result)
-  - Async execution: long-running commands (return task_id immediately)
-  - Status checking: check running task status
-  - Task management: kill running tasks
-
-Design: Single tool, multiple modes (determined by params).
-"""
+"""Shell module - one bash action."""
 
 from __future__ import annotations
 
@@ -15,16 +6,8 @@ from pydantic import BaseModel, Field
 
 _HIDDEN = {"hidden": True}
 
-
 class BashParams(BaseModel):
-    """Execute a shell command (sync or async).
-
-    This ultra-powerful bash tool handles 4 modes:
-    1. Sync execution: command (normal, wait for result)
-    2. Async execution: command + run_in_background=true (return immediately with task_id)
-    3. Status check: task_id (check running task)
-    4. Task management: task_id + kill=true (kill running task)
-    """
+    """Execute a shell command (sync or async)."""
 
     command: str | None = Field(
         None,

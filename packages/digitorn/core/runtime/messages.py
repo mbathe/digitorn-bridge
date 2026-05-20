@@ -10,7 +10,6 @@ from digitorn.core.runtime.types import AgentContext
 
 
 def _fix_win_backslashes(s: str) -> str:
-    """Fix unescaped Windows backslashes in JSON strings from LLMs."""
     try:
         json.loads(s)
         return s
@@ -22,16 +21,7 @@ _THINK_BLOCK_RE = re.compile(r"<think>.*?</think>\s*", re.DOTALL | re.IGNORECASE
 
 
 def _strip_think_blocks(text: str) -> str:
-    """Remove DeepSeek-R1 / reasoner ``<think>...</think>`` blocks from
-    assistant content before replaying.
-
-    The DeepSeek API docs explicitly recommend NOT feeding prior
-    chain-of-thought back in multi-turn conversations - re-injection
-    measurably degrades subsequent turns (context dilution, loss of
-    CoT quality). Our feedback loop used to replay the entire assistant
-    message verbatim, so after 3-4 compile retries the reasoner was
-    drowning in its own (stale) reasoning. Strip these aggressively.
-    """
+    """Remove DeepSeek-R1 / reasoner `<think>...</think>` blocks from"""
     if not text or "<think>" not in text.lower():
         return text
     return _THINK_BLOCK_RE.sub("", text).strip()
@@ -40,17 +30,7 @@ def _strip_think_blocks(text: str) -> str:
 def _sanitize_orphan_tool_calls(
     messages: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Strip ``tool_calls`` that have no matching ``tool`` response
-    (and tool responses that have no preceding ``tool_calls``) so the
-    LLM provider accepts the conversation. OpenAI-family providers
-    (DeepSeek, GPT, Together, …) return a 400 "insufficient tool
-    messages following tool_calls" when a turn was interrupted mid
-    tool-execution: the assistant message with ``tool_calls`` was
-    persisted but the tool result never was. Runs on a *copy* - the
-    underlying ``session.messages`` list stays as it was persisted so
-    ``save_messages`` seq indexing is unaffected. Only the payload
-    sent to the LLM is repaired.
-    """
+    """Strip `tool_calls` that have no matching `tool` response"""
     if not messages:
         return messages
     needs_fix = False
@@ -79,9 +59,6 @@ def _sanitize_orphan_tool_calls(
                     if isinstance(tcid, str) and tcid:
                         responded.add(tcid)
                     continue
-                # A later user / assistant message closes the
-                # "next-tool-response" window - we don't look past
-                # it because those belong to a subsequent turn.
                 if later.get("role") in ("user", "system"):
                     break
             kept = [
@@ -121,18 +98,7 @@ def _sanitize_orphan_tool_calls(
 
 
 def to_chat_messages(messages: list[dict[str, Any]]) -> list:
-    """Convert dict messages to ChatMessage objects for the LLM provider.
-
-    Handles multimodal content blocks (text + images).
-    Image blocks (type: "image", "image_url") are preserved as-is
-    in the content field - the provider handles format conversion.
-
-    Strips ``<think>...</think>`` reasoning blocks from assistant
-    messages before replay (see ``_strip_think_blocks`` docstring).
-    Repairs conversations where a crash left an assistant turn with
-    ``tool_calls`` but no matching tool response - those turns would
-    otherwise trigger a 400 on the next provider call.
-    """
+    """Convert dict messages to ChatMessage objects for the LLM provider."""
     from digitorn.modules.llm_provider.providers.base import ChatMessage
 
     messages = _sanitize_orphan_tool_calls(messages)
@@ -148,9 +114,7 @@ def to_chat_messages(messages: list[dict[str, Any]]) -> list:
                 for p in content
             )
             if has_images:
-                # Keep multimodal content blocks as-is - provider will handle.
-                # RT10: filter out blocks where text is None to avoid downstream
-                # crashes; keep image blocks intact.
+                # Drop text blocks where text is None to avoid downstream crashes; keep image blocks intact.
                 content = [
                     p for p in content
                     if isinstance(p, dict) and (
@@ -159,8 +123,6 @@ def to_chat_messages(messages: list[dict[str, Any]]) -> list:
                     )
                 ]
             else:
-                # Text-only blocks - flatten to string. Filter out None text
-                # values explicitly so " ".join() never receives None.
                 text_parts = [
                     str(p.get("text", "") or "")
                     for p in content
@@ -188,14 +150,7 @@ _CONTENT_WRAPPER_RE = re.compile(
 
 
 def _strip_content_wrapper(text: str) -> str:
-    """Strip the ``content: "…"`` wrapper some local models (qwen, etc.) emit.
-
-    Many OpenAI-compat models trained on tool-call transcripts parrot the
-    serialized shape ``content: "…", tool_calls: […]`` as their text output.
-    When the whole output is such a wrapper, unwrap it so the end user sees
-    the plain text instead of the wire format. If the pattern does not match
-    the whole text we leave the input untouched - never silently truncate.
-    """
+    """Strip the `content: "…"` wrapper some local models (qwen, etc.) emit."""
     if not text or "content" not in text.lower():
         return text
     m = _CONTENT_WRAPPER_RE.match(text)
@@ -232,12 +187,7 @@ def build_assistant_message(
     content: str, tool_calls: list[dict[str, Any]],
     reasoning_content: str | None = None,
 ) -> dict[str, Any]:
-    """Build an assistant message with serialized tool_calls.
-
-    DeepSeek V4 thinking mode requires ``reasoning_content`` to be passed
-    back on the next API call (unlike V3 where ``<think>`` blocks in
-    ``content`` are stripped). We preserve it as a separate field.
-    """
+    """Build an assistant message with serialized tool_calls."""
     msg: dict[str, Any] = {"role": "assistant"}
     if content:
         msg["content"] = content
@@ -245,11 +195,6 @@ def build_assistant_message(
         serialized = []
         for tc in tool_calls:
             tc_copy = dict(tc)
-            # OpenAI / litellm reject tool_calls without a non-null
-            # ``type`` field. Some upstream paths (provider streaming
-            # delta, projection replay from older events) end up with
-            # ``type: null`` or missing entirely. Force the canonical
-            # value here so the LLM call always carries a valid shape.
             if not tc_copy.get("type"):
                 tc_copy["type"] = "function"
             fn = tc_copy.get("function", {})
@@ -259,25 +204,13 @@ def build_assistant_message(
                 tc_copy["function"] = fn
             serialized.append(tc_copy)
         msg["tool_calls"] = serialized
-    # DeepSeek V4 thinking mode requires ``reasoning_content`` on every
-    # assistant message in history when thinking is enabled - even when
-    # the model emitted an empty reasoning block for a trivial turn.
-    # Truthy guard (``if reasoning_content:``) drops `""` and the next
-    # API call fails with "The reasoning_content in the thinking mode
-    # must be passed back to the API". `None` means the provider didn't
-    # populate the field at all (non-thinking model) - skip it then.
     if reasoning_content is not None:
         msg["reasoning_content"] = reasoning_content
     return msg
 
 
 def serialize_result(result: Any) -> str:
-    """Serialize a tool result for the messages list.
-
-    IMPORTANT: Always include data even on failure - the LLM needs context
-    to understand what happened (e.g. stderr from a failed command, partial
-    output from a linter, the path that couldn't be found, etc.).
-    """
+    """Serialize a tool result for the messages list."""
     if isinstance(result, str):
         return result
     if hasattr(result, "data") and hasattr(result, "success"):
@@ -366,9 +299,6 @@ def synthesize_reasoning(tool_calls: list[dict[str, Any]]) -> str:
     return " → ".join(parts)
 
 
-# ── Private helpers ──────────────────────────────────────────────────
-
-
 def _truncation_guidance(tool_name: str, shown: int, total: int) -> str:
     return (
         f"\n\n RESULT TRUNCATED: showing {shown} of {total} results "
@@ -400,7 +330,6 @@ def _truncate_json_list(
 def _truncate_json_entries(
     data: dict, budget: int, tool_name: str,
 ) -> str:
-    # RT16: defensive type check (caller filters but be safe)
     entries = data.get("entries")
     if not isinstance(entries, list) or not entries:
         return json.dumps(data, default=str, ensure_ascii=False)[:budget]

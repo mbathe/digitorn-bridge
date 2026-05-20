@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 
 _HIDDEN = {"hidden": True}
 
-
 class SearchParams(BaseModel):
     """Search the web."""
 
@@ -14,7 +13,6 @@ class SearchParams(BaseModel):
     limit: int = Field(default=5, ge=1, le=20, json_schema_extra=_HIDDEN)
     allowed_domains: list[str] | None = Field(None, json_schema_extra=_HIDDEN)
     blocked_domains: list[str] | None = Field(None, json_schema_extra=_HIDDEN)
-
 
 class FetchParams(BaseModel):
     """Fetch a web page and return its content as text."""
@@ -26,14 +24,12 @@ class FetchParams(BaseModel):
     raw: bool = Field(default=False, json_schema_extra=_HIDDEN)
     format: str = Field(default="text", json_schema_extra=_HIDDEN)
 
-
 class ExtractParams(BaseModel):
     """Extract content from a web page using CSS selector."""
 
     url: str = Field(..., description="URL to extract from.")
     selector: str = Field(default="main, article, .content, #content, body", json_schema_extra=_HIDDEN)
     max_length: int = Field(default=30000, json_schema_extra=_HIDDEN)
-
 
 class DownloadParams(BaseModel):
     """Download a file from a URL."""

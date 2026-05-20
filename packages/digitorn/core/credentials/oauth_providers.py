@@ -1,30 +1,4 @@
-"""OAuth 2.0 provider registry.
-
-Loads ``~/.digitorn/oauth_providers.toml`` at daemon startup and
-caches the known providers. Each entry contains everything the
-daemon needs to run a 3-legged OAuth flow on behalf of a user:
-
-    - ``auth_url``      - provider's authorization endpoint
-    - ``token_url``     - provider's token exchange + refresh endpoint
-    - ``client_id``     - the daemon's registered OAuth app id
-    - ``client_secret`` - the daemon's registered OAuth app secret
-    - ``default_scopes``- scopes requested when the app doesn't specify
-    - ``auth_style``    - "basic" | "post" - how client credentials
-                          are sent during the token exchange
-    - ``redirect_uri``  - where the provider redirects the browser
-                          after the user consents (daemon callback)
-
-Secrets are read from ``~/.digitorn/oauth_providers.toml`` directly,
-OR from env vars referenced by ``client_id_env`` / ``client_secret_env``
-for Docker / k8s deployments where config files are a bad fit.
-
-On first boot, if the config file doesn't exist, the daemon writes
-a **commented-out template** so the admin can see what's possible
-and enable the providers they want.
-
-Five providers ship with the daemon: Notion, Google, GitHub, Slack,
-Discord. More can be added by the admin simply by editing the file.
-"""
+"""OAuth 2.0 provider registry."""
 
 from __future__ import annotations
 
@@ -56,7 +30,7 @@ class OAuthProviderConfig:
     # "post":  send them as form-urlencoded body fields
     auth_style: str = "post"
     # Any extra query params added to the auth URL (e.g. Notion's
-    # ``owner=user`` flag)
+    # `owner=user` flag)
     extra_auth_params: dict[str, str] = field(default_factory=dict)
     # Revocation endpoint (optional - not every provider supports it)
     revoke_url: str = ""
@@ -65,14 +39,6 @@ class OAuthProviderConfig:
         """True iff client_id AND client_secret are both present."""
         return bool(self.client_id) and bool(self.client_secret)
 
-
-# ────────────────────────────────────────────────────────────────────
-# Built-in provider catalog (5 well-known OAuth2 services)
-# ────────────────────────────────────────────────────────────────────
-#
-# These are the URLs + default scopes - the actual client_id and
-# client_secret come from the file / env vars. The catalog is here
-# so an admin doesn't need to look up URLs in provider docs.
 
 BUILTIN_PROVIDERS: dict[str, dict[str, Any]] = {
     "notion": {
@@ -116,85 +82,23 @@ BUILTIN_PROVIDERS: dict[str, dict[str, Any]] = {
 
 
 TEMPLATE_TOML = """# Digitorn OAuth providers
-# ========================
-#
-# Configure the OAuth credentials the daemon uses to initiate
-# authorization flows on behalf of its users.
-#
-# ONE section per provider. The daemon bundles URL defaults for 5
-# well-known providers (notion, google, github, slack, discord) -
-# you only need to provide your client_id and client_secret. For
-# custom providers, declare every field explicitly.
-#
-# You can either inline the secrets here OR reference env vars:
-#
-#     [notion]
-#     client_id = "your-client-id"
-#     client_secret = "your-client-secret"
-#
-# …or, recommended for production:
-#
-#     [notion]
-#     client_id_env = "DIGITORN_NOTION_CLIENT_ID"
-#     client_secret_env = "DIGITORN_NOTION_CLIENT_SECRET"
-#
-# The redirect_uri MUST be registered with the provider as an
-# allowed callback. Default is http://localhost:8000/api/oauth/callback
-# - change it for production.
-#
-# Uncomment a section to activate that provider.
 
-# [notion]
-# client_id_env = "DIGITORN_NOTION_CLIENT_ID"
-# client_secret_env = "DIGITORN_NOTION_CLIENT_SECRET"
-# redirect_uri = "http://localhost:8000/api/oauth/callback"
 
-# [google]
-# client_id_env = "DIGITORN_GOOGLE_CLIENT_ID"
-# client_secret_env = "DIGITORN_GOOGLE_CLIENT_SECRET"
-# redirect_uri = "http://localhost:8000/api/oauth/callback"
-
-# [github]
-# client_id_env = "DIGITORN_GITHUB_CLIENT_ID"
-# client_secret_env = "DIGITORN_GITHUB_CLIENT_SECRET"
-# redirect_uri = "http://localhost:8000/api/oauth/callback"
-
-# [slack]
-# client_id_env = "DIGITORN_SLACK_CLIENT_ID"
-# client_secret_env = "DIGITORN_SLACK_CLIENT_SECRET"
-# redirect_uri = "http://localhost:8000/api/oauth/callback"
-
-# [discord]
-# client_id_env = "DIGITORN_DISCORD_CLIENT_ID"
-# client_secret_env = "DIGITORN_DISCORD_CLIENT_SECRET"
-# redirect_uri = "http://localhost:8000/api/oauth/callback"
 """
 
 
-# ────────────────────────────────────────────────────────────────────
 # Registry
-# ────────────────────────────────────────────────────────────────────
 
 
 class OAuthProviderRegistry:
-    """Loads and serves OAuth provider configs from a TOML file.
-
-    Uses ``tomllib`` (stdlib, Python 3.11+). The registry is a simple
-    read-only map - the admin edits the file and restarts the daemon
-    if they want new providers available (hot-reload is out of scope
-    for now because OAuth is infrequent config).
-    """
+    """Loads and serves OAuth provider configs from a TOML file."""
 
     def __init__(self, path: Path | None = None) -> None:
         self._path = path or DEFAULT_PATH
         self._providers: dict[str, OAuthProviderConfig] = {}
 
     def load(self) -> None:
-        """Read the TOML file + merge with the built-in catalog.
-
-        If the file doesn't exist, writes the commented template so
-        the admin has a starting point.
-        """
+        """Read the TOML file + merge with the built-in catalog."""
         if not self._path.is_file():
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(TEMPLATE_TOML, encoding="utf-8")
@@ -233,7 +137,6 @@ class OAuthProviderRegistry:
     def _build_provider(
         self, name: str, section: dict[str, Any],
     ) -> OAuthProviderConfig | None:
-        """Merge user config with built-in catalog defaults for ``name``."""
         defaults: dict[str, Any] = dict(BUILTIN_PROVIDERS.get(name, {}))
 
         # Resolve client_id / client_secret from TOML or env var

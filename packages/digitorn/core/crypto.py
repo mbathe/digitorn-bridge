@@ -1,9 +1,9 @@
 """Shared encryption helpers for Digitorn.
 
-Uses Fernet symmetric encryption (``cryptography`` package) for
+Uses Fernet symmetric encryption (`cryptography` package) for
 encrypting secrets, OAuth tokens, and other sensitive data at rest.
 
-The encryption key is stored at ``~/.digitorn/server.key`` and is
+The encryption key is stored at `~/.digitorn/server.key` and is
 auto-generated on first use.
 """
 

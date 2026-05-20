@@ -1,11 +1,4 @@
-"""CLI commands for app YAML management.
-
-    digitorn app validate <path>   - Dry-run compile (no execution)
-    digitorn app schema <module>   - Show YAML schema for a module
-    digitorn app deploy <path>     - Deploy an app to the running daemon
-    digitorn app list              - List deployed apps on the daemon
-    digitorn app undeploy <app_id> - Remove a deployed app
-"""
+"""CLI commands for app YAML management."""
 
 from __future__ import annotations
 

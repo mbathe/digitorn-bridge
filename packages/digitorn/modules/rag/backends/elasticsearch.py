@@ -1,9 +1,4 @@
-"""Elasticsearch vector backend - kNN + BM25 native hybrid search.
-
-Requires: pip install elasticsearch[async]
-Supports Elasticsearch 8.x with dense_vector fields and native kNN search.
-Also supports native hybrid search (kNN + BM25 in a single query).
-"""
+"""Elasticsearch vector backend - kNN + BM25 native hybrid search."""
 
 from __future__ import annotations
 
@@ -19,7 +14,6 @@ logger = logging.getLogger(__name__)
 # Lazy imports
 _AsyncElasticsearch = None
 
-
 def _ensure_elasticsearch() -> Any:
     global _AsyncElasticsearch
     if _AsyncElasticsearch is None:
@@ -27,13 +21,8 @@ def _ensure_elasticsearch() -> Any:
         _AsyncElasticsearch = AsyncElasticsearch
     return _AsyncElasticsearch
 
-
 class ElasticsearchBackend(VectorBackend):
-    """Elasticsearch 8.x vector backend with native kNN and hybrid search.
-
-    Zero-config with a running ES instance: just provide the URL.
-    Supports both pure semantic search and native hybrid (kNN + BM25).
-    """
+    """Elasticsearch 8.x vector backend with native kNN and hybrid search."""
 
     supports_sparse = False
     supports_hybrid = True  # ES has native hybrid via kNN + query combo
@@ -52,10 +41,6 @@ class ElasticsearchBackend(VectorBackend):
         self._verify_certs = verify_certs
         self._client: Any = None
         self._collection_meta: dict[str, dict[str, Any]] = {}
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
 
     async def initialize(self) -> None:
         AsyncES = _ensure_elasticsearch()
@@ -83,12 +68,7 @@ class ElasticsearchBackend(VectorBackend):
             await self._client.close()
             self._client = None
 
-    # ------------------------------------------------------------------
-    # Collections (mapped to ES indices)
-    # ------------------------------------------------------------------
-
     def _index_name(self, collection: str) -> str:
-        """Sanitize collection name to a valid ES index name."""
         return collection.lower().replace(" ", "-")
 
     async def create_collection(
@@ -188,12 +168,7 @@ class ElasticsearchBackend(VectorBackend):
         index = self._index_name(name)
         return await self._client.indices.exists(index=index)
 
-    # ------------------------------------------------------------------
-    # CRUD
-    # ------------------------------------------------------------------
-
     def _doc_es_id(self, collection: str, doc_id: str) -> str:
-        """Deterministic ES _id from collection + doc_id."""
         raw = f"{collection}:{doc_id}"
         return hashlib.sha256(raw.encode()).hexdigest()[:20]
 
@@ -271,8 +246,8 @@ class ElasticsearchBackend(VectorBackend):
                     text=source.get("text", ""),
                     metadata=source.get("metadata", {}),
                 ))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("elasticsearch best-effort block failed: %s", exc)
         return docs
 
     async def count(self, collection: str) -> int:
@@ -307,10 +282,6 @@ class ElasticsearchBackend(VectorBackend):
             })
 
         return all_docs
-
-    # ------------------------------------------------------------------
-    # Search
-    # ------------------------------------------------------------------
 
     async def search(
         self,
@@ -367,11 +338,7 @@ class ElasticsearchBackend(VectorBackend):
         alpha: float = 0.7,
         filter: dict[str, Any] | None = None,
     ) -> list[SearchResult]:
-        """Native ES hybrid: kNN (semantic) + BM25 (text) combined via RRF.
-
-        Uses Elasticsearch's built-in Reciprocal Rank Fusion when available (8.14+),
-        otherwise falls back to a boosted bool query combining kNN and match.
-        """
+        """Native ES hybrid: kNN (semantic) + BM25 (text) combined via RRF."""
         if self._client is None:
             return []
 
@@ -424,12 +391,7 @@ class ElasticsearchBackend(VectorBackend):
 
         return results
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
     def _build_filter(self, filter: dict[str, Any]) -> dict[str, Any]:
-        """Convert simple key=value filter dict to ES filter DSL."""
         conditions = []
         for key, value in filter.items():
             # Support filtering on metadata sub-fields
@@ -439,10 +401,6 @@ class ElasticsearchBackend(VectorBackend):
         if len(conditions) == 1:
             return conditions[0]
         return {"bool": {"must": conditions}}
-
-    # ------------------------------------------------------------------
-    # State
-    # ------------------------------------------------------------------
 
     def state_snapshot(self) -> dict[str, Any]:
         return {"collection_meta": self._collection_meta}

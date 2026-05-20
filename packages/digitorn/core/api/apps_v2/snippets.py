@@ -1,22 +1,4 @@
-"""User snippet routes — CRUD on the per-user, per-app prompt
-template library that powers the chat composer's "Insert snippet"
-menu.
-
-Scope strict on (``request.state.user_id``, ``app_id``) — a user never
-sees / mutates another user's snippets, and the snippets they craft
-while talking to one app are invisible inside another.
-
-Endpoints:
-
-  - ``GET    /api/apps/{app_id}/snippets``            — list
-  - ``POST   /api/apps/{app_id}/snippets``            — create
-  - ``PATCH  /api/apps/{app_id}/snippets/{id}``       — partial update
-  - ``DELETE /api/apps/{app_id}/snippets/{id}``       — hard delete
-
-Pydantic envelopes are kept compact: the daemon stores the body
-verbatim — the composer is the one that knows about
-``{{variable}}`` placeholders, Tab cycling, etc.
-"""
+"""User snippet routes - CRUD on the per-user, per-app prompt"""
 
 from __future__ import annotations
 
@@ -36,9 +18,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["apps"])
 
 
-# ── Pydantic envelopes ──────────────────────────────────────────────
-
-
 class SnippetCreateRequest(BaseModel):
     """POST body for creating a snippet."""
 
@@ -51,8 +30,7 @@ class SnippetCreateRequest(BaseModel):
 
 
 class SnippetUpdateRequest(BaseModel):
-    """PATCH body — every field optional. Only provided fields are
-    written; ``null`` clears (for ``emoji`` / ``tags``)."""
+    """PATCH body - every field optional. Only provided fields are"""
 
     model_config = {"extra": "forbid"}
 
@@ -60,9 +38,6 @@ class SnippetUpdateRequest(BaseModel):
     body: str | None = Field(default=None, min_length=1)
     emoji: str | None = Field(default=None, max_length=16)
     tags: list[str] | None = Field(default=None)
-
-
-# ── Helpers ─────────────────────────────────────────────────────────
 
 
 def _caller_user_id(request: Request) -> str:
@@ -73,7 +48,6 @@ def _caller_user_id(request: Request) -> str:
 
 
 def _serialize(row: Any) -> dict[str, Any]:
-    """Match the JSON shape the frontend hook expects."""
     return {
         "id": row.id,
         "app_id": row.app_id,
@@ -84,9 +58,6 @@ def _serialize(row: Any) -> dict[str, Any]:
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "updated_at": row.updated_at.isoformat() if row.updated_at else None,
     }
-
-
-# ── List ────────────────────────────────────────────────────────────
 
 
 @router.get("/{app_id}/snippets", response_model=AppResponse)
@@ -113,9 +84,6 @@ async def list_snippets(request: Request, app_id: str) -> AppResponse:
         success=True,
         data={"snippets": items, "count": len(items)},
     )
-
-
-# ── Create ──────────────────────────────────────────────────────────
 
 
 @router.post("/{app_id}/snippets", response_model=AppResponse)
@@ -149,9 +117,6 @@ async def create_snippet(
     return AppResponse(success=True, data={"snippet": _serialize(row)})
 
 
-# ── Update ──────────────────────────────────────────────────────────
-
-
 @router.patch("/{app_id}/snippets/{snippet_id}", response_model=AppResponse)
 async def update_snippet(
     request: Request,
@@ -159,8 +124,7 @@ async def update_snippet(
     snippet_id: str,
     body: SnippetUpdateRequest,
 ) -> AppResponse:
-    """Update a snippet in place. 404s when the row doesn't belong to
-    the calling user — never reveals "exists but forbidden"."""
+    """Update a snippet in place. 404s when the row doesn't belong to"""
     _validate_id(app_id)
     user_id = _caller_user_id(request)
 
@@ -184,14 +148,6 @@ async def update_snippet(
             row.title = body.title.strip()
         if body.body is not None:
             row.body = body.body
-        # ``emoji`` and ``tags`` are nullable on the model; passing
-        # ``None`` clears the column. We can't distinguish "omitted"
-        # from "explicitly null" with the current Pydantic envelope,
-        # so the convention is: include the field with the new value
-        # (or ``null`` to clear), omit to leave unchanged.
-        # To make this contract explicit and avoid accidental clears,
-        # we use ``model_fields_set`` to know which fields the caller
-        # actually sent.
         sent = body.model_fields_set
         if "emoji" in sent:
             row.emoji = body.emoji or None
@@ -201,9 +157,6 @@ async def update_snippet(
         await db.commit()
         await db.refresh(row)
     return AppResponse(success=True, data={"snippet": _serialize(row)})
-
-
-# ── Delete ──────────────────────────────────────────────────────────
 
 
 @router.delete("/{app_id}/snippets/{snippet_id}", response_model=AppResponse)

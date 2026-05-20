@@ -1,18 +1,4 @@
-"""Scoring engine - tokenizer, synonym expansion, and hybrid search.
-
-Two independent scoring paths merged into one ranked result:
-
-1. **Semantic search** (embedding cosine similarity × 10):
-   Understands meaning across languages.  Primary ranking signal.
-
-2. **Keyword search** (inverted index + synonym expansion):
-   Exact, prefix, category, tag, and FQN token matches.
-   Runs independently - can surface tools that semantic search missed
-   (e.g. cross-language queries below the embedding threshold).
-
-Both paths contribute additively to a unified score.
-All keyword operations are O(t) where t = number of query tokens (typically 2-5).
-"""
+"""Scoring engine - tokenizer, synonym expansion, and hybrid search."""
 
 from __future__ import annotations
 
@@ -22,7 +8,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from digitorn.modules.context_builder.types import ScoredTool, ToolIndex
-
 
 _SYNONYM_GROUPS: list[tuple[str, ...]] = [
     ("read", "lire", "cat", "view", "show", "display", "afficher", "voir", "montrer", "consulter"),
@@ -69,9 +54,7 @@ _SYNONYM_GROUPS: list[tuple[str, ...]] = [
 
 _SYNONYMS: dict[str, set[str]] = {}
 
-
 def _build_synonym_map() -> None:
-    """Build the bidirectional synonym map from groups."""
     for group in _SYNONYM_GROUPS:
         normalized = [_normalize(w) for w in group]
         for word in normalized:
@@ -79,7 +62,6 @@ def _build_synonym_map() -> None:
                 _SYNONYMS[word] = set()
             _SYNONYMS[word].update(normalized)
             _SYNONYMS[word].discard(word)
-
 
 _SPLIT_RE = re.compile(r"[^a-z0-9]+")
 
@@ -96,27 +78,15 @@ _STOP_WORDS = frozenset({
     "sur", "avec", "par", "au", "aux", "son", "sa", "ses",
 })
 
-
 def _normalize(text: str) -> str:
-    """Lowercase and strip accents."""
     text = text.lower()
     nfkd = unicodedata.normalize("NFKD", text)
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
-
 _build_synonym_map()
 
-
 def tokenize(text: str) -> list[str]:
-    """Split text into searchable tokens.
-
-    - Lowercased, accent-stripped
-    - Split on non-alphanumeric boundaries
-    - Underscores and dots are separators (so ``fetch_results`` → ``fetch``, ``results``)
-    - Stop words removed
-    - Tokens shorter than 2 chars removed
-    - Deduplicated, order preserved
-    """
+    """Split text into searchable tokens."""
     normalized = _normalize(text)
     raw_tokens = _SPLIT_RE.split(normalized)
     seen: set[str] = set()
@@ -127,12 +97,8 @@ def tokenize(text: str) -> list[str]:
             tokens.append(t)
     return tokens
 
-
 def tokenize_for_index(text: str) -> list[str]:
-    """Like tokenize() but keeps shorter tokens and doesn't remove stop words.
-
-    Used for indexing (not querying) - we want maximum recall.
-    """
+    """Like tokenize() but keeps shorter tokens and doesn't remove stop words."""
     normalized = _normalize(text)
     raw_tokens = _SPLIT_RE.split(normalized)
     seen: set[str] = set()
@@ -143,12 +109,8 @@ def tokenize_for_index(text: str) -> list[str]:
             tokens.append(t)
     return tokens
 
-
 def expand_with_synonyms(tokens: list[str]) -> list[str]:
-    """Expand query tokens with synonyms. O(t) where t = len(tokens).
-
-    Returns the original tokens + any synonyms found, deduplicated.
-    """
+    """Expand query tokens with synonyms. O(t) where t = len(tokens)."""
     expanded: list[str] = list(tokens)
     seen = set(tokens)
     for token in tokens:
@@ -160,14 +122,7 @@ def expand_with_synonyms(tokens: list[str]) -> list[str]:
                     expanded.append(syn)
     return expanded
 
-
 def _expand_with_dynamic_synonyms(tokens: list[str], index: ToolIndex) -> list[str]:
-    """Expand query tokens with both static synonyms and module-declared aliases.
-
-    Module aliases (from ``@action(aliases=[...])``) are treated as additional
-    synonym groups, merged at query time.  This allows modules to declare
-    domain-specific synonyms without modifying the static synonym table.
-    """
     # Start with static synonym expansion
     expanded = expand_with_synonyms(tokens)
     seen = set(expanded)
@@ -189,7 +144,6 @@ def _expand_with_dynamic_synonyms(tokens: list[str], index: ToolIndex) -> list[s
 
     return expanded
 
-
 def search(
     index: ToolIndex,
     query: str,
@@ -197,43 +151,7 @@ def search(
     usage_counts: dict[str, int] | None = None,
     min_relevance: float = 5.0,
 ) -> list[ScoredTool]:
-    """Hybrid search: semantic + keyword scored independently, then merged.
-
-    Both paths run independently and contribute to a unified score:
-
-    1. **Semantic search** (embedding cosine similarity × 10):
-       Uses a lower threshold (0.20) to avoid filtering cross-language
-       matches prematurely.  The threshold acts as a noise floor, not a
-       quality gate - ranking handles the rest.
-
-    2. **Keyword search** (runs on ALL indexed tools, not just semantic hits):
-       - Exact keyword match:     +2.0 per token
-       - Synonym expansion:       +1.5 per synonym hit
-       - Prefix overlap:          +1.0 per token
-       - Category match:          +1.5
-       - Tag match:               +1.5
-       - FQN token match:         +3.0
-
-       This is the key difference from a sequential pipeline: keyword
-       matches can *surface* tools that scored below the semantic threshold.
-       A French query like "prix du Bitcoin" may miss semantically but the
-       synonym map (prix→price, bitcoin→crypto) will still find the tools.
-
-    3. **Usage boost** (optional, from session tool call counts):
-       - ``min(count * 0.5, 3.0)`` - tools recently used get a boost
-       - Passed via ``usage_counts`` dict (fqn → call count)
-
-    4. **Minimum relevance threshold** (``min_relevance``, default 5.0):
-       After all scoring paths contribute, results below this combined
-       score are discarded.  This prevents nonsense queries from returning
-       spurious low-confidence matches (e.g. semantic noise or weak prefix
-       overlaps).  The default of 5.0 filters out semantic-only noise
-       (typically 2-4 points) while keeping any result that has at least
-       one meaningful keyword or strong semantic match.
-
-    Semantic scores dominate (range 0-10), keywords add precision (range 0-5).
-    Returns top-K results sorted by descending combined score.
-    """
+    """Hybrid search: semantic + keyword scored independently, then merged."""
     from digitorn.modules.context_builder.types import ScoredTool
 
     if not query or not query.strip():
@@ -317,12 +235,7 @@ def search(
 
     return results
 
-
 def _build_params_summary(schema: dict) -> str:
-    """Build a compact one-liner from JSON Schema properties.
-
-    Example output: ``"query: str, connection_id?: str, limit?: int"``
-    """
     props = schema.get("properties", {})
     required = set(schema.get("required", []))
     if not props:

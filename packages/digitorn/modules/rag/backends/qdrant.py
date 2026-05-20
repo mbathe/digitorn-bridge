@@ -1,8 +1,4 @@
-"""Qdrant vector backend - default, zero-config, embedded mode.
-
-Supports in-memory (default) and persistent (path-based) modes.
-Handles collection creation, upsert, search with COSINE distance.
-"""
+"""Qdrant vector backend - default, zero-config, embedded mode."""
 
 from __future__ import annotations
 
@@ -19,7 +15,6 @@ logger = logging.getLogger(__name__)
 _QdrantClient = None
 _models = None
 
-
 def _ensure_qdrant() -> tuple[Any, Any]:
     global _QdrantClient, _models
     if _QdrantClient is None:
@@ -28,13 +23,8 @@ def _ensure_qdrant() -> tuple[Any, Any]:
         _models = models
     return _QdrantClient, _models
 
-
 class QdrantBackend(VectorBackend):
-    """Qdrant embedded vector backend.
-
-    Zero-config: in-memory by default. Set ``path`` for disk persistence
-    or ``url`` for a remote Qdrant server.
-    """
+    """Qdrant embedded vector backend."""
 
     supports_sparse = True
     supports_hybrid = False  # We use BM25 + RRF instead of Qdrant sparse vectors for now
@@ -53,17 +43,8 @@ class QdrantBackend(VectorBackend):
         self._collection_meta: dict[str, dict[str, Any]] = {}
         self._next_point_id: int = 0
 
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
-
     async def initialize(self) -> None:
-        # ``_ensure_qdrant`` is a lazy import that pulls in
-        # ``qdrant_client`` the first time — heavy enough on Windows
-        # (compiled deps, embedded SQLite handshake) to stall the
-        # event loop and trip the Windows ProactorEventLoop into an
-        # ``InvalidStateError``. Push both the import and the client
-        # construction off-loop.
+        # Off-load the heavy `qdrant_client` import + construction.
         QdrantClient, _ = await asyncio.to_thread(_ensure_qdrant)
         if self._url:
             self._client = await asyncio.to_thread(
@@ -102,10 +83,6 @@ class QdrantBackend(VectorBackend):
             self._client.close()
             self._client = None
 
-    # ------------------------------------------------------------------
-    # Collections
-    # ------------------------------------------------------------------
-
     async def create_collection(
         self, name: str, dimension: int, metadata: dict[str, Any] | None = None,
     ) -> None:
@@ -117,8 +94,8 @@ class QdrantBackend(VectorBackend):
             self._client.get_collection(name)
             # Already exists
             return
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("qdrant best-effort block failed: %s", exc)
 
         quantization_config = None
         if self._quantization == "int8":
@@ -186,10 +163,6 @@ class QdrantBackend(VectorBackend):
         except Exception:
             return False
 
-    # ------------------------------------------------------------------
-    # CRUD
-    # ------------------------------------------------------------------
-
     async def upsert(
         self,
         collection: str,
@@ -247,8 +220,8 @@ class QdrantBackend(VectorBackend):
                     ),
                 )
                 deleted += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("qdrant best-effort block failed: %s", exc)
 
         return deleted
 
@@ -318,10 +291,6 @@ class QdrantBackend(VectorBackend):
 
         return all_docs
 
-    # ------------------------------------------------------------------
-    # Search
-    # ------------------------------------------------------------------
-
     async def search(
         self,
         collection: str,
@@ -364,10 +333,6 @@ class QdrantBackend(VectorBackend):
             )
             for p in results
         ]
-
-    # ------------------------------------------------------------------
-    # State
-    # ------------------------------------------------------------------
 
     def state_snapshot(self) -> dict[str, Any]:
         return {

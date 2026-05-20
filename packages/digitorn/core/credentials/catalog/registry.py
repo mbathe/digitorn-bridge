@@ -1,13 +1,4 @@
-"""CatalogRegistry - in-memory dictionary of provider templates.
-
-The registry is global. The daemon loads built-in templates at boot
-(`load_builtin_catalog()`) plus optional user / app templates as
-they're discovered. The compiler and API surface a `ProviderTemplate`
-when the user picks a provider for a credential.
-
-Lookup is case-sensitive on `name`. Categories let the UI group
-templates into sections (LLM / Database / Cloud / etc.).
-"""
+"""CatalogRegistry - in-memory dictionary of provider templates."""
 
 from __future__ import annotations
 
@@ -33,9 +24,7 @@ class CatalogRegistry:
         self._by_name: dict[str, ProviderTemplate] = {}
 
     def register(self, tmpl: ProviderTemplate, *, replace: bool = False) -> None:
-        """Add a template. By default, refuses to overwrite an existing
-        entry (the catalog is meant to be stable). Set `replace=True`
-        to update (e.g. when a user TOML overrides a builtin)."""
+        """Add a template. By default, refuses to overwrite an existing"""
         existing = self._by_name.get(tmpl.name)
         if existing is not None and not replace:
             logger.warning(
@@ -92,11 +81,6 @@ default_catalog = CatalogRegistry()
 
 
 def load_builtin_catalog(reg: CatalogRegistry | None = None) -> int:
-    """Load every TOML in `catalog/builtins/` into the registry.
-
-    Idempotent for `default_catalog` callers - re-loading a builtin
-    on top of itself doesn't fail (logged as collision and skipped).
-    Returns the number of templates loaded.
-    """
+    """Load every TOML in `catalog/builtins/` into the registry."""
     target = reg if reg is not None else default_catalog
     return target.load_dir(_BUILTINS_DIR, replace=False)

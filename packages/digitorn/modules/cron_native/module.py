@@ -1,19 +1,4 @@
-"""Cron native - single ``schedule()`` action backed by croniter + JobStore.
-
-Design: 2 actions, no enterprise features (DAG, holidays, retry policies,
-execution windows, calendar view). The whole point of this module is to
-give the LLM ONE primitive that schedules anything, and ONE primitive
-that cancels it. Everything else lives on the existing SchedulerService
-+ JobStore infrastructure already wired in the daemon.
-
-The ``when`` field accepts three formats, parsed in order:
-
-1. **Cron expression** (5 fields): ``"0 9 * * 1-5"`` → recurring
-2. **ISO 8601 timestamp**: ``"2026-04-15T09:00:00Z"`` → one-shot
-3. **Relative offset**: ``"in 5m"`` / ``"in 2h"`` / ``"in 1d"`` → one-shot
-
-For richer formats ("tomorrow at 9am") the LLM converts to ISO itself.
-"""
+"""Cron native - single `schedule()` action backed by croniter + JobStore."""
 
 from __future__ import annotations
 
@@ -34,17 +19,12 @@ from .params import CancelScheduleParams, RemindParams, ScheduleParams
 
 logger = logging.getLogger(__name__)
 
-
-# ── Config model (compile-time validation via CONFIG_MODEL) ──────
-
-
 class CronNativeConfig(BaseModel):
     """Pydantic config for the cron_native module (validated at compile time)."""
 
     model_config = {"extra": "forbid"}
 
     workspace: str = Field(default="", description="Auto-injected by the daemon.")
-
 
 # case-sensitive: s=seconds, m=minutes, h=hours, d=days (no uppercase M=months)
 _RELATIVE_RE = re.compile(r"^\s*in\s+(\d+)\s*([smhd])\s*$")
@@ -55,16 +35,7 @@ _MAX_DELAY_SECONDS = 10 * 365 * 86400  # 10 years
 # Grace period when checking that an ISO timestamp isn't in the past.
 _PAST_GRACE_SECONDS = 5
 
-
 def _parse_when(when: str, now: datetime) -> tuple[str, str | None, str | None]:
-    """Parse a ``when`` string into ``(schedule_type, next_run_iso, cron_expr)``.
-
-    schedule_type is one of ``"cron"`` or ``"once"``. For cron, ``cron_expr``
-    is set and ``next_run_iso`` is the first fire time. For one-shot,
-    ``cron_expr`` is None and ``next_run_iso`` is the absolute ISO time.
-
-    Raises ``ValueError`` if the format isn't recognized or violates bounds.
-    """
     s = when.strip()
     if not s:
         raise ValueError("when cannot be empty")
@@ -115,10 +86,8 @@ def _parse_when(when: str, now: datetime) -> tuple[str, str | None, str | None]:
                 raise
             # fall through to cron parsing for actual parse errors
 
-    # 3. Cron expression. We require EXACTLY 5 fields (minute hour dom month dow)
-    #    matching the public contract. croniter accepts 6/7 (seconds, year) but
-    #    those open the door to per-second scheduling (DoS vector) and aren't
-    #    part of the documented surface.
+    # Cron: exactly 5 fields. `croniter` accepts 6/7 but per-second
+    # scheduling is a DoS vector and outside the public contract.
     if not s.startswith("@"):
         field_count = len(s.split())
         if field_count != 5:
@@ -141,12 +110,7 @@ def _parse_when(when: str, now: datetime) -> tuple[str, str | None, str | None]:
             f"Parser error: {exc}",
         ) from exc
 
-
 def _validate_action_name(action: str) -> None:
-    """Validate that ``action`` has 'module.action' shape with non-empty sides.
-
-    Raises ``ValueError`` otherwise. Called from schedule() before registering.
-    """
     if "." not in action:
         raise ValueError(
             f"action must be 'module.action' format, got {action!r}",
@@ -157,9 +121,8 @@ def _validate_action_name(action: str) -> None:
             f"action 'module.action' halves must be non-empty, got {action!r}",
         )
 
-
 class CronNativeModule(BaseModule):
-    """Two ultra-powerful actions: schedule + cancel_schedule."""
+    """Two actions: schedule + cancel_schedule."""
 
     MODULE_ID = "cron_native"
     VERSION = "2.0.0"
@@ -189,8 +152,6 @@ class CronNativeModule(BaseModule):
     def set_active_session(self, session_id: str | None) -> None:
         self._active_session_id = session_id
 
-    # ── Internal helpers ────────────────────────────────────────────
-
     def _scheduler(self) -> Any:
         ctx = getattr(self, "_context", None)
         return getattr(ctx, "scheduler", None) if ctx else None
@@ -202,8 +163,6 @@ class CronNativeModule(BaseModule):
     def _make_job_id(self, name: str | None) -> str:
         suffix = name.strip() if name and name.strip() else uuid.uuid4().hex[:12]
         return f"cron_{self._app_id}_{suffix}"
-
-    # ── Public actions ──────────────────────────────────────────────
 
     @action(
         description=(

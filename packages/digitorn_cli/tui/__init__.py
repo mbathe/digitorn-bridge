@@ -1,15 +1,11 @@
-"""Digitorn TUI - pure client terminal interface.
-
-Connects to a Digitorn daemon via HTTP/SSE.
-No runtime code is imported - the CLI is a thin client.
-
-Usage:
-    launch_tui(daemon_url="http://...", app_id="my-app")
-    launch_tui(daemon_url="http://...", app_path=Path("app.yaml"))
-"""
+"""Digitorn TUI - pure client terminal interface."""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 from pathlib import Path
 from typing import Any
 
@@ -64,13 +60,13 @@ def launch_tui(
                 "\033[?1000l\033[?1003l\033[?1006l\033[?1015l\033[?25h"
             )
             sys.stdout.flush()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("__init__ best-effort block failed: %s", exc)
         # Stop SSE thread + close HTTP client
         stop = getattr(backend, "_event_stop", None)
         if stop:
             stop.set()
         try:
             backend._http.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("__init__ best-effort block failed: %s", exc)

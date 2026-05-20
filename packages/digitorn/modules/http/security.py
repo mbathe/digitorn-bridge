@@ -1,7 +1,4 @@
-"""HTTP security - SSRF protection, URL validation, header masking.
-
-All outbound requests MUST pass through ``validate_url()`` before execution.
-"""
+"""HTTP security - SSRF protection, URL validation, header masking."""
 
 from __future__ import annotations
 
@@ -11,7 +8,6 @@ import socket
 from fnmatch import fnmatch
 from typing import Any
 from urllib.parse import urlparse
-
 
 _SENSITIVE_HEADERS: set[str] = {
     "authorization",
@@ -26,7 +22,6 @@ _SENSITIVE_HEADERS: set[str] = {
 
 _MASKED = "***masked***"
 
-
 def mask_headers(headers: dict[str, str]) -> dict[str, str]:
     """Return a copy with sensitive header values replaced."""
     result: dict[str, str] = {}
@@ -36,7 +31,6 @@ def mask_headers(headers: dict[str, str]) -> dict[str, str]:
         else:
             result[k] = v
     return result
-
 
 _PRIVATE_NETWORKS = [
     ipaddress.ip_network("0.0.0.0/8"),
@@ -57,7 +51,6 @@ _PRIVATE_NETWORKS = [
     ipaddress.ip_network("ff00::/8"),
 ]
 
-
 def is_private_ip(ip_str: str) -> bool:
     """Check if an IP address is private/reserved."""
     try:
@@ -66,9 +59,7 @@ def is_private_ip(ip_str: str) -> bool:
         return True
     return any(addr in net for net in _PRIVATE_NETWORKS)
 
-
 def _host_matches(host: str, patterns: list[str]) -> bool:
-    """Check if host matches any pattern (exact or glob)."""
     host_lower = host.lower()
     for pattern in patterns:
         pattern_lower = pattern.lower()
@@ -80,17 +71,10 @@ def _host_matches(host: str, patterns: list[str]) -> bool:
                 return True
     return False
 
-
 _ALLOWED_SCHEMES = {"http", "https"}
 
-
 class ValidatedURL:
-    """Result of URL validation with pinned IP to prevent DNS rebinding.
-
-    The ``pinned_url`` replaces the hostname with the resolved IP so that
-    httpx/aiohttp connects to the validated address - not a re-resolved one.
-    The original ``Host`` header must be sent for TLS SNI and vhost routing.
-    """
+    """Result of URL validation with pinned IP to prevent DNS rebinding."""
 
     __slots__ = ("original_url", "pinned_url", "hostname", "resolved_ip")
 
@@ -100,20 +84,13 @@ class ValidatedURL:
         self.hostname = hostname
         self.resolved_ip = resolved_ip
 
-
 def validate_url(
     url: str,
     *,
     allowed_hosts: list[str] | None = None,
     blocked_hosts: list[str] | None = None,
 ) -> tuple[str | None, str, ValidatedURL | None]:
-    """Validate a URL for safe outbound requests.
-
-    Returns ``(error_message, sanitized_url, validated)``.
-    If error_message is not None, the request MUST be rejected.
-    ``validated.pinned_url`` should be used for the actual request
-    to prevent DNS rebinding attacks.
-    """
+    """Validate a URL for safe outbound requests."""
     try:
         parsed = urlparse(url)
     except Exception:
@@ -179,9 +156,7 @@ def validate_url(
 
     return None, url, validated
 
-
 def _pin_url(parsed: Any, ip: str) -> str:
-    """Replace hostname in a parsed URL with a resolved IP."""
     # For IPv6, wrap in brackets
     host_part = f"[{ip}]" if ":" in ip else ip
     port = f":{parsed.port}" if parsed.port else ""
@@ -189,7 +164,6 @@ def _pin_url(parsed: Any, ip: str) -> str:
     query = f"?{parsed.query}" if parsed.query else ""
     fragment = f"#{parsed.fragment}" if parsed.fragment else ""
     return f"{parsed.scheme}://{host_part}{port}{path}{query}{fragment}"
-
 
 def format_bytes(n: int) -> str:
     """Human-readable byte size."""

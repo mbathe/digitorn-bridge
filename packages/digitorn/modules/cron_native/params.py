@@ -6,19 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 class ScheduleParams(BaseModel):
-    """Schedule a tool call to run later (one-shot or recurring).
-
-    REQUIRED: when, action.
-    OPTIONAL: args, name, output_channel, max_runs.
-
-    Example calls:
-        schedule(when="in 5m", action="shell.bash", args={"command": "ls"})
-        schedule(when="0 9 * * 1-5", action="http.get", args={"url": "..."})
-        schedule(when="2026-12-25T09:00:00Z", action="channels.send_message",
-                 args={"channel": "email", "message": "..."})
-    """
+    """Schedule a tool call to run later (one-shot or recurring)."""
 
     when: str = Field(
         ...,
@@ -89,13 +78,8 @@ class ScheduleParams(BaseModel):
         ),
     )
 
-
 class CancelScheduleParams(BaseModel):
-    """Cancel a scheduled job by its job_id.
-
-    Example call:
-        cancel_schedule(job_id="cron_myapp_weekly_report")
-    """
+    """Cancel a scheduled job by its job_id."""
 
     job_id: str = Field(
         ...,
@@ -111,13 +95,8 @@ class CancelScheduleParams(BaseModel):
         ),
     )
 
-
 class RemindParams(BaseModel):
-    """Schedule a self-reminder that wakes the current session later.
-
-    Example call:
-        remind(when="in 2m", message="Check the build status")
-    """
+    """Schedule a self-reminder that wakes the current session later."""
 
     when: str = Field(
         ...,

@@ -1,28 +1,4 @@
-"""CronModule: background-task host for workers.
-
-Hosts the activation sweep loop + (future) other periodic
-maintenance jobs. Uses a file-based leader lock so even if multiple
-workers list ``cron`` in their config, only one actually runs the
-sweep -- the others stay idle until the leader releases / dies.
-
-When the cron module is **not** loaded (the default, no worker hosts
-it), the daemon's existing ``_activation_sweeper`` runs in the
-lifespan as today -- guarded by a registry check in ``server.py`` so
-we don't double-execute the sweep when cron IS workered.
-
-Design notes
-============
-
-* No ``@action`` decorators -- this module is invisible to the LLM.
-  All work happens inside ``on_start`` / ``on_stop``.
-* The leader lock lives in ``~/.digitorn/.cron-leader.lock`` next to
-  the workers shared secret. File-based, no Postgres dependency
-  (works in local mode where the user has no DB).
-* The sweep iteration imports ``ActivationStore`` lazily so loading
-  the module never pulls in the DB stack if it isn't already
-  initialised. When DB is unavailable (e.g. SQLite-only local mode
-  without the activations table), the sweep is a clean no-op.
-"""
+"""CronModule: background-task host for workers."""
 from __future__ import annotations
 
 import asyncio
@@ -36,14 +12,12 @@ from digitorn.modules.manifest import ModuleManifest
 
 logger = logging.getLogger(__name__)
 
-
 # Tunables. Conservative defaults matched to the daemon's existing
-# ``_activation_sweeper`` so behaviour is invisible to operators on
+# `_activation_sweeper` so behaviour is invisible to operators on
 # the data plane.
 _SWEEP_INTERVAL_S = 60.0
 _SWEEP_OLDER_THAN_S = 600
 _LEADER_LOCK_FILENAME = ".cron-leader.lock"
-
 
 class CronModule(BaseModule):
     """Singleton-by-lease background scheduler."""
@@ -52,11 +26,6 @@ class CronModule(BaseModule):
     VERSION = "1.0.0"
     SUPPORTED_PLATFORMS = [Platform.ALL]
     MODULE_TYPE = "system"
-    # Per-app instance via registry.create -- but only one worker
-    # process at a time hosts ``cron``, so MODULE_SINGLETON would be
-    # functionally equivalent. Keep False so per-app config can
-    # override sweep intervals in the future without affecting other
-    # apps loaded by the same worker.
     MODULE_SINGLETON = False
 
     def __init__(self) -> None:
@@ -83,27 +52,10 @@ class CronModule(BaseModule):
         )
 
     async def on_start(self) -> None:
-        """Acquire the leader lock + start background tasks.
-
-        If the lock is held by another live cron instance, this
-        method logs and returns -- the module stays loaded but its
-        background tasks never start. ``on_stop`` is safe to call
-        in that state (no-ops).
-        """
-        # ── Daemon-vs-worker disambiguation ─────────────────────
-        # This ``on_start`` is reached from THREE paths:
-        #   1. Daemon ``ModuleLifecycleManager.start_all()`` -- every
-        #      registered module's on_start is invoked unconditionally
-        #      at daemon boot.
-        #   2. Per-app daemon bootstrap (when an app declares cron).
-        #   3. Worker process boot (when ``cron`` is in the worker's
-        #      hosted_modules list).
-        #
-        # When workers are enabled AND host ``cron``, ONLY path 3
-        # should acquire the leader -- otherwise the daemon races the
-        # worker and the worker stays idle forever. The fork is via
-        # the ``DIGITORN_INSIDE_WORKER`` env var the lifecycle sets
-        # at spawn time.
+        """Acquire the leader lock + start background tasks."""
+        # Reached from daemon `start_all`, per-app bootstrap, or
+        # worker boot. When a worker hosts `cron` only the worker
+        # acquires the leader (gated via `DIGITORN_INSIDE_WORKER`).
         try:
             inside_worker = os.environ.get(
                 "DIGITORN_INSIDE_WORKER", "",
@@ -116,9 +68,6 @@ class CronModule(BaseModule):
             }
 
             if inside_worker and "cron" not in hosted_here:
-                # We're inside a worker but this one doesn't host
-                # cron (e.g. the ``heavy`` worker also instantiated
-                # cron for some reason). Stay idle.
                 logger.info(
                     "cron_on_start_skipped reason=worker_%s_does_not_host_cron "
                     "pid=%d", inside_worker, os.getpid(),
@@ -126,11 +75,9 @@ class CronModule(BaseModule):
                 return
 
             if not inside_worker:
-                # We're in the daemon. Check whether the operator
-                # has hosted cron on a worker via settings.workers.
-                # If yes, defer to the worker. Settings are
-                # consulted directly (the workers registry hasn't
-                # been populated yet at ``lifecycle.start_all``).
+                # Defer to the worker when the operator hosts cron
+                # there (settings consulted directly because the
+                # registry is not populated yet at `start_all`).
                 from digitorn.core.config import get_settings
                 cfg = get_settings().workers
                 if cfg.enabled and "cron" in cfg.hosted_module_names():
@@ -143,8 +90,6 @@ class CronModule(BaseModule):
             # Else: we're inside the worker that hosts cron (the
             # normal case) -- fall through and acquire the lock.
         except Exception as exc:
-            # Best-effort: if env / settings can't be read for any
-            # reason, fall through to the normal acquire path.
             logger.debug("cron_skip_check_failed: %s", exc)
 
         # Late import to avoid forcing the workers package on every
@@ -197,19 +142,7 @@ class CronModule(BaseModule):
             self._leader = None
         logger.info("cron_module_stopped")
 
-    # ── Background tasks ─────────────────────────────────────────
-
     async def _sweep_loop(self) -> None:
-        """Run the activation sweep once every
-        ``self._sweep_interval_s`` until ``on_stop`` cancels us.
-
-        Ports the daemon's ``_sweep_iteration`` minus the in-memory
-        rot detector (which depends on ``app.state.app_manager``
-        and so cannot run in a worker process without a different
-        data source). The rot detector continues to run daemon-side
-        when cron is workered -- see ``server.py``'s guarded
-        ``_activation_sweeper`` for the split.
-        """
         while not self._stopping:
             try:
                 await asyncio.sleep(self._sweep_interval_s)
@@ -252,10 +185,6 @@ class CronModule(BaseModule):
             logger.debug("cron_sweep_iteration_failed: %s", exc)
 
     async def _leader_refresh_loop(self) -> None:
-        """Bump the lock file's ``renewed_at`` every
-        ``leader.renew_interval_s`` so a sibling worker doesn't
-        detect us as stale and steal the lease.
-        """
         if self._leader is None:
             return
         interval = self._leader.renew_interval_s

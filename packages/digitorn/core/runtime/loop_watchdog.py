@@ -1,24 +1,4 @@
-"""Active asyncio event-loop watchdog.
-
-Detects when the main loop stalls beyond a threshold (default 2s) and
-captures all thread stacks at the moment of the stall. Runs a short
-heartbeat coroutine inside the loop and a dedicated OS thread that
-polls the heartbeat timestamp - an OS thread is necessary because a
-blocked event loop cannot schedule its own alert.
-
-On stall, the watchdog:
-  * writes every Python thread's stack to ``~/.digitorn/logs/loop-stall.log``
-    (overwritten on each stall so the freshest trace is always there),
-  * logs a WARNING with the measured gap,
-  * increments a counter surfaced via ``get_state()`` so the health
-    endpoint can expose ``loop_stalls_total`` and
-    ``last_stall_gap_ms``.
-
-The passive ``_stack_watchdog`` in server.py dumps every 30s regardless
-of load - useful for post-mortem but invisible during a short spike.
-This watchdog fires only on stall, catches it live, and is cheap
-enough to run with a 200ms heartbeat.
-"""
+"""Active asyncio event-loop watchdog."""
 from __future__ import annotations
 
 import asyncio
@@ -67,7 +47,6 @@ class LoopWatchdog:
         }
 
     async def _heartbeat(self) -> None:
-        """Bump ``_last_heartbeat`` forever. Runs on the main loop."""
         try:
             while not self._stop_evt.is_set():
                 self._last_heartbeat = time.monotonic()
@@ -76,7 +55,6 @@ class LoopWatchdog:
             pass
 
     def _poll_loop(self) -> None:
-        """OS-thread watchdog - runs independently of the event loop."""
         while not self._stop_evt.is_set():
             time.sleep(_POLL_INTERVAL_S)
             gap = time.monotonic() - self._last_heartbeat
@@ -107,9 +85,6 @@ class LoopWatchdog:
 
     def start(self) -> None:
         loop = asyncio.get_running_loop()
-        # Slow-callback warnings - logs a WARNING when any callback on
-        # the loop takes longer than 100ms. This catches sync CPU work
-        # well before it becomes a stall, so we spot drift early.
         loop.slow_callback_duration = 0.1
         self._heartbeat_task = loop.create_task(
             self._heartbeat(), name="loop-watchdog-heartbeat",

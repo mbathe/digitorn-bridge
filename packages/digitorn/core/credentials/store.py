@@ -1,27 +1,4 @@
-"""CredentialStore - encrypted CRUD over the ``credentials`` table.
-
-The store is the **single gatekeeper** for reading and writing
-credentials. Nothing else in the codebase should touch the
-``Credential`` SQLAlchemy model directly: always go through a store
-method so encryption, scope validation, and audit logging stay in
-one place.
-
-Public surface:
-
-    upsert_credential     create or replace a credential
-    get_credential        fetch one by (user_id?, app_id?, provider)
-    list_credentials      filter by user_id / app_id / scope
-    delete_credential     hard-delete one credential (and its disk artifacts)
-    resolve_field         lookup a single field across 4 scopes - used by
-                          both the compile-time variables resolver and the
-                          runtime template renderer
-    list_for_schema       return the schema state for an app+user combo
-                          (what the Flutter form needs)
-
-Every method is async because the DB is async. The store takes an
-async ``session_factory`` just like the other stores (BackgroundSessionStore,
-BuildDraftStore).
-"""
+"""CredentialStore - encrypted CRUD over the `credentials` table; single gatekeeper for read/write."""
 
 from __future__ import annotations
 
@@ -62,10 +39,7 @@ class CredentialNotFound(Exception):
 
 
 class CredentialMissing(Exception):
-    """Raised by ``resolve_field`` when no credential in any scope
-    provides the requested field. Structured so the runtime can
-    surface a clean error to the user.
-    """
+    """Raised by `resolve_field` when no credential in any scope provides the requested field."""
 
     def __init__(
         self,
@@ -81,13 +55,7 @@ class CredentialMissing(Exception):
         self.field = field
         self.app_id = app_id
         self.user_id = user_id
-        # ``agent_id`` and ``provider_id`` are tracing/debug fields.
-        # They exist because in multi-agent apps each agent's inline
-        # brain produces an internal ``provider_id`` like
-        # ``"{agent_id}_brain"`` - useful for the UI to say "which
-        # agent asked" but NEVER to be used as the credential
-        # lookup key. ``provider`` is the canonical name
-        # (``deepseek``, ``openai``, ...).
+        # agent_id / provider_id are tracing fields only - never used as the credential lookup key.
         self.agent_id = agent_id
         self.provider_id = provider_id
         super().__init__(
@@ -125,29 +93,7 @@ class CredentialMissing(Exception):
 
 
 class CredentialAuthRequired(Exception):
-    """Raised when a user has credentials matching a provider but none
-    of them are granted to the requesting app yet (first-use flow).
-
-    The runtime catches this and surfaces a structured error to the
-    client so the frontend can render the credential picker dialog.
-
-    Fields
-    ------
-    provider:     Provider name (e.g. "deepseek", "notion").
-    provider_type: "api_key", "oauth2", "mcp_server", ...
-    app_id:       The app that tried to use the credential.
-    user_id:      The user being asked.
-    candidates:   List of {id, label, provider_name, status, masked_fields}
-                  - credentials the user already owns that could satisfy
-                  this request. Empty list means "create from scratch".
-    field_spec:   The credentials_schema provider entry describing what
-                  fields a new credential would need (for the "create"
-                  tab of the picker dialog).
-    oauth_missing_scopes: When an existing OAuth credential is a
-                  candidate but doesn't cover the requested scopes,
-                  those missing scopes are listed here so the client
-                  can trigger an incremental auth flow.
-    """
+    """Raised when a user has credentials for a provider but none are granted to the requesting app yet."""
 
     def __init__(
         self,
@@ -188,15 +134,7 @@ class CredentialAuthRequired(Exception):
 
 
 class OwnerType:
-    """Ownership dimension of a credential under the unified model.
-
-    - ``USER``: the credential belongs to ``user_id``. Access from an
-      app requires a row in ``credential_grants``.
-    - ``SYSTEM``: the credential is admin-owned and visible to every
-      app by default. When ``app_id`` is set, access is restricted to
-      that one app (enterprise case: "all users of THIS app share
-      this key").
-    """
+    """Ownership dimension of a credential: USER (granted per app) or SYSTEM (admin-owned, default-visible)."""
 
     USER = "user"
     SYSTEM = "system"
@@ -204,9 +142,7 @@ class OwnerType:
 
 
 class _CipherAdapter:
-    """Normalise sync access for both legacy `Cipher` and new
-    `VersionedCipher`. The store body uses only `.encrypt()` /
-    `.decrypt()` and doesn't care which underlies."""
+    """Normalise sync access for both legacy `Cipher` and new `VersionedCipher`."""
 
     def __init__(self, inner: Any) -> None:
         self._inner = inner
@@ -223,26 +159,18 @@ class _CipherAdapter:
 
 
 def _wrap_cipher(c: Any) -> _CipherAdapter:
-    """Wrap whatever cipher form the boot path constructed."""
     if isinstance(c, _CipherAdapter):
         return c
     return _CipherAdapter(c)
 
 
 class CredentialStore:
-    """Async store wrapping the ``credentials`` table with encryption.
-
-    Accepts either a legacy ``Cipher`` (sync `encrypt` / `decrypt`) or
-    the new ``VersionedCipher`` (sync wrappers `encrypt_sync` /
-    `decrypt_sync`). The duck-typed adapter normalises both into a
-    sync interface internally so the store body doesn't branch.
-    """
+    """Async store wrapping the `credentials` table with encryption."""
 
     def __init__(self, session_factory: Any, cipher: Any) -> None:
         self._session_factory = session_factory
         self._cipher = _wrap_cipher(cipher)
 
-    # ── Write ────────────────────────────────────────────────────
 
     async def upsert_credential(
         self,
@@ -258,41 +186,22 @@ class CredentialStore:
         display_metadata: dict[str, Any] | None = None,
         name: str | None = None,
     ) -> dict[str, Any]:
-        """Create or overwrite a credential for the given scope tuple.
-
-        The ``fields`` dict is the plaintext payload - this method
-        encrypts it before persisting. Returns the stored row as a
-        dict (without the encrypted payload).
-
-        ``expires_at`` accepts either a ``datetime`` OR an ISO 8601
-        string - the handler refresh methods return strings for
-        readability and the OAuth flow returns datetimes, and both
-        land here. We normalise internally.
-
-        ``name`` (slug) is the user-facing identifier used in YAML
-        ``credential: <name>`` references. Defaults to ``provider_name``
-        for back-compat with the legacy single-cred-per-provider model.
-        """
+        """Create or overwrite a credential for the given scope tuple."""
         from digitorn.core.models import Credential
 
-        # Normalise expires_at to a datetime
         expires_at_dt = self._normalise_datetime(expires_at)
 
         self._validate_scope(scope, user_id, app_id)
 
-        # Build the display metadata - masked previews of each secret
-        # field so the UI can say "set" without decrypting.
+        # display_metadata holds masked previews so the UI can say "set" without decrypting.
         display = dict(display_metadata or {})
         masked = {k: mask_secret(str(v)) for k, v in fields.items() if v is not None}
         display.setdefault("masked_fields", masked)
 
         ciphertext, nonce = self._cipher.encrypt(fields)
-        # Default name to provider_name (legacy back-compat). New
-        # callers pass an explicit slug.
         slug = (name or "").strip() or provider_name
 
         async with self._session_factory() as db:
-            # Look for an existing row - one credential per scope tuple.
             existing = await self._fetch_exact(
                 db, user_id, app_id, provider_name,
             )
@@ -320,9 +229,7 @@ class CredentialStore:
                 row.encrypted_fields = ciphertext
                 row.nonce = nonce
                 row.status = status
-                # Only overwrite expires_at when a value was explicitly
-                # provided - an upsert with expires_at=None keeps the
-                # previous expiry, not wipes it.
+                # upsert with expires_at=None keeps the previous expiry rather than wiping it.
                 if expires_at is not None:
                     row.expires_at = expires_at_dt
                 row.display_metadata = display
@@ -342,11 +249,7 @@ class CredentialStore:
         last_validated_at: datetime | str | None = None,
         last_error: str | None = None,
     ) -> bool:
-        """Update lifecycle state after a refresh / live test.
-
-        Accepts both ``datetime`` and ISO string for the timestamp
-        fields - same normalisation as ``upsert_credential``.
-        """
+        """Update lifecycle state after a refresh / live test."""
         from digitorn.core.models import Credential
 
         expires_at_dt = self._normalise_datetime(expires_at)
@@ -390,7 +293,6 @@ class CredentialStore:
             await db.commit()
             return (result.rowcount or 0) > 0
 
-    # ── Read ─────────────────────────────────────────────────────
 
     async def get_credential(
         self,
@@ -400,13 +302,7 @@ class CredentialStore:
         provider_name: str,
         decrypt: bool = False,
     ) -> dict[str, Any] | None:
-        """Fetch a single credential by its scope tuple.
-
-        If ``decrypt=True`` the returned dict includes the plaintext
-        ``fields`` key. Otherwise only the non-secret metadata is
-        returned. **Default is decrypt=False** - only the resolver
-        and the explicit admin CLI set decrypt=True.
-        """
+        """Fetch a single credential by its scope tuple."""
         async with self._session_factory() as db:
             row = await self._fetch_exact(db, user_id, app_id, provider_name)
             if row is None:
@@ -423,16 +319,7 @@ class CredentialStore:
         provider_names: list[str] | None = None,
         name_prefix: str | None = None,
     ) -> list[dict[str, Any]]:
-        """List credentials matching any subset of filters.
-
-        Never returns plaintext field values - callers that need
-        plaintext go through ``get_credential(decrypt=True)``.
-
-        ``provider_types`` (handler types) and ``provider_names``
-        (catalog provider names) are used by the per-app config UI
-        to filter the picker dropdown to only credentials compatible
-        with the slot.
-        """
+        """List credentials matching any subset of filters."""
         from digitorn.core.models import Credential
 
         async with self._session_factory() as db:
@@ -465,22 +352,7 @@ class CredentialStore:
         app_id: str | None = None,
         decrypt: bool = False,
     ) -> dict[str, Any] | None:
-        """Strict-scope lookup by user-facing name slug.
-
-        Used by the runtime injector when an app.yaml says
-        ``credential: { ref: openai_main, scope: per_user }``. Returns
-        ONLY a row at the EXACT declared scope - no fallback cascade
-        (the YAML's scope is authoritative, per the unified model).
-
-        The (user_id, app_id) tuple required varies by scope:
-          - ``system_wide``     : ignores both
-          - ``per_app_shared``  : requires app_id
-          - ``per_user``        : requires user_id
-          - ``per_app_per_user``: requires both
-
-        The store enforces this at the index level: a missing user_id
-        for a per_user query returns nothing.
-        """
+        """Strict-scope lookup by user-facing name slug."""
         from digitorn.core.models import Credential
 
         async with self._session_factory() as db:
@@ -517,7 +389,6 @@ class CredentialStore:
                 return None
             return self._row_to_dict(row, include_fields=decrypt)
 
-    # ── Resolver (the critical path) ─────────────────────────────
 
     async def resolve_field(
         self,
@@ -526,27 +397,7 @@ class CredentialStore:
         user_id: str | None,
         app_id: str | None,
     ) -> str | None:
-        """4-scope lookup for a single field value.
-
-        The input ``provider_or_field`` can be either:
-
-        - ``"<provider>.<field>"``   - explicit provider reference
-        - ``"<KEY>"``                - legacy secret name, looked up
-                                       as the *unique* field of an
-                                       auto-detected api_key provider
-                                       with the same name.
-
-        Resolution order (most specific wins):
-
-        1. ``(user_id, app_id)``  - per_app_per_user
-        2. ``(user_id, NULL)``    - per_user
-        3. ``(NULL,   app_id)``   - per_app_shared
-        4. ``(NULL,   NULL)``     - system_wide
-
-        Returns the field value as a string, or ``None`` if nothing
-        matched in any scope. Callers decide whether to raise
-        ``CredentialMissing`` or fall back to another source.
-        """
+        """4-scope lookup for a single field value."""
         if "." in provider_or_field:
             provider, field = provider_or_field.split(".", 1)
         else:
@@ -562,9 +413,6 @@ class CredentialStore:
             (None, None),        # system_wide
         ]
         for u, a in candidates:
-            # Skip scope tuples that are impossible given the inputs.
-            # If user_id is None, we can't hit the per_user or
-            # per_app_per_user scopes - only None/x ones.
             if u is not None and user_id is None:
                 continue
             if a is not None and app_id is None:
@@ -589,7 +437,6 @@ class CredentialStore:
                 return str(next(iter(fields.values())))
         return None
 
-    # ── Schema helper for the HTTP route ─────────────────────────
 
     async def list_for_schema(
         self,
@@ -598,16 +445,7 @@ class CredentialStore:
         app_id: str,
         schema_providers: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Return the credentials state needed to render the Flutter form.
-
-        Given the compiled app's ``credentials_schema.providers`` list
-        and the current user, for each declared provider:
-
-        - Find the effective stored credential (walking the 4 scopes)
-        - Report filled/missing, masked previews, last_updated, scope
-
-        The route layer wraps this in the full AppResponse envelope.
-        """
+        """Return the credentials state needed to render the form."""
         response: dict[str, Any] = {
             "providers": [],
             "missing_required": [],
@@ -671,14 +509,7 @@ class CredentialStore:
         user_id: str,
         app_id: str,
     ) -> dict[str, Any] | None:
-        """Return the most specific credential that covers a declared scope.
-
-        When a schema declares a provider at scope ``per_user``, we
-        can satisfy it either from a ``per_user`` row (user's own
-        credential) OR from a more specific ``per_app_per_user``
-        override. We never return a row at a *wider* scope than what
-        was declared - that would confuse the UI.
-        """
+        """Return the most specific credential that covers a declared scope."""
         order: list[tuple[str | None, str | None]]
         if declared_scope == Scope.PER_APP_PER_USER:
             order = [(user_id, app_id)]
@@ -701,7 +532,6 @@ class CredentialStore:
                 return cred
         return None
 
-    # ── Internals ────────────────────────────────────────────────
 
     async def _fetch_exact(
         self,
@@ -725,13 +555,7 @@ class CredentialStore:
     def _normalise_datetime(
         value: datetime | str | None,
     ) -> datetime | None:
-        """Accept either a datetime or an ISO 8601 string and return a datetime.
-
-        OAuth handlers emit ISO strings (easier to log and round-trip
-        through JSON) while direct callers pass datetimes. Both land
-        here and we normalise to a tz-aware datetime. Naive datetimes
-        are assumed to be UTC.
-        """
+        """Accept either a datetime or an ISO 8601 string and return a datetime."""
         if value is None:
             return None
         if isinstance(value, datetime):
@@ -798,11 +622,6 @@ class CredentialStore:
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
         if include_fields:
-            # In-memory cache of known-broken cred IDs. We never reset
-            # this within a daemon run - an undecryptable cred stays
-            # undecryptable until the user rotates / deletes it. The
-            # cache lets us short-circuit on every subsequent list
-            # call and stop spamming the log.
             broken = getattr(self, "_decrypt_broken_ids", None)
             if broken is None:
                 broken = set()
@@ -828,10 +647,6 @@ class CredentialStore:
             try:
                 out["fields"] = self._cipher.decrypt(row.encrypted_fields, row.nonce)
             except Exception as exc:
-                # warning, not error - decrypt failures are almost
-                # always master-key rotations. We mark the cred id
-                # in the in-memory `broken` cache so subsequent list
-                # calls hit the short-circuit above and stop spamming.
                 broken.add(row.id)
                 logger.warning(
                     "decryption failed for credential %s: %s "
@@ -845,29 +660,13 @@ class CredentialStore:
 
 
 def _eq_or_null(column, value):
-    """Helper: SQL ``column = value`` OR ``column IS NULL`` when value is None."""
     if value is None:
         return column.is_(None)
     return column == value
 
 
-# ════════════════════════════════════════════════════════════════════
-# Grant-aware API - the "new" unified model
-# ════════════════════════════════════════════════════════════════════
-#
-# The methods above implement the legacy 4-scope model. Everything
-# below is the new user-owned + grant-based model. The two coexist
-# during migration: the legacy methods still pass through, and the
-# grant-aware methods map internally to the same ``credentials`` table
-# with ``owner_type`` and to the ``credential_grants`` table.
-
-
 def _install_grant_methods() -> None:
-    """Attach grant-aware methods to CredentialStore at import time.
-
-    Keeping them in a separate function lets us grow the new API
-    without stretching the class body.
-    """
+    """Attach grant-aware methods to CredentialStore at import time."""
     from digitorn.core.models import Credential, CredentialGrant
 
     async def upsert_user_credential(
@@ -885,19 +684,7 @@ def _install_grant_methods() -> None:
         name: str | None = None,
         scope: str | None = None,
     ) -> dict[str, Any]:
-        """Create or overwrite a user-owned credential.
-
-        Unlike the legacy ``upsert_credential`` this one does NOT
-        attach the credential to an app. The user can later grant it
-        to as many apps as they want via ``create_grant``. Uniqueness
-        key is ``(user_id, provider_name, label)`` so a user can have
-        several credentials for the same provider (e.g. "personal"
-        and "work") - the label disambiguates.
-
-        ``credential_id`` optionally pins the UUID for OAuth flows
-        that need a stable id across the pending-flow → persisted
-        transition.
-        """
+        """Create or overwrite a user-owned credential."""
         expires_at_dt = self._normalise_datetime(expires_at)
         display = dict(display_metadata or {})
         masked = {k: mask_secret(str(v)) for k, v in fields.items() if v is not None}
@@ -908,10 +695,6 @@ def _install_grant_methods() -> None:
 
         async with self._session_factory() as db:
             existing = None
-            # Prefer id-based lookup when the caller passes a
-            # credential_id - supports the "change label" update
-            # path where the (user_id, provider, label) lookup
-            # would miss the row being updated.
             if credential_id:
                 id_row = (
                     await db.execute(
@@ -929,9 +712,6 @@ def _install_grant_methods() -> None:
                     Credential.owner_type == OwnerType.USER,
                 )
                 existing = (await db.execute(stmt)).scalar_one_or_none()
-            # Resolve the `name` slug. Default to provider_name when
-            # the caller didn't pass one. The new declarative
-            # `credential:` block does its lookup on this column.
             slug = (name or "").strip() or provider_name
             effective_scope = scope or Scope.PER_USER
             if existing is None:
@@ -984,15 +764,7 @@ def _install_grant_methods() -> None:
         display_metadata: dict[str, Any] | None = None,
         name: str | None = None,
     ) -> dict[str, Any]:
-        """Create or overwrite an admin/system-owned credential.
-
-        If ``app_id`` is set the credential is only visible to that
-        one app (enterprise case: "this DB connection belongs to app
-        X, share it with every user of X"). If ``app_id`` is None the
-        credential is visible to every app on the daemon.
-
-        No grants needed - system credentials are implicitly granted.
-        """
+        """Create or overwrite an admin/system-owned credential."""
         expires_at_dt = self._normalise_datetime(expires_at)
         display = dict(display_metadata or {})
         masked = {k: mask_secret(str(v)) for k, v in fields.items() if v is not None}
@@ -1093,11 +865,7 @@ def _install_grant_methods() -> None:
         user_id: str,
         provider_name: str | None = None,
     ) -> list[dict[str, Any]]:
-        """List the user-owned credentials belonging to ``user_id``.
-
-        Use ``provider_name`` to narrow to a specific provider - this
-        is what the picker dialog queries to show candidates.
-        """
+        """List the user-owned credentials belonging to `user_id`."""
         async with self._session_factory() as db:
             stmt = select(Credential).where(
                 Credential.user_id == user_id,
@@ -1136,7 +904,6 @@ def _install_grant_methods() -> None:
                 for r in result.scalars().all()
             ]
 
-    # ── Grants ──────────────────────────────────────────────────────
 
     async def create_grant(
         self: CredentialStore,
@@ -1146,15 +913,7 @@ def _install_grant_methods() -> None:
         app_id: str,
         scopes_granted: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Authorize ``app_id`` to use ``credential_id``.
-
-        Idempotent - if the grant already exists (and isn't revoked)
-        it is returned untouched. If a revoked grant exists, it is
-        reactivated (revoked_at cleared).
-
-        ``scopes_granted`` records the OAuth scopes this grant covers;
-        non-OAuth credentials pass an empty list.
-        """
+        """Authorize `app_id` to use `credential_id`."""
         async with self._session_factory() as db:
             # Verify the credential exists and is user-owned by this user
             cred_row = (
@@ -1210,11 +969,7 @@ def _install_grant_methods() -> None:
         user_id: str,
         hard: bool = False,
     ) -> bool:
-        """Revoke a grant.
-
-        ``hard=False`` (default) sets ``revoked_at`` - audit-friendly,
-        easy to restore. ``hard=True`` deletes the row outright.
-        """
+        """Revoke a grant."""
         async with self._session_factory() as db:
             stmt = select(CredentialGrant).where(
                 CredentialGrant.credential_id == credential_id,
@@ -1239,11 +994,7 @@ def _install_grant_methods() -> None:
         credential_id: str | None = None,
         include_revoked: bool = False,
     ) -> list[dict[str, Any]]:
-        """List grants owned by ``user_id``.
-
-        Useful for the Settings screen ("which apps can see my
-        credentials?") and for the revoke flow.
-        """
+        """List grants owned by `user_id`."""
         async with self._session_factory() as db:
             stmt = select(CredentialGrant, Credential).join(
                 Credential, Credential.id == CredentialGrant.credential_id,
@@ -1280,7 +1031,6 @@ def _install_grant_methods() -> None:
             )
             return (await db.execute(stmt)).scalar_one_or_none() is not None
 
-    # ── Resolver for a specific (user, app) pair ────────────────────
 
     async def resolve_for_app(
         self: CredentialStore,
@@ -1291,26 +1041,7 @@ def _install_grant_methods() -> None:
         decrypt: bool = False,
         requested_oauth_scopes: list[str] | None = None,
     ) -> dict[str, Any] | None:
-        """Find the effective credential for (user, app, provider).
-
-        Resolution order:
-
-        1. User-owned credential with an active grant for this app
-           - the "mine / shared across apps" case.
-        2. System credential scoped to this specific app
-           (owner_type=system, app_id=X) - enterprise per-app override.
-        3. System credential with no app restriction
-           (owner_type=system, app_id=NULL) - daemon-wide shared.
-
-        Returns ``None`` if nothing matches. The caller (the runtime
-        resolver) then decides whether to raise ``CredentialAuthRequired``
-        (first-use flow) or ``CredentialMissing`` (truly no option).
-
-        When ``requested_oauth_scopes`` is passed, user-owned OAuth
-        credentials whose grant does not cover all requested scopes
-        are skipped at this level - the runtime resolver will handle
-        the incremental-scope flow.
-        """
+        """Find the effective credential for (user, app, provider)."""
         async with self._session_factory() as db:
             # (1) User-owned + granted
             stmt = (
@@ -1336,27 +1067,10 @@ def _install_grant_methods() -> None:
                     needed = set(requested_oauth_scopes)
                     if not needed.issubset(granted):
                         continue  # scope-upgrade flow will handle it
-                # Skip rows whose `display_metadata.masked_fields` is
-                # empty - they're leftover scaffolds from a broken
-                # create flow (no actual values stored) and CANNOT
-                # satisfy any field lookup. Without this filter, the
-                # runtime resolver returns the empty row, finds no
-                # matching field, and raises CredentialAuthRequired -
-                # the picker offers the same empty cred again, the
-                # user grants it again, and the loop continues.
                 meta = getattr(cred_row, "display_metadata", None) or {}
                 masked = (meta or {}).get("masked_fields") or {}
                 if not masked:
                     continue
-                # Decryption may fail for legacy rows that were
-                # encrypted under a previous master key (KMS rotation
-                # without a re-encrypt migration, daemon reseeded
-                # `master.key`, etc.). `_row_to_dict` catches the
-                # error internally, returning `fields={}` and
-                # `status=ERROR`. We surface that as "no usable
-                # credential" by skipping to the next row - the
-                # caller eventually returns None and the picker
-                # offers the user a chance to rotate the broken row.
                 cred_dict = self._row_to_dict(cred_row, include_fields=decrypt)
                 if decrypt:
                     if cred_dict.get("status") == Status.ERROR:
@@ -1429,19 +1143,7 @@ def _install_grant_methods() -> None:
         field_spec: dict[str, Any] | None = None,
         requested_oauth_scopes: list[str] | None = None,
     ) -> str | None:
-        """Grant-aware single-field lookup used by the runtime resolver.
-
-        If a credential matches → return the requested field value.
-        If no credential matches but the user has candidates for this
-        provider → raise ``CredentialAuthRequired`` (unless
-        ``raise_on_auth_required=False``) so the frontend can render
-        the picker dialog. If the user has no candidates → return
-        None so the caller can fall back to env or raise missing.
-
-        ``provider_or_field`` accepts the same two forms as the
-        legacy ``resolve_field``: ``"<provider>.<field>"`` explicit
-        or ``"<NAME>"`` for the single-field / flat-name convention.
-        """
+        """Grant-aware single-field lookup used by the runtime resolver."""
         if "." in provider_or_field:
             provider, field = provider_or_field.split(".", 1)
         else:
@@ -1459,20 +1161,8 @@ def _install_grant_methods() -> None:
             fields = cred.get("fields") or {}
             if field in fields:
                 return str(fields[field])
-            # Single-field credential: return that one regardless
-            # of whether the request used `provider.field` or the
-            # bare provider name. The previous check
-            # `provider_or_field == provider` only fired for the
-            # bare form, which broke `{{secret.DEEPSEEK_API_KEY}}`
-            # → split into provider="deepseek", field="DEEPSEEK_API_KEY"
-            # → field not in {"api_key": "..."} → returned None
-            # → picker re-emitted forever (the loop the user hit).
             if len(fields) == 1:
                 return str(next(iter(fields.values())))
-            # Credential exists but has multiple fields and none
-            # match the requested name. Try common case-insensitive
-            # aliases (e.g. YAML asks `DEEPSEEK_API_KEY`, vault has
-            # `api_key`) before giving up.
             field_lower = field.lower()
             for k, v in fields.items():
                 if k.lower() == field_lower:
@@ -1518,25 +1208,9 @@ def _install_grant_methods() -> None:
             )
         return None
 
-    # ── Schema migration helper ─────────────────────────────────────
 
     async def migrate_legacy_scopes(self: CredentialStore) -> dict[str, int]:
-        """One-shot migration: set owner_type and create grants for
-        legacy 4-scope rows.
-
-        Safe to run repeatedly - rows with owner_type already set are
-        skipped. Returns counts for audit logging.
-
-        Mapping:
-
-        - ``scope=per_app_per_user``  → owner_type=user + grant(app_id)
-        - ``scope=per_user``          → owner_type=user, no grant
-          (user will be prompted via CredentialAuthRequired on first
-          use; this avoids retroactively granting access to every app
-          ever used)
-        - ``scope=per_app_shared``    → owner_type=system (app_id kept)
-        - ``scope=system_wide``       → owner_type=system, app_id=NULL
-        """
+        """One-shot migration: set owner_type and create grants for"""
         counts = {"user_rows": 0, "system_rows": 0, "grants_created": 0}
         async with self._session_factory() as db:
             stmt = select(Credential).where(

@@ -1,12 +1,4 @@
-"""Email adapter - IMAP inbound + SMTP outbound.
-
-Inbound:  Polls IMAP for new messages (by UID tracking, not UNSEEN flag).
-Outbound: Sends email via SMTP.
-
-The adapter tracks message UIDs to detect new arrivals, regardless of
-read/unread status. This works correctly with Gmail (which marks self-sent
-emails as Seen) and all other IMAP providers.
-"""
+"""Email adapter - IMAP inbound + SMTP outbound."""
 
 from __future__ import annotations
 
@@ -28,16 +20,7 @@ _ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
-
 def _validate_imap_since_date(since_date: str) -> str:
-    """Validate/normalize an IMAP SINCE date value.
-
-    Accepts ``DD-Mon-YYYY`` directly or ``YYYY-MM-DD`` (converted). Raises
-    ``ValueError`` on anything else to block IMAP command injection.
-
-    Performs FULL date validation via datetime - rejects impossible dates
-    like 32-Jan-2020 or 30-Feb-2024 that the regex alone would accept.
-    """
     from datetime import date as _date
 
     if not isinstance(since_date, str):
@@ -80,7 +63,6 @@ from digitorn.modules.channels.adapter import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 class EmailAdapter(BaseChannelAdapter):
     """Email adapter - IMAP polling + SMTP delivery."""
@@ -125,8 +107,6 @@ class EmailAdapter(BaseChannelAdapter):
 
     def adapter_capabilities(self) -> AdapterCapabilities:
         return self.capabilities()
-
-    # ── Inbound (IMAP polling) ───────────────────────────────────
 
     async def start_listener(self, callback: InboundCallback) -> None:
         if not self._imap_host:
@@ -188,7 +168,6 @@ class EmailAdapter(BaseChannelAdapter):
             logger.info("email_adapter_stopped")
 
     def _get_uids_since(self, since_date: str) -> set[str]:
-        """Get all UIDs SINCE a date (runs in thread). Lightweight - no body fetch."""
         import imaplib
 
         safe_date = _validate_imap_since_date(since_date)
@@ -208,7 +187,6 @@ class EmailAdapter(BaseChannelAdapter):
     def _fetch_new_messages(
         self, seen_uids: set[str], since_date: str,
     ) -> list[dict[str, Any]]:
-        """Fetch messages with UIDs not in seen_uids (runs in thread)."""
         import imaplib
 
         messages: list[dict[str, Any]] = []
@@ -269,8 +247,6 @@ class EmailAdapter(BaseChannelAdapter):
     async def stop_listener(self) -> None:
         pass
 
-    # ── Outbound (SMTP) ──────────────────────────────────────────
-
     async def deliver(
         self,
         app_id: str,
@@ -320,7 +296,6 @@ class EmailAdapter(BaseChannelAdapter):
         html_body: str | None = None,
         in_reply_to: str = "",
     ) -> DeliveryResult:
-        """Send email via SMTP (runs in thread)."""
         msg = MIMEMultipart("alternative")
         msg["From"] = self._from_address
         msg["To"] = to_addr
@@ -359,7 +334,6 @@ class EmailAdapter(BaseChannelAdapter):
             payload=effective_payload,
             config=reply_context,
         )
-
 
 # Max email body length to store (prevent huge emails from eating memory)
 MAX_BODY_LENGTH = 50_000

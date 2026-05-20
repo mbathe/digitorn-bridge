@@ -7,10 +7,6 @@ from typing import Any
 ICON_SUCCESS = "\u2713"  # ✓
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Meta-tool labels (context_builder system-level primitives)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 TOOL_LABELS: dict[str, tuple[str, str | None]] = {
     # Discovery
     "execute_tool": ("Executing", "name"),
@@ -37,13 +33,7 @@ TOOL_LABELS: dict[str, tuple[str, str | None]] = {
 }
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Module-qualified action labels - resolves ambiguous names (get, set, etc.)
-# Keyed by "module.action". Checked BEFORE the generic ACTION_LABELS.
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 MODULE_ACTION_LABELS: dict[str, tuple[str, str | None]] = {
-    # ── database ──────────────────────────────────────────────────────────────
     # LLM-visible actions
     "database.connect": ("Connecting DB", "database"),
     "database.disconnect": ("Disconnecting DB", None),
@@ -62,14 +52,12 @@ MODULE_ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "database.introspect": ("Introspecting DB", None),
     "database.describe": ("Describing", "table"),
     "database.extract_for_index": ("DB extract", None),
-    # ── llm_provider ──────────────────────────────────────────────────────────
     "llm_provider.configure": ("Configure LLM", "provider"),
     "llm_provider.chat": ("LLM chat", "model"),
     "llm_provider.remove": ("Remove LLM", "provider"),
     "llm_provider.list_providers": ("List providers", None),
     "llm_provider.get_provider_info": ("Provider info", "provider"),
     "llm_provider.update_defaults": ("Update LLM defaults", None),
-    # ── queue ─────────────────────────────────────────────────────────────────
     "queue.create_queue": ("Create queue", "name"),
     "queue.publish": ("Publish", "queue"),
     "queue.subscribe": ("Subscribe", "queue"),
@@ -83,11 +71,9 @@ MODULE_ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "queue.delete_queue": ("Delete queue", "name"),
     "queue.purge": ("Purge queue", "name"),
     "queue.dead_letter": ("Dead letters", "queue"),
-    # ── cron_native (3 actions) ───────────────────────────────────────────────
     "cron_native.schedule": ("Schedule", "when"),
     "cron_native.cancel_schedule": ("Cancel schedule", "job_id"),
     "cron_native.remind": ("Remind me", "when"),
-    # ── index ─────────────────────────────────────────────────────────────────
     "index.register_source": ("Register source", "path"),
     "index.register_extractor": ("Register extractor", "name"),
     "index.scan": ("Scanning index", "source"),
@@ -95,14 +81,12 @@ MODULE_ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "index.relations": ("Index relations", "name"),
     "index.context": ("Index context", "query"),
     "index.invalidate": ("Invalidate index", "source"),
-    # ── vector (ambiguous names) ──────────────────────────────────────────────
     "vector.add": ("Vector add", "collection"),
     "vector.get": ("Vector get", "collection"),
     "vector.delete": ("Vector delete", "collection"),
     "vector.search": ("Vector search", "query"),
     "vector.count": ("Vector count", "collection"),
     "vector.update_metadata": ("Update metadata", "collection"),
-    # ── http (ambiguous names) ────────────────────────────────────────────────
     "http.get": ("GET", "url"),
     "http.post": ("POST", "url"),
     "http.put": ("PUT", "url"),
@@ -119,7 +103,6 @@ MODULE_ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "http.download_status": ("Download status", "download_id"),
     "http.download_cancel": ("Cancel download", "download_id"),
     "http.download_list": ("List downloads", None),
-    # ── mcp (ambiguous names) ─────────────────────────────────────────────────
     "mcp.connect": ("Connecting MCP", "server_id"),
     "mcp.disconnect": ("Disconnecting MCP", "server_id"),
     "mcp.reconnect": ("Reconnecting MCP", "server_id"),
@@ -131,25 +114,17 @@ MODULE_ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "mcp.list_prompts": ("MCP prompts", "server_id"),
     "mcp.get_prompt": ("MCP prompt", "prompt_name"),
     "mcp.health_check": ("MCP health", "server_id"),
-    # ── web (ambiguous names) ─────────────────────────────────────────────────
     "web.search": ("Web search", "query"),
     "web.fetch": ("Fetching page", "url"),
     "web.extract": ("Extracting", "url"),
     "web.download": ("Downloading", "url"),
-    # ── shell (FQN labels) ─────────────────────────────────────────────────────
     "shell.bash": ("Bash", "command"),
     "shell.bash_background": ("Background", "command"),
     "shell.bash_status": ("Task status", "task_id"),
 }
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Module action labels - generic (bare action names, used as fallback)
-# For ambiguous names, MODULE_ACTION_LABELS above takes precedence.
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 ACTION_LABELS: dict[str, tuple[str, str | None]] = {
-    # ── filesystem ────────────────────────────────────────────────────────────
     "read": ("Reading", "path"),
     "write": ("Writing", "path"),
     "edit": ("Editing", "path"),
@@ -161,7 +136,6 @@ ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "cp": ("Copying", "source"),
     "rm": ("Deleting", "path"),
     "undo": ("Undo", "path"),
-    # ── git ────────────────────────────────────────────────────────────────────
     "status": ("Git status", None),
     "diff": ("Git diff", "target"),
     "log": ("Git log", "branch"),
@@ -179,11 +153,9 @@ ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "reset": ("Resetting", "ref"),
     "merge": ("Merging", "branch"),
     "pr_create": ("Creating PR", "title"),
-    # ── shell ─────────────────────────────────────────────────────────────────
     "bash": ("Bash", "command"),
     "bash_background": ("Background", "command"),
     "bash_status": ("Task status", "task_id"),
-    # ── database ──────────────────────────────────────────────────────────────
     "connect": ("Connecting to", "database"),
     "disconnect": ("Disconnecting", None),
     "list_connections": ("Listing connections", None),
@@ -210,7 +182,6 @@ ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "query_history": ("Query history", None),
     "ping": ("Ping", None),
     "schema_diff": ("Schema diff", None),
-    # ── web / http ────────────────────────────────────────────────────────────
     "search": ("Searching", "query"),
     "fetch": ("Fetching", "url"),
     "extract": ("Extracting", "url"),
@@ -230,15 +201,12 @@ ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "download_status": ("Download status", "download_id"),
     "download_cancel": ("Cancel download", "download_id"),
     "download_list": ("List downloads", None),
-    # ── notebook ──────────────────────────────────────────────────────────────
     "edit_cell": ("Editing cell", "cell_index"),
     "add_cell": ("Adding cell", "cell_type"),
     "delete_cell": ("Deleting cell", "cell_index"),
-    # ── hello ─────────────────────────────────────────────────────────────────
     "greet": ("Greeting", "name"),
     "say_hello": ("Hello", "name"),
     "greet_many": ("Greeting many", None),
-    # ── agent_spawn ───────────────────────────────────────────────────────────
     "spawn_agent": ("Agent", "task"),
     "agent_status": ("Agent status", "agent_id"),
     "agent_result": ("Agent result", "agent_id"),
@@ -247,7 +215,6 @@ ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "agent_wait_all": ("Waiting agents", None),
     "agent_cancel": ("Cancel agent", "agent_id"),
     "reassign_agent": ("Reassign agent", "agent_id"),
-    # ── spreadsheet ───────────────────────────────────────────────────────────
     "create": ("Create", "output_path"),
     "new_workbook": ("New workbook", "workbook_id"),
     "write_sheet": ("Write sheet", "sheet_name"),
@@ -266,7 +233,6 @@ ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "add_chart_to_sheet": ("Add chart", "sheet_name"),
     "workbook_state": ("Workbook state", "workbook_id"),
     "list_workbooks": ("List workbooks", None),
-    # ── vector ────────────────────────────────────────────────────────────────
     "create_collection": ("Create collection", "name"),
     "delete_collection": ("Delete collection", "name"),
     "list_collections": ("List collections", None),
@@ -277,7 +243,6 @@ ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "collection_stats": ("Collection stats", "collection"),
     "update_metadata": ("Update metadata", "collection"),
     "count": ("Count", "collection"),
-    # ── cache ─────────────────────────────────────────────────────────────────
     "cache_get": ("Cache get", "key"),
     "cache_set": ("Cache set", "key"),
     "cache_delete": ("Cache delete", "key"),
@@ -292,7 +257,6 @@ ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "clear": ("Clear", None),
     "bulk_get": ("Bulk get", None),
     "bulk_set": ("Bulk set", None),
-    # ── queue ─────────────────────────────────────────────────────────────────
     "create_queue": ("Create queue", "name"),
     "publish": ("Publish", "queue"),
     "subscribe": ("Subscribe", "queue"),
@@ -308,7 +272,6 @@ ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "dead_letter": ("Dead letters", "queue"),
     "enqueue": ("Enqueue", "queue"),
     "dequeue": ("Dequeue", "queue"),
-    # ── cron_native ───────────────────────────────────────────────────────────
     "create_schedule": ("Create schedule", "name"),
     "update_schedule": ("Update schedule", "schedule_id"),
     "delete_schedule": ("Delete schedule", "schedule_id"),
@@ -330,7 +293,6 @@ ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "list_holidays": ("List holidays", None),
     "bulk_create": ("Bulk create", None),
     "calendar_view": ("Calendar view", None),
-    # ── index ─────────────────────────────────────────────────────────────────
     "register_source": ("Register source", "path"),
     "register_extractor": ("Register extractor", "name"),
     "scan": ("Scanning", "source"),
@@ -338,7 +300,6 @@ ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "relations": ("Relations", "name"),
     "context": ("Context", "query"),
     "invalidate": ("Invalidating", "source"),
-    # ── pdf ────────────────────────────────────────────────────────────────────
     "generate": ("Generating", "output_path"),
     "generate_typst": ("PDF (Typst)", "output_path"),
     "list_styles": ("PDF styles", None),
@@ -347,7 +308,6 @@ ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "pdf_info": ("PDF info", "path"),
     "metadata": ("Metadata", "path"),
     "split": ("Splitting", "path"),
-    # ── presentation ──────────────────────────────────────────────────────────
     "new_presentation": ("New presentation", "title"),
     "add_slide": ("Add slide", "layout"),
     "edit_slide": ("Edit slide", "slide_index"),
@@ -358,13 +318,11 @@ ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "finalize_presentation": ("Finalize presentation", "presentation_id"),
     "list_presentations": ("List presentations", None),
     "list_themes": ("List themes", None),
-    # ── llm_provider ──────────────────────────────────────────────────────────
     "configure": ("Configuring", "provider"),
     "chat": ("LLM chat", "model"),
     "list_providers": ("List providers", None),
     "get_provider_info": ("Provider info", "provider"),
     "update_defaults": ("Update defaults", None),
-    # ── http aliases ──────────────────────────────────────────────────────────
     "http_get": ("GET", "url"),
     "http_post": ("POST", "url"),
     "http_put": ("PUT", "url"),
@@ -386,10 +344,6 @@ MCP_ACTION_LABELS: dict[str, tuple[str, str | None]] = {
     "health_check": ("MCP health", "server_id"),
 }
 
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Dynamic label resolution from module registry
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def _label_from_registry(
     module_name: str, action_name: str, params: dict[str, Any],
@@ -420,10 +374,6 @@ def _label_from_registry(
     return None
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Memory module - rich semantic labels
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 def _memory_label(name: str, params: dict[str, Any]) -> tuple[str, str] | None:
     """Rich labels for memory actions."""
     if not name.startswith("memory."):
@@ -451,10 +401,6 @@ def _memory_label(name: str, params: dict[str, Any]) -> tuple[str, str] | None:
 
     return None
 
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Param extraction helpers
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 _PARAM_PRIORITY = (
     "path", "name", "url", "query", "collection", "key", "command", "sql",
@@ -496,27 +442,8 @@ def _resolve_detail(params: dict[str, Any], param_key: str | None) -> str:
     return detail_str
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Main resolution function
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 def tool_label(name: str, params: dict[str, Any]) -> tuple[str, str]:
-    """Return (verb, detail) for a tool call.
-
-    Resolution order:
-    1. TOOL_LABELS (system-level meta-tools)
-       - For execute_tool: resolve inner tool via memory/module labels
-    2. Module-qualified name (module__action or module.action):
-       a. Memory special handler
-       b. Agent spawn special handler
-       c. MCP dynamic server handler
-       d. MODULE_ACTION_LABELS (disambiguated by module)
-       e. _label_from_registry (dynamic from @action cli_label)
-       f. ACTION_LABELS (generic bare name)
-       g. Capitalize fallback
-    3. Bare name: ACTION_LABELS → capitalize fallback
-    """
-    # ── 1. System-level meta-tools ────────────────────────────────────────────
+    """Return (verb, detail) for a tool call."""
     entry = TOOL_LABELS.get(name)
     if entry is not None:
         verb, param_key = entry
@@ -529,7 +456,6 @@ def tool_label(name: str, params: dict[str, Any]) -> tuple[str, str]:
             detail = f'"{detail}"'
         return verb, str(detail) if detail else ""
 
-    # ── 2. Module-qualified names ─────────────────────────────────────────────
     module_name = ""
     action_name = ""
     if "__" in name:
@@ -592,7 +518,6 @@ def tool_label(name: str, params: dict[str, Any]) -> tuple[str, str]:
         # g. Capitalize fallback
         return action_name.replace("_", " ").capitalize(), _first_useful_param(params)
 
-    # ── 3. Bare names (no module prefix) ──────────────────────────────────────
     action_entry = ACTION_LABELS.get(name)
     if action_entry is not None:
         return action_entry[0], _resolve_detail(params, action_entry[1])

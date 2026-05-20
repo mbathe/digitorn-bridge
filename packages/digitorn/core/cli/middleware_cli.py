@@ -1,9 +1,4 @@
-"""CLI commands for middleware management.
-
-    digitorn middleware list      - List installed middleware packages
-    digitorn middleware install   - Install a middleware package
-    digitorn middleware uninstall - Remove a middleware package
-"""
+"""CLI commands for middleware management."""
 
 from __future__ import annotations
 

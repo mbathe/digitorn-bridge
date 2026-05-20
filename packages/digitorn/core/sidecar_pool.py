@@ -1,24 +1,4 @@
-"""Daemon-level sidecar pool - shared subprocess connections across apps.
-
-Manages the lifecycle of sidecar channels with ref-counting:
-  - Multiple apps can share the same sidecar (e.g. one pyright for all Python apps)
-  - Channels are kept alive as long as at least one app holds a reference
-  - Health monitoring with auto-restart on crash
-  - Graceful shutdown on daemon exit
-
-Usage in server.py lifespan::
-
-    pool = DaemonSidecarPool()
-    await pool.start()
-    # ... yield ...
-    await pool.stop()
-
-Usage from modules::
-
-    channel = await pool.acquire("pyright", app_id, command=[...], protocol="jsonrpc")
-    # ... use channel ...
-    await pool.release("pyright", app_id)
-"""
+"""Daemon-level sidecar pool: shared subprocess connections across apps."""
 
 from __future__ import annotations
 
@@ -31,26 +11,20 @@ from digitorn.core.sidecar import SidecarChannel, spawn_sidecar, NotificationHan
 
 logger = logging.getLogger(__name__)
 
-HEALTH_INTERVAL = 30.0  # seconds between health checks
+HEALTH_INTERVAL = 30.0
 MAX_RESTART_ATTEMPTS = 3
-RESTART_BACKOFF_BASE = 2.0  # seconds
+RESTART_BACKOFF_BASE = 2.0
 
 
 @dataclass
 class _ChannelRef:
-    """Ref-counting wrapper around a SidecarChannel."""
-
     channel: SidecarChannel
     app_ids: set[str] = field(default_factory=set)
     restart_attempts: int = 0
 
 
 class DaemonSidecarPool:
-    """Shared sidecar connections across deployed apps.
-
-    Thread-safe via asyncio.Lock. Each channel is ref-counted by app_id.
-    When the last app releases a channel, the subprocess is terminated.
-    """
+    """Shared sidecar connections across deployed apps."""
 
     MAX_CHANNELS = 50
 
@@ -63,8 +37,6 @@ class DaemonSidecarPool:
         self._health_task: asyncio.Task[None] | None = None
         self._on_event = on_event
         self._running = False
-
-    # ── Lifecycle ────────────────────────────────────────────────
 
     async def start(self) -> None:
         """Start the pool and health monitoring."""
@@ -95,8 +67,6 @@ class DaemonSidecarPool:
 
         logger.info("sidecar_pool_stopped")
 
-    # ── Acquire / Release ────────────────────────────────────────
-
     async def acquire(
         self,
         name: str,
@@ -108,23 +78,7 @@ class DaemonSidecarPool:
         env: dict[str, str] | None = None,
         on_notification: NotificationHandler | None = None,
     ) -> SidecarChannel:
-        """Get or create a sidecar channel. Increments ref count.
-
-        If a channel with this name already exists and is connected,
-        reuses it (adds app_id to refs). Otherwise spawns a new one.
-
-        Args:
-            name: Unique channel identifier (e.g. "lsp-python", "repl-node").
-            app_id: The app requesting the channel.
-            command: Subprocess command + args.
-            protocol: Communication protocol.
-            cwd: Working directory.
-            env: Additional environment variables.
-            on_notification: Push event handler.
-
-        Returns:
-            A connected SidecarChannel.
-        """
+        """Get or create a sidecar channel. Increments ref count."""
         async with self._lock:
             ref = self._refs.get(name)
 
@@ -139,9 +93,7 @@ class DaemonSidecarPool:
                     "Release unused channels or increase MAX_CHANNELS."
                 )
 
-            # Need to create or recreate
             if ref is not None:
-                # Existing but disconnected - clean up
                 try:
                     await ref.channel.close()
                 except Exception:
@@ -165,10 +117,7 @@ class DaemonSidecarPool:
             return channel
 
     async def release(self, name: str, app_id: str) -> None:
-        """Release an app's reference to a channel.
-
-        If this was the last app using the channel, the subprocess is stopped.
-        """
+        """Release an app's reference to a channel."""
         async with self._lock:
             ref = self._refs.get(name)
             if ref is None:
@@ -178,15 +127,12 @@ class DaemonSidecarPool:
             logger.debug("sidecar_pool_release name=%s app=%s remaining=%d", name, app_id, len(ref.app_ids))
 
             if not ref.app_ids:
-                # Last consumer - shut down the channel
                 try:
                     await ref.channel.close()
                 except Exception:
                     logger.debug("sidecar_pool_close_error name=%s", name, exc_info=True)
                 del self._refs[name]
                 logger.info("sidecar_pool_removed name=%s (no more refs)", name)
-
-    # ── Query ────────────────────────────────────────────────────
 
     def get(self, name: str) -> SidecarChannel | None:
         """Get a channel by name (without acquiring)."""
@@ -208,10 +154,7 @@ class DaemonSidecarPool:
             for name, ref in self._refs.items()
         ]
 
-    # ── Health monitoring ────────────────────────────────────────
-
     async def _health_loop(self) -> None:
-        """Background task: check channel health and auto-restart."""
         while self._running:
             try:
                 await asyncio.sleep(HEALTH_INTERVAL)
@@ -223,7 +166,6 @@ class DaemonSidecarPool:
                     channel = ref.channel
 
                     if channel.status == "error" and ref.app_ids:
-                        # Channel crashed but apps still need it - restart
                         if ref.restart_attempts >= MAX_RESTART_ATTEMPTS:
                             logger.error(
                                 "sidecar_health_evict name=%s after=%d attempts",
@@ -231,8 +173,8 @@ class DaemonSidecarPool:
                             )
                             try:
                                 await channel.stop()
-                            except Exception:
-                                pass
+                            except Exception as exc:
+                                logger.debug("sidecar_pool best-effort block failed: %s", exc)
                             del self._refs[name]
                             continue
 
@@ -251,7 +193,6 @@ class DaemonSidecarPool:
                             logger.warning("sidecar_health_restart_failed name=%s: %s", name, exc)
 
                     elif channel.status == "connected":
-                        # Check if process is still alive
                         proc = channel._process
                         if proc and proc.returncode is not None:
                             channel.status = "error"

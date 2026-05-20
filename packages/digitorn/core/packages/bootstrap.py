@@ -1,31 +1,4 @@
-"""Built-in package bootstrap - runs once at daemon startup.
-
-This is the **only** thing that auto-installs anything on the
-daemon. It scans ``packages/digitorn/builtins/`` (the directory
-shipped inside the wheel), and for each package it finds:
-
-- If the package isn't installed yet → install it
-- If the package IS installed but its content hash has changed
-  (e.g. ``pip install -U digitorn`` brought a newer version) →
-  upgrade it
-- If the package is installed AND the hash matches → no-op
-
-The flow is **silent on success** and **never blocks daemon
-startup on failure**: a single broken built-in shouldn't take
-down the whole daemon. Failures are logged + the package is
-marked ``broken`` in the registry so the UI can surface it.
-
-Wired into ``server.py`` lifespan after ``app_manager`` is built
-and the credential store is initialised.
-
-Locked design references:
-
-- D2 (hash strategy) - used to detect upgrades
-- D9 (builtin protection) - bootstrap auto-installs even if a
-  user previously did ``--force`` uninstall
-- D11 (install permission) - bypassed for built-ins because
-  bootstrap runs as the daemon process, not on behalf of a user
-"""
+"""Built-in package bootstrap - runs once at daemon startup."""
 
 from __future__ import annotations
 
@@ -48,21 +21,14 @@ from digitorn.core.packages.sources.builtin import BuiltinSource
 
 logger = logging.getLogger(__name__)
 
-
 # Installed packages live here, one deterministic dir per
 # (app_id, scope, owner_user_id). Override via the install_root
 # argument when running tests with a tmp dir.
 DEFAULT_INSTALL_ROOT = Path.home() / ".digitorn" / "apps"
 
-
 # Inside the wheel - the directory shipped with `pip install digitorn`
 def _default_builtins_dir() -> Path:
-    """Return the absolute path to the built-in packages directory.
-
-    Lives next to this module's parent: ``packages/digitorn/builtins/``.
-    """
     return Path(__file__).resolve().parent.parent.parent / "builtins"
-
 
 async def bootstrap_builtins(
     *,
@@ -72,32 +38,7 @@ async def bootstrap_builtins(
     builtins_dir: Path | None = None,
     daemon_version: str = "2.0.0",
 ) -> dict[str, Any]:
-    """Install / upgrade every built-in package shipped with the daemon.
-
-    Args:
-        registry: PackageRegistry instance backed by the daemon DB
-        on_deploy: optional callback (path, package_id) → awaitable
-            that will be called for each freshly installed package.
-            Usually ``manager.deploy`` - runs the YAML through the
-            compiler and registers the resulting app for activation.
-        install_root: where to put the installed packages on disk.
-            Defaults to ``~/.digitorn/packages/``.
-        builtins_dir: where to read the built-in source from.
-            Defaults to the directory shipped inside the wheel.
-        daemon_version: current daemon semver, used for compat checks.
-
-    Returns:
-        A summary dict::
-
-            {
-                "installed": ["digitorn-chat", ...],
-                "upgraded": ["digitorn-builder"],
-                "skipped": ["digitorn-code"],
-                "failed": [{"id": "...", "error": "..."}],
-            }
-
-    Never raises - every failure is captured in ``failed``.
-    """
+    """Install / upgrade every built-in package shipped with the daemon."""
     builtins_dir = builtins_dir or _default_builtins_dir()
     install_root = install_root or DEFAULT_INSTALL_ROOT
 
@@ -142,24 +83,9 @@ async def bootstrap_builtins(
     from digitorn.core.packages.registry import Scope
 
     import asyncio as _asyncio
-    # Per-package install/upgrade ceiling. The hot path is:
-    #   1. ``shutil.copytree`` of the builtin's package dir -- can be
-    #      100+ MB for apps that ship a built ``web/`` bundle
-    #      (digitorn-lovable, digitorn-builder) and slow on Windows
-    #      with antivirus scanning every file.
-    #   2. compile + ``build_and_set_index`` which loads fastembed/ONNX
-    #      and runs it over every tool description -- 5-30s cold.
-    # 60s was too tight for digitorn-lovable in practice (observed
-    # "timed out after 60s - marked broken"). 5 min covers any
-    # realistic builtin including ones with sizable web bundles, and
-    # the daemon doesn't block on this: ``bootstrap_builtins`` runs
-    # as a fire-and-forget task so a slow install never delays the
-    # uvicorn ``ready`` signal.
     _PER_PKG_TIMEOUT = 300.0
-    # Bound the parallel fan-out so we don't saturate Windows IO with
-    # antivirus scanning N concurrent copytrees, and keep the SQLite
-    # writer queue bounded. 4 is a sweet spot: 5-10 builtins finish
-    # in ~one-third the wall time, no IO storm.
+    # Bound the parallel fan-out so Windows IO + the SQLite writer
+    # don't saturate; 4 keeps the wall-time low without an IO storm.
     _PARALLELISM = 4
 
     sem = _asyncio.Semaphore(_PARALLELISM)
@@ -260,8 +186,8 @@ async def bootstrap_builtins(
                             last_error=f"bootstrap timeout after {_PER_PKG_TIMEOUT}s",
                             scope=Scope.SYSTEM,
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("bootstrap best-effort block failed: %s", exc)
 
             except Exception as exc:
                 logger.error(
@@ -283,8 +209,8 @@ async def bootstrap_builtins(
                             last_error=str(exc),
                             scope=Scope.SYSTEM,
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("bootstrap best-effort block failed: %s", exc)
 
     await _asyncio.gather(
         *(_process_pkg(pkg) for pkg in available),
@@ -302,7 +228,6 @@ async def bootstrap_builtins(
 
     return summary
 
-
 async def _install_builtin(
     *,
     flow: InstallFlow,
@@ -310,14 +235,6 @@ async def _install_builtin(
     pkg: Any,
     on_deploy: Any,
 ) -> None:
-    """Install a built-in WITHOUT the user-consent gate.
-
-    Built-ins are pre-approved by virtue of shipping with the
-    daemon binary. The user accepted all daemon permissions when
-    they installed Digitorn - they don't need to re-consent for
-    each built-in app. This is per locked design D11 (install
-    permission) which exempts built-ins from per-package consent.
-    """
     from digitorn.core.packages.registry import Scope
 
     try:
@@ -349,7 +266,6 @@ async def _install_builtin(
             scope=Scope.SYSTEM,
         )
 
-
 async def _upgrade_builtin(
     *,
     flow: InstallFlow,
@@ -358,11 +274,6 @@ async def _upgrade_builtin(
     existing: dict[str, Any],
     on_deploy: Any,
 ) -> None:
-    """Upgrade a built-in to its new wheel-shipped version.
-
-    Uses the regular ``InstallFlow.upgrade`` which has the
-    automatic rollback on deploy failure (locked design D8).
-    """
     from digitorn.core.packages.registry import Scope
     try:
         await flow.upgrade(
@@ -375,8 +286,6 @@ async def _upgrade_builtin(
             scope=Scope.SYSTEM,
         )
     except PermissionsRequired:
-        # Should never happen since accept_permissions=True, but
-        # defensive: log and skip.
         logger.warning(
             "bootstrap_builtins: PermissionsRequired raised on auto-upgrade "
             "of %s - skipping",

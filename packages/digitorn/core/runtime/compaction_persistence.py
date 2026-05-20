@@ -1,33 +1,4 @@
-"""Durable compaction persistence - snapshot + resume.
-
-Every context-compaction event (hook-triggered, emergency overflow, or
-manual API call) emits a ``type='compaction'`` event through the session
-bus. The event carries a complete **snapshot payload** - the summary
-text, the memory state, the tool catalogue, the setup summary, and the
-seq boundaries - so a later ``_rebuild_session_from_db`` can rebuild
-``session.messages`` as::
-
-    [system_prompt, build_system_note_from_payload(event.payload),
-     *history_log WHERE seq >= kept_range.from_seq]
-
-…without replaying the compacted portion of the history. ``history_log``
-stays append-only; the compaction event itself is just another row with
-``kind='event'``, ``type='compaction'``.
-
-This module is the single source of truth for both sides of that
-contract:
-
-* :func:`emit_compaction_event` - called by the compaction primitives
-  after they mutate ``session.messages``. Queries the current max
-  ``seq`` to compute the boundaries, snapshots the live context, and
-  publishes the event via ``ctx.event_bus.emit`` (the bus stamps seq
-  automatically and writes to ``history_log``).
-
-* :func:`build_system_note_from_payload` - called by the rebuild path.
-  Produces the exact same reminder text that ``_build_context_reminder``
-  would produce in-process, but reads from the frozen JSON payload
-  instead of the live runtime objects. Testable unitarily.
-"""
+"""Durable compaction persistence - snapshot + resume."""
 from __future__ import annotations
 
 import json
@@ -37,17 +8,8 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# ── Snapshot capture ────────────────────────────────────────────────
-
-
 def _snapshot_tools(context_builder: Any, tool_injection: str) -> dict[str, Any]:
-    """Freeze the tool catalogue shape that will be re-injected on resume.
-
-    ``direct`` / ``compact_direct`` callers see every tool (fqn + short
-    description). ``discovery`` callers see the category breakdown only.
-    The rebuild helper reproduces the exact wording of the original
-    ``_build_context_reminder`` from this snapshot.
-    """
+    """Freeze the tool catalogue shape that will be re-injected on resume."""
     if context_builder is None:
         return {}
     index = getattr(context_builder, "_index", None)
@@ -107,11 +69,7 @@ def _extract_tool_examples(
     context_builder: Any,
     top_n: int = 5,
 ) -> list[dict[str, str]]:
-    """Mirror ``_build_context_reminder`` example logic - frozen for replay.
-
-    Picks the ``top_n`` most-called tools in ``recent_messages`` and
-    freezes their first example into ``[{fqn, example_json}]``.
-    """
+    """Mirror `_build_context_reminder` example logic - frozen for replay."""
     if not recent_messages or context_builder is None:
         return []
     index = getattr(context_builder, "_index", None)
@@ -144,12 +102,7 @@ def _extract_tool_examples(
 
 
 def _snapshot_memory(memory_module: Any) -> dict[str, Any]:
-    """Freeze memory store to a JSON-serialisable dict.
-
-    Returns an empty dict when memory isn't wired up - the rebuild
-    side will then skip memory restoration and fall back to whatever
-    state the cache already has.
-    """
+    """Freeze memory store to a JSON-serialisable dict."""
     if memory_module is None:
         return {}
     store = getattr(memory_module, "store", None)
@@ -162,21 +115,8 @@ def _snapshot_memory(memory_module: Any) -> dict[str, Any]:
         return {}
 
 
-# ── Seq boundary query ──────────────────────────────────────────────
-
-
 async def _query_max_message_seq(session_id: str, app_id: str) -> int:
-    """Return the highest seq among the projected messages for this
-    session (user/assistant/system). Returns -1 when no messages have
-    been persisted yet (caller treats it as "nothing to compact
-    durably - skip persistence").
-
-    Phase 4c: read from the in-memory SessionStore. The projection
-    layer (apply_projection) already populates ``state.messages`` from
-    user_message / assistant_message / system_message events, with the
-    canonical seq stamped on each. So the answer is just the seq of
-    the last projected message, or -1 if none.
-    """
+    """Return the highest seq among the projected messages for this"""
     try:
         from digitorn.core.runtime.session_store.bridge import (
             get_default_bridge,
@@ -200,9 +140,6 @@ async def _query_max_message_seq(session_id: str, app_id: str) -> int:
     return int(state.messages[-1].seq or -1)
 
 
-# ── Event emission (write path) ─────────────────────────────────────
-
-
 async def emit_compaction_event(
     ctx: Any,
     *,
@@ -213,35 +150,12 @@ async def emit_compaction_event(
     tokens_after: int,
     to_keep_count: int,
     recent_messages_before: list[dict[str, Any]] | None = None,
-    # Explicit overrides for call sites where the shared
-    # ``deployed.entry_context`` doesn't carry the live session's
-    # identity / bus (e.g. ``POST /compact``). When provided, these
-    # win over whatever is set on ``ctx``.
     event_bus: Any | None = None,
     app_id: str | None = None,
     session_id: str | None = None,
     user_id: str | None = None,
 ) -> None:
-    """Persist the compaction to ``history_log`` as a durable event.
-
-    Called by ``_do_truncate`` / ``_do_summarize`` AFTER they mutate
-    ``session.messages``. The caller must still hold the session lock
-    (which it always does - compaction only runs inside ``_chat_locked``
-    for the hook path, inside the manual endpoint handler for
-    ``POST /compact``, or inside the agent loop for context-overflow).
-
-    ``to_keep_count`` is ``len(to_keep)`` - used to derive
-    ``kept_range.from_seq``. The invariant relied upon is that
-    ``to_keep`` is a **contiguous suffix** of the persisted message
-    stream, which is true by construction in every existing compaction
-    primitive.
-
-    Silently no-ops when:
-      - bus / session_id / app_id aren't resolvable (e.g. unit tests
-        driving the compaction primitives directly).
-      - The session has no persisted messages yet (nothing to summarise
-        durably - the in-memory mutation stands alone for this turn).
-    """
+    """Persist the compaction to `history_log` as a durable event."""
     bus = (
         event_bus
         or getattr(ctx, "event_bus", None)
@@ -260,9 +174,6 @@ async def emit_compaction_event(
 
     max_persisted_seq = await _query_max_message_seq(session_id, app_id)
     if max_persisted_seq < 0 or to_keep_count <= 0:
-        # Nothing persisted yet (brand-new session) - compaction is
-        # purely in-memory for this turn. A subsequent compaction
-        # after the first save will produce the first durable event.
         logger.debug(
             "emit_compaction_event: no persisted messages yet "
             "(max_seq=%d, to_keep=%d) - skip", max_persisted_seq, to_keep_count,
@@ -326,37 +237,14 @@ async def emit_compaction_event(
             kept_from_seq, tokens_before, tokens_after,
         )
     except Exception as exc:
-        # Durability failure must NOT mask the in-memory compaction -
-        # the turn should continue. On the next restart we'd fall back
-        # to full-history rebuild, which is the pre-feature behaviour.
         logger.warning(
             "compaction_persist_failed app=%s session=%s: %s",
             app_id, session_id, exc,
         )
 
 
-# ── Rebuild path - payload → system note ────────────────────────────
-
-
 def build_system_note_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    """Reconstruct the compacted system note for session replay.
-
-    Takes the frozen JSON payload of a persisted ``compaction`` event
-    and returns a ``{"role": "system", "content": "..."}`` dict that
-    mimics what ``_build_context_reminder`` + summary text produced in
-    the original turn.
-
-    Structure (mirrors the order of parts in the live builder):
-      1. Summary banner + the summary text
-      2. Tool reminder (direct: full list; discovery: category breakdown)
-      3. Pre-configured resources (setup summary)
-      4. Quick-reference examples for recently-used tools
-      5. Primitive capabilities line
-      6. Memory state block
-      7. Sub-agents note (if any)
-      8. Skills line (if any)
-      9. Final guardrail paragraph ("context was compacted…")
-    """
+    """Reconstruct the compacted system note for session replay."""
     payload = payload or {}
     summary_text = payload.get("summary_text", "") or ""
     tools = payload.get("tools_snapshot", {}) or {}
@@ -470,13 +358,7 @@ def build_system_note_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _memory_block_from_snapshot(memory: dict[str, Any]) -> str:
-    """Render a ``[Memory state]`` block from a frozen memory snapshot.
-
-    Keeps rebuild self-contained - doesn't require the live memory
-    module. The structure matches what ``MemoryStore.render_full_snapshot``
-    produces in-process (goal + todos + facts) so the LLM sees a
-    similar shape to a live compaction.
-    """
+    """Render a `[Memory state]` block from a frozen memory snapshot."""
     lines: list[str] = ["[Memory state - restored from compaction snapshot]"]
     goal = memory.get("goal")
     if goal:

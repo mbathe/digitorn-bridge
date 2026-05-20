@@ -1,8 +1,4 @@
-"""MultiQueryStrategy - LLM-generated query variants for broader recall.
-
-Generates N variant phrasings of the original query, retrieves for each,
-then fuses results via RRF to surface documents that a single query would miss.
-"""
+"""MultiQueryStrategy - LLM-generated query variants for broader recall."""
 
 from __future__ import annotations
 
@@ -24,7 +20,6 @@ _VARIANT_PROMPT = (
     "Original query: {query}\n\n"
     "Return ONLY the variants, one per line, no numbering."
 )
-
 
 class MultiQueryStrategy(RetrievalStrategy):
 

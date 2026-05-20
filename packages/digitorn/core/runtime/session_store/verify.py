@@ -1,15 +1,4 @@
-"""Byte-identical verification helpers.
-
-Used to validate that the SessionStore produces equivalent output to
-the legacy Postgres path during the dual-write transition (Phase 6
-shadow mode), and to validate that two SessionStore instances given
-the same event stream end up in byte-identical states (regression
-guard for refactors).
-
-The helpers are pure functions that diff the output of two stores
-event-by-event. They are NOT used in the hot dispatch path and have
-no impact on production performance.
-"""
+"""Byte-identical verification helpers."""
 
 from __future__ import annotations
 
@@ -59,8 +48,7 @@ class DiffReport:
 def diff_event_lists(
     left: list[Event], right: list[Event],
 ) -> DiffReport:
-    """Compare two event sequences. Equal when same length AND every
-    pair of same-index events has equivalent ``to_dict`` payloads."""
+    """Compare two event sequences. Equal when same length AND every"""
     report = DiffReport(
         event_count_left=len(left),
         event_count_right=len(right),
@@ -102,12 +90,7 @@ async def diff_stores_for_session(
     sid: str,
     include_compacted: bool = False,
 ) -> DiffReport:
-    """Compare two stores' view of the same session.
-
-    By default reads the in-memory journal of each (which respects
-    compaction). Set ``include_compacted=True`` to read the full
-    on-disk events.jsonl on both sides (compaction-blind).
-    """
+    """Compare two stores' view of the same session."""
     if include_compacted:
         left_events = await _read_full_history(left, sid)
         right_events = await _read_full_history(right, sid)
@@ -131,9 +114,7 @@ async def _read_full_history(
 def diff_jsonl_files(
     left_path: Path, right_path: Path,
 ) -> DiffReport:
-    """Compare two events.jsonl files line-by-line. Used to verify
-    that two persistence backends (e.g. shadow legacy vs SessionStore)
-    produced byte-identical output."""
+    """Compare two events.jsonl files line-by-line. Used to verify"""
     left_lines = _read_jsonl(left_path)
     right_lines = _read_jsonl(right_path)
     return diff_event_lists(left_lines, right_lines)

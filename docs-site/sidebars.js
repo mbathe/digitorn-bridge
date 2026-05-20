@@ -8,6 +8,11 @@ const sidebars = {
       label: "Overview",
     },
     {
+      type: "doc",
+      id: "install",
+      label: "Install",
+    },
+    {
       type: "category",
       label: "Tutorial",
       collapsed: false,

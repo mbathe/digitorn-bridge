@@ -27,8 +27,8 @@ def _stop_all_on_exit() -> None:
     for s in list(_all_streams):
         try:
             s.stop(timeout=1.0)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("events best-effort block failed: %s", exc)
 
 
 atexit.register(_stop_all_on_exit)
@@ -100,8 +100,8 @@ class LiveEventStream:
         if self._loop is not None and not self._loop.is_closed():
             try:
                 self._loop.call_soon_threadsafe(self._loop.stop)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("events best-effort block failed: %s", exc)
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=timeout)
         self._stopped.set()
@@ -122,20 +122,20 @@ class LiveEventStream:
                         self._loop.run_until_complete(
                             asyncio.wait_for(main_task, timeout=1.0)
                         )
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("events best-effort block failed: %s", exc)
                 try:
                     self._loop.run_until_complete(self._loop.shutdown_asyncgens())
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("events best-effort block failed: %s", exc)
         except Exception as exc:
             logger.warning("LiveEventStream loop crashed: %s", exc)
         finally:
             try:
                 if self._loop is not None:
                     self._loop.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("events best-effort block failed: %s", exc)
 
     async def _async_main(self) -> None:
         sio = socketio.AsyncClient(
@@ -160,8 +160,8 @@ class LiveEventStream:
             if self._on_event:
                 try:
                     self._on_event(env)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("events best-effort block failed: %s", exc)
 
         try:
             await asyncio.wait_for(
@@ -216,8 +216,8 @@ class LiveEventStream:
 
         try:
             await asyncio.wait_for(sio.disconnect(), timeout=2.0)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("events best-effort block failed: %s", exc)
 
     def events(self) -> list[dict[str, Any]]:
         with self._lock:

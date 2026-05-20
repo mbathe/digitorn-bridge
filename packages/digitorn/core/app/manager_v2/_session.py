@@ -1,8 +1,4 @@
-"""_SessionMixin - ConversationSession lifecycle.
-
-Owns the read/write/list/cleanup paths over ``_session_store`` and
-DB-backed rebuild.
-"""
+"""_SessionMixin - ConversationSession lifecycle."""
 
 from __future__ import annotations
 
@@ -19,15 +15,7 @@ logger = logging.getLogger(__name__)
 async def _aggregate_gateway_usage(
     app_id: str, session_ids: list[str],
 ) -> dict[str, dict[str, Any]]:
-    """Aggregate ``gateway_usage_events`` by ``external_sid`` for one app.
-
-    Returns a map ``{session_id: {prompt_tokens, completion_tokens,
-    cost_usd}}``. Empty dict on any error - the caller treats missing
-    sessions as 0/0/0 so a transient DB hiccup never blocks a list
-    response. The gateway and the daemon share the same Postgres so
-    this query is local; in cloud-mode (separate DB) the read still
-    works because gateway_usage_events is in the shared schema.
-    """
+    """Aggregate `gateway_usage_events` by `external_sid` for one app."""
     if not session_ids:
         return {}
     try:
@@ -72,28 +60,7 @@ class _SessionMixin:
     """Methods that operate on ConversationSession lifecycle."""
 
     async def get_session(self, app_id: str, session_id: str, user_id: str | None = None) -> ConversationSession | None:
-        """Get a conversation session - single source of truth = DB.
-
-        Lookup order:
-
-        1. **Hot-path cache** (``SessionStore`` on DiskCache/Redis) -
-           returns immediately on hit.
-        2. **DB rehydration fallback** - on cache miss (session expired,
-           daemon restarted, cross-machine call) we rebuild the
-           ``ConversationSession`` from the durable tables
-           ``user_sessions`` + ``session_messages``. The DB is the
-           authoritative store; the cache is a pure accelerator.
-        3. Only return None if the DB has no record either (genuinely
-           new / deleted session).
-
-        Rebuilt sessions are re-populated into the cache so the next
-        read is hot again. No data loss on idle expiry, no duplicate
-        stores, no "closing the client nukes my history".
-
-        SECURITY: user_id is enforced. If user_id is None, falls back
-        to "local" (single-user mode). Cross-user session scan is NOT
-        allowed at either the cache or the DB layer.
-        """
+        """Get a conversation session - single source of truth = DB."""
         uid = user_id or "local"
         session = await asyncio.to_thread(
             self._session_store.get, app_id, session_id, user_id=uid,
@@ -109,21 +76,7 @@ class _SessionMixin:
     async def _rebuild_session_from_db(
         self, app_id: str, session_id: str, user_id: str,
     ) -> ConversationSession | None:
-        """Reconstruct a ConversationSession from the durable DB rows.
-
-        Returns None if no row exists (which means: never persisted -
-        either a brand-new sid, or a session whose first turn failed
-        and was rejected by the commit-on-first-success gate).
-
-        Otherwise rebuilds:
-          - messages (from ``history_log`` where kind='message',
-            ordered by seq)
-          - created_at / last_active_at (from ``user_sessions``)
-          - title (if captured by the semantic title generator)
-
-        Then pushes the rebuilt session back into the cache so the
-        next call hits hot.
-        """
+        """Reconstruct a ConversationSession from the durable DB rows."""
         from digitorn.core.database import get_session_factory
         from digitorn.core.models import HistoryLog, UserSession
         from sqlalchemy import select
@@ -137,7 +90,7 @@ class _SessionMixin:
 
         def _row_to_msg(m: HistoryLog) -> dict[str, Any]:
             msg: dict[str, Any] = {"role": m.role or ""}
-            # Multimodal messages carry their structured ``raw_content``
+            # Multimodal messages carry their structured `raw_content`
             # in payload - prefer it so images / documents replay intact.
             raw = None
             if isinstance(m.payload, dict):
@@ -169,14 +122,6 @@ class _SessionMixin:
                 if row is None:
                     return None
 
-                # ── Compaction-aware resume ──────────────────────────
-                # If this session has any persisted ``compaction``
-                # event, we resume from the LATEST one: skip everything
-                # before ``kept_range.from_seq``, inject the compacted
-                # system note reconstructed from the event's payload,
-                # then replay only the kept + post-compaction messages.
-                # Fallback to full-history rebuild when no compaction
-                # exists (pre-feature sessions, brand-new sessions).
                 compaction_row = (
                     await db.execute(
                         select(HistoryLog)
@@ -200,9 +145,6 @@ class _SessionMixin:
                         (payload.get("kept_range") or {}).get("from_seq", 0)
                     )
 
-                    # Preserve the app's ORIGINAL system prompt (seq 0
-                    # region) - we still want the agent to see it so
-                    # its identity/policies aren't lost after compaction.
                     original_system = (
                         await db.execute(
                             select(HistoryLog)
@@ -261,9 +203,6 @@ class _SessionMixin:
                     ).scalars().all()
                     messages.extend(_row_to_msg(m) for m in msg_rows)
 
-            # Build the hot ConversationSession from DB rows. Title
-            # defaults to the first user message's head (80 chars) -
-            # matches the semantic title generator's fallback.
             title = ""
             for m in messages:
                 if m.get("role") == "user":
@@ -292,10 +231,6 @@ class _SessionMixin:
                 ),
                 workspace=getattr(row, "workspace", "") or "",
                 workdir=getattr(row, "workdir", "") or "",
-                # Compaction-restored memory takes precedence so the
-                # agent resumes with the exact goal/todos/facts snapshot
-                # it held at compaction time. Empty when no compaction
-                # exists for this session.
                 memory_snapshot=memory_snapshot or {},
             )
 
@@ -320,9 +255,6 @@ class _SessionMixin:
 
     async def end_session(self, app_id: str, session_id: str, user_id: str = "local") -> bool:
         """End and remove a conversation session."""
-        # Fire the `session_end` hook before the store delete - lets
-        # apps persist final state (export snapshot, flush logs) while
-        # the session is still readable.
         try:
             deployed = self.get(app_id, user_id=user_id)
             cb = getattr(deployed, "context_builder", None) if deployed else None
@@ -339,12 +271,6 @@ class _SessionMixin:
         except Exception as exc:
             logger.debug("session_end hook failed: %s", exc)
 
-        # Clean up session-scoped runtime resources (fire-and-forget).
-        # Hold a strong ref to the Task in a class-level set so the GC
-        # cannot collect it before it completes. Without this, end_session
-        # could return, the local ``task`` ref drop, and the cleanup
-        # silently skip -- leaking shell bg tasks, sub-agent runners,
-        # image_store dirs, and run_tracker rows on every churned session.
         try:
             loop = asyncio.get_running_loop()
             _task = loop.create_task(self.cleanup_session(app_id, session_id))
@@ -372,12 +298,7 @@ class _SessionMixin:
     async def _delete_session_workspace_snapshot(
         self, app_id: str, session_id: str, user_id: str,
     ) -> None:
-        """``rmtree`` the session's preview snapshot dir at
-        ``{workspace}/.digitorn/sessions/{session_id}/``.
-
-        Best-effort - errors are logged at debug level so a held
-        file handle never blocks the session delete.
-        """
+        """`rmtree` the session's preview snapshot dir at"""
         try:
             deployed = self.get(app_id, user_id=user_id)
             preview_mod = (
@@ -419,25 +340,7 @@ class _SessionMixin:
         *,
         include_empty: bool = False,
     ) -> list[dict[str, Any]]:
-        """List sessions for an app, optionally filtered by user.
-
-        Enriches each row with the deployed app's visual metadata
-        (name, icon, color) so the Flutter client can render rich
-        session cards without an extra join. ``is_active`` is added
-        by the API layer.
-
-        **Commit-on-first-success** (default): draft sessions created
-        via ``POST /sessions`` but where the user never actually sent
-        a message are HIDDEN from the list. A session is considered
-        "committed" the instant its first user/assistant turn lands.
-        This keeps the drawer clean - no empty rows the user never
-        asked for, no ghost entries when they tap ``+ New`` and then
-        navigate away. Set ``include_empty=True`` for admin cleanup
-        views that need to see orphan drafts.
-        """
-        # Always list the full set first - we filter by "has a
-        # real message" before applying pagination so ``limit`` counts
-        # against the visible rows, not the raw in-memory ones.
+        """List sessions for an app, optionally filtered by user."""
         if user_id:
             rows = await asyncio.to_thread(
                 self._session_store.list_for_user,
@@ -449,34 +352,13 @@ class _SessionMixin:
                 app_id, limit=0, offset=0,
             )
 
-        # The LegacySessionStoreAdapter returns ``ConversationSession``
-        # dataclass instances. The rest of this function (filter, sort,
-        # app-metadata patching, totals merge, API response) treats
-        # rows as plain dicts. Convert via ``.summary()`` once at the
-        # top -- legacy fallback paths that already produce dicts pass
-        # through unchanged.
         rows = [
             r.summary() if hasattr(r, "summary") else r
             for r in rows
         ]
 
         if not include_empty:
-            # A "draft" session is one the user never sent a message
-            # in. Three signals tell us a session is NOT a draft:
-            #   - ``last_message_role`` populated (live state has at
-            #     least one user/assistant message)
-            #   - ``turn_count > 0`` (the agent loop ran at least once)
-            #   - ``title`` set (the daemon auto-titles after first
-            #     user turn lands)
-            # Previously we filtered on ``last_message_role`` alone,
-            # which broke listing for any session reloaded from the
-            # SQLite index: the legacy adapter rebuilds these with
-            # ``messages=[]`` (the summary doesn't carry them - see
-            # ``_summary_to_conv_session``) so ``summary()`` always
-            # returns ``last_message_role=""`` and every reloaded
-            # session was rejected as a draft. The drawer ended up
-            # empty even though every session had real turns on disk.
-            # Multi-signal gate restores correctness.
+            # a session is committed if it has a message role, any completed turn, or an auto-set title.
             def _is_committed(r: dict) -> bool:
                 if r.get("last_message_role") or "":
                     return True
@@ -487,9 +369,6 @@ class _SessionMixin:
                 return False
             rows = [r for r in rows if _is_committed(r)]
 
-        # Defensive re-sort by ``last_active`` DESC - the store
-        # already sorts, but explicit is safer given the filter above
-        # may later reshuffle with additional criteria.
         rows.sort(key=lambda s: s.get("last_active", 0) or 0, reverse=True)
 
         if offset:
@@ -508,11 +387,6 @@ class _SessionMixin:
                 r["app_icon"] = app_icon
                 r["app_color"] = app_color
 
-        # Token/cost hydration. The daemon doesn't accumulate
-        # per-session totals locally - the gateway is the source of
-        # truth (via ``gateway_usage_events``). Both share the same
-        # Postgres, so we can read it cheaply with a single grouped
-        # query and patch the rows.
         sids = [r.get("session_id") for r in rows if r.get("session_id")]
         totals = await _aggregate_gateway_usage(app_id, sids) if sids else {}
         for r in rows:
@@ -534,15 +408,9 @@ class _SessionMixin:
         self, app_id: str, user_id: str | None = None,
         *, include_empty: bool = False,
     ) -> int:
-        """Count total sessions for an app/user (for pagination).
-
-        Default excludes draft sessions so the client's pagination
-        math lines up with what ``list_sessions`` returns. Admin views
-        that pass ``include_empty=True`` get the raw count including
-        orphan drafts.
-        """
+        """Count total sessions for an app/user (for pagination)."""
         if not include_empty:
-            # Cheaper to reuse ``list_sessions`` (already filters) than
+            # Cheaper to reuse `list_sessions` (already filters) than
             # replicate the predicate. We only read length, not rows.
             rows = await self.list_sessions(
                 app_id, user_id=user_id, limit=0, offset=0,
@@ -580,8 +448,8 @@ class _SessionMixin:
         try:
             from digitorn.core.runtime.session_metrics import remove_session_metrics
             remove_session_metrics(app_id, session_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_session best-effort block failed: %s", exc)
 
         # Clean image store - prevent disk leak from session image directories
         try:
@@ -593,23 +461,7 @@ class _SessionMixin:
     async def load_session_events(
         self, app_id: str, session_id: str, *, user_id: str = "local",
     ) -> list[dict[str, Any]]:
-        """Load persisted events for a session, seq-ordered, real-time.
-
-        Reads directly from the ``session_events`` DB table via the
-        session bus - same source as Socket.IO ``join_session`` replay.
-        This guarantees:
-
-        - No lag: events written during an in-progress turn are
-          returned immediately (the KV turn log used to be flushed
-          only at turn end, which hid the in-progress state).
-        - Single source of truth: REST ``/history`` and Socket.IO
-          replay return the exact same envelopes in the exact same
-          order, so the client never sees divergent timelines.
-        - Includes fast-path ``user_message``: the old KV log was
-          captured via a per-turn bus handler that was installed
-          *after* the fast-path user_message was published, dropping
-          it from the history.
-        """
+        """Load persisted events for a session, seq-ordered, real-time."""
         bus = self.event_bus
         if bus is None:
             return []

@@ -1,8 +1,4 @@
-"""Routes for the oauth_mcp group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the oauth_mcp group, extracted from the legacy `apps.py`."""
 
 from __future__ import annotations
 
@@ -105,7 +101,6 @@ from ._shared import (
 router = APIRouter(tags=["apps"])
 
 
-
 @router.get("/{app_id}/oauth/authorize", response_model=AppResponse)
 async def oauth_authorize(
     request: Request,
@@ -113,10 +108,7 @@ async def oauth_authorize(
     server_id: str,
     session_id: str,
 ) -> AppResponse:
-    """Start an OAuth2 authorization flow for an MCP server.
-
-    Returns the authorization URL the user should open in their browser.
-    """
+    """Start an OAuth2 authorization flow for an MCP server."""
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     manager = _get_manager(request)
@@ -134,9 +126,6 @@ async def oauth_authorize(
     if entry.auth_config is None:
         raise HTTPException(400, f"MCP server '{server_id}' has no OAuth config")
 
-    # Identity comes from the JWT (the daemon doesn't own a users
-    # table). Fall back to the session's bound user_id only if the
-    # request didn't come through the auth middleware.
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
         user_store = getattr(mcp_module, "_user_store", None)
@@ -167,11 +156,7 @@ async def oauth_callback(
     code: str,
     state: str,
 ) -> AppResponse:
-    """OAuth2 callback endpoint - exchanges authorization code for tokens.
-
-    This is the redirect_uri that the OAuth provider redirects to after
-    the user authorizes. Exchanges the code for tokens and stores them.
-    """
+    """OAuth2 callback endpoint - exchanges authorization code for tokens."""
     _validate_id(app_id)
     manager = _get_manager(request)
     deployed = _get_deployed(request, app_id)
@@ -222,9 +207,6 @@ async def oauth_callback(
 
     if deployed.context_builder is not None:
         security_profile = getattr(deployed.compiled, "security_profile", None)
-        # Off-loop: fastembed/ONNX tokenization stalls the main loop
-        # 2-5s per rebuild; OAuth callbacks fire from clients waiting
-        # in the browser, so the stall is user-visible as page-hang.
         new_index = await asyncio.to_thread(
             deployed.context_builder.build_and_set_index,
             deployed.modules, security_profile,
@@ -256,10 +238,7 @@ async def oauth_callback(
 async def inject_oauth_token(
     request: Request, app_id: str, server_id: str, body: InjectOAuthTokenRequest,
 ) -> AppResponse:
-    """Inject an OAuth token into an MCP server and persist it in DB.
-
-    Used by the CLI after completing a local OAuth flow.
-    """
+    """Inject an OAuth token into an MCP server and persist it in DB."""
     _validate_id(app_id)
     manager = _get_manager(request)
     deployed = _get_deployed(request, app_id)
@@ -298,10 +277,6 @@ async def inject_oauth_token(
     if user_store is not None:
         from datetime import datetime, timedelta, timezone
 
-        # Token is stored against the calling user (from the JWT). If
-        # the call comes outside an authenticated context (CLI tooling
-        # against a dev daemon), fall back to "cli-user" so the token
-        # row is still keyed to *something* the next request can find.
         token_user_id = getattr(request.state, "user_id", None) or "cli-user"
         expires_at = None
         if body.expires_in:
@@ -325,11 +300,7 @@ async def inject_oauth_token(
 
 @router.delete("/{app_id}/mcp/{server_id}/oauth-token", response_model=AppResponse)
 async def revoke_mcp_oauth(request: Request, app_id: str, server_id: str) -> AppResponse:
-    """Revoke an MCP server's OAuth token - disconnect and delete from DB.
-
-    The server entry is kept in the pool (with status reset) so /connect
-    can re-authorize later.
-    """
+    """Revoke an MCP server's OAuth token - disconnect and delete from DB."""
     _validate_id(app_id)
     manager = _get_manager(request)
     deployed = _get_deployed(request, app_id)

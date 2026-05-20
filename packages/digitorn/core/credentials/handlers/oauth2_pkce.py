@@ -1,20 +1,4 @@
-"""OAuth2PkceHandler - OAuth 2.0 with PKCE (no client_secret).
-
-Used by public clients (mobile apps, single-page apps, CLIs running
-on user machines) that cannot safely store a client_secret. PKCE
-(Proof Key for Code Exchange, RFC 7636) protects the authorization
-code with a per-flow code_verifier so a stolen code can't be
-exchanged for a token without the verifier.
-
-Common consumers: Auth0 SPA apps, Okta consumer apps, AWS Cognito
-hosted UI in mobile flows, OAuth providers that don't require the
-secret to be stored client-side.
-
-Same field shape as OAuth2 (access_token + refresh_token + ...) but
-the token-exchange step uses a `code_verifier` instead of a
-`client_secret`. The handler is otherwise identical to OAuth2 once
-the tokens are stored.
-"""
+"""OAuth2PkceHandler - OAuth 2.0 with PKCE (no client_secret)."""
 
 from __future__ import annotations
 

@@ -3,15 +3,14 @@
 A monotonically-fresh UUID generated at process start. Surfaced to
 clients via:
 
-  - The Socket.IO ``connected`` handshake payload.
-  - Every Socket.IO ``heartbeat`` event.
-  - Every HTTP response header ``X-Digitorn-Instance``.
+  - The Socket.IO `connected` handshake payload.
+  - Every Socket.IO `heartbeat` event.
+  - Every HTTP response header `X-Digitorn-Instance`.
 
 Clients compare the value they observe against their stored copy.
 Mismatch → daemon restarted → wipe local state and re-seed via the
 snapshot endpoint. This is the foundation of the daemon-resource
-protocol that drives every real-time hook (``useDaemonResource`` web
-/ ``DaemonResourceController`` Flutter).
+protocol that drives every real-time client hook.
 
 Why a UUID instead of e.g. the boot timestamp:
   - Two restarts within the same second still produce different ids.

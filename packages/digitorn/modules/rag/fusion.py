@@ -5,14 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-
 @dataclass(slots=True)
 class FusionCandidate:
     doc_id: str
     score: float
     payload: dict[str, Any] = field(default_factory=dict)
     source: str = ""
-
 
 def reciprocal_rank_fusion(
     result_lists: list[list[FusionCandidate]],
@@ -38,7 +36,6 @@ def reciprocal_rank_fusion(
         FusionCandidate(did, sc, payloads.get(did, {}), sources.get(did, ""))
         for did, sc in ranked
     ]
-
 
 def weighted_fusion(
     result_lists: list[tuple[list[FusionCandidate], float]],

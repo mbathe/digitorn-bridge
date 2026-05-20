@@ -1,13 +1,4 @@
-"""Pluggable TTS providers for voice backends.
-
-Each provider streams audio chunks from text. Adding a new provider:
-1. Subclass TTSProvider
-2. Register in get_tts_provider()
-3. Configure in YAML: backend_config.tts.provider: your_provider
-
-For local/self-hosted models, use the 'http' provider pointing at any
-endpoint that accepts POST {text, language} and returns audio bytes.
-"""
+"""Pluggable TTS providers for voice backends."""
 
 from __future__ import annotations
 
@@ -17,7 +8,6 @@ from typing import Any, AsyncIterator
 
 logger = logging.getLogger(__name__)
 
-
 class TTSProvider(ABC):
     @abstractmethod
     async def synthesize(self, text: str, language: str) -> AsyncIterator[bytes]:
@@ -25,7 +15,6 @@ class TTSProvider(ABC):
 
     async def close(self) -> None:
         pass
-
 
 class ElevenLabsTTS(TTSProvider):
     """ElevenLabs streaming TTS."""
@@ -65,7 +54,6 @@ class ElevenLabsTTS(TTSProvider):
         if self._session and not self._session.closed:
             await self._session.close()
 
-
 class OpenAITTS(TTSProvider):
     """OpenAI TTS API (or any compatible endpoint)."""
 
@@ -104,7 +92,6 @@ class OpenAITTS(TTSProvider):
         if self._session and not self._session.closed:
             await self._session.close()
 
-
 class EdgeTTS(TTSProvider):
     """Microsoft Edge TTS - free, high quality, 100+ voices."""
 
@@ -136,15 +123,8 @@ class EdgeTTS(TTSProvider):
             if chunk["type"] == "audio":
                 yield chunk["data"]
 
-
 class HttpTTS(TTSProvider):
-    """Generic HTTP TTS - call any REST endpoint.
-
-    Works with local models (Coqui XTTS, Piper, MaryTTS, etc.)
-    or any API that returns audio from text.
-
-    Expected endpoint: POST {text, language, voice} → audio bytes
-    """
+    """Generic HTTP TTS - call any REST endpoint."""
 
     def __init__(self, config: dict[str, Any]) -> None:
         self._url: str = config.get("url", "http://localhost:5002/api/tts")
@@ -181,7 +161,6 @@ class HttpTTS(TTSProvider):
         if self._session and not self._session.closed:
             await self._session.close()
 
-
 class BrowserTTS(TTSProvider):
     """No-op: TTS handled client-side by browser SpeechSynthesis."""
 
@@ -192,7 +171,6 @@ class BrowserTTS(TTSProvider):
         return
         yield  # noqa: unreachable
 
-
 _PROVIDERS: dict[str, type[TTSProvider]] = {
     "elevenlabs": ElevenLabsTTS,
     "openai": OpenAITTS,
@@ -201,7 +179,6 @@ _PROVIDERS: dict[str, type[TTSProvider]] = {
     "browser": BrowserTTS,
 }
 
-
 def get_tts_provider(config: dict[str, Any]) -> TTSProvider:
     provider = config.get("provider", "browser")
     cls = _PROVIDERS.get(provider)
@@ -209,7 +186,6 @@ def get_tts_provider(config: dict[str, Any]) -> TTSProvider:
         logger.warning("unknown_tts_provider=%s available=%s", provider, sorted(_PROVIDERS.keys()))
         return BrowserTTS(config)
     return cls(config)
-
 
 def list_tts_providers() -> list[str]:
     return sorted(_PROVIDERS.keys())

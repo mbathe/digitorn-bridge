@@ -6,20 +6,20 @@ Create Date: 2026-05-05
 
 Three changes to `user_sessions`:
 
-1. ADD ``status`` (active|completed|archived|deleted),
-       ``title`` (display name shown in the chat sidebar),
-       ``deleted_at`` (soft delete timestamp).
+1. ADD `status` (active|completed|archived|deleted),
+       `title` (display name shown in the chat sidebar),
+       `deleted_at` (soft delete timestamp).
 
-2. RENAME ``session_id`` → ``external_sid``. The column was always a
+2. RENAME `session_id` → `external_sid`. The column was always a
    client-supplied opaque key, never the table's PK. Calling it
-   ``session_id`` was confusing because every other table calls the
-   internal PK ``id`` and the external one ``external_sid``. The
-   composite unique index ``(app_id, session_id)`` is renamed
-   accordingly. Application code (``UserSession.session_id``) keeps
+   `session_id` was confusing because every other table calls the
+   internal PK `id` and the external one `external_sid`. The
+   composite unique index `(app_id, session_id)` is renamed
+   accordingly. Application code (`UserSession.session_id`) keeps
    the Python attribute name; the column it maps to is updated in
    models.py in the same change.
 
-3. ADD ``last_completed_run_id`` FK on agent_runs (set by the
+3. ADD `last_completed_run_id` FK on agent_runs (set by the
    runtime after each run completion to support "resume last run"
    in the dashboard without scanning agent_runs).
 

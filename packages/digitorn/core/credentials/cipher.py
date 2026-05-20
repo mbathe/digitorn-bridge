@@ -1,37 +1,4 @@
-"""VersionedCipher - AES-256-GCM with a versioned envelope header.
-
-Replaces the legacy `Cipher` class with a self-describing format so
-future migrations (algorithm change, KMS migration) don't break old
-rows.
-
-On-disk row format (the bytes stored in the `encrypted_fields` column):
-
-    +---------+-------------------------------+
-    | 1 byte  | version (0x01 for v1)         |
-    +---------+-------------------------------+
-    | 1 byte  | flags (bit0=envelope_mode)    |
-    +---------+-------------------------------+
-    | 1 byte  | backend identifier (KmsBackend ordinal)
-    +---------+-------------------------------+
-    | 2 bytes | wrapped_dek length (BE u16)   |
-    +---------+-------------------------------+
-    | N bytes | wrapped DEK (envelope mode only)
-    +---------+-------------------------------+
-    | M bytes | ciphertext + GCM tag          |
-    +---------+-------------------------------+
-
-The nonce (12 bytes) is stored in the existing `nonce` DB column to
-preserve back-compat with the legacy schema. Migration script
-re-formats existing rows on first read.
-
-This cipher operates in two modes determined by `provider.wraps_data_key`:
-
-  - **Direct mode** (env / file): the same key is used for every record.
-    `wrapped_dek` is empty, `flags & 0x01 = 0`.
-  - **Envelope mode** (KMS-backed): each record gets its own DEK,
-    wrapped by the KMS. `wrapped_dek` carries the KMS ciphertext,
-    `flags & 0x01 = 1`.
-"""
+"""VersionedCipher - AES-256-GCM with a versioned envelope header."""
 
 from __future__ import annotations
 
@@ -86,19 +53,11 @@ def _byte_to_backend(b: int) -> KmsBackend:
 
 
 class CipherError(Exception):
-    """Raised on any encrypt/decrypt failure that the caller should
-    surface to the user. Wraps the underlying cause but never leaks
-    plaintext or key material in the message."""
+    """Raised on any encrypt/decrypt failure that the caller should"""
 
 
 class VersionedCipher:
-    """Async cipher that pulls keys from a MasterKeyProvider.
-
-    All encrypt/decrypt methods are async because envelope-mode
-    providers (KMS-backed) make network calls. Direct-mode providers
-    return immediately so there's effectively no latency penalty for
-    the common dev/single-tenant case.
-    """
+    """Async cipher that pulls keys from a MasterKeyProvider."""
 
     def __init__(self, provider: MasterKeyProvider) -> None:
         self._provider = provider
@@ -108,15 +67,7 @@ class VersionedCipher:
         return self._provider
 
     async def encrypt(self, fields: dict[str, Any]) -> tuple[bytes, bytes]:
-        """Encrypt a JSON-serialisable dict.
-
-        Returns a (payload, nonce) tuple where:
-          - `payload` is the versioned envelope (header + wrapped DEK
-            + ciphertext + GCM tag), persisted in `encrypted_fields`.
-          - `nonce` is the 12-byte AES-GCM nonce, persisted in `nonce`
-            (kept separate from the payload for back-compat with the
-            legacy schema).
-        """
+        """Encrypt a JSON-serialisable dict."""
         try:
             plaintext = json.dumps(fields, ensure_ascii=False).encode("utf-8")
         except (TypeError, ValueError) as exc:
@@ -163,13 +114,7 @@ class VersionedCipher:
         return payload, nonce
 
     async def decrypt(self, payload: bytes, nonce: bytes) -> dict[str, Any]:
-        """Decrypt a versioned payload back to the original dict.
-
-        Recognises legacy (non-versioned) payloads by absence of the
-        version byte 0x01 at offset 0 and falls back to direct AES-GCM
-        with the master key - so existing rows keep working through
-        the migration window.
-        """
+        """Decrypt a versioned payload back to the original dict."""
         # Detect legacy payloads: they are raw AES-GCM ciphertext, no
         # header. Heuristic: if byte0 is not 0x01, treat as legacy.
         if not payload:
@@ -227,14 +172,8 @@ class VersionedCipher:
     async def _decrypt_legacy(
         self, ciphertext: bytes, nonce: bytes,
     ) -> dict[str, Any]:
-        """Legacy path: payload is raw AES-GCM ciphertext encrypted
-        with the direct master key. Used to read rows written by the
-        pre-v1 cipher. The migration job re-encrypts these rows in
-        v1 format on next write."""
+        """Legacy path: payload is raw AES-GCM ciphertext encrypted"""
         if self._provider.wraps_data_key:
-            # Provider in envelope mode but row is legacy direct → can't
-            # decrypt. This means a deployment migrated to KMS without
-            # re-encrypting the existing rows.
             raise CipherError(
                 "legacy direct-mode payload found but current provider "
                 "is envelope-mode (KMS). Run "
@@ -260,23 +199,9 @@ class VersionedCipher:
                 f"decrypted payload is not valid JSON: {exc}",
             ) from exc
 
-    # ── Sync convenience wrappers ───────────────────────────────────
-    # These let legacy callers that aren't async-aware use the cipher
-    # WHEN the master key provider is direct-mode (env / file). For
-    # envelope-mode (KMS) providers, the sync wrappers raise - callers
-    # MUST use the async API because key wrap/unwrap requires network
-    # I/O which we won't run blocking from arbitrary call sites.
-    #
-    # Migration path: every caller is converted to async over time and
-    # the sync wrappers can be deleted.
 
     def encrypt_sync(self, fields: dict[str, Any]) -> tuple[bytes, bytes]:
-        """Synchronous encrypt. Only valid for direct-mode providers
-        whose `get_data_key_sync()` is implemented (env / file).
-
-        For KMS-backed providers, raises `CipherError` - the caller
-        must use the async API since wrap/unwrap require network I/O.
-        """
+        """Synchronous encrypt. Only valid for direct-mode providers"""
         if self._provider.wraps_data_key:
             raise CipherError(
                 "encrypt_sync() is not available with envelope-mode "
@@ -391,13 +316,7 @@ class VersionedCipher:
 
     @staticmethod
     def _zeroize(key: bytes) -> None:
-        """Best-effort attempt to drop the data key from memory.
-
-        CPython's `bytes` are immutable so this is mostly a signal of
-        intent - real zeroization would require `bytearray` and ctypes
-        memset, which the data flow doesn't currently support. Future
-        improvement.
-        """
+        """Best-effort attempt to drop the data key from memory."""
         # Intentionally a no-op for now. Hook for future hardening.
         del key
 

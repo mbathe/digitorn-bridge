@@ -1,0 +1,141 @@
+name: Release
+
+# Triggered when a vX.Y.Z tag is pushed. Builds the wheel + sdist,
+# attaches the install scripts to the GitHub Release, and publishes
+# to PyPI.
+#
+# Usage:
+#   1. Bump version in pyproject.toml.
+#   2. git commit -am "Release X.Y.Z"
+#   3. git tag vX.Y.Z
+#   4. git push origin main --tags
+#
+# The PYPI_API_TOKEN repo secret must be set (or switch to Trusted
+# Publishers; see the comment at the publish step).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write        # required to create the GitHub Release
+  id-token: write        # required by Trusted Publishers (OIDC)
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: pipx install poetry
+
+      - name: Sanity check tag matches pyproject version
+        id: meta
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          file=$(poetry version -s)
+          if [ "$tag" != "$file" ]; then
+            echo "Tag $tag does not match pyproject version $file." >&2
+            exit 1
+          fi
+          echo "version=$tag" >> $GITHUB_OUTPUT
+
+      - name: Build wheel + sdist
+        run: poetry build
+
+      - name: Guard - reject private code in the wheel
+        # Refuses to release if any file from a private sibling
+        # package (auth, gateway, hub, ...) leaked into the wheel.
+        # See scripts/check-wheel-contents.py for the full ruleset.
+        run: |
+          set -euo pipefail
+          python scripts/check-wheel-contents.py dist/digitorn-${{ steps.meta.outputs.version }}-py3-none-any.whl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Create GitHub Release (private repo - assets visible to collaborators only)
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            scripts/install.sh
+            scripts/install.ps1
+            dist/*.whl
+            dist/*.tar.gz
+
+  publish-installers:
+    # Upload install.sh / install.ps1 to the public Cloudflare R2 bucket
+    # so digitorn.ai/install.sh (which redirects there) serves the latest
+    # version. This is the only public surface for the installers while
+    # the repo stays private.
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload installers to R2
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          set -euo pipefail
+          # R2 is S3-compatible; the standard AWS CLI works as-is when
+          # AWS_ENDPOINT_URL points at the R2 endpoint.
+          aws s3 cp scripts/install.sh  s3://digitorn-install/install.sh \
+            --content-type "application/x-sh"          --cache-control "public, max-age=300"
+          aws s3 cp scripts/install.ps1 s3://digitorn-install/install.ps1 \
+            --content-type "text/plain; charset=utf-8" --cache-control "public, max-age=300"
+
+      - name: Sanity-check the public URLs
+        run: |
+          curl -fsSL "${{ secrets.R2_PUBLIC_URL }}/install.sh"  | head -3
+          curl -fsSL "${{ secrets.R2_PUBLIC_URL }}/install.ps1" | head -3
+
+  publish-pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi      # remove if you don't use a GitHub environment
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      # Option A: Trusted Publishers (recommended, no token to manage).
+      # Configure once at https://pypi.org/manage/project/digitorn/settings/publishing/
+      # then this step works with zero secrets.
+      - name: Publish to PyPI (Trusted Publishers)
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      # Option B: long-lived API token. Comment out the step above and
+      # uncomment the one below if you prefer the token route.
+      #
+      # - name: Publish to PyPI (API token)
+      #   uses: pypa/gh-action-pypi-publish@release/v1
+      #   with:
+      #     password: ${{ secrets.PYPI_API_TOKEN }}

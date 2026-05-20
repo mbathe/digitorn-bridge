@@ -1,23 +1,4 @@
-"""PackageManifest - Pydantic model for ``package.toml``.
-
-This is the **canonical schema** of every Digitorn AppPackage.
-Every field maps 1:1 to the design doc (§4 of docs/APP_PACKAGES.md).
-Adding a new field here = updating the doc + the manifest generator
-+ the validator in lockstep.
-
-The model is loose at the edges (``extra = "allow"``) so a future
-hub-shipped package with extra fields doesn't blow up on a daemon
-that hasn't been upgraded yet - forward compatibility matters in
-distributed systems.
-
-Loading a manifest from disk::
-
-    from digitorn.core.packages.manifest import PackageManifest
-
-    manifest = PackageManifest.from_path(Path("./my-app/package.toml"))
-    print(manifest.id, manifest.version)
-    print(manifest.permissions.risk_level)
-"""
+"""PackageManifest - Pydantic model for `package.toml`."""
 
 from __future__ import annotations
 
@@ -26,11 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-
-# ────────────────────────────────────────────────────────────────────
-# Validators
-# ────────────────────────────────────────────────────────────────────
 
 _KEBAB_RE = re.compile(r"^[a-z][a-z0-9-]{2,63}$")
 _SEMVER_RE = re.compile(
@@ -44,7 +20,6 @@ _VERSION_REQ_RE = re.compile(
     r"(\d+(?:\.\d+){0,2}(?:[-+][\w.]+)?)$"
 )
 
-
 def _validate_kebab(value: str) -> str:
     if not _KEBAB_RE.match(value):
         raise ValueError(
@@ -53,7 +28,6 @@ def _validate_kebab(value: str) -> str:
         )
     return value
 
-
 def _validate_semver(value: str) -> str:
     if not _SEMVER_RE.match(value):
         raise ValueError(
@@ -61,9 +35,7 @@ def _validate_semver(value: str) -> str:
         )
     return value
 
-
 def _validate_version_requirement(value: str) -> str:
-    """Accept a version range like '>=2.0.0', '<3.0.0', '~=1.2.0'."""
     if not value:
         return value
     if not _VERSION_REQ_RE.match(value.strip()):
@@ -72,14 +44,8 @@ def _validate_version_requirement(value: str) -> str:
         )
     return value
 
-
-# ────────────────────────────────────────────────────────────────────
-# Sub-sections of package.toml
-# ────────────────────────────────────────────────────────────────────
-
-
 class PackageMeta(BaseModel):
-    """``[package]`` section - identity + display info."""
+    """`[package]` section - identity + display info."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -116,9 +82,8 @@ class PackageMeta(BaseModel):
     def _validate_version(cls, v: str) -> str:
         return _validate_semver(v)
 
-
 class PackageSourceMeta(BaseModel):
-    """``[package.source]`` - where this package came from."""
+    """`[package.source]` - where this package came."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -132,9 +97,8 @@ class PackageSourceMeta(BaseModel):
     )
     publisher: str = Field(default="", description="Publisher id on the hub.")
 
-
 class PackageCompatibility(BaseModel):
-    """``[package.compatibility]`` - daemon + python version ranges."""
+    """`[package.compatibility]` - daemon + python version ranges."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -157,9 +121,8 @@ class PackageCompatibility(BaseModel):
     def _validate_req(cls, v: str) -> str:
         return _validate_version_requirement(v)
 
-
 class PackageRequirements(BaseModel):
-    """``[package.requirements]`` - runtime dependencies (advisory)."""
+    """`[package.requirements]` - runtime dependencies (advisory)."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -178,9 +141,8 @@ class PackageRequirements(BaseModel):
         description="Binaries expected on PATH (git, docker, npm, ...).",
     )
 
-
 class PackageCredentials(BaseModel):
-    """``[package.credentials]`` - links to credentials_schema in app.yaml."""
+    """`[package.credentials]` - links to credentials_schema in app.yaml."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -193,9 +155,8 @@ class PackageCredentials(BaseModel):
         description="Provider names that enhance the app but aren't required.",
     )
 
-
 class PackagePermissions(BaseModel):
-    """``[package.permissions]`` - install-time consent dialog data."""
+    """`[package.permissions]` - install-time consent dialog data."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -226,9 +187,8 @@ class PackagePermissions(BaseModel):
             )
         return v
 
-
 class PackageHubMeta(BaseModel):
-    """``[package.hub]`` - only filled when published to the hub."""
+    """`[package.hub]` - only filled when published to the hub."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -238,9 +198,8 @@ class PackageHubMeta(BaseModel):
     minimum_rating: float = Field(default=0.0, ge=0.0, le=5.0)
     downloads: int = Field(default=0, ge=0)
 
-
 class PackageRelease(BaseModel):
-    """``[package.release]`` - changelog metadata."""
+    """`[package.release]` - changelog metadata."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -249,19 +208,8 @@ class PackageRelease(BaseModel):
     breaking: bool = Field(default=False)
     upgrade_from: list[str] = Field(default_factory=list)
 
-
-# ────────────────────────────────────────────────────────────────────
-# Top-level manifest
-# ────────────────────────────────────────────────────────────────────
-
-
 class PackageManifest(BaseModel):
-    """The full ``package.toml`` model.
-
-    Use ``PackageManifest.from_path(toml_path)`` to load + validate
-    a manifest from disk. The constructor accepts an already-parsed
-    dict for tests or in-memory generation.
-    """
+    """The full `package.toml` model."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -273,8 +221,6 @@ class PackageManifest(BaseModel):
     permissions: PackagePermissions = Field(default_factory=PackagePermissions)
     hub: PackageHubMeta = Field(default_factory=PackageHubMeta)
     release: PackageRelease = Field(default_factory=PackageRelease)
-
-    # ── Convenience accessors ───────────────────────────────────
 
     @property
     def id(self) -> str:
@@ -292,16 +238,9 @@ class PackageManifest(BaseModel):
     def description(self) -> str:
         return self.package.description
 
-    # ── Loading ─────────────────────────────────────────────────
-
     @classmethod
     def from_path(cls, path: Path) -> "PackageManifest":
-        """Load and validate a ``package.toml`` from disk.
-
-        Raises:
-            FileNotFoundError: when the file is missing
-            ValueError: when the TOML is malformed or fails validation
-        """
+        """Load and validate a `package.toml` from disk."""
         if not path.is_file():
             raise FileNotFoundError(f"package.toml not found: {path}")
 
@@ -316,10 +255,8 @@ class PackageManifest(BaseModel):
         except Exception as exc:
             raise ValueError(f"failed to parse {path}: {exc}") from exc
 
-        # The TOML uses dotted sections like [package.source] which
-        # tomllib already nests as raw["package"]["source"]. We hoist
-        # them to the top level so each Pydantic submodel sees its
-        # own dict.
+        # Hoist nested `[package.<x>]` sections to the top level so
+        # each Pydantic submodel sees its own dict.
         normalised = cls._hoist_package_sections(raw)
         try:
             return cls(**normalised)
@@ -335,13 +272,6 @@ class PackageManifest(BaseModel):
 
     @staticmethod
     def _hoist_package_sections(raw: dict[str, Any]) -> dict[str, Any]:
-        """Extract sub-sections from the [package] table.
-
-        TOML stores ``[package.source]`` as ``raw["package"]["source"]``.
-        Our Pydantic model expects ``raw["source"]`` at the top level
-        because each section is its own field. This helper does the
-        translation.
-        """
         if not isinstance(raw, dict):
             raise ValueError(f"package.toml root must be a table, got {type(raw).__name__}")
 
@@ -370,19 +300,12 @@ class PackageManifest(BaseModel):
 
         return out
 
-    # ── Serialisation ──────────────────────────────────────────
-
     def to_dict(self) -> dict[str, Any]:
         """JSON-friendly dict representation. Same shape as the model."""
         return self.model_dump(mode="json")
 
     def to_toml(self) -> str:
-        """Render the manifest back to TOML text.
-
-        Useful for the ``digitorn package init`` CLI command (which
-        auto-generates a manifest from an app.yaml) and for the
-        builder agent's "publish this app" flow.
-        """
+        """Render the manifest back to TOML text."""
         try:
             import tomli_w  # type: ignore
         except ImportError:
@@ -401,11 +324,6 @@ class PackageManifest(BaseModel):
         return tomli_w.dumps(nested)
 
     def _render_toml_manual(self) -> str:
-        """Hand-rolled TOML renderer for environments without tomli_w.
-
-        Not feature-complete (skips arrays of tables, escapes naively)
-        but enough for the well-formed dicts our generator produces.
-        """
         lines: list[str] = []
 
         def _section(name: str, data: dict[str, Any]) -> None:

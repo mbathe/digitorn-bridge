@@ -1,8 +1,4 @@
-"""Routes for the diag group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the diag group, extracted from the legacy `apps.py`."""
 
 from __future__ import annotations
 
@@ -105,7 +101,6 @@ from ._shared import (
 router = APIRouter(tags=["apps"])
 
 
-
 @router.get("/{app_id}/diagnostics", response_model=AppResponse)
 async def app_diagnostics(request: Request, app_id: str) -> AppResponse:
     """Run diagnostics checks for a deployed app."""
@@ -118,11 +113,6 @@ async def app_diagnostics(request: Request, app_id: str) -> AppResponse:
     # Daemon health
     checks.append({"name": "Daemon", "ok": True, "detail": "running"})
 
-    # App deployed - use the manager's scoped `get()` (same resolver
-    # the rest of the API uses) instead of a bare dict lookup on
-    # `_deployed`. The dict lookup missed user-scoped deploys whose key
-    # is `user:<uid>:<app_id>`, so `/api/apps` said "deployed" and
-    # `/diagnostics` said "not deployed" for the same app.
     deployed = manager.get(app_id, user_id=_caller_user_id(request))
     if deployed is None:
         checks.append({"name": "App", "ok": False, "detail": "not deployed"})
@@ -151,7 +141,7 @@ async def app_diagnostics(request: Request, app_id: str) -> AppResponse:
         try:
             import asyncio as _asyncio
             import subprocess
-            # Off-loop: ``git --version`` is fast (50ms) but goes through
+            # Off-loop: `git --version` is fast (50ms) but goes through
             # PATH lookup on Windows, which can stall on a slow PATH.
             def _run() -> subprocess.CompletedProcess:
                 return subprocess.run(
@@ -186,28 +176,7 @@ async def app_errors(request: Request, app_id: str, limit: int = 10) -> AppRespo
 
 @router.get("/{app_id}/status", response_model=AppResponse)
 async def app_status(request: Request, app_id: str) -> AppResponse:
-    """Hero-stats endpoint for the Flutter background app dashboard.
-
-    One round-trip returns everything the top of the dashboard needs:
-
-    - ``live``          → current run state (``running`` / ``idle``) +
-                          number of activations in status='running'
-    - ``stats``         → all-time aggregated stats (same as
-                          ``/activations/stats``) so the UI doesn't have
-                          to chain two requests on page load
-    - ``hourly``        → the 24-hour sparkline bucket list, one row per
-                          hour, oldest first, including empty hours
-    - ``trend_24h``     → total runs + failed runs in the last 24 h
-                          (convenience aggregate on top of ``hourly``)
-    - ``triggers_summary`` → light summary of trigger + channel state so
-                          the dashboard header can show "2 triggers · 3
-                          channels active" without a second call to
-                          ``/triggers``
-
-    This is what the dashboard should call at page load and whenever
-    the user hits the ↻ refresh button. Everything else (activation
-    list, trigger details, channel details) is lazy-loaded on demand.
-    """
+    """Hero-stats endpoint for the background app dashboard."""
     _validate_id(app_id)
     manager = _get_manager(request)
     store = _get_activation_store(request)
@@ -216,30 +185,17 @@ async def app_status(request: Request, app_id: str) -> AppResponse:
     if deployed is None:
         _raise_not_deployed(request, app_id)
 
-    # ── Live state (cheap: one COUNT per status group) ─────────────
     counts = await store.count_by_status(app_id)
     running_count = counts.get("running", 0)
     live_state = "running" if running_count > 0 else "idle"
 
-    # ── All-time stats ─────────────────────────────────────────────
     stats = await store.stats(app_id)
 
-    # ── 24h hourly buckets for the sparkline ───────────────────────
     hourly = await store.hourly_buckets(app_id, hours=24)
     trend_total = sum(b["total"] for b in hourly)
     trend_failed = sum(b["failed"] for b in hourly)
     trend_completed = sum(b["completed"] for b in hourly)
 
-    # ── Triggers + channels summary ────────────────────────────────
-    # Apps define triggers / channels in one of two styles:
-    #
-    #   1. Legacy ``execution.triggers: [...]`` - shown as compiled.execution.triggers
-    #   2. Module-based ``modules.channels.config.providers: {...}`` - shown as
-    #      live instances on the channels module itself (deployed.modules['channels']._providers)
-    #
-    # The dashboard needs ONE unified count regardless of which style the
-    # user picked. We aggregate both sources here so the frontend sees
-    # the same number for both.
     compiled = deployed.compiled
     legacy_triggers = compiled.execution.triggers or []
 
@@ -266,9 +222,6 @@ async def app_status(request: Request, app_id: str) -> AppResponse:
         "types": sorted(all_types),
     }
 
-    # Channel names include both legacy compiled.channels (top-level
-    # channels section) AND active channel provider instances from the
-    # channels module (the new style).
     channel_names: set[str] = set((compiled.channels or {}).keys())
     channel_names.update(channel_providers.keys())
 
@@ -306,21 +259,7 @@ async def app_status(request: Request, app_id: str) -> AppResponse:
 
 @router.get("/{app_id}/ui-config", response_model=AppResponse)
 async def get_app_ui_config(request: Request, app_id: str) -> AppResponse:
-    """Return ONLY the client-UI-relevant config flags for an app.
-
-    Safe to call from any authenticated user - it strictly allow-lists
-    fields that are safe to expose to a frontend (booleans, render
-    modes, layout hints). Never leaks prompts, secrets, api_keys,
-    webhook URLs, hook logic, or capability grants.
-
-    Rationale: the Flutter / web client needs to adapt its UI based on
-    per-app config (``auto_approve`` → hide approve buttons;
-    ``render_mode`` → canvas vs iframe; ``preview.enabled`` → show
-    web preview pane). Previous proposal was to return the full YAML
-    via ``?include_yaml=true`` - that was a leak (system_prompts,
-    inline api_keys, internal webhook paths). This endpoint exposes
-    only the narrow subset the UI cares about.
-    """
+    """Return ONLY the client-UI-relevant config flags for an app."""
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     if deployed is None:
@@ -351,7 +290,7 @@ async def get_app_ui_config(request: Request, app_id: str) -> AppResponse:
                 preview_cfg = {k: v for k, v in pv_cfg.items() if k in _PREVIEW_ALLOW}
 
     # Top-level workspace: block (render_mode, entry_file, title) - same
-    # shape as the summary's ``workspace`` field but filtered.
+    # shape as the summary's `workspace` field but filtered.
     top_ws = getattr(compiled, "workspace", None) if compiled is not None else None
     top_workspace = {}
     if top_ws is not None:
@@ -372,16 +311,7 @@ async def get_app_ui_config(request: Request, app_id: str) -> AppResponse:
 async def list_app_files(
     request: Request, app_id: str, subdir: str = "",
 ):
-    """List files available in a deployed app's companion directory.
-
-    Lets the Flutter client discover what assets / skills / prompts
-    ship with an app without guessing filenames. ``subdir`` narrows
-    the listing to a subdirectory (e.g. ``?subdir=skills`` or
-    ``?subdir=assets``). Empty = root.
-
-    Returns a shallow listing (one directory level) - call again
-    with a subdir query to drill down.
-    """
+    """List files available in a deployed app's companion directory."""
     from pathlib import Path
     _validate_id(app_id)
     manager = _get_manager(request)
@@ -399,8 +329,8 @@ async def list_app_files(
                 pkg = await pkg_registry.get(app_id)
                 if pkg and pkg.get("install_dir"):
                     bundle_dir = Path(pkg["install_dir"]).resolve()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("diag best-effort block failed: %s", exc)
     if bundle_dir is None or not bundle_dir.is_dir():
         raise HTTPException(
             status_code=404, detail="App bundle dir not found",
@@ -438,8 +368,8 @@ async def list_app_files(
                 entry["size"] = stat.st_size
                 # Hint the asset URL the client should use
                 entry["url"] = f"/api/apps/{app_id}/assets/{rel}"
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("diag best-effort block failed: %s", exc)
         entries.append(entry)
 
     return AppResponse(
@@ -455,26 +385,7 @@ async def list_app_files(
 
 @router.get("/{app_id}/icon")
 async def get_app_icon(request: Request, app_id: str):
-    """Serve a deployed app's icon.
-
-    Two icon styles are accepted in the YAML's ``app.icon`` field:
-
-    - **Emoji / short text** (e.g. ``"⚛️"``, ``"💬"``, ``"AI"``) —
-      every Digitorn builtin uses this. The route renders it as a
-      tiny SVG so the route always returns a real image, regardless
-      of what the YAML declared.
-    - **Path to a file** (e.g. ``"icons/app.png"``) — relative to
-      the app bundle dir. Streamed with ``FileResponse``.
-
-    The discriminator is path-shape: a value containing ``/`` or
-    ``\\`` is treated as a path; everything else is rendered as an
-    emoji SVG. This means an app that declares ``icon: "⚛️"`` no
-    longer 404s on every page load.
-
-    Prefer this over ``/api/packages/{id}/icon`` for deployed apps —
-    they're the same source but this endpoint doesn't require the
-    app to also be installed as a package.
-    """
+    """Serve a deployed app's icon."""
     from pathlib import Path
     from fastapi.responses import FileResponse, Response
 
@@ -525,12 +436,7 @@ async def get_app_icon(request: Request, app_id: str):
 
 
 def _render_icon_text_as_svg(text: str):
-    """Wrap a short text/emoji icon in a 64×64 SVG.
-
-    The text is XML-escaped so a malicious YAML payload can't inject
-    SVG markup. Cached for a day — the YAML field doesn't change at
-    runtime.
-    """
+    """Wrap a short text/emoji icon in a 64×64 SVG."""
     from xml.sax.saxutils import escape
     from fastapi.responses import Response
 
@@ -554,11 +460,7 @@ def _render_icon_text_as_svg(text: str):
 
 @router.get("/{app_id}/index", response_model=AppResponse)
 async def get_app_index(request: Request, app_id: str) -> AppResponse:
-    """Get full tool index structure for the app.
-
-    Returns all categories, tools, aliases, and metadata.
-    Useful for SDK clients to build local caches or UI.
-    """
+    """Get full tool index structure for the app."""
     _validate_id(app_id)
     manager = _get_manager(request)
     if not _is_deployed(request, app_id):
@@ -603,24 +505,7 @@ async def get_app_index(request: Request, app_id: str) -> AppResponse:
 async def get_app_asset(
     request: Request, app_id: str, asset_path: str, size: int = 0,
 ):
-    """Serve any file from a deployed app's companion directory.
-
-    Covers README.md, CHANGELOG.md, LICENSE, skills/*.md,
-    assets/*, workspace defaults - anything the YAML references
-    via a relative path. Guarded against path traversal; denies
-    ``.digitorn/*`` (daemon-managed area).
-
-    **``?size=N``** - when Pillow is installed and the asset is
-    a raster image (PNG/JPG/WebP), serve a resized variant of N
-    pixels on the longest side. Results are cached on disk under
-    ``.digitorn/resized/`` so repeated requests don't re-encode.
-    When Pillow isn't installed or the asset isn't an image,
-    ``size`` is ignored and the original is served.
-
-    Use this route over ``/api/packages/{id}/assets/...`` for
-    deployed apps - it doesn't require the app to also be
-    installed as a package.
-    """
+    """Serve any file from a deployed app's companion directory."""
     from pathlib import Path
     from fastapi.responses import FileResponse
 
@@ -641,8 +526,8 @@ async def get_app_asset(
                 pkg = await pkg_registry.get(app_id)
                 if pkg and pkg.get("install_dir"):
                     bundle_dir = Path(pkg["install_dir"]).resolve()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("diag best-effort block failed: %s", exc)
     if bundle_dir is None or not bundle_dir.is_dir():
         raise HTTPException(
             status_code=404, detail="App bundle dir not found",
@@ -653,13 +538,7 @@ async def get_app_asset(
             status_code=403, detail="Access to daemon-managed files denied",
         )
 
-    # BUG-079: the raw ``app.yaml`` / ``meta.json`` / ``package.toml``
-    # expose system_prompts, model config, constraints, and private
-    # setup_steps that include secrets at runtime. They must not be
-    # readable by any authenticated user - restrict to the owner of a
-    # user-scope deploy or to admins for system-scope apps. The same
-    # rule applies to any other ``.yaml`` / ``.toml`` config file
-    # living at the bundle root.
+    # raw app.yaml / meta.json / package.toml expose system_prompts + secrets; admins for system-scope, owner for user-scope.
     _norm_asset = asset_path.replace("\\", "/").lower()
     _restricted = (
         "app.yaml", "app.yml", "meta.json", "package.toml",
@@ -669,9 +548,6 @@ async def get_app_asset(
         perms = getattr(request.state, "permissions", []) or []
         is_admin = "*" in perms
         caller_uid = _caller_user_id(request)
-        # Walk the _deployed index to find which scope this app lives
-        # under. A system-scope app's sensitive files are admin-only;
-        # a user-scope app's sensitive files are owner-only.
         owner_uid: str | None = None
         scope = "system"
         for key, dep in (manager._deployed or {}).items():
@@ -715,10 +591,6 @@ async def get_app_asset(
             status_code=404, detail=f"Asset not found: {asset_path}",
         )
 
-    # Resize support (Pillow optional). PIL decode + thumbnail + save is
-    # pure CPU + sync file I/O (50-500ms per call depending on image size),
-    # so we offload to a thread. Leaving it on the loop stalls Socket.IO
-    # heartbeats every time the frontend asks for an icon at custom size.
     if size and size > 0:
         resized = await asyncio.to_thread(
             _try_resize_image, bundle_dir, target, size,
@@ -731,54 +603,13 @@ async def get_app_asset(
 
 @router.get("/{app_id}/channels/health", response_model=AppResponse)
 async def channels_health(request: Request, app_id: str) -> AppResponse:
-    """Return the live health of every channel registered for an app.
-
-    Walks the ``ChannelRegistry`` of the deployed app, calls
-    ``health_check()`` on each instance and returns a structured dict
-    the Flutter dashboard can render as a status badge per channel.
-
-    Response::
-
-        {
-          "success": true,
-          "data": {
-            "app_id": "newsletter-digest",
-            "channel_count": 3,
-            "channels": {
-              "email": {
-                "status": "ok",
-                "latency_ms": 124.5,
-                "last_error": null,
-                "last_success_at": "2026-04-13T10:35:45Z",
-                "deliveries_total": 12,
-                "deliveries_failed": 0,
-                "details": {"smtp_host": "smtp.sendgrid.net"}
-              },
-              "slack": {"status": "ok", ...},
-              "failing_webhook": {
-                "status": "down",
-                "last_error": "HTTP 503 Service Unavailable",
-                ...
-              }
-            }
-          }
-        }
-
-    Status values: ``ok`` (happy path), ``degraded`` (working but
-    flaky - retries needed), ``down`` (last attempt failed and the
-    channel is considered unreachable). The dashboard maps each to a
-    dot color.
-    """
+    """Return the live health of every channel registered for an app."""
     _validate_id(app_id)
     manager = _get_manager(request)
     deployed = _get_deployed(request, app_id)
     if deployed is None:
         _raise_not_deployed(request, app_id)
 
-    # ChannelRegistry is scoped to the manager. We only want instances
-    # that belong to this app - the registry indexes them by name, and
-    # names are already scoped by app at creation time (see
-    # AppManager._build_and_deploy channel loop).
     registry = getattr(manager, "_channel_registry", None)
     if registry is None:
         return AppResponse(
@@ -791,13 +622,6 @@ async def channels_health(request: Request, app_id: str) -> AppResponse:
             },
         )
 
-    # Resolve the set of channel names the app declares. Apps can declare
-    # channels either at the top-level ``channels:`` block (older form,
-    # lands in ``deployed.compiled.channels``) or inside the ``channels``
-    # module config as ``modules.channels.config.providers`` (newer form
-    # used by most builtins). The /triggers endpoint reads the latter -
-    # we fall back to it when the top-level block is empty so the two
-    # endpoints stay in agreement (BUG-051).
     app_channel_names: set[str] = set((deployed.compiled.channels or {}).keys())
     if not app_channel_names:
         channels_mod = deployed.modules.get("channels") if getattr(deployed, "modules", None) else None
@@ -827,9 +651,6 @@ async def channels_health(request: Request, app_id: str) -> AppResponse:
             "details": health.details or {},
         }
 
-    # For channels the app declared but that aren't in the registry
-    # (not yet started, or failed at startup), report them as "unknown"
-    # so the dashboard shows something actionable instead of hiding them.
     for name in app_channel_names:
         if name not in channels:
             channels[name] = {
@@ -854,19 +675,7 @@ async def channels_health(request: Request, app_id: str) -> AppResponse:
 
 @router.get("/{app_id}/deploy-status", response_model=AppResponse)
 async def get_deploy_status(request: Request, app_id: str) -> AppResponse:
-    """Return the last known deploy outcome for an app.
-
-    BUG-080: POST ``/deploy`` used to return ``status:"deploying"``
-    and silently drop the error if the background deploy failed - the
-    client had no way to distinguish "still running" from "failed".
-    This route surfaces the stored error (if any) so the caller can
-    show a meaningful message.
-
-    Shape::
-
-        { "deployed": true, "app_id": "...", "error": null }
-        { "deployed": false, "app_id": "...", "error": "...", "traceback": "..." }
-    """
+    """Return the last known deploy outcome for an app."""
     _validate_id(app_id)
     manager = _get_manager(request)
     is_deployed_now = manager.is_deployed(
@@ -888,11 +697,7 @@ async def get_deploy_status(request: Request, app_id: str) -> AppResponse:
 
 @router.post("/{app_id}/notifications")
 async def check_notifications(request: Request, app_id: str, body: NotificationCheckRequest):
-    """Check for background task notifications and stream an agent response if any.
-
-    Returns SSE stream identical to chat/stream if notifications exist,
-    or an empty 204 response if nothing is pending.
-    """
+    """Check for background task notifications and stream an agent response if any."""
     _validate_id(app_id)
     manager = _get_manager(request)
 
@@ -983,15 +788,7 @@ async def check_notifications(request: Request, app_id: str, body: NotificationC
 
 @router.get("/{app_id}/payload-schema", response_model=AppResponse)
 async def get_app_payload_schema(request: Request, app_id: str) -> AppResponse:
-    """Return the declarative payload schema for a background app.
-
-    The Flutter dashboard calls this once per app to render a typed
-    form (instead of a generic key/value editor) and to know which
-    fields/files are required before a session can be activated.
-
-    Returns ``data: null`` when the app has no schema declared - the
-    dashboard should fall back to the free-form editor in that case.
-    """
+    """Return the declarative payload schema for a background app."""
     _validate_id(app_id)
     manager = _get_manager(request)
     deployed = _get_deployed(request, app_id)
@@ -1003,15 +800,7 @@ async def get_app_payload_schema(request: Request, app_id: str) -> AppResponse:
 
 @router.get("/{app_id}/hooks", response_model=AppResponse)
 async def get_app_hooks(request: Request, app_id: str) -> AppResponse:
-    """List every hook declared by a deployed app.
-
-    Surfaces both app-wide hooks (``runtime.hooks[]``, legacy
-    ``execution.hooks[]``) and per-agent hooks (``agents[].hooks[]``)
-    in a flat list. Each entry carries its ``scope`` (``app`` or
-    ``agent:<id>``) so a UI can group them. Useful for the dashboard
-    introspection panel and matches the documentation reference in
-    ``HookConfig.tags``.
-    """
+    """List every hook declared by a deployed app."""
     _validate_id(app_id)
     manager = _get_manager(request)
     deployed = _get_deployed(request, app_id)

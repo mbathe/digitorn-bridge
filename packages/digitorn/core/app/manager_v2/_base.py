@@ -1,12 +1,4 @@
-"""_BaseMixin - owns ``__init__`` and shared state.
-
-This mixin is the LAST in the MRO: every other mixin reads
-``self._deployed``, ``self.event_bus``, etc. and the base mixin is
-where those attributes are initialised.
-
-Methods that didn't fit any other rule live here too (notification
-poller helpers, secrets delegation, approval publishers).
-"""
+"""_BaseMixin - owns `__init__` and shared state."""
 
 from __future__ import annotations
 
@@ -41,10 +33,10 @@ logger = logging.getLogger(__name__)
 
 
 class _BaseMixin:
-    """Shared state + ``__init__`` for the composed AppManager."""
+    """Shared state + `__init__` for the composed AppManager."""
 
     # Static attribute hints - keep static analysers (and humans) honest
-    # about what each mixin can rely on. Initialised in ``__init__``.
+    # about what each mixin can rely on. Initialised in `__init__`.
     _deployed: dict[str, DeployedApp]
     _turn_state: dict[str, TurnState]
     _active_sessions: set[str]
@@ -72,11 +64,6 @@ class _BaseMixin:
         self._deploy_lock = asyncio.Lock()
         self._deploy_errors: dict[str, dict[str, Any]] = {}
         self._bg_start_tasks: set[asyncio.Task] = set()
-        # The session store is ALWAYS the new filesystem-first
-        # InMemorySessionStore, accessed through a sync adapter that
-        # exposes the legacy ``SessionStore`` API expected by the rest
-        # of the daemon. The bridge MUST be initialised before the
-        # manager starts (``init_session_store`` in the daemon lifespan).
         bridge = get_default_bridge()
         if bridge is None:
             raise RuntimeError(
@@ -94,11 +81,6 @@ class _BaseMixin:
         recovered = self._session_store.recover_orphans()
         if recovered:
             logger.info("recovered_orphan_sessions count=%d", recovered)
-        # Phase 3: filesystem-backed JobStore (watchers + cron + notif
-        # buffer). Replaces the legacy ``JobStore`` that mooched the
-        # session store's KV (DiskCache) backend. Lives under its own
-        # path so cron/scheduled apps survive across daemon restarts
-        # without touching the session journal tree.
         self._job_store = FileJobStore(
             root=Path.home() / ".digitorn" / "jobs",
         )
@@ -124,10 +106,6 @@ class _BaseMixin:
         self._active_sessions: set[str] = set()  # "app_id:session_id" keys with turn in progress
         self._session_tasks: dict[str, asyncio.Task] = {}  # "app_id:session_id" → running agent_turn task
 
-        # Per-session in-flight turn state - populated by _chat_locked,
-        # consumed by build_state_envelope() / the /state endpoint / the
-        # state:snapshot SSE event. Keyed by "app_id:session_id".
-        # See :class:`TurnState` above for the contract.
         self._turn_state: dict[str, TurnState] = {}
         self._turn_state_lock = asyncio.Lock()
         # Heartbeat task per active turn - cancelled on message_done.
@@ -136,7 +114,6 @@ class _BaseMixin:
         from digitorn.core.app.secrets import SecretStore
         self._secret_store = SecretStore()
 
-    # ── Background bg-task helpers ────────────────────────────────────
 
     def has_active_bg_tasks(self, app_id: str) -> bool:
         """Check if a deployed app has any active background tasks."""
@@ -148,16 +125,9 @@ class _BaseMixin:
             return False
         return cb.has_active_bg_tasks()
 
-    # ── Approval publishers (used during deploy wiring) ──────────────
 
     def _make_approval_publisher(self, app_id: str) -> Any:
-        """Build an approval callback that republishes to the session bus.
-
-        Registered on each deployed app's ``ApprovalQueue`` so that when a
-        tool execution awaits approval, Flutter clients listening on the
-        Socket.IO ``session:{id}`` (or ``user:{id}``) room see the request
-        immediately - no per-connection wiring, no polling.
-        """
+        """Build an approval callback that republishes to the session bus."""
         async def _publish(request: Any) -> None:
             try:
                 from digitorn.core.events.envelope import (
@@ -166,19 +136,8 @@ class _BaseMixin:
                 uid = request.user_id or "local"
                 sid = getattr(request, "session_id", "") or ""
                 payload = request.to_dict()
-                # request_id doubles as the op_id - the pair
-                # (approval_request, approval_resolved) for one pending
-                # approval shares it so the client can close the modal
-                # deterministically on resolution.
                 op_id = getattr(request, "request_id", "") or "op-approval"
                 payload["op_id"] = op_id
-                # Progress heartbeats (see ApprovalQueue) send the same
-                # request with description patched to "(still waiting…)"
-                # - we treat them as op_state=waiting_approval heartbeats
-                # carrying the same op_id.
-                # Same invariant as approval_resolved below - refuse to
-                # emit without a real session_id so the event actually
-                # lands in the originating session's history_log.
                 if not sid:
                     logger.warning(
                         "approval_request_missing_session_id app=%s op=%s "
@@ -203,12 +162,7 @@ class _BaseMixin:
         return _publish
 
     def _approval_resolve_publisher(self, app_id: str):
-        """Return a callback that publishes `approval_resolved` on SSE.
-
-        Plugs the gap that left the UI showing a pending approval forever
-        after the user resolved it (or the timeout fired): without this
-        signal the frontend had no trigger to drop the badge/card.
-        """
+        """Return a callback that publishes `approval_resolved` on SSE."""
         async def _publish_resolved(request: Any, approved: bool, reason: str) -> None:
             try:
                 from digitorn.core.events.envelope import (
@@ -221,11 +175,6 @@ class _BaseMixin:
                 payload["reason"] = reason
                 op_id = getattr(request, "request_id", "") or "op-approval"
                 payload["op_id"] = op_id
-                # Heartbeat vs real resolution: the ApprovalQueue emits
-                # a heartbeat with reason == "pending_heartbeat" every
-                # 15 s (see BUG-008 fix). The client should see op_state
-                # stay WAITING_APPROVAL in that case, and move to a
-                # terminal state only for a real user decision.
                 if reason == "pending_heartbeat":
                     op_state = OpState.WAITING_APPROVAL
                     ev_type = "approval_progress"
@@ -233,22 +182,12 @@ class _BaseMixin:
                     op_state = OpState.COMPLETED
                     ev_type = "approval_resolved"
                 else:
-                    # Denied / timeout. ApprovalQueue uses "Approval
-                    # timed out" in the reason - promote that to the
-                    # TIMEOUT terminal state.
                     reason_l = (reason or "").lower()
                     if "time" in reason_l and "out" in reason_l:
                         op_state = OpState.TIMEOUT
                     else:
                         op_state = OpState.CANCELLED
                     ev_type = "approval_resolved"
-                # Strict: refuse to emit a session-scoped event without
-                # a real session_id. The old fallback ``"anonymous_session"``
-                # would land in history_log under a fake session that no
-                # client is ever subscribed to - the approval outcome
-                # would vanish from the original session's history. Log
-                # loudly and drop the publish; the local callback still
-                # fires so the tool call itself gets resolved.
                 if not sid:
                     logger.warning(
                         "approval_resolved_missing_session_id app=%s op=%s "
@@ -272,20 +211,9 @@ class _BaseMixin:
                 )
         return _publish_resolved
 
-    # ── Notification poller (background drain loop) ──────────────────
 
     async def start_notification_poller(self, interval: float = 1.0) -> None:
-        """Start the background-notification drain loop.
-
-        Replaces the per-SSE-connection watcher. Runs a single task that
-        ticks at ``interval`` seconds, enumerates deployed apps with
-        pending background-task notifications, and calls
-        ``check_notifications`` on each affected session. That method
-        already publishes ``notification`` / ``tool_call`` /
-        ``notification_result`` events to the session bus, so Flutter
-        clients see bg-task completions in real time even when the user
-        is not actively chatting.
-        """
+        """Start the background-notification drain loop."""
         if getattr(self, "_notif_poller_task", None) is not None:
             return
 
@@ -310,8 +238,8 @@ class _BaseMixin:
                                     first = inner[0]
                                     if isinstance(first, dict):
                                         uid = first.get("user_id") or "local"
-                            except Exception:
-                                pass
+                            except Exception as exc:
+                                logger.debug("_base best-effort block failed: %s", exc)
                             pending.append((sid, uid))
                         for sid, uid in pending:
                             try:
@@ -343,7 +271,6 @@ class _BaseMixin:
             pass
         self._notif_poller_task = None
 
-    # ── Secret store delegation ──────────────────────────────────────
 
     async def list_secrets(self, app_id: str) -> list[str]:
         """List secret keys for an app."""
@@ -361,7 +288,6 @@ class _BaseMixin:
         """Delete a secret. Returns True if it existed."""
         return await self._secret_store.delete_secret(app_id, key)
 
-    # ── Job store accessor ───────────────────────────────────────────
 
     @property
     def job_store(self) -> JobStore:

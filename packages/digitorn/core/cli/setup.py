@@ -1,11 +1,4 @@
-"""CLI command: digitorn setup - Interactive installation wizard.
-
-Guides the user through first-time configuration:
-    Step 1: Database backend (SQLite / PostgreSQL)
-    Step 2: Server host & port
-    Step 3: Module selection (core always on, extras optional)
-    Step 4: System service installation (Windows/Linux/macOS)
-"""
+"""CLI command: digitorn setup - Interactive installation wizard."""
 
 from __future__ import annotations
 
@@ -23,7 +16,6 @@ from rich.table import Table
 
 console = Console()
 
-# ── Module categories for the selection wizard ──
 
 CORE_MODULES = [
     "hello",
@@ -70,12 +62,7 @@ MODULE_CATEGORIES: dict[str, dict[str, str]] = {
 
 
 def _step_prerequisites() -> None:
-    """Step 0: Verify and install system prerequisites (Node.js).
-
-    Many apps, MCP servers, and app previews require Node.js. If it's
-    not installed, offer to auto-download the pinned LTS tarball from
-    nodejs.org into ~/.local/share/digitorn/runtimes/.
-    """
+    """Step 0: Verify and install system prerequisites (Node.js)."""
     import asyncio as _aio
 
     from digitorn.core.runtime.node_runtime import (
@@ -263,7 +250,7 @@ def _step_modules(config_data: dict) -> None:
 
 
 def _step_service(config_data: dict) -> bool:
-    """Step 4: Install system service. Returns True if service should be installed."""
+    """Step 4: Install system service."""
     console.print()
     console.print("[bold]Step 4/4 - System Service[/bold]")
     console.print()

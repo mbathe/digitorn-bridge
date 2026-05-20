@@ -1,15 +1,4 @@
-"""Webhook adapter - bidirectional HTTP.
-
-Inbound:  Receives HTTP POST/PUT requests on a registered path.
-Outbound: Sends HTTP POST requests to configured URLs.
-
-Security:
-- Inbound requests validated via HMAC signature or API key.
-- Payload size checked BEFORE JSON parsing.
-- Content-Type whitelisted.
-- Webhook path includes a secret token to prevent enumeration.
-- Outbound URLs validated against SSRF blocklist.
-"""
+"""Webhook adapter - bidirectional HTTP."""
 
 from __future__ import annotations
 
@@ -39,7 +28,6 @@ from digitorn.modules.channels.security import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 class WebhookAdapter(BaseChannelAdapter):
     """Bidirectional HTTP webhook adapter."""
@@ -87,8 +75,6 @@ class WebhookAdapter(BaseChannelAdapter):
             supports_rich_text=base.supports_rich_text,
             supported_formats=base.supported_formats,
         )
-
-    # ── Inbound ──────────────────────────────────────────────────
 
     async def start_listener(self, callback: InboundCallback) -> None:
         self._callback = callback
@@ -140,10 +126,7 @@ class WebhookAdapter(BaseChannelAdapter):
         headers: dict[str, str],
         source_ip: str = "",
     ) -> tuple[bool, str]:
-        """Handle an HTTP request received by the FastAPI route.
-
-        Returns (accepted, error_message).
-        """
+        """Handle an HTTP request received by the FastAPI route."""
         if not self._callback:
             return False, "Listener not active."
 
@@ -192,8 +175,6 @@ class WebhookAdapter(BaseChannelAdapter):
 
         await self._callback(event)
         return True, ""
-
-    # ── Outbound ─────────────────────────────────────────────────
 
     async def deliver(
         self,
@@ -255,7 +236,7 @@ class WebhookAdapter(BaseChannelAdapter):
                         metadata={"status": resp.status},
                     )
         except ImportError:
-            # Fallback to urllib (off-loop: ``urlopen`` blocks on
+            # Fallback to urllib (off-loop: `urlopen` blocks on
             # connect + body transfer, would stall the loop / Socket.IO).
             import asyncio as _asyncio
             import urllib.request

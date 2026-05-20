@@ -1,25 +1,4 @@
-"""One-shot env var importer - bootstrap credentials on first daemon boot.
-
-Policy (confirmed with the user):
-
-- **Env vars are NOT a persistent source.** They exist only to help
-  the first boot: if the daemon starts with ``OPENAI_API_KEY=sk-...``
-  in its environment, we import that value once into the encrypted
-  store under scope ``system_wide`` and then **never read it again**.
-  Subsequent daemon restarts don't need the env var.
-
-- **Only well-known keys** are imported. Random env vars are ignored
-  so we don't leak arbitrary shell variables into the store.
-
-- **Never overwrite**: if a system_wide credential already exists
-  for a provider, the env value is skipped. Once the daemon is
-  operating from the persistent store, changing an env var has no
-  effect - this is by design.
-
-- **Audit log**: every import is logged (but the value itself is
-  never logged - only the key name). A counter is returned so the
-  caller can print "imported N secrets from env on first boot".
-"""
+"""One-shot env var importer - bootstrap credentials on first daemon boot."""
 
 from __future__ import annotations
 
@@ -32,10 +11,6 @@ from digitorn.core.credentials.store import CredentialStore, Scope, Status
 logger = logging.getLogger(__name__)
 
 
-# The keys we recognise. Each entry maps an env var name to a
-# (provider_name, field_name) pair in the store. If you add a new
-# key here, think hard: env var imports are a migration helper, not
-# a config mechanism.
 WELL_KNOWN_ENV_KEYS: dict[str, tuple[str, str]] = {
     # LLM providers - the big ones
     "ANTHROPIC_API_KEY": ("anthropic", "api_key"),
@@ -79,27 +54,11 @@ WELL_KNOWN_ENV_KEYS: dict[str, tuple[str, str]] = {
 async def import_env_vars_into_store(
     store: CredentialStore,
 ) -> dict[str, Any]:
-    """Scan the environment for well-known keys and import any matches.
-
-    Returns a dict summary::
-
-        {
-            "imported": ["anthropic.api_key", "telegram.bot_token"],
-            "skipped_already_present": ["openai.api_key"],
-            "not_in_env": 15,
-        }
-
-    Called once in the daemon lifespan after the store is constructed
-    and before the compiler is used. Safe to call multiple times -
-    it never overwrites existing rows.
-    """
+    """Scan the environment for well-known keys and import any matches."""
     imported: list[str] = []
     skipped: list[str] = []
     not_in_env = 0
 
-    # Group env vars by provider so multi-field credentials land in
-    # one row. For instance OPENAI_API_KEY + OPENAI_ORG_ID → one
-    # credential row with two fields.
     by_provider: dict[str, dict[str, str]] = {}
     for env_name, (provider, field) in WELL_KNOWN_ENV_KEYS.items():
         value = os.environ.get(env_name)
@@ -117,9 +76,6 @@ async def import_env_vars_into_store(
             skipped.extend(f"{provider}.{f}" for f in fields)
             continue
 
-        # Guess the provider_type from the fields we have. Most are
-        # api_key. multi_field if >1 field. connection_string for
-        # the *_URL entries we grouped under the same provider.
         if any(f == "url" for f in fields):
             provider_type = "connection_string"
         elif len(fields) > 1:

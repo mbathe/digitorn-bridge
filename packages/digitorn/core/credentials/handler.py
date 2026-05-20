@@ -1,32 +1,4 @@
-"""Credential handler framework - one pluggable class per provider type.
-
-A **CredentialHandler** knows how to:
-
-- Validate fields against the schema (regex, required, format)
-- Test a filled credential against the live service (optional)
-- Refresh an expired credential (OAuth flow) or re-validate it (API key)
-- Render the schema fragment that the Flutter form needs
-- React to lifecycle hooks (app install, app uninstall)
-
-Adding support for a new provider type = writing a new handler class
-and registering it. The runtime, routes, and store don't need any
-change. This is the extension point for the future Digitorn Hub: a
-community package can ship its own handler.
-
-Six handlers ship with the daemon:
-
-- ``api_key``         - OpenAI, Anthropic, DeepSeek, any plain-key API
-- ``multi_field``     - Slack (bot_token + signing_secret + app_token)
-- ``oauth2``          - Notion, Google, GitHub, Slack OAuth
-- ``connection_string`` - postgres://, mongodb://, redis://
-- ``mcp_server``      - stdio/http MCP servers (with lifecycle)
-- ``custom``          - catch-all, declared by the YAML
-
-Handlers are *stateless*: they receive the Credential dict as input
-and return a new Credential dict as output. They **never** write to
-the DB themselves - the store does that. This keeps the layering
-clean and the handlers easy to test.
-"""
+"""Credential handler framework - one pluggable class per provider type."""
 
 from __future__ import annotations
 
@@ -38,9 +10,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# ────────────────────────────────────────────────────────────────────
 # Base class
-# ────────────────────────────────────────────────────────────────────
 
 
 class ValidationError(Exception):
@@ -53,33 +23,11 @@ class ValidationError(Exception):
 
 
 class HandlerNotAvailable(Exception):
-    """Raised when a handler's operation requires external setup that
-    the current daemon install doesn't provide (e.g. no OAuth client
-    registered for Notion, or no cryptography for signed JWT)."""
+    """Raised when a handler's operation requires external setup that"""
 
 
 class CredentialHandler:
-    """Abstract base class. Every provider_type gets a subclass.
-
-    Subclasses override the methods they need. The base class
-    provides sensible defaults: ``validate_fields`` does regex +
-    required checking, ``test_live_connection`` is a no-op returning
-    True, ``refresh`` is a no-op returning the credential unchanged.
-
-    New in the unified credentials system:
-
-      - ``allowed_scopes``: which scope values are valid for this
-        handler. The compiler / API rejects writes at scopes outside
-        this set. Default = all 4 scopes; OAuth-style handlers
-        narrow it down (typically only per_user / per_app_per_user
-        because each user has their own access_token).
-
-      - ``schema_fields()``: classmethod returning a typed list of
-        FieldSpec for the handler's required + optional fields. The
-        UI uses this to render the form. The legacy contract passed
-        these as dicts at the call site; new code can call this
-        method to get the typed list.
-    """
+    """Abstract base class. Every provider_type gets a subclass."""
 
     provider_type: str = "abstract"
 
@@ -93,26 +41,16 @@ class CredentialHandler:
 
     @classmethod
     def schema_fields(cls) -> list[Any]:
-        """Return the FieldSpec list for this handler. Subclasses
-        override to declare their required / optional fields. The
-        default returns an empty list - useful for legacy handlers
-        that still pass schemas as dicts at the call site."""
+        """Return the FieldSpec list for this handler. Subclasses"""
         return []
 
-    # ── Schema validation ────────────────────────────────────────
 
     def validate_fields(
         self,
         fields: dict[str, Any],
         schema_fields: list[dict[str, Any]],
     ) -> None:
-        """Validate each submitted field against its schema entry.
-
-        Raises ``ValidationError`` on the first failure. The default
-        implementation checks ``required`` and ``validation_regex``.
-        Subclasses can override for type-specific checks (e.g.
-        checking that a connection_string url parses as a valid URL).
-        """
+        """Validate each submitted field against its schema entry."""
         provided = {k: v for k, v in (fields or {}).items() if v not in (None, "")}
         for field_def in schema_fields or []:
             name = field_def.get("name")
@@ -130,60 +68,33 @@ class CredentialHandler:
                         f"value does not match required pattern {regex!r}",
                     )
 
-    # ── Live testing (optional, external I/O) ────────────────────
 
     async def test_live_connection(
         self,
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Try to connect to the external service with these credentials.
-
-        Returns ``(ok, error_message)``. The default is (True, None)
-        so a handler that hasn't overridden this method effectively
-        skips the live test and trusts the fields.
-
-        Subclasses that can actually test (API key against a
-        ``/me`` endpoint, connection_string with ``SELECT 1``) should
-        override.
-        """
+        """Try to connect to the external service with these credentials."""
         return True, None
 
-    # ── Refresh (for expiring creds) ─────────────────────────────
 
     async def refresh(
         self,
         credential: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> dict[str, Any]:
-        """Refresh an expired credential (OAuth) or re-validate it (API key).
-
-        Takes the current credential dict (as returned by
-        ``CredentialStore.get_credential(decrypt=True)``) and returns
-        a new credential dict with updated ``fields``, ``status``,
-        ``expires_at``.
-
-        Default: no-op, returns the input unchanged.
-        """
+        """Refresh an expired credential (OAuth) or re-validate it (API key)."""
         return credential
 
-    # ── Revocation (tell the external service to kill this cred) ─
 
     async def revoke(
         self,
         credential: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> None:
-        """Tell the external service to kill this credential.
-
-        For OAuth: hit the revocation endpoint.
-        For API key: no-op (the user has to revoke manually in the
-        provider's dashboard).
-        Default: no-op.
-        """
+        """Tell the external service to kill this credential."""
         return None
 
-    # ── Lifecycle hooks ──────────────────────────────────────────
 
     async def on_credential_filled(
         self,
@@ -191,16 +102,7 @@ class CredentialHandler:
         schema_provider: dict[str, Any],
         ctx: Any,
     ) -> None:
-        """Called after the user fills the credential for the first time.
-
-        Useful for types that need to **spawn** something: MCP server
-        handlers start their process here, OAuth handlers might
-        prefetch a ``/me`` call to populate display_metadata.
-
-        ``ctx`` is an opaque dict-like with references the handler
-        might need (mcp_pool, logger, …). Kept loose so we don't
-        couple handlers to specific service types.
-        """
+        """Called after the user fills the credential for the first time."""
         return None
 
     async def on_credential_removed(
@@ -209,21 +111,15 @@ class CredentialHandler:
         schema_provider: dict[str, Any],
         ctx: Any,
     ) -> None:
-        """Called right before a credential is deleted.
-
-        MCP handlers stop the process here. OAuth handlers may
-        revoke the token.
-        """
+        """Called right before a credential is deleted."""
         return None
 
 
-# ────────────────────────────────────────────────────────────────────
 # Registry
-# ────────────────────────────────────────────────────────────────────
 
 
 class HandlerRegistry:
-    """Global registry mapping ``provider_type`` → handler instance."""
+    """Global registry mapping `provider_type` → handler instance."""
 
     def __init__(self) -> None:
         self._handlers: dict[str, CredentialHandler] = {}
@@ -253,18 +149,12 @@ class HandlerRegistry:
         return sorted(self._handlers.keys())
 
 
-# Module-level default registry. Handlers populate it on import from
-# ``handlers/__init__.py`` - callers can also instantiate their own
-# registry for tests.
 default_registry = HandlerRegistry()
 
 
-# ────────────────────────────────────────────────────────────────────
 # Convenience helpers
-# ────────────────────────────────────────────────────────────────────
 
 
 def now_utc() -> datetime:
-    """Return a timezone-aware UTC datetime - use this everywhere
-    instead of ``datetime.utcnow()`` (which is deprecated and naive)."""
+    """Return a timezone-aware UTC datetime - use this everywhere"""
     return datetime.now(timezone.utc)

@@ -18,20 +18,20 @@ Zero-risk hygiene pass:
        user_roles.role_id
        user_sessions.user_id
 
-3. ADD ``updated_at TIMESTAMPTZ`` (+ auto-update trigger) to every
-   table that already has ``created_at`` but no ``updated_at``. The
+3. ADD `updated_at TIMESTAMPTZ` (+ auto-update trigger) to every
+   table that already has `created_at` but no `updated_at`. The
    ORM declares both for these tables, but they shipped to prod
-   before ``updated_at`` was added, so existing rows are missing it.
+   before `updated_at` was added, so existing rows are missing it.
 
-4. CONVERT ``history_log.id`` from INTEGER to BIGINT. The audit table
+4. CONVERT `history_log.id` from INTEGER to BIGINT. The audit table
    is the highest-volume in the system; an INT4 PK overflows in 1-2
    years at projected growth. Postgres widens INT4 → INT8 in place
    without rewriting rows, so the change is online-safe.
 
-All operations are idempotent (``IF EXISTS`` / ``DO`` blocks with
+All operations are idempotent (`IF EXISTS` / `DO` blocks with
 existence checks) and target only PostgreSQL - the migration is a
-no-op on SQLite (local dev DB), so a developer running ``alembic
-upgrade head`` against ``digitorn.db`` won't get errors.
+no-op on SQLite (local dev DB), so a developer running `alembic
+upgrade head` against `digitorn.db` won't get errors.
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
-# ── tables that became dead after the gateway split (2026-05-04) ────
+# ── tables that became dead after the gateway split ────────────────
 DEAD_TABLES: tuple[str, ...] = (
     "quota_definitions",
     "quota_counters_rolling",
@@ -68,9 +68,9 @@ FK_INDEXES: tuple[tuple[str, str, str], ...] = (
 )
 
 
-# ── tables that have ``created_at`` but no ``updated_at`` ──────────
-# Detected against the live schema 2026-05-05; the ORM models declare
-# updated_at for all of these, the column is just missing in prod.
+# ── tables that have `created_at` but no `updated_at` ──────────
+# Detected against the live schema; the ORM models declare
+# updated_at for all of these, the column is just missing.
 NEEDS_UPDATED_AT: tuple[str, ...] = (
     "agents",
     "api_keys",
@@ -99,10 +99,7 @@ def upgrade() -> None:
     for table in DEAD_TABLES:
         op.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
 
-    # ── 2. missing FK indexes (CONCURRENTLY = no table lock) ─────
-    # CONCURRENTLY can't run inside a transaction. Alembic wraps the
-    # whole upgrade in one tx by default; we commit then reopen so
-    # the CREATE INDEX CONCURRENTLY runs autocommit.
+    # ── 2. missing FK indexes (CONCURRENTLY needs autocommit) ─────
     op.execute("COMMIT")
     try:
         for table, column, index_name in FK_INDEXES:
@@ -195,20 +192,8 @@ def upgrade() -> None:
     """)
 
     # ── 4. history_log.id INTEGER → BIGINT ───────────────────────
-    # Empirical correction (2026-05-05 / Neon free tier 512 MB):
-    # Postgres claims ``ALTER COLUMN INT → BIGINT`` is in-place, but
-    # in practice it rewrites the table (the on-disk row layout
-    # changes alignment) and on Neon free tier this tipped us over
-    # the project size limit on the first try.
-    #
-    # We always widen the SEQUENCE (cheap, no rewrite) so future
-    # nextval() returns BIGINT. We widen the COLUMN type only when
-    # the table is small enough for the rewrite to fit in the
-    # project's free disk - measured as 2× current table size.
-    # Otherwise we skip with a NOTICE; the operator can either:
-    #   * upgrade the Neon plan and re-run via a follow-up migration,
-    #   * trim history_log first (old rows have lower business value),
-    #   * leave it - INT4 can still hold ~2.1B rows.
+    # Widen the sequence unconditionally; widen the column only when
+    # the on-disk rewrite (~2× table size) fits in the project quota.
     op.execute("""
     DO $$
     DECLARE
@@ -252,16 +237,8 @@ def downgrade() -> None:
     if not _is_postgres():
         return
 
-    # Sprint A is intentionally NOT reversible:
-    # - The dead tables held no live data and recreating them empty
-    #   would mislead any developer into thinking they're current.
-    # - Removing FK indexes silently regresses query plans.
-    # - Removing updated_at columns drops audit data.
-    # - Narrowing history_log.id back to INT requires a row scan and
-    #   may fail if any id > 2_147_483_647.
-    #
-    # The migration is its own rollback: the live state before sprint A
-    # is captured in db backups taken by the operator before applying.
+    # Sprint A is intentionally not reversible; rely on the operator's
+    # pre-migration backup to roll back.
     raise RuntimeError(
         "Sprint A cleanup is not reversible by design. Restore from a "
         "pre-Sprint-A backup if rollback is required."

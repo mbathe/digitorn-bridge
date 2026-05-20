@@ -1,30 +1,4 @@
-"""BundleHotReloader - watches an app's prompts/skills/assets dirs
-and triggers a recompile when a file changes.
-
-Activated only when ``settings.app.hot_reload`` is true. By design,
-production deployments leave it off - reloads are a dev-only
-convenience. The daemon uses a simple polling loop (1s tick) to
-keep the implementation dependency-free: no ``watchdog``, no
-``inotify`` - just ``os.stat`` on the interesting files.
-
-Design trade-offs:
-
-- **Polling vs inotify**: polling is slower to react (up to 1s
-  latency) but works identically on every platform (including
-  Windows, where watchdog has quirks) and has zero external
-  deps. 1s is fine for the dev use case.
-- **Scope**: only the ``prompts/``, ``skills/``, and ``assets/``
-  directories trigger reloads. Other changes (``app.yaml`` itself,
-  ``package.toml``) require a full ``digitorn deploy`` - those
-  are structural changes, hot reload is for content iteration.
-- **Debouncing**: a 500 ms quiet period is applied after the last
-  change before the reload fires, so saving a file that Python's
-  text editors write multiple times in quick succession only
-  triggers one reload.
-- **Thread safety**: the reloader runs in an asyncio task and
-  goes through ``manager.redeploy(app_id)`` so the rest of the
-  daemon stays unaware.
-"""
+"""BundleHotReloader - watches an app's prompts/skills/assets dirs"""
 
 from __future__ import annotations
 
@@ -49,26 +23,7 @@ _DEBOUNCE_SECONDS = 0.5
 
 
 class BundleHotReloader:
-    """Watch a single app's bundle directory and trigger a
-    recompile+redeploy when a watched file changes.
-
-    Usage::
-
-        reloader = BundleHotReloader(
-            app_id="my-app",
-            bundle_dir=Path("/home/alice/.digitorn/packages/my-app"),
-            on_change=lambda: asyncio.create_task(manager.redeploy("my-app")),
-        )
-        await reloader.start()
-        ...
-        await reloader.stop()
-
-    ``on_change`` receives no arguments and must be a callable
-    (sync or async). When it's a coroutine, it's awaited; when
-    it's sync, it's called directly. Failures in ``on_change``
-    are logged and swallowed - a broken reload must not break
-    the watcher.
-    """
+    """Watch a single app's bundle directory and trigger a"""
 
     def __init__(
         self,
@@ -155,11 +110,7 @@ class BundleHotReloader:
             pass
 
     def _take_snapshot(self) -> dict[str, float]:
-        """Record mtimes of every file under the watched subdirs.
-
-        Missing subdirs are silently skipped - not every bundle
-        has all three.
-        """
+        """Record mtimes of every file under the watched subdirs."""
         out: dict[str, float] = {}
         for sub in _WATCHED_SUBDIRS:
             base = self._bundle_dir / sub
@@ -179,7 +130,6 @@ class BundleHotReloader:
         return out
 
     async def _fire_reload(self) -> None:
-        """Invoke the ``on_change`` callback with error guarding."""
         logger.info("hot_reload_firing app=%s", self._app_id)
         try:
             result = self._on_change()

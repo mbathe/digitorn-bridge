@@ -1,15 +1,4 @@
-"""Voice adapter - bidirectional voice calls via pluggable backends.
-
-The voice adapter is a standard channel adapter that handles voice calls.
-Audio transport (STT, TTS, VAD, codecs) is delegated to a backend.
-The adapter only sees text: transcripts in, responses out.
-
-Backends:
-    twilio_cr   - Twilio ConversationRelay (hosted STT+TTS)
-    websocket   - Generic WebSocket (bring your own STT/TTS)
-    livekit     - LiveKit Agents (open-source, self-hosted)
-    pipecat     - Pipecat/Daily (open-source)
-"""
+"""Voice adapter - bidirectional voice calls via pluggable backends."""
 
 from __future__ import annotations
 
@@ -32,7 +21,6 @@ from digitorn.modules.channels.adapters.voice.base import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 class VoiceAdapter(BaseChannelAdapter):
     """Voice channel adapter - text interface to voice backends."""

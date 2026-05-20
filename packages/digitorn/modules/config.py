@@ -1,30 +1,10 @@
-"""Config annotation system for dashboard UI metadata.
-
-Provides:
-  - ``ConfigField()`` -- Pydantic ``Field`` wrapper that stores UI metadata
-    (label, category, widget hint, restart flag, secret) in ``json_schema_extra``.
-  - ``ModuleConfigBase`` -- Base Pydantic model for module configuration.
-  - ``configurable()`` -- Class decorator that binds a config model to a module.
-
-Usage::
-
-    from digitorn.module.config import ConfigField, ModuleConfigBase, configurable
-
-    class MyModuleConfig(ModuleConfigBase):
-        max_retries: int = ConfigField(3, label="Max Retries", category="network")
-        api_key: str = ConfigField("", label="API Key", secret=True)
-
-    @configurable(MyModuleConfig)
-    class MyModule(BaseModule):
-        ...
-"""
+"""Config annotation system for dashboard UI metadata."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from pydantic import BaseModel, Field
-
 
 def ConfigField(
     default: Any = ...,
@@ -42,12 +22,7 @@ def ConfigField(
     max_length: int | None = None,
     **kwargs: Any,
 ) -> Any:
-    """Pydantic Field wrapper that adds dashboard UI metadata.
-
-    All standard Pydantic Field args are passed through. The extra
-    metadata args are stored in Field's json_schema_extra for
-    JSON Schema generation and dashboard form rendering.
-    """
+    """Pydantic Field wrapper that adds dashboard UI metadata."""
     ui_meta: dict[str, Any] = {
         "x-ui-label": label or None,
         "x-ui-category": category,
@@ -74,7 +49,6 @@ def ConfigField(
 
     return Field(**field_kwargs)
 
-
 class ModuleConfigBase(BaseModel):
     """Base class for module configuration models."""
 
@@ -84,7 +58,6 @@ class ModuleConfigBase(BaseModel):
     def to_config_schema(cls) -> dict[str, Any]:
         """Generate a JSON Schema with UI metadata for the dashboard."""
         return cls.model_json_schema()
-
 
 def configurable(config_cls: type[ModuleConfigBase]):
     """Class decorator that sets CONFIG_MODEL on a BaseModule subclass."""

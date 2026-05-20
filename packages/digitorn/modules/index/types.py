@@ -1,8 +1,4 @@
-"""Index module - core data types.
-
-All indexed content is normalized into these structures, regardless of source
-(filesystem, database, storage, API, etc.).
-"""
+"""Index module - core data types."""
 
 from __future__ import annotations
 
@@ -11,38 +7,33 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-
 @dataclass
 class Source:
-    """A registered data source to be indexed.
-
-    Each source is owned by a specific module that knows how to read it
-    (e.g. ``filesystem`` for files, ``database`` for SQL schemas).
-    """
+    """A registered data source to be indexed."""
 
     source_id: str
-    """Unique identifier for this source (e.g. ``"backend-project"``)."""
+    """Unique identifier for this source (e.g. `"backend-project"`)."""
 
     module_id: str
-    """Module responsible for reading this source (e.g. ``"filesystem"``)."""
+    """Module responsible for reading this source (e.g. `"filesystem"`)."""
 
     root: str
-    """Root path or URI (e.g. ``"/home/user/project"``, ``"postgres://..."``).  """
+    """Root path or URI (e.g. `"/home/user/project"`, `"postgres://..."`).  """
 
     extractor: str
-    """Name of the extractor to use (e.g. ``"text"``, ``"python"``, ``"sql"``). """
+    """Name of the extractor to use (e.g. `"text"`, `"python"`, `"sql"`). """
 
     scan_pattern: str = "*"
-    """Glob/filter pattern for scanning (e.g. ``"**/*.py"``).  """
+    """Glob/filter pattern for scanning (e.g. `"**/*.py"`).  """
 
     metadata: dict[str, Any] = field(default_factory=dict)
-    """Extra config for the extractor (e.g. ``{"encoding": "utf-8"}``).  """
+    """Extra config for the extractor (e.g. `{"encoding": "utf-8"}`).  """
 
     watch: bool = False
     """Whether this source is actively watched for changes."""
 
     watch_mode: str = "ephemeral"
-    """Watch lifecycle: ``"ephemeral"`` (dies with app) or ``"persistent"`` (survives restarts)."""
+    """Watch lifecycle: `"ephemeral"` (dies with app) or `"persistent"` (survives restarts)."""
 
     app_id: str | None = None
     """Application that registered this source (for ephemeral cleanup)."""
@@ -53,32 +44,22 @@ class Source:
     entry_count: int = 0
     """Number of entries currently indexed from this source."""
 
-
 @dataclass
 class IndexEntry:
-    """A single indexed unit - generic across all content types.
-
-    Examples:
-      - A Python function: kind="function", name="calculate_discount",
-        signature="def calculate_discount(price: float, ...)"
-      - A SQL table: kind="table", name="users",
-        signature="CREATE TABLE users (id INT, email TEXT, ...)"
-      - A PDF section: kind="section", name="Chapter 3",
-        signature="3. Legal Obligations"
-    """
+    """A single indexed unit - generic across all content types."""
 
     entry_id: str
-    """Unique ID, typically ``hash(source_id + path + name)``."""
+    """Unique ID, typically `hash(source_id + path + name)`."""
 
     source_id: str
-    """Source this entry belongs to."""
+    """Source this entry belongs."""
 
     path: str
     """Location within the source (file path, table name, page ref)."""
 
     kind: str
-    """Type of entry: ``"file"``, ``"function"``, ``"class"``, ``"table"``,
-    ``"section"``, ``"variable"``, ``"import"``, etc."""
+    """Type of entry: `"file"`, `"function"`, `"class"`, `"table"`,
+    `"section"`, `"variable"`, `"import"`, etc."""
 
     name: str
     """Human-readable name (function name, table name, heading, etc.)."""
@@ -119,17 +100,9 @@ class IndexEntry:
             "metadata": self.metadata,
         }
 
-
 @dataclass
 class Relation:
-    """A directed edge between two entries.
-
-    Examples:
-      - function A *calls* function B
-      - file X *imports* module Y
-      - class C *inherits* class D
-      - table T *references* table U (foreign key)
-    """
+    """A directed edge between two entries."""
 
     from_id: str
     """Source entry ID."""
@@ -138,8 +111,8 @@ class Relation:
     """Target entry ID."""
 
     kind: str
-    """Relation type: ``"imports"``, ``"calls"``, ``"references"``,
-    ``"contains"``, ``"inherits"``, ``"uses"``."""
+    """Relation type: `"imports"`, `"calls"`, `"references"`,
+    `"contains"`, `"inherits"`, `"uses"`."""
 
     metadata: dict[str, Any] = field(default_factory=dict)
     """Extra info: line number, qualified name, etc."""
@@ -151,7 +124,6 @@ class Relation:
             "kind": self.kind,
             "metadata": self.metadata,
         }
-
 
 def make_entry_id(source_id: str, path: str, name: str) -> str:
     """Deterministic entry ID from source + path + name."""

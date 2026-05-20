@@ -1,24 +1,4 @@
-"""Snapshot: render-ready JSON state of a session.
-
-The snapshot is what the frontend renders for instant reopen. Built on
-``close_session`` (or on demand) by reducing ``state.events`` into the
-final UI projections. Stored as ``snapshot.json`` next to
-``events.jsonl`` and ``meta.json``.
-
-Read path:
-  ``GET /sessions/{sid}/snapshot``
-    → ``InMemorySessionStore.read_snapshot(sid)``
-    → 5 ms cold (one open + json.load), <100 µs warm (page cache).
-
-Write path:
-  ``store.close_session(sid)``
-    → ``build_snapshot(state)`` reduces events into UI dicts
-    → ``write_snapshot(session_dir, snap)`` writes atomically.
-
-Snapshot is intentionally smaller than the events journal: it carries
-the FINAL projected state (assistant_message text, not every token
-delta). Full replay is still available via ``stream_events``.
-"""
+"""Snapshot: render-ready JSON state of a session."""
 
 from __future__ import annotations
 
@@ -38,13 +18,7 @@ SNAPSHOT_FILENAME = "snapshot.json"
 
 
 def build_snapshot(state: SessionState) -> dict[str, Any]:
-    """Reduce a SessionState's projections into a render-ready dict.
-
-    Streaming chunks (token, thinking_delta, ...) are NOT in the
-    snapshot -- the assembled assistant_message in ``state.messages``
-    captures their result. The events journal still has every chunk
-    for full replay.
-    """
+    """Reduce a SessionState's projections into a render-ready dict."""
     return {
         "session_id": state.session_id,
         "app_id": state.app_id,
@@ -64,9 +38,6 @@ def build_snapshot(state: SessionState) -> dict[str, Any]:
         "tool_results": {k: v.to_dict() for k, v in state.tool_results.items()},
         "todos": [t.to_dict() for t in state.todos],
         "memory_facts": dict(state.memory_facts),
-        # Working memory goal + semantic facts log. Populated by the
-        # ``memory_*`` projection family; persisted here so cold reload
-        # after compaction restores the working state in one shot.
         "goal": state.goal,
         "semantic_facts": list(state.semantic_facts),
         "workspace_files": {
@@ -80,7 +51,7 @@ def build_snapshot(state: SessionState) -> dict[str, Any]:
         "cost_total": state.cost_total,
         "tokens_in": state.tokens_in,
         "tokens_out": state.tokens_out,
-        # Phase 1: chat-level metadata absorbed from ConversationSession.
+        # Chat-level metadata absorbed from ConversationSession.
         "title": state.title,
         "turn_count": state.turn_count,
         "workspace": state.workspace,
@@ -116,8 +87,7 @@ def write_snapshot(session_dir: Path, snapshot: dict[str, Any]) -> None:
 
 
 def read_snapshot(session_dir: Path) -> dict[str, Any] | None:
-    """Read snapshot.json. Returns None if missing or corrupt; the
-    caller can fall back to rebuilding from events.jsonl."""
+    """Read snapshot.json"""
     path = session_dir / SNAPSHOT_FILENAME
     if not path.exists():
         return None

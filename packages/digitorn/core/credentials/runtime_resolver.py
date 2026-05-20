@@ -1,31 +1,4 @@
-"""Runtime secret resolution - per-user credentials at activation time.
-
-At compile time, credentials at scopes ``system_wide`` and
-``per_app_shared`` are baked into the compiled app (see
-``compile_resolver.build_compile_secrets``). Scopes that depend on a
-user (``per_user``, ``per_app_per_user``) can NOT be baked at compile
-time - the compile has no user context - so any ``{{secret.X}}``
-reference to a user-scoped credential is left as a **passthrough**
-template in the compiled output.
-
-This module walks the compiled values at runtime, now that we know
-which user is active, and substitutes the remaining passthroughs by
-calling ``CredentialStore.resolve_field``.
-
-Integration points:
-
-1. ``channels/template.py::render`` - the channel pipeline rendering
-   path (user message, system prompt addendum, prepare-step params).
-2. ``agent_loop`` - whenever a brain_config.api_key / base_url /
-   organization is about to be passed to an LLM provider.
-3. Any module whose params contain user-scoped secrets (rare today,
-   but the same helper works for all of them).
-
-The resolver is *opt-in at the call site*: existing code that
-doesn't care about per-user secrets continues to work because the
-passthrough format is a valid (if useless) string that the LLM
-would never see in a properly wired app.
-"""
+"""Runtime secret resolution - per-user credentials at activation time."""
 
 from __future__ import annotations
 
@@ -39,15 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def _field_spec_from_catalogue(provider: str) -> dict[str, Any]:
-    """Build a `field_spec` dict from the provider catalogue so the
-    picker has the right input schema when no explicit spec was
-    passed to the resolver.
-
-    Returns an empty dict on any failure so the caller can decide
-    whether to surface the picker with a synthesised single-field
-    fallback. Fully isolated from the resolver hot path - only
-    called when CredentialAuthRequired is about to be raised.
-    """
+    """Build a `field_spec` dict from the provider catalogue so the"""
     try:
         from dataclasses import asdict, is_dataclass
         from digitorn.core.credentials.catalog import default_catalog
@@ -78,11 +43,6 @@ def _field_spec_from_catalogue(provider: str) -> dict[str, Any]:
     }
 
 
-# Matches ``{{secret.X}}`` AND ``{{env.X}}``. Both are treated as
-# credential references at runtime - ``env.X`` exists because the
-# compile pass is lenient (passes the template through instead of
-# crashing) so the runtime resolver is the single place that knows
-# how to look up a per-user secret.
 _SECRET_PATTERN = re.compile(
     r"\{\{\s*(?:secret|env)\.([a-zA-Z0-9_.-]+)\s*\}\}"
 )
@@ -97,28 +57,7 @@ async def resolve_runtime_secrets_in_value(
     raise_on_miss: bool = False,
     provider_hint: str | None = None,
 ) -> Any:
-    """Walk an arbitrary JSON-compatible value and substitute user secrets.
-
-    Input ``value`` can be a string, a dict, a list, or any nested
-    mix. The resolver walks it recursively. Anything that is not
-    string-shaped is passed through untouched.
-
-    For every ``{{secret.X}}`` template encountered:
-
-    1. Extract the key ``X``
-    2. Call ``store.resolve_field(X, user_id, app_id)``
-    3. If a value comes back → substitute it
-    4. If no value comes back:
-       - ``raise_on_miss=False`` (default): leave the template as-is.
-         The LLM / channel will see a literal ``{{secret.X}}`` which
-         is visibly broken but won't crash the request.
-       - ``raise_on_miss=True``: raise ``CredentialMissing`` so the
-         activation can be aborted with a structured error.
-
-    The ``store`` argument may be ``None`` for dev paths that don't
-    have credentials configured - in that case the function is a
-    no-op (returns the value unchanged).
-    """
+    """Walk an arbitrary JSON-compatible value and substitute user secrets."""
     if store is None:
         return value
     if isinstance(value, str):
@@ -157,22 +96,7 @@ async def _resolve_string(
     raise_on_miss: bool,
     provider_hint: str | None = None,
 ) -> str:
-    """Substitute every ``{{secret.X}}`` / ``{{env.X}}`` in a string.
-
-    Uses the grant-aware ``resolve_field_for_app`` which may raise
-    ``CredentialAuthRequired`` when the user has candidates for the
-    provider but hasn't granted any to this app yet. That exception
-    propagates up so the agent loop can surface the picker flow to
-    the client.
-
-    ``provider_hint`` lets the caller disambiguate bare references
-    like ``{{secret.DEEPSEEK_API_KEY}}``: when supplied, the lookup
-    rewrites the key as ``"<hint>.DEEPSEEK_API_KEY"`` so the
-    credential store joins on the **canonical provider name**
-    (``deepseek``) instead of treating the secret's field name as a
-    provider. Explicit ``{{secret.deepseek.X}}`` references ignore
-    the hint and always win.
-    """
+    """Substitute every `{{secret.X}}` / `{{env.X}}` in a string."""
     if "{{secret." not in text and "{{env." not in text:
         return text
 
@@ -190,13 +114,6 @@ async def _resolve_string(
 
     for match in matches:
         key = match.group(1)
-        # Build the list of lookup keys to try, in priority order:
-        #   1. ``{hint}.{key}`` - the canonical form
-        #      (``deepseek.DEEPSEEK_API_KEY``). Matches real credentials
-        #      stored under ``provider_name='deepseek'``.
-        #   2. ``key`` - the bare fallback. Matches legacy credentials
-        #      stored under ``provider_name='DEEPSEEK_API_KEY'`` AND
-        #      explicit qualified refs ``{{secret.foo.BAR}}``.
         lookup_keys: list[str] = []
         if provider_hint and "." not in key:
             lookup_keys.append(f"{provider_hint}.{key}")
@@ -207,13 +124,6 @@ async def _resolve_string(
         auth_exc: Exception | None = None
         for lookup_key in lookup_keys:
             try:
-                # Pass a `field_spec` derived from the catalogue so
-                # the picker has the right input schema (label,
-                # placeholder, prefix_check, ...) instead of the
-                # store's default empty `{}` which leaves the form
-                # with no inputs but a Label field. The catalogue
-                # is keyed by provider, not by the secret name,
-                # so we strip the optional `provider.` prefix.
                 provider_for_catalogue = (
                     lookup_key.split(".", 1)[0] if "." in lookup_key
                     else (provider_hint or lookup_key)
@@ -228,9 +138,6 @@ async def _resolve_string(
                     ),
                 )
             except CredentialAuthRequired as exc:
-                # Remember the first auth_required, but keep trying
-                # cheaper lookups in case a plain credential exists
-                # under the bare key.
                 auth_exc = exc
                 continue
             except Exception as exc:
@@ -255,18 +162,10 @@ async def _resolve_string(
             key, provider_hint, lookup_used, user_id, app_id, value is not None,
         )
 
-        # ── Env var fallback ──────────────────────────────────────
-        # If the credential store has no value for the user, AND
-        # the corresponding environment variable IS set on the
-        # daemon process, use it. This makes the daemon work in
-        # single-tenant / dev mode where the operator just exports
-        # ``DEEPSEEK_API_KEY=sk-…`` without going through the
-        # credential API. In multi-tenant prod the env var would
-        # not be set, so per-user credentials win as expected.
         if value is None:
             import os as _os
-            # ``key`` looks like ``DEEPSEEK_API_KEY`` (bare) or
-            # ``deepseek.DEEPSEEK_API_KEY`` (qualified). Try both.
+            # `key` looks like `DEEPSEEK_API_KEY` (bare) or
+            # `deepseek.DEEPSEEK_API_KEY` (qualified). Try both.
             env_key = key.split(".")[-1] if "." in key else key
             env_val = _os.environ.get(env_key)
             if env_val:
@@ -294,19 +193,11 @@ async def _resolve_string(
     return "".join(result_parts)
 
 
-# ────────────────────────────────────────────────────────────────────
 # Small synchronous wrapper for code paths that are still sync
-# ────────────────────────────────────────────────────────────────────
 
 
 def collect_unresolved_secrets(value: Any) -> list[str]:
-    """Return the list of ``{{secret.X}}`` / ``{{env.X}}`` templates still
-    present in ``value``.
-
-    Used by observability + audit code to detect credential misses
-    before they reach the LLM. Purely read-only - does not touch
-    the store.
-    """
+    """Return the list of `{{secret.X}}` / `{{env.X}}` templates still"""
     found: list[str] = []
 
     def _walk(node: Any) -> None:

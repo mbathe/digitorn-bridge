@@ -1,18 +1,4 @@
-"""LLMProviderModule - unified access to all LLM providers.
-
-Named provider instances (like named database connections) can be configured
-at startup via app YAML or dynamically at runtime. Each instance wraps a
-specific backend (Anthropic native, OpenAI-compatible) and model with its
-own default parameters.
-
-Actions:
-    configure       Register a named provider instance
-    chat            Send a chat completion request
-    remove          Remove a provider instance
-    list_providers  List all configured provider instances
-    get_provider_info   Get metadata about a provider instance
-    update_defaults     Update default generation parameters
-"""
+"""LLMProviderModule - unified access to all LLM providers."""
 
 from __future__ import annotations
 
@@ -28,18 +14,8 @@ from digitorn.modules.base import ActionResult, BaseModule, Platform
 
 logger = logging.getLogger(__name__)
 
-
-# ── Config model (compile-time validation via CONFIG_MODEL) ──────
-
-
 class LlmProviderConfig(BaseModel):
-    """Pydantic config for the llm_provider module (validated at compile time).
-
-    ``providers`` stays permissive because each backend (Anthropic native,
-    OpenAI-compatible, etc.) has its own set of keys. Extras are allowed
-    so apps may declare forward-compatible hints (``default_provider``,
-    routing policies, ...) without being rejected.
-    """
+    """Pydantic config for the llm_provider module (validated at compile time)."""
 
     model_config = {"extra": "allow"}
 
@@ -67,15 +43,8 @@ from digitorn.modules.llm_provider.providers.base import (
 )
 from digitorn.modules.manifest import ModuleManifest
 
-
 class LLMProviderModule(BaseModule):
-    """Unified LLM provider module.
-
-    Manages named provider instances and dispatches chat requests
-    to the appropriate backend. Supports Anthropic (native SDK) and
-    any OpenAI-compatible API (OpenAI, DeepSeek, Groq, Mistral,
-    Together, Ollama, vLLM, LM Studio, etc.).
-    """
+    """Unified LLM provider module."""
 
     MODULE_ID = "llm_provider"
     VERSION = "1.0.0"
@@ -83,10 +52,8 @@ class LLMProviderModule(BaseModule):
     MODULE_TYPE = "system"
     CONFIG_MODEL = LlmProviderConfig
 
-    # Declarative credential slot. The compiler walks this list and
-    # builds the per-app credential manifest from it. Per-agent brain
-    # credentials use the same slot since every brain block is
-    # ultimately one provider config.
+    # Declarative credential slot used by the compiler to build the
+    # per-app credential manifest.
     credential_slots: list[CredentialSlot] = [
         CredentialSlot(
             id="brain_credential",
@@ -123,7 +90,6 @@ class LLMProviderModule(BaseModule):
         super().__init__()
         self._providers: dict[str, BaseLLMProvider] = {}
 
-
     async def on_start(self) -> None:
         """Called when module transitions to ACTIVE."""
 
@@ -132,35 +98,12 @@ class LLMProviderModule(BaseModule):
         for provider in self._providers.values():
             try:
                 await provider.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
         self._providers.clear()
 
     async def on_config_update(self, config: dict[str, Any]) -> None:
-        """Handle config updates from app YAML.
-
-        Expects config in the format::
-
-            providers:
-              coordinator_brain:
-                backend: anthropic
-                model: claude-sonnet-4-20250514
-                api_key: "..."
-                temperature: 0.2
-                max_tokens: 8192
-              worker_brain:
-                backend: openai_compat
-                provider_hint: deepseek
-                model: deepseek-chat
-                api_key: "..."
-
-        Or a flat single-provider config (from agent brain)::
-
-            provider: deepseek
-            model: deepseek-chat
-            temperature: 0.2
-            ...
-        """
+        """Handle config updates from app YAML."""
         await super().on_config_update(config)
         providers_conf = config.get("providers", {})
         if providers_conf:
@@ -189,9 +132,8 @@ class LLMProviderModule(BaseModule):
             if pid not in self._providers:
                 try:
                     await self._configure_from_dict(pid, pconf)
-                except Exception:
-                    pass
-
+                except Exception as exc:
+                    logger.debug("module best-effort block failed: %s", exc)
 
     @action(
         description=(
@@ -283,8 +225,6 @@ class LLMProviderModule(BaseModule):
             final_usage = None
             final_finish = None
             stream_error: Exception | None = None
-            # LP2: accumulate tool_calls - they were previously DROPPED in streaming
-            # mode, completely breaking streaming agent loops with tool use.
             accumulated_tool_calls: list[dict[str, Any]] = []
             seen_tool_call_ids: set[str] = set()
             try:
@@ -304,8 +244,8 @@ class LLMProviderModule(BaseModule):
                     if chunk.usage:
                         final_usage = chunk.usage
                     if chunk.tool_calls:
-                        # Dedupe by id - providers may emit the same tool_call
-                        # multiple times across chunks (delta + final).
+                        # providers emit the same tool_call across chunks
+                        # (delta + final); dedupe by id.
                         for tc in chunk.tool_calls:
                             tc_id = tc.get("id") if isinstance(tc, dict) else None
                             if tc_id and tc_id in seen_tool_call_ids:
@@ -334,8 +274,7 @@ class LLMProviderModule(BaseModule):
                 "chunks_received": len(chunks),
             }
             if stream_error is not None:
-                # Stream failed mid-message - return failure but PRESERVE the
-                # accumulated chunks so the caller doesn't lose what was streamed.
+                # preserve accumulated chunks on mid-stream failure.
                 return ActionResult(
                     success=False,
                     error=f"Chat stream failed after {len(chunks)} chunks: {stream_error}",
@@ -486,7 +425,6 @@ class LLMProviderModule(BaseModule):
             },
         )
 
-
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest.from_module(self).model_copy(
             update={
@@ -500,7 +438,6 @@ class LLMProviderModule(BaseModule):
             }
         )
 
-
     def _create_provider(
         self,
         provider_id: str,
@@ -513,7 +450,6 @@ class LLMProviderModule(BaseModule):
         max_retries: int = 2,
         default_params: dict[str, Any] | None = None,
     ) -> BaseLLMProvider:
-        """Create a provider instance without initializing it."""
         if backend == "anthropic":
             from digitorn.modules.llm_provider.providers.anthropic import AnthropicProvider
 
@@ -561,7 +497,6 @@ class LLMProviderModule(BaseModule):
             )
 
     async def _configure_from_dict(self, provider_id: str, conf: dict[str, Any]) -> None:
-        """Configure a provider from a dict (used by on_config_update and restore_state)."""
         backend = conf.get("backend", "openai_compat")
         model = conf.get("model", "")
         api_key = conf.get("api_key", "")
@@ -598,23 +533,10 @@ class LLMProviderModule(BaseModule):
         self._providers[provider_id] = provider
 
     async def create_provider_from_brain(self, brain: Any) -> Any:
-        """Build and initialize a fresh provider from either a schema
-        ``AgentBrain`` (YAML) or a runtime ``CompiledBrain``.
-
-        Both shapes need inline instantiation because they're not declared
-        in ``providers:`` - fallback brains, behavior classifiers,
-        per-agent inline brains, etc.
-
-        * ``CompiledBrain`` exposes a flat ``inline_config`` dict.
-        * ``AgentBrain`` exposes ``provider``, ``backend``, ``model``,
-          ``config={api_key,…}``, ``temperature`` etc.
-        """
-        # CompiledBrain path: use the already-flattened inline_config.
+        """Build and initialize a fresh provider from an `AgentBrain` or `CompiledBrain`."""
         inline_config = getattr(brain, "inline_config", None)
         if isinstance(inline_config, dict) and inline_config:
             conf: dict[str, Any] = dict(inline_config)
-            # Layer any extra knobs from the compiled brain into
-            # default_params (temperature / max_tokens / top_p).
             default_params = dict(conf.get("default_params") or {})
             for k in ("temperature", "max_tokens", "top_p"):
                 v = getattr(brain, k, None)
@@ -623,7 +545,6 @@ class LLMProviderModule(BaseModule):
             if default_params:
                 conf["default_params"] = default_params
         else:
-            # AgentBrain path - flatten the schema fields.
             cfg = dict(getattr(brain, "config", None) or {})
             conf = {
                 "backend": getattr(brain, "backend", None) or "openai_compat",

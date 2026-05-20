@@ -26,9 +26,7 @@ __all__ = [
     "WatchItem",
 ]
 
-
 def __getattr__(name: str):
-    """Lazy imports for optional adapters."""
     if name == "MongoAdapter":
         from digitorn.modules.database.adapters.mongo import MongoAdapter
         return MongoAdapter

@@ -20,8 +20,8 @@ class ChangeType(StrEnum):
 class WatchMode(StrEnum):
     """Lifecycle mode for a watcher.
 
-    ``ephemeral``  - tied to the app/session, cleaned up on disconnect.
-    ``persistent`` - saved to state, survives daemon restarts.
+    `ephemeral`  - tied to the app/session, cleaned up on disconnect.
+    `persistent` - saved to state, survives daemon restarts.
     """
 
     EPHEMERAL = "ephemeral"
@@ -51,10 +51,10 @@ class WatchConfig:
 
     Attributes:
         source_id:   Unique identifier matching the index source.
-        backend:     Which backend to use: ``"filesystem"`` or ``"polling"``.
+        backend:     Which backend to use: `"filesystem"` or `"polling"`.
         root:        Root path or URI to watch.
-        patterns:    Glob patterns to include (e.g. ``["**/*.py"]``).
-        ignore:      Glob patterns to exclude (e.g. ``[".git/**", "__pycache__/**"]``).
+        patterns:    Glob patterns to include (e.g. `["**/*.py"]`).
+        ignore:      Glob patterns to exclude (e.g. `[".git/**", "__pycache__/**"]`).
         debounce_ms: Minimum interval between events for the same path (ms).
         poll_interval_s: Polling interval for PollingWatcher (seconds).
         metadata:    Extra config passed to the backend.

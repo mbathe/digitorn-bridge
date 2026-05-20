@@ -1,11 +1,4 @@
-"""TabBar - session tabs at the top of the chat area.
-
-  Ctrl+T        New session
-  Ctrl+Tab      Next tab
-  Ctrl+Shift+Tab Previous tab
-  Ctrl+W        Close tab
-  Ctrl+1-9      Jump to tab
-"""
+"""TabBar - session tabs at the top of the chat area."""
 
 from __future__ import annotations
 
@@ -71,7 +64,7 @@ class TabBar(Static):
         self._render()
 
     def close_tab(self, session_id: str) -> str | None:
-        """Close a tab. Returns the new active session_id, or None if no tabs left."""
+        """Close a tab."""
         self._tabs = [t for t in self._tabs if t["id"] != session_id]
         if not self._tabs:
             self.add_class("hidden")
@@ -93,7 +86,7 @@ class TabBar(Static):
         self._render()
 
     def next_tab(self) -> str | None:
-        """Switch to next tab. Returns new session_id."""
+        """Switch to next tab."""
         if len(self._tabs) < 2:
             return None
         idx = next((i for i, t in enumerate(self._tabs) if t["active"]), 0)
@@ -101,7 +94,7 @@ class TabBar(Static):
         return self._switch_to(new_idx)
 
     def prev_tab(self) -> str | None:
-        """Switch to previous tab. Returns new session_id."""
+        """Switch to previous tab."""
         if len(self._tabs) < 2:
             return None
         idx = next((i for i, t in enumerate(self._tabs) if t["active"]), 0)
@@ -109,7 +102,7 @@ class TabBar(Static):
         return self._switch_to(new_idx)
 
     def tab_at(self, index: int) -> str | None:
-        """Switch to tab at index (0-based). Returns session_id."""
+        """Switch to tab at index (0-based)."""
         if index >= len(self._tabs):
             return None
         return self._switch_to(index)

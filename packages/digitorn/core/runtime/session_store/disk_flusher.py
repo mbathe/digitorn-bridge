@@ -1,22 +1,4 @@
-"""Background write-behind worker, sharded for 100K-session scale.
-
-A ``DiskFlusher`` is now a POOL of ``_FlusherShard`` workers. Each
-shard owns a disjoint subset of sessions (assigned by ``hash(sid) %
-num_shards``) with its OWN bounded queue + drain task + thread pool.
-That means session A's writes never wait on session B's writes -- the
-single-queue funnel that capped the legacy single-flusher at ~1.5K
-events/sec is gone.
-
-Per-shard, the contract is identical to the legacy flusher:
-  * single-writer-per-session (one thread per session per batch)
-  * append-only ``events.jsonl`` with seq-monotonic guard
-  * ``meta.json`` updated atomically per batch via ``MetaIO.write``
-  * ``chat_meta_resolver`` callback for the chat-level fields
-
-The pool exposes the same external API as the legacy class
-(``start``, ``stop``, ``enqueue``, ``flush``, plus aggregated counters)
-so callers in ``InMemorySessionStore`` need no changes.
-"""
+"""Background write-behind worker, sharded for 100K-session scale."""
 
 from __future__ import annotations
 
@@ -41,31 +23,17 @@ ChatMetaResolver = Callable[[str], dict]
 
 _DEFAULT_NUM_SHARDS = 32
 
-# Durability mode contract:
-#   "strict"  : fsync(2) after every batch -- max durability, slowest.
-#               Data is on disk hardware before flush() returns. Crash
-#               loses ~0 events. Use when the loss of a single chat
-#               turn is unacceptable.
-#   "relaxed" : write to OS page cache per batch (Python f.flush()
-#               only). Trust the OS write-back to flush to disk
-#               hardware on its own schedule (~5s Linux ext4, ~30s
-#               Windows NTFS). Crash loses up to that window. Default --
-#               the right tradeoff for chat sessions where a retry from
-#               the client resolves any lost partial turn.
 _DURABILITY_MODES = frozenset({"strict", "relaxed"})
 
 
 def _shard_for_sid(sid: str, num_shards: int) -> int:
-    """Hash-based shard assignment. ``sha256`` over the sid bytes
-    keeps the distribution uniform regardless of sid format
-    (UUIDs, sequence-prefixed strings, hand-picked names)."""
+    """Hash-based shard assignment. `sha256` over the sid bytes"""
     h = hashlib.sha256(sid.encode("utf-8")).digest()
     return int.from_bytes(h[:4], "big") % num_shards
 
 
 class _FlusherShard:
-    """One independent write-behind worker. Identical to the legacy
-    single-flusher logic; the pool routes events to one of N shards."""
+    """One independent write-behind worker. Identical to the legacy"""
 
     def __init__(
         self,
@@ -91,20 +59,7 @@ class _FlusherShard:
         self._durability_mode = durability_mode
         self._queue_max = queue_max
         self._queue: asyncio.Queue[tuple[str, Event]] = asyncio.Queue(queue_max)
-        # Per-session pending-event counter. Used by ``enqueue`` to
-        # reject runaway sessions before they push the queue to full
-        # and starve other sessions' events. Decremented by
-        # ``_gather_batch`` as events are pulled out. The digitorn-
-        # lovable zombie was a single session producing ~50 events/sec
-        # for 17 minutes -- without this guard, ONE bad session can
-        # consume the entire 100K-event shared queue and force every
-        # other session on the same shard to drop events.
         self._sid_pending: dict[str, int] = defaultdict(int)
-        # Per-session shard quota: a single sid can occupy at most this
-        # fraction of the queue. With queue_max=100K and quota=0.125,
-        # one session can have up to 12500 events pending -- generous
-        # for normal bursts (a long agent turn rarely exceeds 200), but
-        # tight enough to cap a runaway before it hurts neighbours.
         self._per_sid_quota = max(1, int(queue_max * 0.125))
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
@@ -144,12 +99,6 @@ class _FlusherShard:
         self._task = None
 
     def enqueue(self, sid: str, event: Event) -> None:
-        # Per-session quota check: if this session already has more
-        # than ``_per_sid_quota`` events pending in the shard queue,
-        # drop THIS event rather than letting one bad session crowd
-        # out everyone else. Only kicks in once the queue is non-
-        # trivially full (>50%) so a normal burst on an idle shard
-        # is still accepted.
         sid_pending = self._sid_pending.get(sid, 0)
         qsize = self._queue.qsize()
         if qsize > (self._queue_max // 2) and sid_pending >= self._per_sid_quota:
@@ -203,11 +152,6 @@ class _FlusherShard:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
-                # A single shard's failure must NEVER kill its drain
-                # task -- otherwise ``_drained`` is never set and
-                # ``flush()`` hangs forever for the whole pool. Log
-                # with full traceback, release the drain barrier, and
-                # continue with the next batch.
                 logger.error(
                     "disk_flusher_write_batch_failed shard=%d "
                     "batch_size=%d err=%s",
@@ -247,9 +191,7 @@ class _FlusherShard:
         return batch
 
     def _dec_sid_pending(self, sid: str) -> None:
-        """Drop the per-sid pending counter as events leave the queue.
-        Prevents the per-sid quota check in ``enqueue`` from sticking
-        forever and starving a session that has since calmed down."""
+        """Drop the per-sid pending counter as events leave the queue."""
         cur = self._sid_pending.get(sid, 0)
         if cur <= 1:
             self._sid_pending.pop(sid, None)
@@ -257,10 +199,6 @@ class _FlusherShard:
             self._sid_pending[sid] = cur - 1
 
     async def _write_batch(self, batch: dict[str, list[Event]]) -> None:
-        # ``return_exceptions=True`` so one session's write failure
-        # (disk full, perm error, corrupt meta.json) doesn't abort
-        # the whole shard batch and lose 100+ other sessions' events.
-        # Failures are logged per-sid; the rest still flush.
         sids = list(batch.keys())
         results = await asyncio.gather(
             *(asyncio.to_thread(self._write_session, sid, batch[sid])
@@ -302,11 +240,6 @@ class _FlusherShard:
                 f.write(json.dumps(ev.to_dict(), default=str, ensure_ascii=False))
                 f.write("\n")
             f.flush()
-            # Durability mode controls whether we pay the per-batch
-            # fsync cost (~5-15ms on Windows, ~1-3ms on Linux).
-            # ``relaxed`` lets the OS write-back drain the page cache
-            # on its own schedule (~5s Linux, ~30s Windows). On a
-            # crash this loses up to that window of events.
             if self._durability_mode == "strict":
                 try:
                     os.fsync(f.fileno())
@@ -345,16 +278,7 @@ class _FlusherShard:
 
 
 class DiskFlusher:
-    """Pool of ``_FlusherShard`` workers, sharded by ``hash(sid)``.
-
-    External API is identical to the legacy single-flusher so existing
-    callers (``InMemorySessionStore``) get sharding for free.
-
-    Capacity scales with ``num_shards``: each shard runs its own
-    drain task with an independent queue + thread pool. Sessions in
-    different shards never contend for any shared resource (no shared
-    queue, no shared lock, no shared file).
-    """
+    """Pool of `_FlusherShard` workers, sharded by `hash(sid)`."""
 
     def __init__(
         self,
@@ -371,9 +295,6 @@ class DiskFlusher:
             raise ValueError("num_shards must be >= 1")
         self._num_shards = num_shards
         self._durability_mode = durability_mode
-        # Each shard gets its own slice of queue_max so the pool's
-        # total in-flight buffer is roughly queue_max regardless of
-        # shard count. Use ceiling so the per-shard cap is never zero.
         per_shard_queue = max(1024, (queue_max + num_shards - 1) // num_shards)
         self._shards: list[_FlusherShard] = [
             _FlusherShard(
@@ -405,18 +326,14 @@ class DiskFlusher:
         ))
 
     def enqueue(self, sid: str, event: Event) -> None:
-        """Hot-path enqueue. Routes to ``shards[hash(sid) % N]``.
-        Sync, ``put_nowait`` so callers never await on disk IO."""
+        """Hot-path enqueue. Routes to `shards[hash(sid) % N]`."""
         idx = _shard_for_sid(sid, self._num_shards)
         self._shards[idx].enqueue(sid, event)
 
     async def flush(self) -> None:
-        """Wait until every shard's queue is empty + drained. Used on
-        graceful shutdown + before reads of partially-flushed sessions.
-        Shards drain in parallel."""
+        """Wait until every shard's queue is empty + drained. Used on"""
         await asyncio.gather(*(s.flush() for s in self._shards))
 
-    # ── Aggregated counters ─────────────────────────────────────────
 
     @property
     def dropped(self) -> int:
@@ -437,8 +354,7 @@ class DiskFlusher:
         return max((s.last_batch_size for s in self._shards), default=0)
 
     def shard_stats(self) -> list[dict]:
-        """Per-shard breakdown -- useful for debugging hot shards
-        (uneven distribution = sessions clustering on one bucket)."""
+        """Per-shard breakdown -- useful for debugging hot shards"""
         return [
             {
                 "shard_id": i,

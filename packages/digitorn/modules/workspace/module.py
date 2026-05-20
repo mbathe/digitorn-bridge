@@ -1,35 +1,4 @@
-"""Workspace Module - universal virtual filesystem for live-preview apps.
-
-The agent sees the same 6 tools it knows from the real filesystem:
-``Write``, ``Read``, ``Edit``, ``Glob``, ``Grep``, ``Delete``.
-It doesn't know (or care) that the files live in memory and stream
-in real time to the connected client via Socket.IO.
-
-Under the hood every mutation publishes a ``preview:resource_set``
-(or ``preview:resource_patched`` / ``preview:resource_deleted``) event
-on the ``files`` channel. The client (Flutter / React) decides how to
-render based on file extensions and the ``workspace`` state metadata.
-
-Multi-step editing (slides, chapters, components) works naturally:
-each file is a resource in the ``files`` channel. Write slide-01.md,
-then slide-02.md, then edit slide-01.md - the client sees each
-mutation in real time and reacts accordingly.
-
-The module requires ``preview`` to be loaded in the same app.
-
-Config (app.yaml)::
-
-    modules:
-      workspace:
-        config:
-          render_mode: react     # react | latex | slides | html | markdown | auto
-          entry_file: src/App.tsx # main file the client should render first
-          title: My App          # optional display title
-
-The config is published as ``preview.set_state("workspace", {...})``
-so the client shell can read ``usePreviewState("workspace")`` and
-activate the correct renderer without any backend changes.
-"""
+"""Workspace Module - universal virtual filesystem for live-preview apps."""
 
 from __future__ import annotations
 
@@ -61,8 +30,6 @@ from digitorn.modules.filesystem.helpers import (
 )
 from digitorn.modules.manifest import ModuleManifest
 
-# ── Language detection ────────────────────────────────────────────────
-
 _EXT_TO_LANG: dict[str, str] = {
     ".tsx": "tsx", ".jsx": "jsx", ".ts": "typescript", ".js": "javascript",
     ".css": "css", ".html": "html", ".json": "json", ".jsonc": "json",
@@ -81,7 +48,6 @@ _EXT_TO_LANG: dict[str, str] = {
     ".pptx": "pptx", ".csv": "csv", ".tsv": "tsv",
 }
 
-
 def _detect_language(path: str) -> str:
     name = os.path.basename(path).lower()
     if name == "dockerfile":
@@ -89,16 +55,7 @@ def _detect_language(path: str) -> str:
     _, ext = os.path.splitext(name)
     return _EXT_TO_LANG.get(ext, "text")
 
-
 def _safe_unified_diff(before: str, after: str, path: str, *, n: int = 3) -> str:
-    """Generate a well-formed unified diff safe to `difflib.PatchSet.from_string()`.
-
-    Normalises both inputs to end with a trailing newline before
-    splitting - without this, a final line without ``\\n`` produces
-    ``-last\\n+newlast`` with the ``-last`` missing its newline,
-    glueing it to the next diff line (``-last+newlast``) which breaks
-    every unified-diff parser.
-    """
     before_norm = before if before.endswith("\n") or not before else before + "\n"
     after_norm = after if after.endswith("\n") or not after else after + "\n"
     return "".join(unified_diff(
@@ -107,26 +64,9 @@ def _safe_unified_diff(before: str, after: str, path: str, *, n: int = 3) -> str
         fromfile=f"a/{path}", tofile=f"b/{path}", n=n,
     ))
 
-
-# Cap on ``unified_diff_pending`` payload size. Picked at 200 KB so
-# nearly every real-world file diff fits whole - users see the
-# complete diff body in the editor pane instead of a silently
-# truncated tail. The daemon-side counters (``insertions_pending`` /
-# ``deletions_pending``) are computed directly via difflib over the
-# full content and are NOT affected by this cap, so the +/- badge
-# stays accurate even if the diff string is clipped. Beyond ~500 KB
-# the visual diff stops being useful anyway (Monaco struggles to
-# render 30K+ diff lines, the user can't scroll meaningfully).
 _PENDING_DIFF_MAX_BYTES = 200_000
 
-
 def _parse_unified_diff_hunks(diff: str) -> list[dict[str, Any]]:
-    """Parse a unified diff into a list of hunk dicts.
-
-    Each hunk: ``{index, hash, header, old_start, old_len, new_start, new_len, body}``.
-    ``hash`` is a 12-char SHA-256 of ``header + body`` - stable across
-    retries so the client can identify a hunk through a race.
-    """
     import hashlib
     import re
     hunks: list[dict[str, Any]] = []
@@ -153,7 +93,6 @@ def _parse_unified_diff_hunks(diff: str) -> list[dict[str, Any]]:
         hunks.append(_finalize_hunk(current, len(hunks)))
     return hunks
 
-
 def _finalize_hunk(h: dict[str, Any], index: int) -> dict[str, Any]:
     import hashlib
     digest_src = h["header"] + "\n" + "\n".join(h["body"])
@@ -161,23 +100,12 @@ def _finalize_hunk(h: dict[str, Any], index: int) -> dict[str, Any]:
     h["index"] = index
     return h
 
-
 def _apply_hunks_to(
     source_lines: list[str],
     hunks: list[dict[str, Any]],
     *,
     direction: str = "forward",
 ) -> list[str]:
-    """Apply selected hunks to ``source_lines`` and return the result.
-
-    ``direction='forward'`` uses the hunk's ``+`` lines to replace the
-    ``-`` lines (baseline → current).  ``direction='reverse'`` does the
-    opposite (current → baseline). Hunks must be pre-filtered to those
-    actually being applied.
-
-    Hunks are applied in reverse position order so an earlier hunk's
-    indices aren't perturbed by a later hunk's length change.
-    """
     result = list(source_lines)
     if direction == "forward":
         ordered = sorted(hunks, key=lambda h: h["old_start"], reverse=True)
@@ -195,9 +123,7 @@ def _apply_hunks_to(
             result[start:start + length] = replacement
     return result
 
-
 def _select_hunks(hunks: list[dict[str, Any]], selector: list[Any]) -> list[dict[str, Any]]:
-    """Filter hunks matching any of the given indices or hashes."""
     if not selector:
         return []
     indices: set[int] = set()
@@ -212,9 +138,7 @@ def _select_hunks(hunks: list[dict[str, Any]], selector: list[Any]) -> list[dict
                 hashes.add(s)
     return [h for h in hunks if h["index"] in indices or h["hash"] in hashes]
 
-
 def _count_pending_from_hunks(hunks: list[dict[str, Any]]) -> tuple[int, int]:
-    """Count insertions + deletions across a list of hunks."""
     ins = 0
     dels = 0
     for h in hunks:
@@ -227,13 +151,7 @@ def _count_pending_from_hunks(hunks: list[dict[str, Any]]) -> tuple[int, int]:
                 dels += 1
     return ins, dels
 
-
 def _norm(path: str) -> str:
-    """Normalize a workspace path: strip ./ prefix, use forward slashes.
-
-    Workspace paths are always relative to the workspace root.
-    Handles: './src/App.tsx' → 'src/App.tsx', 'src\\App.tsx' → 'src/App.tsx'.
-    """
     p = path.replace("\\", "/")
     # Strip leading ./ (but not ../)
     while p.startswith("./"):
@@ -242,14 +160,7 @@ def _norm(path: str) -> str:
     p = p.lstrip("/")
     return p
 
-
 def _glob_match(path: str, pattern: str) -> bool:
-    """Glob match with proper `**` (any depth) support.
-
-    fnmatch is wrong here: its `*` matches `/` too, so `slides/*.md` would
-    hit `slides/a/01.md`. We translate the pattern to a proper regex where
-    `*` stops at `/` and `**` crosses directory separators.
-    """
     # Translate glob → regex manually
     i = 0
     out: list[str] = []
@@ -289,10 +200,6 @@ def _glob_match(path: str, pattern: str) -> bool:
     except re.error:
         return fnmatch.fnmatch(path, pattern)
 
-
-# ── Built-in validators (in-memory, no disk reads) ──────────────
-
-
 def _validate_json_content(content: str, path: str) -> list[dict[str, Any]]:
     import json as _json
     try:
@@ -301,7 +208,6 @@ def _validate_json_content(content: str, path: str) -> list[dict[str, Any]]:
     except _json.JSONDecodeError as e:
         return [{"line": e.lineno or 1, "column": e.colno or 1,
                  "severity": "error", "message": e.msg, "source": "json"}]
-
 
 def _validate_yaml_content(content: str, path: str) -> list[dict[str, Any]]:
     try:
@@ -317,7 +223,6 @@ def _validate_yaml_content(content: str, path: str) -> list[dict[str, Any]]:
         return [{"line": line, "column": col, "severity": "error",
                  "message": msg, "source": "yaml"}]
 
-
 def _validate_toml_content(content: str, path: str) -> list[dict[str, Any]]:
     try:
         import tomllib
@@ -332,7 +237,6 @@ def _validate_toml_content(content: str, path: str) -> list[dict[str, Any]]:
         return [{"line": line, "column": 1, "severity": "error",
                  "message": msg, "source": "toml"}]
 
-
 def _validate_python_content(content: str, path: str) -> list[dict[str, Any]]:
     try:
         compile(content, path, "exec")
@@ -343,9 +247,7 @@ def _validate_python_content(content: str, path: str) -> list[dict[str, Any]]:
     except Exception:
         return []
 
-
 def _validate_latex_content(content: str, path: str) -> list[dict[str, Any]]:
-    """Basic LaTeX validation - check for unmatched braces and environments."""
     diags: list[dict[str, Any]] = []
     stack: list[tuple[str, int]] = []
     brace_depth = 0
@@ -386,7 +288,6 @@ def _validate_latex_content(content: str, path: str) -> list[dict[str, Any]]:
                        "source": "latex"})
     return diags
 
-
 _BUILTIN_CONTENT_VALIDATORS: dict[str, Any] = {
     ".json": _validate_json_content,
     ".jsonc": _validate_json_content,
@@ -399,43 +300,33 @@ _BUILTIN_CONTENT_VALIDATORS: dict[str, Any] = {
     ".latex": _validate_latex_content,
 }
 
-
 _MIME_BY_EXT = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
     ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
     ".svg": "image/svg+xml", ".ico": "image/x-icon",
 }
 
-
 def _mime_from_ext(path: str) -> str:
     _, ext = os.path.splitext(path.lower())
     return _MIME_BY_EXT.get(ext, "application/octet-stream")
 
-
 def _looks_like_base64(s: str) -> bool:
-    """Heuristic: base64 uses [A-Za-z0-9+/=] and is at least 16 chars."""
     if len(s) < 16:
         return False
     # Sample first 64 chars
     sample = s[:64]
     return all(c.isalnum() or c in "+/=\n\r" for c in sample)
 
-
-# ── Params ────────────────────────────────────────────────────────────
-
-
 class WriteParams(BaseModel):
     """Create or overwrite a file."""
     path: str = Field(..., description="File path, e.g. src/App.tsx")
     content: str = Field(..., description="Full file content.")
-
 
 class ReadParams(BaseModel):
     """Read a file."""
     path: str = Field(..., description="File path to read.")
     offset: int | None = Field(default=None, json_schema_extra={"hidden": True}, description="1-indexed start line.")
     limit: int | None = Field(default=None, json_schema_extra={"hidden": True}, description="Max lines to return.")
-
 
 class EditParams(BaseModel):
     """Surgical text replacement in an existing file."""
@@ -447,12 +338,10 @@ class EditParams(BaseModel):
     fuzzy_threshold: float = Field(default=0.85, ge=0.0, le=1.0, json_schema_extra={"hidden": True}, description="Fuzzy match threshold.")
     max_suggestions: int = Field(default=3, ge=1, le=10, json_schema_extra={"hidden": True}, description="Max suggestions on failure.")
 
-
 class GlobParams(BaseModel):
     """Find files by name pattern."""
     pattern: str = Field(..., description="Glob pattern, e.g. **/*.tsx, slides/*.md")
     sort_by: str = Field(default="path", json_schema_extra={"hidden": True}, description="Sort: path, size, lines.")
-
 
 class GrepParams(BaseModel):
     """Search file contents by regex."""
@@ -464,49 +353,34 @@ class GrepParams(BaseModel):
     after: int = Field(default=0, ge=0, le=20, json_schema_extra={"hidden": True}, description="Context lines after.")
     max_results: int = Field(default=200, ge=1, le=2000, json_schema_extra={"hidden": True}, description="Max results.")
 
-
 class DeleteParams(BaseModel):
     """Delete a file."""
     path: str = Field(..., description="File path to delete.")
 
-
 class ApproveFileParams(BaseModel):
-    """Mark a file's current content as the new baseline (VS Code-like
-    "stage"). Clears pending counters and flips validation to 'approved'."""
+    """Mark a file's current content as the new baseline (VS Code-like."""
     path: str = Field(..., description="Workspace-relative file path.")
-
 
 class RejectFileParams(BaseModel):
-    """Revert a file to its last-approved baseline. If no baseline exists
-    yet (first write not approved), the file is removed entirely."""
+    """Revert a file to its last-approved baseline. If no baseline exists."""
     path: str = Field(..., description="Workspace-relative file path.")
 
-
 class HunksActionParams(BaseModel):
-    """Apply approve / reject to a selection of hunks inside a file.
-
-    ``hunks`` may contain either 0-based indices (ordinal in the current
-    pending unified diff) or 12-char hunk hashes (stable across races -
-    computed from the hunk header + body). Mixing both is allowed.
-    """
+    """Apply approve / reject to a selection of hunks inside a file."""
     path: str = Field(..., description="Workspace-relative file path.")
     hunks: list = Field(
         default_factory=list,
         description="Selected hunks (indices or hashes).",
     )
 
-
 class WritebackParams(BaseModel):
-    """User-side write to a workspace file (manual edit, conflict
-    resolution, drag-drop import). Different from WsWrite in that it's
-    attributed to ``source: 'user'`` and may auto-approve."""
+    """User-side write to a workspace file (manual edit, conflict."""
     path: str = Field(..., description="Workspace-relative file path.")
     content: str = Field(..., description="New file content.")
     auto_approve: bool = Field(
         default=False,
         description="Snapshot this content as the new baseline immediately.",
     )
-
 
 class CommitParams(BaseModel):
     """Commit the session workspace to git."""
@@ -517,13 +391,9 @@ class CommitParams(BaseModel):
     )
     push: bool = Field(default=False, description="git push after commit.")
 
-
 class GitStatusParams(BaseModel):
     """Force-refresh git status classifications for every tracked file."""
     pass
-
-
-# ── Config model ─────────────────────────────────────────────────────
 
 # render_mode → entry_file auto-detection
 _RENDER_DEFAULTS: dict[str, str] = {
@@ -542,7 +412,6 @@ _LANG_TO_RENDER: dict[str, str] = {
     "markdown": "markdown",
     "python": "code", "rust": "code", "go": "code",
 }
-
 
 class WorkspaceConfig(BaseModel):
     """Workspace config declared in app.yaml → modules.workspace.config."""
@@ -578,12 +447,12 @@ class WorkspaceConfig(BaseModel):
         description=(
             "When true (default), every write/edit/delete is mirrored to "
             "a disk directory - either the user-picked workspace (when "
-            "``workspace_path`` is passed at session creation) or an "
+            "`workspace_path` is passed at session creation) or an "
             "auto-isolated per-session dir at "
-            "``~/.digitorn/workspaces/{app_id}/{session_id}/``. "
+            "`~/.digitorn/workspaces/{app_id}/{session_id}/`. "
             "Disk-backing unlocks LSP (pyright/ruff/tsserver can see the "
             "files), git tooling, cross-restart persistence, and the "
-            "Lovable flow. Set explicitly to ``false`` only when you need "
+            "Lovable flow. Set explicitly to `false` only when you need "
             "a pure in-memory workspace (rare)."
         ),
     )
@@ -626,13 +495,13 @@ class WorkspaceConfig(BaseModel):
         description=(
             "When true, every write/edit is implicitly approved - the "
             "baseline becomes the file's current content on each write, "
-            "``validation`` stays ``approved`` and pending counters are "
+            "`validation` stays `approved` and pending counters are "
             "always zero. No human review step. Use for sandbox apps, "
             "automated pipelines, or agents whose output is trusted by "
             "contract. When false (default), each change lands with "
-            "``validation='pending'`` until the user or a hook approves "
+            "`validation='pending'` until the user or a hook approves "
             "it explicitly. Per-write override: pass "
-            "``WritebackParams(auto_approve=true)`` on a one-off write."
+            "`WritebackParams(auto_approve=true)` on a one-off write."
         ),
     )
     hidden_paths: list[str] = Field(
@@ -646,9 +515,9 @@ class WorkspaceConfig(BaseModel):
             "agent must not touch (auth caches, user prefs, telemetry). "
             "Patterns use POSIX glob with `**` for recursion.\n\n"
             "Defaults already-hidden (always, even with no config):\n"
-            "  - ``__sdk__/**``       (SDK-private namespace)\n"
-            "  - ``.app/**``          (app-private dotdir)\n"
-            "  - ``.digitorn/**``     (daemon metadata)\n\n"
+            "  - `__sdk__/**`       (SDK-private namespace)\n"
+            "  - `.app/**`          (app-private dotdir)\n"
+            "  - `.digitorn/**`     (daemon metadata)\n\n"
             "Examples:\n"
             "  hidden_paths:\n"
             "    - 'auth/**'\n"
@@ -661,22 +530,18 @@ class WorkspaceConfig(BaseModel):
         description=(
             "When non-empty, the agent's view of the workspace is "
             "scoped to this single subdirectory. Every path that "
-            "doesn't start with ``agent_root`` is treated as hidden "
+            "doesn't start with `agent_root` is treated as hidden "
             "(WsRead returns 'file not found', WsGlob skips it, etc.). "
             "The SDK iframe and HTTP endpoints stay unconstrained - "
             "this is purely an agent-side guardrail.\n\n"
             "Used by the chat attachments tool-mode to lock the agent "
-            "to the ``attachments/`` directory so it can't accidentally "
-            "read app-private state via ``..`` or absolute paths.\n\n"
-            "Example: ``agent_root: \"attachments\"`` → the agent can "
-            "WsRead anything under ``attachments/`` but ``WsRead("
-            "\"config.json\")`` returns not-found."
+            "to the `attachments/` directory so it can't accidentally "
+            "read app-private state via `..` or absolute paths.\n\n"
+            "Example: `agent_root: \"attachments\"` → the agent can "
+            "WsRead anything under `attachments/` but `WsRead("
+            "\"config.json\")` returns not-found."
         ),
     )
-
-
-# ── Module ────────────────────────────────────────────────────────────
-
 
 class WorkspaceModule(BaseModule):
     """Virtual workspace - filesystem-like API that streams to the client."""
@@ -729,21 +594,10 @@ class WorkspaceModule(BaseModule):
     def __init__(self) -> None:
         super().__init__()
         self._preview: Any | None = None  # injected by bootstrap
-        # Per-session "did we publish workspace metadata yet?" flag.
-        # Was previously a single ``bool`` shared across every active
-        # session, which meant the FIRST write of the FIRST session
-        # set the flag and EVERY OTHER session's first write skipped
-        # the publish (workspace module is ``isolation=shared``, see
-        # the comment near ``_diag_gen`` below). The result was that
-        # the second app/user opening any new session never received
-        # the ``workspace`` state entry on the preview channel - the
-        # client could not pick render_mode / entry_file / title and
-        # fell back to defaults.
+        # Per-session flag: did we publish workspace metadata yet?
+        # Must be per-session because the workspace module is isolation=shared.
         self._meta_published: dict[str, bool] = {}
-        # Last is_git_repo flag we've published per session - lets
-        # ``_refresh_git_repo_flag`` re-emit the workspace state when
-        # the user runs ``git init`` (or rm -rf .git) mid-session
-        # without paying for a full meta re-publish.
+        # Per-session last published is_git_repo flag; re-publishes on git init/rm.
         self._last_git_repo_flag: dict[str, bool] = {}
         self._render_mode: str = "auto"
         self._entry_file: str | None = None
@@ -755,56 +609,25 @@ class WorkspaceModule(BaseModule):
         self._lint: bool = True
         self._auto_approve: bool = False
         self._lsp: Any | None = None  # injected by bootstrap
-        # Glob patterns of paths hidden from the AGENT only. The SDK
-        # iframe (HTTP routes) and the daemon itself see these files
-        # normally; only the @action handlers (read/glob/grep/edit/
-        # delete) act as if they don't exist. Populated from the YAML
-        # ``workspace.hidden_paths`` plus the always-hidden defaults.
         self._hidden_globs: list[str] = []
         # Single agent-facing directory whitelist. Empty = no scope
         # restriction. Set to e.g. "attachments" to lock the agent's
         # view to that one subdir (chat attachments tool-mode).
         self._agent_root: str = ""
-        # Per-(session, file) generation counter for diagnostic pushes.
-        # Must be session-scoped because the workspace module is shared
-        # (isolation=shared) - a single module-wide map would leak
-        # counters across sessions and produce spurious "stale payload"
-        # rejections on the client.
+        # Per-(session, file) diagnostic-push generation counter.
         self._diag_gen: dict[tuple[str, str], int] = {}
-        # Per-(session, file) asyncio Lock to serialise mutations on
-        # the same path. Without this, two concurrent agent tool calls
-        # (sub-agents, background tasks) both read ``existing`` from the
-        # channel, both compute ``total_insertions = prev + delta``, and
-        # the second overwrites the first - cumulative counters become
-        # under-counted. Also serialises the ``read_baseline`` /
-        # ``write_baseline`` pair in ``_ensure_session_baseline``.
-        #
-        # Bounded: the dict is capped at ``_PATH_LOCKS_MAX`` entries.
-        # When full, the oldest unused entry is evicted (LRU). Without
-        # this cap, sessions touching thousands of unique paths leak
-        # ~120 bytes per Lock indefinitely - measured 1M locks =
-        # ~120 MB on a long-running daemon.
+        # Per-(session, file) mutation lock; LRU-evicted when oversized.
         self._path_locks: dict[tuple[str, str], asyncio.Lock] = {}
-        # Last-use timestamps for LRU eviction. Updated on every
-        # ``_path_lock`` call; eviction prefers the oldest entry.
         self._path_lock_last_used: dict[tuple[str, str], float] = {}
 
-    # Cap chosen to comfortably cover the worst sane case (50
-    # concurrent sessions × 1000 unique paths each). At 120 bytes/Lock
-    # the total cost is ~6 MB - negligible. Above 50K we evict.
     _PATH_LOCKS_MAX: int = 50_000
 
     def _path_lock(self, sid: str, path: str) -> asyncio.Lock:
-        """Return the per-session/path lock, creating it lazily."""
         import time as _time
         key = (sid, path)
         lock = self._path_locks.get(key)
         now = _time.monotonic()
         if lock is None:
-            # Evict if we're at the cap. Skip locks currently held
-            # (``locked()`` is True) - evicting one would let a
-            # concurrent mutation race past it. Eviction is best-effort:
-            # if every lock is held we just exceed the cap temporarily.
             if len(self._path_locks) >= self._PATH_LOCKS_MAX:
                 self._evict_path_locks(target=self._PATH_LOCKS_MAX // 10)
             lock = asyncio.Lock()
@@ -813,8 +636,6 @@ class WorkspaceModule(BaseModule):
         return lock
 
     def _evict_path_locks(self, target: int) -> int:
-        """Drop up to ``target`` of the least-recently-used unlocked
-        path locks. Returns the actual number evicted."""
         # Sort by last-used time ascending (oldest first).
         sorted_keys = sorted(
             self._path_lock_last_used.items(), key=lambda kv: kv[1],
@@ -832,13 +653,7 @@ class WorkspaceModule(BaseModule):
         return evicted
 
     async def cleanup_session(self, session_id: str) -> None:
-        """Drop per-session bookkeeping when the session ends.
-
-        Called by the session manager on ``end_session``. Without this,
-        ``_path_locks`` / ``_meta_published`` / ``_diag_gen`` would
-        accumulate forever (workspace module is ``isolation=shared``)
-        and slowly leak memory across the daemon's lifetime.
-        """
+        """Drop per-session bookkeeping when the session ends."""
         if not session_id:
             return
         self._meta_published.pop(session_id, None)
@@ -851,21 +666,6 @@ class WorkspaceModule(BaseModule):
                 self._diag_gen.pop(key, None)
 
     def _resolve_ws_path(self, path: str) -> str:
-        """Resolve a path to a workspace-relative path.
-
-        If the path is absolute and falls under the sync_dir, strips the
-        sync_dir prefix to get the relative workspace path. Otherwise
-        applies _norm() for standard normalization.
-
-        Sandbox: when an absolute path doesn't fall under the workdir
-        (sync_dir / workspace), the workdir-scoped ``PathPolicy`` on
-        the current execution context refuses it. Without that guard,
-        ``_sync_write_to_disk`` would later do
-        ``os.path.join(sync_dir, "/etc/passwd")`` and Python's
-        ``os.path.join`` would silently discard ``sync_dir`` for the
-        absolute right-hand side, letting an absolute path escape the
-        workdir on disk.
-        """
         p = path.replace("\\", "/")
         # If absolute, try to make it relative to sync_dir
         if os.path.isabs(p):
@@ -880,10 +680,9 @@ class WorkspaceModule(BaseModule):
                 wd = ws.replace("\\", "/").rstrip("/") + "/"
                 if p.startswith(wd):
                     return _norm(p[len(wd):])
-            # Out-of-workdir absolute path → enforce the policy. If
-            # the policy is absent (legacy CLI / test paths) we keep
-            # the legacy normalize-and-pray behaviour rather than
-            # surprise existing callers.
+            # Out-of-workdir absolute path: enforce the sandbox when
+            # one is in scope, otherwise normalize and let the caller
+            # see the path (legacy CLI / test compatibility).
             ctx = self._context_var.get()
             policy = getattr(ctx, "path_policy", None) if ctx else None
             if policy is not None:
@@ -904,27 +703,17 @@ class WorkspaceModule(BaseModule):
         self._sync_path = cfg.sync_path
         self._lint = cfg.lint
         self._auto_approve = cfg.auto_approve
-        # Hidden-from-agent globs. Always include the SDK-private
-        # namespaces; merge in any app-declared extras.
+        # Hidden globs: always cover the SDK-private namespaces and
+        # merge in any app-declared extras.
         _DEFAULT_HIDDEN = ["__sdk__/**", ".app/**", ".digitorn/**"]
         self._hidden_globs = list(_DEFAULT_HIDDEN) + list(cfg.hidden_paths or [])
-        # Agent-root scope (chat attachments tool-mode lock). When
-        # non-empty, every agent-facing path outside this directory
-        # is treated as hidden by _is_hidden_from_agent.
+        # `agent_root` whitelist for tool-mode attachments.
         self._agent_root = (cfg.agent_root or "").strip().strip("/")
-        # Reset so the next write of EVERY active session re-publishes
-        # metadata with the new config. ``_meta_published`` is now
-        # session-keyed, so clearing the dict drops every cached
-        # "already published" flag at once.
+        # Force every active session to republish meta on next write.
         self._meta_published.clear()
 
     def get_dynamic_tool_prompts(self) -> dict[str, str]:
-        """Return per-FQN tool prompts, merging base + app instructions.
-
-        Called by ``prompt.py`` when building the system prompt.
-        This is the mechanism that makes workspace tool prompts dynamic:
-        each app injects its own context via ``config.instructions``.
-        """
+        """Return per-FQN tool prompts, merging base + app instructions."""
         result: dict[str, str] = {}
         for action_name, base in self._BASE_TOOL_PROMPTS.items():
             fqn = f"workspace.{action_name}"
@@ -945,7 +734,6 @@ class WorkspaceModule(BaseModule):
         return self._preview
 
     def _channel(self) -> dict[str, dict[str, Any]]:
-        """Return the 'files' channel dict from the preview session."""
         return self._get_preview()._session().channel("files")
 
     async def register_attachment(
@@ -958,28 +746,10 @@ class WorkspaceModule(BaseModule):
         file_id: str = "",
         target_dir: str = "attachments",
     ) -> str | None:
-        """Mirror an extracted attachment / source's text into the workspace
-        at ``<target_dir>/<sanitised_name>``.
-
-        Internal API used by both the chat attachments pipeline
-        (``target_dir="attachments"``, default) and the iframe-side
-        source-ingestion endpoint (``target_dir="sources"``). Exposes
-        the file to the agent via the same WsRead / WsGlob / WsGrep
-        tools it uses for normal workspace files. Pre-approved (skips
-        the diff queue) and tagged ``source: "attachment"`` / ``"source"``
-        based on the destination so the SDK iframe can render the
-        provenance. Idempotent: re-registering the same name overwrites
-        the previous payload.
-
-        Returns the workspace-relative path on success, ``None`` when
-        the preview module isn't wired (silent no-op for apps that
-        don't use the workspace).
-        """
+        """Mirror an extracted attachment / source's text into the workspace."""
         if self._preview is None or not text:
             return None
-        # Whitelist of allowed target dirs prevents an upstream caller
-        # from accidentally writing to "../something" or "sources/sub/x"
-        # (only one path segment, no traversal).
+        # Whitelist target dirs (no traversal, no nested paths).
         if target_dir not in ("attachments", "sources"):
             logger.warning(
                 "register_attachment_invalid_target session=%s target=%s",
@@ -989,9 +759,7 @@ class WorkspaceModule(BaseModule):
 
         from digitorn.modules.preview.module import SetResourceParams
 
-        # Sanitise the filename - keep alphanumerics + ``.-_ ()`` and
-        # collapse separators. Path traversal (``..``) cannot survive
-        # this filter so the agent can't reach outside the target dir.
+        # Sanitise the filename; this also defeats path traversal.
         safe = re.sub(r"[^A-Za-z0-9._\-() ]+", "_", name).strip("._ ") or "file"
         path = f"{target_dir}/{safe}"
 
@@ -1005,19 +773,13 @@ class WorkspaceModule(BaseModule):
             "updated_at": time.time(),
             "validation": "approved",
             "baseline_lines": lines,
-            # ``source`` = "attachment" for files coming from the chat
-            # composer paperclip, "source" for files curated via the
-            # iframe's Sources panel. The SDK iframe can branch on this
-            # to render different badges / metadata.
             "source": "attachment" if target_dir == "attachments" else "source",
             "mime": mime,
             "file_id": file_id,
         }
 
-        # set_active_session is idempotent + per-task; setting it
-        # here makes _channel() / set_resource land on the right
-        # PreviewSessionState even when this method is called
-        # outside an agent turn (e.g. from POST /messages).
+        # Idempotent per-task; binds `_channel` / `set_resource` to
+        # the right `PreviewSessionState` outside an agent turn.
         self._preview.set_active_session(session_id)
         try:
             self._channel()[path] = payload
@@ -1039,24 +801,8 @@ class WorkspaceModule(BaseModule):
         return path
 
     def _is_hidden_from_agent(self, path: str) -> bool:
-        """True when the path matches any ``hidden_paths`` glob.
-
-        The check applies to AGENT tool calls only (read/glob/grep/edit/
-        delete @actions). The HTTP routes used by the SDK iframe and the
-        web/Flutter client bypass this filter - those callers see the
-        full file list. The point is to give SDK apps a private namespace
-        for state the agent must not touch (auth tokens, telemetry IDs,
-        layout prefs, ...) without compromising the live preview channel.
-
-        ``path`` is workspace-relative, POSIX-style (forward slashes).
-        Matching is done with ``fnmatch`` for ``*`` / ``?`` / ``[]`` and
-        a custom prefix walk for ``**`` (zero-or-more path components).
-        """
         norm = path.replace("\\", "/").lstrip("/") if path else ""
-        # ``agent_root`` whitelist takes priority: when set, everything
-        # outside that directory is invisible to the agent regardless
-        # of hidden_paths config. Used by chat attachments tool-mode to
-        # lock the agent to ``attachments/`` only.
+        # `agent_root` whitelist takes priority over `hidden_paths`.
         root = (getattr(self, "_agent_root", "") or "").replace("\\", "/").strip("/")
         if root:
             if not norm:
@@ -1068,7 +814,7 @@ class WorkspaceModule(BaseModule):
         from fnmatch import fnmatch
         for pat in self._hidden_globs:
             p = pat.replace("\\", "/").lstrip("/")
-            # ``**`` recursive match: ``foo/**`` matches foo/anything,
+            # `**` recursive match: `foo/**` matches foo/anything,
             # foo/a/b, foo/.x, etc. Translate to a prefix check.
             if p.endswith("/**"):
                 prefix = p[:-3]
@@ -1093,13 +839,6 @@ class WorkspaceModule(BaseModule):
         old_content: str | None = None,
         operation: str = "write",
     ) -> dict[str, Any]:
-        """Build the resource payload sent to the preview channel.
-
-        Tracks both per-operation deltas (insertions/deletions) AND
-        cumulative totals (total_insertions/total_deletions) across the
-        entire session. The cumulative counters persist in the preview
-        snapshot so the client can show accurate totals after resume.
-        """
         import time as _time
         lang = _detect_language(path)
         lines = content.count("\n") + 1
@@ -1110,7 +849,7 @@ class WorkspaceModule(BaseModule):
         prev_total_del = existing.get("total_deletions", 0) if existing else 0
 
         # Preserve validation + baseline-diff state across the payload
-        # rebuild. ``validation`` defaults to "pending" - the agent just
+        # rebuild. `validation` defaults to "pending" - the agent just
         # wrote the file, user hasn't approved yet.
         prev_validation = existing.get("validation") if existing else None
         prev_baseline_lines = existing.get("baseline_lines", 0) if existing else 0
@@ -1167,11 +906,8 @@ class WorkspaceModule(BaseModule):
         payload["total_insertions"] = prev_total_ins + insertions
         payload["total_deletions"] = prev_total_del + deletions
 
-        # Pending-since-baseline counters (VS Code-style diff gutters):
-        # insertions/deletions between the last-approved baseline and the
-        # current content. MUST be delta-vs-baseline (not a running sum),
-        # otherwise "3 writes + approve + 1-line edit" would show
-        # pending=4 instead of pending=1.
+        # Pending-since-baseline counters (delta vs last-approved
+        # baseline, not a running sum) for VS Code-style diff gutters.
         baseline_content: str | None = None
         try:
             from digitorn.modules.preview.fs_backend import read_baseline
@@ -1197,10 +933,8 @@ class WorkspaceModule(BaseModule):
                 payload["insertions_pending"] = 0
                 payload["deletions_pending"] = 0
         elif baseline_content is None:
-            # No baseline yet - everything in the file is pending.
-            # Use splitlines() (not `lines`) so a trailing newline
-            # doesn't inflate the count by +1 (client expectation:
-            # "line one\nline two\nline three\n" = 3 insertions).
+            # No baseline yet: everything is pending. `splitlines`
+            # avoids the trailing-newline off-by-one.
             payload["insertions_pending"] = len(content.splitlines()) if content else 0
             payload["deletions_pending"] = 0
         else:
@@ -1222,17 +956,6 @@ class WorkspaceModule(BaseModule):
             payload["deletions_pending"] = _del
 
         # Cumulative unified diff since the last-approved baseline.
-        # This is what the frontend "pending changes" view renders -
-        # it MUST reflect every edit made since approve(), not just
-        # the most recent one. The per-edit ``unified_diff`` elsewhere
-        # in the payload shows only THIS operation; the client's diff
-        # gutter needs the full delta.
-        #
-        # When there is no baseline yet (file never approved) we still
-        # emit a full additions-only diff so the frontend has something
-        # to render: "" vs current content. Without this, the frontend
-        # falls back to the raw line count and shows "the last edit"
-        # instead of the aggregate since session start.
         if self._auto_approve:
             payload["unified_diff_pending"] = ""
         elif baseline_content is not None:
@@ -1246,25 +969,11 @@ class WorkspaceModule(BaseModule):
 
         return payload
 
-    # ``_is_git_repo`` is called from ``_refresh_git_repo_flag`` on
-    # every workspace write/edit. Each call does a sync ``Path.is_dir``
-    # stat. On slow disks (network mount, Windows AV scan) one stat can
-    # be 5-50ms; at 100 writes/s the cumulative blocking time stalls
-    # the loop. Cache per-workspace for ``_GIT_REPO_TTL_S`` seconds.
-    # The flag almost never changes during a session (would require the
-    # user to ``git init`` mid-session, which the next refresh cycle
-    # picks up automatically).
+    # Cache per-workspace for `_GIT_REPO_TTL_S` so the sync `is_dir`
+    # stat doesn't stall the loop on slow disks.
     _GIT_REPO_TTL_S: float = 5.0
 
     def _is_git_repo(self) -> bool:
-        """True when the session workspace dir contains ``.git/``.
-
-        Cached for ``_GIT_REPO_TTL_S`` seconds per workspace dir.
-        Used by the client to hide the Commit button when the workspace
-        isn't a git repo - avoids the user clicking Commit and getting
-        an opaque "workspace is not a git repo" error from
-        ``commit_session``.
-        """
         ws = self._get_session_workspace_for_baseline()
         if not ws:
             return False
@@ -1283,30 +992,13 @@ class WorkspaceModule(BaseModule):
         except Exception:
             flag = False
         cache[ws] = (flag, now)
-        # Lightweight cap on the cache - one entry per workspace dir.
-        # Sessions can come and go but workspace dirs are usually
-        # bounded by the number of users × projects. Trim if anyone
-        # ever passes ~1000 distinct dirs.
+        # Cap at 1000 distinct workspaces, FIFO-trim 200 at a time.
         if len(cache) > 1000:
-            # Drop the oldest 200 entries (FIFO-ish - cache is a dict
-            # so the iteration order matches insertion order).
             for k in list(cache)[:200]:
                 cache.pop(k, None)
         return flag
 
     def _resolve_app_id(self) -> str:
-        """Return the current session's app_id, per-call accurate.
-
-        The workspace module is ``isolation=shared`` (one instance for
-        the whole daemon). ``_app_id_override`` is set on the instance
-        at each app's bootstrap, so the LAST app to bootstrap wins —
-        which means a stale value when a session of a DIFFERENT app
-        invokes the workspace module. Reading ``ctx.app_id`` at call
-        time gives the correct app for THIS action, regardless of
-        bootstrap order. We still fall back to the legacy attributes
-        for code paths that don't carry a ctx (hydration triggered
-        externally, etc.).
-        """
         try:
             ctx = self._context_var.get()
         except Exception:
@@ -1320,29 +1012,6 @@ class WorkspaceModule(BaseModule):
         )
 
     def _resolve_sync_dir(self) -> str | None:
-        """Return the absolute disk path for sync, or None if disabled.
-
-        **New default (post hook-upgrade)**: every session gets a
-        disk-backed workspace by default - either the one the user
-        picked (Lovable-style) or an auto-isolated dir at
-        ``~/.digitorn/workspaces/{app_id}/{session_id}/``. This unlocks
-        LSP / git / preview-persistence features that need real files.
-
-        Resolution order (first match wins):
-
-        1. Per-session user-chosen workspace (from
-           ``preview._session_workspaces[sid]``) - Lovable flow.
-        2. ``sync_path`` set in YAML → fixed path, never overridden.
-        3. ``ctx.workspace`` IF explicitly set by user (not default cwd).
-        4. Auto-isolated per session: ``~/.digitorn/workspaces/{app_id}/{sid}/``.
-        5. App-level workspace dir as last resort.
-
-        The **only** case returning ``None`` is the explicit opt-out
-        ``sync_to_disk: false`` AND no other signal (no user
-        workspace_path, no sync_path, no ctx.workspace, no session id).
-        Apps that want pure in-memory must set ``sync_to_disk: false``
-        and avoid all the above.
-        """
         # 1. User-chosen workspace (Lovable) - unconditional.
         try:
             preview = self._get_preview()
@@ -1351,8 +1020,8 @@ class WorkspaceModule(BaseModule):
             user_ws = ws_map.get(sid)
             if user_ws:
                 return os.path.abspath(user_ws)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("module best-effort block failed: %s", exc)
 
         # 2. YAML sync_path - unconditional.
         if self._sync_path:
@@ -1370,7 +1039,7 @@ class WorkspaceModule(BaseModule):
 
         # 4. Per-session auto-isolation - the default. Always returns a
         # valid dir when a preview session is active. Explicit opt-out
-        # only: set ``sync_to_disk: false`` in workspace config.
+        # only: set `sync_to_disk: false` in workspace config.
         if self._sync_to_disk is False:
             return None
         try:
@@ -1382,8 +1051,8 @@ class WorkspaceModule(BaseModule):
                     str(Path.home()), ".digitorn", "workspaces",
                     app_id, sid,
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("module best-effort block failed: %s", exc)
         if ctx is not None and getattr(ctx, "session_id", None):
             app_id = self._resolve_app_id()
             return os.path.join(
@@ -1396,15 +1065,6 @@ class WorkspaceModule(BaseModule):
         return os.path.abspath(ws) if ws else None
 
     def _resolve_daemon_dir(self) -> str | None:
-        """Return the daemon-private session dir under ``~/.digitorn/``.
-
-        Pulled from the preview module's ``_session_daemon_dirs`` map
-        (populated by ``_activate_preview_session`` via the new
-        workspace/workdir split). Falls back to deriving the path from
-        ``app_id`` + active ``session_id`` so transitional sessions
-        (created before the split) still land their hidden files in the
-        right place.
-        """
         try:
             preview = self._get_preview()
             sid = preview._resolve_session_id()
@@ -1412,8 +1072,8 @@ class WorkspaceModule(BaseModule):
             daemon = daemon_map.get(sid)
             if daemon:
                 return os.path.abspath(daemon)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("module best-effort block failed: %s", exc)
         # Fallback: derive from app_id + active session_id. Same shape
         # as the auto-isolated path used when no user workdir was set.
         try:
@@ -1425,42 +1085,17 @@ class WorkspaceModule(BaseModule):
                     str(Path.home()), ".digitorn", "workspaces",
                     app_id, sid,
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("module best-effort block failed: %s", exc)
         return None
 
     def _resolve_disk_dir_for(self, path: str) -> str | None:
-        """Resolve the on-disk dir to read/write ``path`` against.
-
-        Hidden-namespace paths (``__sdk__/`` etc.) ALWAYS resolve to
-        the daemon-private workspace - SDK-internal state must never
-        pollute the user's workdir. Everything else goes to the
-        regular sync dir (workdir).
-
-        Returns ``None`` when sync is disabled and the path isn't
-        hidden (caller skips disk IO).
-        """
         if self._is_hidden_from_agent(path):
             return self._resolve_daemon_dir()
         return self._resolve_sync_dir()
 
     @staticmethod
     def _join_inside(sync_dir: str, rel_path: str) -> str | None:
-        """Safely join ``sync_dir / rel_path`` and verify the result
-        stays inside ``sync_dir`` after symlink resolution.
-
-        Defends against two known escape vectors at the on-disk layer:
-          1. ``os.path.join("/sync", "/etc/passwd")`` returns
-             ``/etc/passwd`` (Python discards ``sync_dir`` for an
-             absolute right-hand side). If a malformed ``rel_path``
-             reaches here, we refuse the write.
-          2. ``..`` segments that escape via ``../../etc/passwd``.
-             ``Path.resolve(strict=False)`` collapses them; the
-             ``relative_to`` check then rejects an escape.
-
-        Returns the absolute target path when safe, ``None`` otherwise
-        (caller skips the operation + logs).
-        """
         from pathlib import Path as _Path
         full = _Path(os.path.join(sync_dir, rel_path)).resolve(strict=False)
         try:
@@ -1470,13 +1105,6 @@ class WorkspaceModule(BaseModule):
         return str(full)
 
     def _sync_write_to_disk(self, path: str, content: str) -> None:
-        """Mirror a workspace file to disk (fire-and-forget).
-
-        Routes hidden-namespace files (``__sdk__/``, ``.app/``, ...)
-        to the daemon-private workspace; everything else lands in
-        the workdir (= ``_resolve_sync_dir``). This keeps the user's
-        workdir clean of Digitorn-internal state.
-        """
         sync_dir = self._resolve_disk_dir_for(path)
         if sync_dir is None:
             return
@@ -1499,11 +1127,6 @@ class WorkspaceModule(BaseModule):
             )
 
     def _sync_delete_from_disk(self, path: str) -> None:
-        """Remove a workspace file from disk (fire-and-forget).
-
-        Hidden namespaces are deleted from the daemon dir; everything
-        else from the workdir. Mirrors ``_sync_write_to_disk``.
-        """
         sync_dir = self._resolve_disk_dir_for(path)
         if sync_dir is None:
             return
@@ -1527,15 +1150,6 @@ class WorkspaceModule(BaseModule):
     }
 
     def _load_disk_files_matching(self, pattern: str) -> None:
-        """Scan sync_dir for files matching *pattern* and load any that
-        aren't already in the workspace channel.  This makes glob/grep
-        discover pre-existing project files transparently.
-
-        Guarded against accidental loads of huge files / huge dirs - caps
-        at 500 files and skips per-file content above 1 MB. Also prunes
-        common heavy directories (node_modules, .git, __pycache__…) even
-        when the agent's pattern would otherwise match them.
-        """
         sync_dir = self._resolve_sync_dir()
         if sync_dir is None:
             return
@@ -1574,12 +1188,6 @@ class WorkspaceModule(BaseModule):
             ch[rel] = self._make_payload(rel, content)
             loaded += 1
 
-    # Hidden files allowed at the workspace root. Anything else
-    # starting with ``.`` is dropped during hydration so the user
-    # doesn't see ``.DS_Store``, editor swap files, OS metadata, etc.
-    # in the workspace panel. The allowlist is small on purpose -
-    # only files that are typically tracked in source control AND
-    # routinely edited by the user.
     _HYDRATE_HIDDEN_FILE_ALLOWLIST: set[str] = {
         ".gitignore",
         ".gitattributes",
@@ -1629,13 +1237,9 @@ class WorkspaceModule(BaseModule):
         skip_dirs = self._DISK_HYDRATE_SKIP_DIRS
         allow_hidden_files = self._HYDRATE_HIDDEN_FILE_ALLOWLIST
 
-        # ``os.scandir`` recursive walk with directory pruning at
-        # descent. ``rglob("*")`` would still iterate every file
-        # inside ``node_modules`` (or any heavy tree) before the
-        # filter kicked in - O(total files), not O(visible files).
-        # Pruning at descent skips the readdir on those trees
-        # entirely, which is the difference between 200 ms and 5 s
-        # of hydration on a typical Node project.
+        # Recursive `os.scandir` with descent-time pruning: skipping
+        # `node_modules` etc. before readdir is the difference between
+        # 200 ms and 5 s on a typical Node project.
         count = 0
         stack: list[Path] = [root]
         while stack and count < max_files:
@@ -1656,7 +1260,7 @@ class WorkspaceModule(BaseModule):
                             if name in skip_dirs:
                                 continue
                             # Skip every hidden directory except
-                            # ``.github`` (CI files visible to the
+                            # `.github` (CI files visible to the
                             # user).
                             if name.startswith(".") and name != ".github":
                                 continue
@@ -1664,11 +1268,9 @@ class WorkspaceModule(BaseModule):
                             continue
                         if not entry.is_file(follow_symlinks=False):
                             continue
-                        # Hidden file filter at any depth - applied
-                        # to the leaf name only (so ``.github/foo``
-                        # passes because the dir gate already let it
-                        # through). Allowlist covers the small set
-                        # of dot-files users actually edit.
+                        # Leaf-name dot-file filter (dir gate already
+                        # vetted the path); allowlist covers user-edited
+                        # dot-files like `.env`.
                         if name.startswith(".") and name not in allow_hidden_files:
                             continue
                         rel = os.path.relpath(entry.path, root).replace("\\", "/")
@@ -1698,21 +1300,6 @@ class WorkspaceModule(BaseModule):
         return count
 
     async def _run_lint(self, path: str, content: str) -> list[dict[str, Any]]:
-        """Run diagnostics on a file after write/edit.
-
-        Strategy:
-          1. If the LSP module is wired and has a protocol for this
-             extension, call notify_change with the content and return
-             the diagnostics from the LSP server.
-          2. Otherwise, use built-in content validators (JSON, YAML,
-             TOML, Python, LaTeX) - these work in-memory, no disk needed.
-          3. If neither applies, return an empty list (no lint for this type).
-
-        Side effect: publishes the diagnostics to the
-        ``preview.diagnostics`` channel so the Flutter client can show
-        red dots / marker underlines / problems panel without a second
-        request. See ``_publish_diagnostics``.
-        """
         if not self._lint:
             await self._publish_diagnostics(path, [])
             return []
@@ -1722,15 +1309,9 @@ class WorkspaceModule(BaseModule):
         if self._lsp is not None:
             try:
                 from digitorn.modules.lsp.params import NotifyChangeParams
-                # Linter / compiler protocols shell out to a subprocess
-                # that reads from disk -- they need the resolved on-disk
-                # path, not the workspace-relative one. ``path`` here is
-                # workspace-relative (see ``_resolve_ws_path``), so when
-                # ``sync_to_disk`` is on we compose the absolute disk
-                # path before handing it off. LSP server mode is happy
-                # with either shape (URIs are built downstream), but the
-                # absolute path keeps the cache key stable across the
-                # workspace + lsp boundary.
+                # Linter / compiler subprocesses read from disk, so hand
+                # them the resolved on-disk path when `sync_to_disk`
+                # is on. LSP server mode accepts either shape.
                 lsp_path = path
                 try:
                     disk_dir = self._resolve_disk_dir_for(path)
@@ -1738,23 +1319,9 @@ class WorkspaceModule(BaseModule):
                         full = self._join_inside(disk_dir, path)
                         if full:
                             lsp_path = full
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("module best-effort block failed: %s", exc)
 
-                # The LSP module is shared across every app routed to
-                # the ``tools`` worker (one daemon-side instance per
-                # endpoint). When workspace is called via a REST
-                # endpoint that bypasses ``execute()``, the proxy
-                # captures an empty ``_context_var`` and the worker
-                # has no way to know which tenant owns the call --
-                # tenant-keyed state (per-app protocols, per-app
-                # caches) then collapses to whichever app was last
-                # active. We stamp an ExecutionContext here with our
-                # own app_id so the proxy ships it in the envelope
-                # and the worker's LSP module routes to the right
-                # tenant's protocol map. ``_app_id_override`` is set
-                # by bootstrap's ``_inject_app_id_overrides`` for
-                # every per-app module instance.
                 from digitorn.modules.base import (
                     BaseModule as _BaseModule,
                     ExecutionContext as _ExecutionContext,
@@ -1807,17 +1374,6 @@ class WorkspaceModule(BaseModule):
     async def _publish_diagnostics(
         self, path: str, items: list[dict[str, Any]],
     ) -> None:
-        """Broadcast diagnostics for ``path`` to the preview ``diagnostics``
-        channel. Each entry uses the LSP range shape (see
-        ``parsers.Diagnostic.to_lsp_dict``) so Monaco can feed it straight
-        into ``setModelMarkers()``.
-
-        The payload carries:
-          - ``items``           - LSP-shape diagnostics (possibly empty)
-          - ``generation``      - monotonic counter per (session, path)
-          - ``severity_max``    - most severe level present ("error"|"warning"|"info"|"hint"|None)
-          - ``updated_at``      - float unix seconds
-        """
         import time as _time
         # Convert flat diagnostics to LSP shape. Items from the LSP
         # module are already flat dicts; items from built-in parsers are
@@ -1870,22 +1426,13 @@ class WorkspaceModule(BaseModule):
             logger.debug("publish_diagnostics_failed path=%s: %s", path, exc)
 
     def _read_from_disk(self, path: str) -> str | None:
-        """Try to read a file from disk.
-
-        Routes hidden-namespace paths (``__sdk__/`` etc.) to the
-        daemon-private workspace and everything else to the workdir,
-        mirroring ``_sync_write_to_disk``. Returns None if the file
-        is absent or unreadable.
-        """
         sync_dir = self._resolve_disk_dir_for(path)
         if sync_dir is None:
             return None
         full = os.path.join(sync_dir, path)
         if not os.path.isfile(full):
-            # Belt-and-braces fallback: an SDK app that wrote into the
-            # daemon dir before this routing existed may have its
-            # __sdk__ files in the workdir. Try the alternate dir
-            # before giving up - cheap, single stat call.
+            # Fallback: try the alternate dir for SDK apps that may
+            # have written under the wrong root.
             alt_dir = (
                 self._resolve_sync_dir() if self._is_hidden_from_agent(path)
                 else self._resolve_daemon_dir()
@@ -1904,18 +1451,8 @@ class WorkspaceModule(BaseModule):
         except (OSError, PermissionError):
             return None
 
-    # ── Disk-to-workspace sync ─────────────────────────────────
-    #
-    # Files created on disk by tools OUTSIDE the workspace API
-    # (``Bash``: ``npm install``, ``npm create``, ``cargo build``,
-    # ``git clone``, etc.) need to be reflected in the Monaco IDE
-    # view. The shell module calls ``_sync_from_disk()`` after every
-    # foreground command + every background-task completion notif so
-    # the agent's filesystem mutations land in the user's IDE without
-    # any per-tool wiring.
-    #
-    # Skips noise dirs by name (no descent into ``node_modules``, no
-    # depth recursion to gigabytes of build artefacts).
+    # Disk paths the IDE view never needs to see; skipped during
+    # recursive sync after Bash commands.
     _DISK_SYNC_IGNORE_DIRS: frozenset[str] = frozenset({
         # VCS
         ".git", ".svn", ".hg",
@@ -1948,14 +1485,6 @@ class WorkspaceModule(BaseModule):
     _DISK_SYNC_MAX_FILES: int = 5000
 
     async def _sync_from_disk(self) -> dict[str, int]:
-        """Reconcile the in-memory ``files`` channel with the on-disk
-        sync directory.
-
-        Walks the sync_dir (skipping ``_DISK_SYNC_IGNORE_DIRS``),
-        compares each file with the preview channel, and emits the
-        appropriate ``preview:resource_*`` events for new / modified /
-        deleted entries. Returns a counts dict for the caller to log.
-        """
         if self._sync_to_disk is False:
             return {"added": 0, "modified": 0, "deleted": 0, "skipped": 0}
         sync_dir = self._resolve_sync_dir()
@@ -1979,16 +1508,11 @@ class WorkspaceModule(BaseModule):
         max_files = self._DISK_SYNC_MAX_FILES
         max_bytes = self._DISK_SYNC_MAX_FILE_BYTES
 
-        # Walk with in-place dirname filtering so we never DESCEND into
-        # node_modules / .git / etc. — that's what makes this fast on
-        # repos that ran ``npm install``.
+        # Prune `node_modules` / `.git` / etc. at descent time so
+        # `npm install` repos stay fast. Dot-files at the workspace
+        # root are filtered below at the file level.
         for dirpath, dirnames, filenames in os.walk(sync_dir):
             dirnames[:] = [d for d in dirnames if d not in ignore and not d.startswith(".")]
-            # ``startswith('.')`` filter also kills ``.git``, ``.next``,
-            # but is broader; we want to KEEP some hidden config files
-            # at the workspace root (e.g. ``.gitignore``, ``.env.local``).
-            # The walk-pass below handles those at file level — only
-            # the DIRECTORY descent is hidden-blocked here.
             for fname in filenames:
                 if added + modified > max_files:
                     skipped += 1
@@ -2033,19 +1557,15 @@ class WorkspaceModule(BaseModule):
                         await preview.set_resource(SetResourceParams(
                             channel="files", id=rel, payload=payload,
                         ))
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("module best-effort block failed: %s", exc)
                     if existing is None:
                         added += 1
                     else:
                         modified += 1
                     continue
 
-                # Hash-cheap change detection: compare on-disk size +
-                # mtime, fall back to content equality if both match
-                # but we want to be sure. mtime+size is good enough
-                # for the IDE — the agent rarely writes-then-restores
-                # bit-for-bit.
+                # Cheap change detection: size + mtime is good enough.
                 disk_mtime = st.st_mtime
                 cached_size = existing.get("size") if existing else None
                 cached_mtime = existing.get("disk_mtime") if existing else None
@@ -2076,8 +1596,8 @@ class WorkspaceModule(BaseModule):
                     await preview.set_resource(SetResourceParams(
                         channel="files", id=rel, payload=payload,
                     ))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("module best-effort block failed: %s", exc)
 
                 if existing is None:
                     added += 1
@@ -2089,25 +1609,22 @@ class WorkspaceModule(BaseModule):
         for rel in list(existing_channel.keys()):
             if rel in seen:
                 continue
-            # Skip pseudo-entries (anything that doesn't match a real
-            # path). Real paths always reach disk via WsWrite mirror,
-            # so absence means a real delete.
             try:
                 await preview.delete_resource(DeleteResourceParams(
                     channel="files", id=rel,
                 ))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
             deleted += 1
 
         # Workspace meta might need a refresh when a brand-new project
-        # appears (e.g. ``npm create vite`` with index.html). Cheap.
+        # appears (e.g. `npm create vite` with index.html). Cheap.
         if added > 0:
             try:
                 await self._ensure_meta_published()
                 await self._refresh_git_repo_flag()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
 
         return {
             "added": added,
@@ -2117,16 +1634,8 @@ class WorkspaceModule(BaseModule):
         }
 
     async def _ensure_meta_published(self, first_path: str | None = None) -> None:
-        """Publish workspace metadata to preview state (once per session).
-
-        Called lazily on first write because the preview session doesn't
-        exist yet at bootstrap time.  If render_mode is 'auto', we detect
-        it from the first file's language.
-        """
-        # Resolve which session this write belongs to BEFORE the flag
-        # check - the workspace module is shared across sessions of
-        # the same user, so the publish must fire ONCE PER SESSION,
-        # not once per module instance.
+        # Resolve the session before checking the flag; the workspace
+        # module is shared so the publish must fire once per session.
         try:
             preview = self._get_preview()
             sid = preview._resolve_session_id()
@@ -2159,21 +1668,12 @@ class WorkspaceModule(BaseModule):
 
         from digitorn.modules.preview.module import SetStateParams
         await preview.set_state(SetStateParams(key="workspace", value=meta))
-        # Track what we just published so ``_refresh_git_repo_flag`` can
-        # detect drift if the user runs ``git init`` mid-session.
+        # Track what we just published so `_refresh_git_repo_flag` can
+        # detect drift if the user runs `git init` mid-session.
         if sid:
             self._last_git_repo_flag[sid] = bool(meta["is_git_repo"])
 
     async def _refresh_git_repo_flag(self) -> None:
-        """Cheap re-check of ``.git/`` presence; re-publishes the meta
-        when the flag flipped since the last publish.
-
-        Covers the user-runs-``git init``-mid-session case where the
-        initial publish (first write) said False, the Commit / Refresh
-        buttons are hidden, and the user has no UI affordance to
-        retrigger detection. We re-stat on every write/approve/reject -
-        the cost is one ``isdir`` stat call, negligible.
-        """
         try:
             preview = self._get_preview()
             sid = preview._resolve_session_id()
@@ -2186,13 +1686,8 @@ class WorkspaceModule(BaseModule):
         if old_flag is not None and old_flag == new_flag:
             return
         self._last_git_repo_flag[sid] = new_flag
-        # Re-publish the full meta dict via ``set_state`` - the
-        # workspace state is a single ``workspace`` key holding the
-        # render_mode / entry_file / title / is_git_repo bag, and the
-        # client merges it wholesale on every state_changed event.
-        # Reading sess.state isn't part of the preview module's public
-        # API, so we rebuild from the same fields ``_ensure_meta_published``
-        # already tracks - they're set on this module at config load.
+        # Rebuild + republish the `workspace` state bag (clients merge
+        # it wholesale; preview has no per-field setter).
         meta: dict[str, Any] = {
             "render_mode": self._render_mode,
             "entry_file": self._entry_file,
@@ -2203,8 +1698,6 @@ class WorkspaceModule(BaseModule):
         from digitorn.modules.preview.module import SetStateParams
         await preview.set_state(SetStateParams(key="workspace", value=meta))
 
-    # ── Write ─────────────────────────────────────────────────
-
     @action(
         description="Create or overwrite a file. Streams live to the client.",
         params_model=WriteParams,
@@ -2212,18 +1705,14 @@ class WorkspaceModule(BaseModule):
         tags=["workspace", "files"],
         cli_label="Write",
         cli_param="path",
-        # tool_prompt is dynamic - see get_dynamic_tool_prompts()
     )
     async def write(self, params: WriteParams) -> ActionResult:
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
         sid = self._preview_session_id() or "_default_"
 
-        # Hidden-from-agent: refuse the write so the agent can't
-        # corrupt SDK-private namespaces (__sdk__/, .app/, ...) by
-        # writing arbitrary content. Mirrors the read/edit/delete
-        # filter. The HTTP routes (used by the SDK iframe) bypass
-        # this gate via ``writeback_file`` directly.
+        # Refuse writes to SDK-private namespaces (`__sdk__/`,
+        # `.app/`, ...); HTTP writeback bypasses this gate.
         if self._is_hidden_from_agent(path):
             return ActionResult(
                 success=False,
@@ -2234,26 +1723,14 @@ class WorkspaceModule(BaseModule):
                 ),
             )
 
-        # Per-path lock: serialise concurrent writes on the same file
-        # (sub-agents, background tasks). Without this, two writes would
-        # both read the same ``existing.total_insertions`` and the second
-        # would overwrite the first - cumulative counters under-count.
+        # Per-path lock serialises concurrent writes on the same file.
         async with self._path_lock(sid, path):
-            # Check if file already exists (for change tracking)
             existing = self._channel().get(path)
             old_content = existing.get("content") if existing else None
 
-            # On first touch, snapshot a session baseline so future
-            # ``unified_diff_pending`` computations show real -/+ pairs
-            # instead of always being diff("", current). Two cases:
-            #
-            #   - File pre-existed on disk and is now being overwritten →
-            #     baseline = disk content. This write itself shows up as a
-            #     diff (-disk +new).
-            #   - Brand-new file the agent is creating → baseline = the
-            #     CONTENT BEING WRITTEN. The initial write itself has an
-            #     empty diff (file = baseline); the next edit becomes a
-            #     proper -/+ pair.
+            # First-touch baseline so `unified_diff_pending` has a
+            # meaningful anchor: existing disk content if any, else the
+            # content being written.
             if existing is None:
                 disk_before = (
                     await asyncio.to_thread(self._read_from_disk, path)
@@ -2271,17 +1748,15 @@ class WorkspaceModule(BaseModule):
             )
 
             await self._ensure_meta_published(first_path=path)
-            # Re-detect git presence each write so a mid-session
-            # ``git init`` flips the Commit/Refresh buttons back on
-            # without requiring a session reload. Cheap (one stat).
+            # Re-detect `git init` so the Commit/Refresh buttons flip
+            # back on mid-session.
             await self._refresh_git_repo_flag()
 
             from digitorn.modules.preview.module import SetResourceParams
             await preview.set_resource(SetResourceParams(
                 channel="files", id=path, payload=payload,
             ))
-            # Disk mirror + baseline persistence: both touch the disk
-            # synchronously - off-load so the loop keeps serving Socket.IO.
+            # Off-load the sync disk writes so Socket.IO keeps flowing.
             await asyncio.to_thread(self._sync_write_to_disk, path, params.content)
             await asyncio.to_thread(self._maybe_auto_approve_baseline, path, params.content)
 
@@ -2299,8 +1774,6 @@ class WorkspaceModule(BaseModule):
             data["errors"] = len(errors)
             data["warnings"] = len(warnings)
         return ActionResult(success=True, data=data)
-
-    # ── Read ──────────────────────────────────────────────────
 
     @action(
         description="Read a file from the workspace.",
@@ -2379,8 +1852,6 @@ class WorkspaceModule(BaseModule):
             "end_line": end,
         })
 
-    # ── Edit ──────────────────────────────────────────────────
-
     @action(
         description="Surgical text replacement in an existing file.",
         params_model=EditParams,
@@ -2388,7 +1859,6 @@ class WorkspaceModule(BaseModule):
         tags=["workspace", "files"],
         cli_label="Edit",
         cli_param="path",
-        # tool_prompt is dynamic - see get_dynamic_tool_prompts()
     )
     async def edit(self, params: EditParams) -> ActionResult:
         preview = self._get_preview()
@@ -2401,7 +1871,7 @@ class WorkspaceModule(BaseModule):
                 success=False, error=f"File not found: {path}",
             )
 
-        # Per-path lock: same reasoning as ``write()`` - serialise
+        # Per-path lock: same reasoning as `write()` - serialise
         # concurrent edits on the same file so cumulative counters
         # don't get under-counted.
         async with self._path_lock(sid, path):
@@ -2427,13 +1897,10 @@ class WorkspaceModule(BaseModule):
         content = entry.get("content", "")
         new = params.new_string
 
-        # Auto-snapshot the pre-edit state as session baseline (no-op if
-        # already set). This makes unified_diff_pending compute against
-        # a stable point so 4 successive edits accumulate insertions
-        # AND deletions instead of always reporting current vs empty.
+        # Snapshot the pre-edit content as the session baseline so
+        # successive edits accumulate against a stable anchor.
         await self._ensure_session_baseline(path, content)
 
-        # ── Mode 1: insert_at_line (no old_string required) ──
         if params.insert_at_line is not None:
             if params.old_string:
                 return ActionResult(
@@ -2453,7 +1920,6 @@ class WorkspaceModule(BaseModule):
             replacements = 1
             mode = "insert"
         else:
-            # ── Mode 2: old_string replacement with fuzzy fallback ──
             old = params.old_string
             if not old:
                 return ActionResult(
@@ -2506,7 +1972,6 @@ class WorkspaceModule(BaseModule):
                     replacements = 1
             mode = "replace"
 
-        # ── Diff previews (short + unified) ──
         short_diff = generate_diff_preview(content, updated)
         unified = _safe_unified_diff(content, updated, path)[:4000]
 
@@ -2565,7 +2030,6 @@ class WorkspaceModule(BaseModule):
     def _edit_not_found(
         self, path: str, old: str, content: str, params: EditParams,
     ) -> ActionResult:
-        """Build a structured 'old_string not found' error with fuzzy suggestions."""
         matches = find_closest_matches(old, content, max_matches=params.max_suggestions)
         suggestion = suggest_edit_recovery(
             error=f"old_string not found in {path}",
@@ -2589,8 +2053,6 @@ class WorkspaceModule(BaseModule):
             },
         )
 
-    # ── Glob ──────────────────────────────────────────────────
-
     @action(
         description="Find files by name pattern (e.g. **/*.tsx, slides/*.md).",
         params_model=GlobParams,
@@ -2603,15 +2065,8 @@ class WorkspaceModule(BaseModule):
         ch = self._channel()
         pattern = params.pattern
 
-        # When sync_to_disk is on, also discover files on disk that
-        # haven't been loaded into memory yet (e.g. pre-existing project).
-        # ``_load_disk_files_matching`` walks ``root.glob(pattern)`` +
-        # ``p.is_file()`` + ``p.stat()`` + ``p.read_text()`` for each
-        # match - all SYNC. With ``**/*`` on a large repo (especially
-        # one with node_modules / .git) the walk can stall the event
-        # loop for 10+ seconds. The Socket.IO ping/pong runs on the
-        # same loop, so the client times out and drops. Offload to a
-        # thread so the loop keeps serving events.
+        # Off-load the sync `glob` walk when syncing to disk; a deep
+        # `**/*` over a large repo would stall Socket.IO.
         if self._sync_to_disk:
             import asyncio as _asyncio
             await _asyncio.to_thread(self._load_disk_files_matching, pattern)
@@ -2646,8 +2101,6 @@ class WorkspaceModule(BaseModule):
             "files": matched, "count": len(matched),
         })
 
-    # ── Grep ──────────────────────────────────────────────────
-
     @action(
         description="Search file contents by regex pattern.",
         params_model=GrepParams,
@@ -2660,7 +2113,7 @@ class WorkspaceModule(BaseModule):
         ch = self._channel()
 
         # Load disk files matching the glob filter (or all text files).
-        # See ``glob()`` above - the disk walk is sync and would stall
+        # See `glob()` above - the disk walk is sync and would stall
         # the event loop on large workspaces. Offload to a thread.
         if self._sync_to_disk:
             import asyncio as _asyncio
@@ -2742,8 +2195,6 @@ class WorkspaceModule(BaseModule):
             "truncated": len(results) >= cap,
         })
 
-    # ── Delete ────────────────────────────────────────────────
-
     @action(
         description="Delete a file from the workspace.",
         params_model=DeleteParams,
@@ -2774,8 +2225,8 @@ class WorkspaceModule(BaseModule):
                 await preview.delete_resource(DeleteResourceParams(
                     channel="diagnostics", id=path,
                 ))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
             self._diag_gen.pop((sid, path), None)
             await asyncio.to_thread(self._sync_delete_from_disk, path)
             return ActionResult(
@@ -2783,25 +2234,7 @@ class WorkspaceModule(BaseModule):
                 data={"path": path, "deleted": result.data.get("existed", False)},
             )
 
-    # ── Approve / reject / git (code-state actions) ────────────────
-
     def _get_session_workspace_for_baseline(self) -> str | None:
-        """Return a workspace dir usable for baseline persistence, or None.
-
-        Baselines + history live under ``{ws}/.digitorn/sessions/{sid}/``
-        which MUST land in the daemon-private workspace - putting it
-        under the user's workdir pollutes their project tree (a fresh
-        clone or build context would suddenly carry our internal state).
-
-        Resolution order:
-        1. Daemon-private dir registered via ``activate_session
-           (daemon_dir=...)`` - the canonical home for session state.
-        2. Workdir from ``_session_workspaces`` - legacy fallback only,
-           used by sessions that pre-date the workspace/workdir split
-           (single-tree apps).
-        3. ``_resolve_sync_dir()`` - last-resort sync-to-disk target.
-        4. ``None`` - baselines skipped (nothing usable).
-        """
         try:
             preview = self._get_preview()
             sid = preview._resolve_session_id()
@@ -2813,14 +2246,14 @@ class WorkspaceModule(BaseModule):
             ws = ws_map.get(sid)
             if ws:
                 return ws
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("module best-effort block failed: %s", exc)
         try:
             d = self._resolve_sync_dir()
             if d:
                 return d
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("module best-effort block failed: %s", exc)
         return None
 
     def _preview_session_id(self) -> str:
@@ -2831,12 +2264,6 @@ class WorkspaceModule(BaseModule):
             return ""
 
     def _maybe_auto_approve_baseline(self, path: str, content: str) -> None:
-        """When auto_approve is on, snapshot every write as the new
-        baseline - keeps pending counters at zero even after a restart
-        (when the in-memory ``validation='approved'`` flag is re-read
-        from the persisted snapshot, `_make_payload` still recomputes
-        pending vs. the on-disk baseline, so the baseline MUST exist).
-        """
         if not self._auto_approve:
             return
         ws = self._get_session_workspace_for_baseline()
@@ -2855,22 +2282,7 @@ class WorkspaceModule(BaseModule):
             logger.debug("auto_approve_baseline_write_failed path=%s: %s", path, exc)
 
     async def _ensure_session_baseline(self, path: str, content_before: str) -> None:
-        """Auto-snapshot the file's pre-mutation state as a baseline on
-        the first write/edit of the session. Subsequent edits then diff
-        against this stable baseline (cumulative across edits), so
-        ``unified_diff_pending`` shows BOTH insertions AND deletions
-        across multiple edits instead of always being
-        ``diff("", current_content)`` = "current file as all additions,
-        never any deletions". Idempotent: a no-op once a baseline exists.
-
-        For brand-new files [content_before=""] this just pins the
-        empty-baseline (every line is a +). For pre-existing files
-        loaded via ``read_through_disk`` [content_before=disk content]
-        the baseline is the on-disk state at the moment the agent first
-        touched the file - exactly what the user expects from "see what
-        the agent changed".
-        """
-        # Caller is expected to hold ``_path_lock(sid, path)`` already
+        # Caller is expected to hold `_path_lock(sid, path)` already
         # (write/edit/delete take it before any mutation). We don't
         # re-acquire here because asyncio.Lock isn't reentrant.
         if self._auto_approve:
@@ -2885,9 +2297,9 @@ class WorkspaceModule(BaseModule):
             )
             if await asyncio.to_thread(read_baseline, ws, sid, path) is not None:
                 return
-            # ``record_in_history=False`` keeps synthetic snapshots out
+            # `record_in_history=False` keeps synthetic snapshots out
             # of the user-visible revision list. Only explicit
-            # ``approve_file`` / ``approve_file_hunks`` get an entry.
+            # `approve_file` / `approve_file_hunks` get an entry.
             await asyncio.to_thread(
                 write_baseline,
                 ws, sid, path, content_before,
@@ -2912,12 +2324,8 @@ class WorkspaceModule(BaseModule):
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
         sid = self._preview_session_id() or "_default_"
-        # Per-path lock: serialise approve against any concurrent
-        # write/edit/delete on the same file. Without this, a sub-agent
-        # writing while the user clicks Approve would land its new
-        # content AFTER the baseline snapshot but BEFORE the patch
-        # resets counters, leaving the file marked "approved" but
-        # carrying unreviewed changes.
+        # Per-path lock: serialise against concurrent writes so the
+        # approve snapshot + counter reset stay atomic.
         async with self._path_lock(sid, path):
             existing = self._channel().get(path)
             if not existing:
@@ -2942,13 +2350,9 @@ class WorkspaceModule(BaseModule):
                         "approve_file_baseline_persist_failed path=%s: %s", path, exc,
                     )
             from digitorn.modules.preview.module import PatchResourceParams
-            # Reset cumulative counters: after approve, the file's current
-            # state IS the baseline, so subsequent edits start from zero
-            # both for ``insertions_pending/deletions_pending`` (already
-            # zeroed below) AND for ``total_insertions/total_deletions``
-            # which the frontend uses for the +N -M aggregate badge.
-            # ``updated_at`` MUST bump so the client's ``wroteSinceLastRebuild``
-            # check fires - without it the badge stays stuck on stale deltas.
+            # Reset cumulative counters: the approved content IS the
+            # new baseline. `updated_at` must bump so the client's
+            # `wroteSinceLastRebuild` check fires.
             import time as _time
             await preview.patch_resource(PatchResourceParams(
                 channel="files", id=path,
@@ -2979,9 +2383,7 @@ class WorkspaceModule(BaseModule):
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
         sid = self._preview_session_id() or "_default_"
-        # Per-path lock: same rationale as approve_file - prevents a
-        # concurrent agent write from racing against the baseline-read,
-        # delete-or-restore, channel-mutation sequence.
+        # Per-path lock against concurrent agent writes during reject.
         async with self._path_lock(sid, path):
             existing = self._channel().get(path)
             if not existing:
@@ -3002,14 +2404,9 @@ class WorkspaceModule(BaseModule):
                 except Exception:
                     baseline_content = None
                     user_approved = False
-            # "Reject = delete" applies when the user never explicitly
-            # approved this file. Two sub-cases qualify:
-            #   - No baseline at all (legacy mode, before auto-baselining)
-            #   - Baseline exists but only as a session-start auto-snapshot
-            #     (``has_user_approval`` returns False). Without this check,
-            #     my auto-baseline fix turned reject-of-brand-new-file into
-            #     a no-op restore, which contradicts the user's mental model
-            #     ("if I reject something I never approved, it goes away").
+            # Reject-as-delete when the user never explicitly approved
+            # this path: either no baseline or only the session-start
+            # auto-snapshot exists.
             if baseline_content is None or not user_approved:
                 from digitorn.modules.preview.module import DeleteResourceParams
                 await preview.delete_resource(DeleteResourceParams(
@@ -3022,8 +2419,8 @@ class WorkspaceModule(BaseModule):
                     try:
                         from digitorn.modules.preview.fs_backend import delete_baseline
                         delete_baseline(ws, sid, path)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("module best-effort block failed: %s", exc)
                 return ActionResult(success=True, data={"path": path, "reverted": "deleted"})
             # Restore the baseline content - write it back through normal path.
             payload = self._make_payload(
@@ -3055,12 +2452,8 @@ class WorkspaceModule(BaseModule):
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
         sid = self._preview_session_id() or "_default_"
-        # Per-path lock: covers the read-channel → read-baseline →
-        # parse-hunks → write-baseline → patch-channel sequence
-        # against any concurrent agent write. Without this, an agent
-        # write between the baseline read and the hunk apply would
-        # cause hunks to be applied against a stale baseline,
-        # producing silently wrong file content.
+        # Per-path lock so hunks always apply against the current
+        # baseline, even under concurrent agent writes.
         async with self._path_lock(sid, path):
             existing = self._channel().get(path)
             if not existing:
@@ -3143,10 +2536,8 @@ class WorkspaceModule(BaseModule):
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
         sid = self._preview_session_id() or "_default_"
-        # Per-path lock: same rationale as approve_file_hunks. The
-        # baseline read + hunk parse + reverse-apply + channel write
-        # sequence must be atomic against concurrent agent writes,
-        # otherwise the reverse patch lands on the wrong content.
+        # Per-path lock: same atomicity requirement as
+        # `approve_file_hunks` against concurrent agent writes.
         async with self._path_lock(sid, path):
             existing = self._channel().get(path)
             if not existing:
@@ -3214,7 +2605,7 @@ class WorkspaceModule(BaseModule):
             existing = self._channel().get(path)
             old_content = existing.get("content") if existing else None
             # Snapshot session baseline so future diffs work correctly,
-            # mirrors what ``write()`` and ``edit()`` do.
+            # mirrors what `write()` and `edit()` do.
             if existing is None:
                 disk_before = (
                     await asyncio.to_thread(self._read_from_disk, path)
@@ -3256,13 +2647,8 @@ class WorkspaceModule(BaseModule):
                     logger.warning(
                         "writeback_auto_approve_baseline_failed path=%s: %s", path, exc,
                     )
-        # Run diagnostics on the writeback content - same lint pipeline
-        # ``write()`` uses, so user-side PUTs surface JSON / YAML / TOML
-        # / Python / LaTeX errors immediately. Without this, the agent's
-        # write returned ``lint``/``errors``/``warnings`` but the user's
-        # PUT returned a bare ``{path, size, validation}`` envelope and
-        # the editor had to re-run validation client-side or wait for
-        # the next agent turn to spot the same syntax error.
+        # Re-run lint on the writeback so PUTs report the same
+        # `lint` / `errors` / `warnings` as `write()`.
         lint_result: list[dict[str, Any]] = []
         try:
             lint_result = await self._run_lint(path, params.content)
@@ -3373,10 +2759,6 @@ class WorkspaceModule(BaseModule):
             return ActionResult(
                 success=False, error="no workspace dir for git status",
             )
-        # Bail out cleanly when the workspace isn't a git repo - don't
-        # fall through to the "committed" default loop below, which
-        # would lie about the state of every file (no repo = no commit
-        # history, the right answer is null/unknown).
         if not (Path(ws) / ".git").is_dir():
             return ActionResult(
                 success=True,
@@ -3385,8 +2767,6 @@ class WorkspaceModule(BaseModule):
         statuses = await _run_git_status(ws)
         preview = self._get_preview()
         from digitorn.modules.preview.module import PatchResourceParams
-        # Patch every file we know about - set to committed/unknown by
-        # default, overridden when git returns a status for the path.
         seen: set[str] = set()
         for rel_path, status in statuses.items():
             norm = self._resolve_ws_path(rel_path)
@@ -3407,17 +2787,7 @@ class WorkspaceModule(BaseModule):
             data={"classified": len(self._channel()), "is_git_repo": True},
         )
 
-
 async def _run_git_status(workspace: str) -> dict[str, str]:
-    """Return {rel_path: status} by running ``git status --porcelain``.
-
-    Status mapping (simplified VS Code-like):
-        "??" → untracked
-        " M", "MM", "AM" → unstaged
-        "M ", "A ", "D " → staged
-        "UU", "AA", "DD" → conflict
-    Returns empty dict if not a git repo or git unavailable.
-    """
     import asyncio as _aio
     try:
         proc = await _aio.create_subprocess_exec(

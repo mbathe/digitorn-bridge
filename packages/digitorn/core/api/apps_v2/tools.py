@@ -1,8 +1,4 @@
-"""Routes for the tools group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the tools group, extracted from the legacy `apps.py`."""
 
 from __future__ import annotations
 
@@ -105,16 +101,12 @@ from ._shared import (
 router = APIRouter(tags=["apps"])
 
 
-
 @router.get("/{app_id}/tools/search", response_model=AppResponse)
 async def search_tools(
     request: Request, app_id: str,
     query: str = "", max_results: int = 10,
 ) -> AppResponse:
-    """Semantic + keyword search over all tools available to the app.
-
-    Returns ranked results with scores, descriptions, and parameter schemas.
-    """
+    """Semantic + keyword search over all tools available to the app."""
     _validate_id(app_id)
     manager = _get_manager(request)
     if not _is_deployed(request, app_id):
@@ -177,10 +169,7 @@ async def browse_tool_category(
 
 @router.get("/{app_id}/tools/{tool_name:path}", response_model=AppResponse)
 async def get_tool_schema(request: Request, app_id: str, tool_name: str) -> AppResponse:
-    """Get full schema for a tool by qualified name (e.g. filesystem.read).
-
-    Returns parameters, description, examples, aliases, side effects.
-    """
+    """Get full schema for a tool by qualified name (e.g. filesystem.read)."""
     _validate_id(app_id)
     manager = _get_manager(request)
     if not _is_deployed(request, app_id):
@@ -202,11 +191,7 @@ async def get_tool_schema(request: Request, app_id: str, tool_name: str) -> AppR
 async def execute_tool(
     request: Request, app_id: str, tool_name: str, body: ToolExecuteRequest,
 ) -> AppResponse:
-    """Execute a tool directly by qualified name.
-
-    Bypasses the agent - runs the tool and returns the raw result.
-    Security policies (grant/approve/deny) still apply.
-    """
+    """Execute a tool directly by qualified name."""
     _validate_id(app_id)
     manager = _get_manager(request)
     if not _is_deployed(request, app_id):
@@ -217,29 +202,15 @@ async def execute_tool(
     if cb is None:
         raise HTTPException(status_code=404, detail="No context_builder")
 
-    # Activate the preview/workspace session so mutations (set_resource,
-    # set_state) bind to the right session and schedule their debounced
-    # persist. Without this, tool-execute calls bypass the session wiring
-    # the agent loop normally sets up and writes land on a "_default_"
-    # session that never gets flushed to the right row.
     sid = body.session_id
     _uid = _caller_user_id(request) or ""
     if sid:
         preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
-        # ``set_active=True`` - this endpoint is about to run a mutating
-        # tool; the write path reads ``preview._active_session_id`` to
-        # decide which session's state to update.
         await _activate_preview_session(
             request, app_id, sid, preview_module,
             user_id=_uid, set_active=True,
         )
 
-    # Wire the context_builder's per-task ExecutionContext so tools that
-    # require a session (web_preview.proxy/detach, workspace.write, etc.)
-    # see the same session_id / user_id the agent loop would set. Without
-    # this, ``_current_session_id()`` returns None and modules either
-    # reject (web_preview) or silently fall back to "_default" (shell)
-    # which corrupts state across sessions.
     if sid:
         try:
             from digitorn.modules.base import ExecutionContext
@@ -249,16 +220,13 @@ async def execute_tool(
                     manager._session_store.get, app_id, sid,
                 )
                 if sess_obj is not None:
-                    # Tool execution operates on the agent-facing workdir
-                    # (read/write/edit/grep all target user files). The
-                    # daemon-private workspace is for internal state only.
                     workspace = (
                         getattr(sess_obj, "workdir", "")
                         or getattr(sess_obj, "workspace", "")
                         or ""
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("tools best-effort block failed: %s", exc)
             cb._exec_context = ExecutionContext(
                 plan_id="",
                 action_id=f"tools.execute.{tool_name}",
@@ -270,21 +238,7 @@ async def execute_tool(
                 workspace=workspace,
                 constraints={},
             )
-            # Wire the deployed app's ApprovalQueue onto the
-            # context_builder fallback slot. Without this, a tool whose
-            # capability policy resolves to ``approve`` would fail with
-            # "requires approval before execution" because the agent
-            # context (which normally carries the queue) isn't set on
-            # this REST path. The queue is shared across all callers of
-            # the same app, which is the right semantics: pending
-            # requests issued by the agent and by direct REST execs
-            # both land in the same per-user pending list.
             cb._approval_queue = getattr(deployed, "approval_queue", None)
-            # Provide a minimal agent-context shim so the approval
-            # enqueue records the right ``user_id`` / ``session_id`` /
-            # ``agent_id``. Without it ``list_pending_for_user`` filters
-            # the request out (user_id stays empty) and the iframe never
-            # sees the pending - the agent's tool call hangs forever.
             class _RestApprovalCtx:
                 approval_queue = cb._approval_queue
                 user_id = _uid

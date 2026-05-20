@@ -8,7 +8,6 @@ from pydantic import BaseModel, Field, field_validator
 
 _SERVER_ID_PATTERN = r"^[a-z][a-z0-9_]*$"
 
-
 class ConnectParams(BaseModel):
     """Connect to an MCP server."""
 
@@ -50,7 +49,6 @@ class ConnectParams(BaseModel):
         description="Request timeout in seconds.",
     )
 
-
 class DisconnectParams(BaseModel):
     """Disconnect from an MCP server."""
 
@@ -60,7 +58,6 @@ class DisconnectParams(BaseModel):
         max_length=128,
         description="Server ID to disconnect.",
     )
-
 
 class ReconnectParams(BaseModel):
     """Reconnect a failed MCP server."""
@@ -72,10 +69,8 @@ class ReconnectParams(BaseModel):
         description="Server ID to reconnect.",
     )
 
-
 class ListServersParams(BaseModel):
     """List all connected MCP servers."""
-
 
 class ListToolsParams(BaseModel):
     """List tools from a specific MCP server."""
@@ -86,7 +81,6 @@ class ListToolsParams(BaseModel):
         max_length=128,
         description="Server ID to list tools from.",
     )
-
 
 class CallToolParams(BaseModel):
     """Call a tool on a specific MCP server."""
@@ -108,7 +102,6 @@ class CallToolParams(BaseModel):
         description="Arguments to pass to the tool.",
     )
 
-
 class ListResourcesParams(BaseModel):
     """List resources from an MCP server."""
 
@@ -118,7 +111,6 @@ class ListResourcesParams(BaseModel):
         max_length=128,
         description="Server ID to list resources from.",
     )
-
 
 class ReadResourceParams(BaseModel):
     """Read a resource from an MCP server."""
@@ -136,7 +128,6 @@ class ReadResourceParams(BaseModel):
         description="Resource URI to read.",
     )
 
-
 class ListPromptsParams(BaseModel):
     """List prompt templates from an MCP server."""
 
@@ -146,7 +137,6 @@ class ListPromptsParams(BaseModel):
         max_length=128,
         description="Server ID to list prompts from.",
     )
-
 
 class GetPromptParams(BaseModel):
     """Get a prompt template from an MCP server."""
@@ -167,7 +157,6 @@ class GetPromptParams(BaseModel):
         default_factory=dict,
         description="Arguments for the prompt template.",
     )
-
 
 class HealthCheckParams(BaseModel):
     """Health check an MCP server (or all if server_id is omitted)."""

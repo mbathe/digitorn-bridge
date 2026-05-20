@@ -1,36 +1,4 @@
-"""Unified history ledger writer - one function, three kinds of rows.
-
-Everything that touches the durable log goes through :func:`record`:
-
-    - ``message`` rows (user/assistant/tool)
-    - ``event`` rows (tokens, thinking, tool_call, compaction, hooks…)
-    - ``audit`` rows (quota change, user disable, app deploy…)
-
-Readers hit the single ``history_log`` table and filter by ``kind`` /
-``type`` - no UNION across 3 legacy tables, no divergent ordering.
-
-Durability contract:
-
-    - ``ts`` is monotonic-unique via ``unique_utc_now``, enforced by
-      a DB UNIQUE constraint. Stamped at enqueue time so ordering
-      reflects the caller's perception of "when" the event happened,
-      not whenever the background writer happens to flush.
-    - **Default path: batched background writer.** ``record()`` is
-      effectively non-blocking for the caller - it stamps ``ts``,
-      builds the row dict, hands it to :class:`HistoryWriter`, and
-      returns. The writer drains its queue with short
-      (≤50 ms) batch commits. On graceful shutdown the writer fully
-      drains before the engine closes → zero loss for clean stops.
-    - **Sync path**: pass ``sync=True`` to block on a direct INSERT
-      in the caller's transaction. Used for audit rows that must be
-      durable before the HTTP response returns to the client, and
-      for tests that want to observe the row immediately.
-    - On ``IntegrityError`` (rare cross-process ts collision), the
-      row is retried with the clock bumped forward until success.
-    - When no writer is running (CLI / tests / pre-init bootstrap),
-      we always fall back to the sync path so records never silently
-      disappear.
-"""
+"""Unified history ledger writer - one function, three kinds of rows."""
 from __future__ import annotations
 
 import logging
@@ -44,10 +12,7 @@ Kind = Literal["message", "event", "audit"]
 
 
 class HistoryContractError(ValueError):
-    """Raised when a caller tries to persist a row that violates the
-    history-log contract. Caught by :func:`record` which logs and drops
-    the row instead of crashing the caller - malformed rows are a bug
-    to investigate, but NOT a reason to kill the ongoing turn."""
+    """Raised when a caller tries to persist a row that violates the"""
 
 
 def _enforce_contract(
@@ -60,36 +25,7 @@ def _enforce_contract(
     seq: int,
     actor_user_id: str | None,
 ) -> None:
-    """Single strict gate every row crosses before landing in the DB.
-
-    The contract exists so that ANY downstream consumer (replay,
-    dedup, /history endpoint, audit export, compliance report) can
-    rely on invariants without per-row defensive branches.
-
-    Rules:
-
-      * ``type`` MUST be non-empty - without it readers can't filter.
-      * ``kind == "event"``
-          - ``session_id`` MUST be non-empty - events are session-scoped
-            by design. An untagged event leaks cross-session on the wire
-            and breaks the client's source filter.
-          - ``seq > 0`` MUST hold - the seq is the SOLE ordering key
-            for replay (per event-spec §0). Events stamped seq=0 break
-            pagination, dedup, and mid-session reconnect.
-          - ``user_id`` MUST be non-empty (pinned to the session's user;
-            ``system`` for daemon-initiated events).
-      * ``kind == "message"``
-          - ``session_id`` MUST be non-empty (turns belong to a session).
-          - ``user_id`` MUST be non-empty.
-          - ``role`` is not checked here (the model layer already
-            constrains it), but callers are expected to pass it.
-      * ``kind == "audit"``
-          - ``actor_user_id`` MUST be non-empty - an audit row with no
-            actor is unusable for forensics / compliance.
-
-    On violation the caller gets a :class:`HistoryContractError`; the
-    row never reaches the writer.
-    """
+    """Single strict gate every row crosses before landing in the DB."""
     if not type:
         raise HistoryContractError(
             f"history.record: 'type' is required for kind={kind!r}"
@@ -170,7 +106,7 @@ def _build_row_kwargs(
     message: str,
     ts: Any,
 ) -> dict[str, Any]:
-    """Collect caller kwargs into the dict ``HistoryLog(**)`` expects."""
+    """Collect caller kwargs into the dict `HistoryLog(**)` expects."""
     return {
         "ts": ts,
         "seq": int(seq or 0),
@@ -236,24 +172,19 @@ async def record(
     # retry control (sync path only)
     max_retries: int = 5,
 ) -> int | None:
-    """Insert one row into ``history_log``. Returns the row id or None.
+    """Insert one row into `history_log`. Returns the row id or None.
 
-    Caller MUST provide ``kind`` (``message`` / ``event`` / ``audit``)
-    and ``type`` (the fine classifier). Everything else is contextual.
+    Caller MUST provide `kind` (`message` / `event` / `audit`)
+    and `type` (the fine classifier). Everything else is contextual.
 
     Routing: by default the row is handed to the batched background
-    writer and the call returns immediately (``None``). Pass
-    ``sync=True`` to block on a direct INSERT - used for audit rows
+    writer and the call returns immediately (`None`). Pass
+    `sync=True` to block on a direct INSERT - used for audit rows
     where the response should not ship before the row is on disk.
 
     When no writer is running, we fall back to the sync path so the
     record is never silently dropped.
     """
-    # STRICT CONTRACT CHECK - every row that lands MUST satisfy the
-    # invariants. A contract violation is a bug in the emitter: log
-    # loudly so it gets fixed, but drop the row instead of aborting
-    # the caller's turn. Run BEFORE any backend dispatch so a bad
-    # row never reaches the SessionStore either.
     try:
         _enforce_contract(
             kind=kind, type=type, app_id=app_id, session_id=session_id,
@@ -263,12 +194,6 @@ async def record(
         logger.error("history.record CONTRACT VIOLATION - dropping row: %s", exc)
         return None
 
-    # SessionStore bridge fan-out. Default OFF (legacy behavior).
-    # Set ``DIGITORN_SESSION_STORE_MODE=shadow`` to dual-write (legacy
-    # DB + new in-memory store). Set ``primary`` to skip the legacy
-    # path entirely -- ultra-fast, no Postgres on the agent loop.
-    # Runs BEFORE the DB engine check so a Postgres-less runtime
-    # still routes events into the SessionStore.
     bridge_mode = "off"
     try:
         from digitorn.core.runtime.session_store.bridge import (
@@ -299,12 +224,6 @@ async def record(
                 "session_store_bridge_failed kind=%s type=%s err=%s",
                 kind, type, exc,
             )
-    # Phase 4c: legacy DB write path removed. The bridge is the sole
-    # writer; the in-memory SessionStore is the source of truth. The
-    # ``shadow`` mode used to dual-write to ``history_log`` for audit
-    # readers, but every reader migrated to the new store. Audit /
-    # retention queries that need cross-process Postgres visibility now
-    # live on a separate audit table (api/user.py + retention_keeper).
     return None
 
 

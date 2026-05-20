@@ -1,9 +1,0 @@
-START ['single_turn']
-RESULT: PASS
-  [PASS] seq_unique: 17 seqs unique (range 24146..24162)
-  [PASS] user_message once: user_message: 1 events
-  [PASS] message_started once: message_started: 1 events
-  [PASS] message_done once: message_done: 1 events
-  [PASS] lifecycle order (by seq): order OK across 18 events
-artifacts: {'session': 'single-0d6d127d', 'event_count': 18}
-END

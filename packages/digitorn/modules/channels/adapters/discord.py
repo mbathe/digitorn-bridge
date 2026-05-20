@@ -1,20 +1,4 @@
-"""Discord Bot adapter - WebSocket Gateway inbound + REST outbound.
-
-Uses the Discord Gateway API (WebSocket) for real-time message reception
-and the REST API for sending messages. Only needs ``aiohttp``.
-
-Setup:
-    1. Create app at discord.com/developers/applications
-    2. Bot tab → Reset Token → copy token
-    3. Bot tab → enable "Message Content Intent"
-    4. OAuth2 → URL Generator → scope 'bot' → permissions: Send Messages, Read Message History
-    5. Invite bot to your server via the generated URL
-
-Security:
-    - Bot token never exposed in logs or outbound messages.
-    - Only responds to messages in allowed channels/guilds (if configured).
-    - Ignores messages from other bots (including itself).
-"""
+"""Discord Bot adapter - WebSocket Gateway inbound + REST outbound."""
 
 from __future__ import annotations
 
@@ -37,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 _API_BASE = "https://discord.com/api/v10"
 _GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json"
-
 
 class DiscordAdapter(BaseChannelAdapter):
     """Discord Bot adapter - Gateway WebSocket + REST API."""
@@ -90,8 +73,6 @@ class DiscordAdapter(BaseChannelAdapter):
             self._session = aiohttp.ClientSession(headers=self._headers())
         return self._session
 
-    # ── Inbound (Gateway WebSocket) ──────────────────────────────
-
     async def start_listener(self, callback: InboundCallback) -> None:
         if not self._token:
             logger.error("discord_no_token - set token in adapter config")
@@ -136,7 +117,6 @@ class DiscordAdapter(BaseChannelAdapter):
     async def _handle_gateway_event(
         self, data: dict, ws: Any, callback: InboundCallback,
     ) -> None:
-        """Process a single Gateway event."""
         op = data.get("op")
         event_type = data.get("t")
         payload = data.get("d", {})
@@ -173,7 +153,6 @@ class DiscordAdapter(BaseChannelAdapter):
                 await self._handle_message(payload, callback)
 
     async def _identify(self, ws: Any) -> None:
-        """Send IDENTIFY payload to authenticate."""
         await ws.send_json({
             "op": 2,
             "d": {
@@ -188,7 +167,6 @@ class DiscordAdapter(BaseChannelAdapter):
         })
 
     async def _heartbeat_loop(self, ws: Any) -> None:
-        """Send periodic heartbeats to keep the connection alive."""
         try:
             while True:
                 await asyncio.sleep(self._heartbeat_interval)
@@ -199,7 +177,6 @@ class DiscordAdapter(BaseChannelAdapter):
     async def _handle_message(
         self, payload: dict, callback: InboundCallback,
     ) -> None:
-        """Process a MESSAGE_CREATE event."""
         author = payload.get("author", {})
         author_id = str(author.get("id", ""))
 
@@ -266,8 +243,6 @@ class DiscordAdapter(BaseChannelAdapter):
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
-
-    # ── Outbound (REST API) ──────────────────────────────────────
 
     async def deliver(
         self,

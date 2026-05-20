@@ -1,8 +1,4 @@
-"""Channel adapter registry.
-
-Maps adapter type names (used in YAML ``adapter:`` field) to concrete classes.
-New adapters register here or via entry points.
-"""
+"""Channel adapter registry."""
 
 from __future__ import annotations
 
@@ -31,12 +27,10 @@ _BUILTIN_ADAPTERS: dict[str, str] = {
 
 _custom_adapters: dict[str, type[BaseChannelAdapter]] = {}
 
-
 def register_adapter(type_name: str, adapter_class: type[BaseChannelAdapter]) -> None:
     """Register a custom adapter type at runtime."""
     _custom_adapters[type_name] = adapter_class
     logger.info("channel_adapter_registered type=%s cls=%s", type_name, adapter_class.__name__)
-
 
 def get_adapter_class(type_name: str) -> type[BaseChannelAdapter]:
     """Resolve adapter type name to class. Raises ValueError if unknown."""
@@ -62,7 +56,6 @@ def get_adapter_class(type_name: str) -> type[BaseChannelAdapter]:
         ) from exc
 
     return cls
-
 
 def list_adapter_types() -> list[str]:
     """Return all available adapter type names."""

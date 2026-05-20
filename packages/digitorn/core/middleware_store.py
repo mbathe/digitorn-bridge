@@ -1,20 +1,4 @@
-"""Middleware Store - install, discover, and manage middleware packages.
-
-Middlewares follow the same pattern as modules:
-- Discovered via ``digitorn-middleware.toml`` descriptor files
-- Stored in known directories (builtin + user)
-- Registered in the database for the GUI to list available middlewares
-- Referenced by name in YAML (never by file path)
-
-Lifecycle:  create/install → register in DB → use in app YAML
-
-Directory structure::
-
-    ~/.local/share/digitorn/middleware/
-    └── french_only/
-        ├── digitorn-middleware.toml
-        └── middleware.py
-"""
+"""Middleware Store - install, discover, and manage middleware packages."""
 
 from __future__ import annotations
 
@@ -33,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class MiddlewareDescriptor:
-    """Parsed from ``digitorn-middleware.toml``."""
+    """Parsed from `digitorn-middleware.toml`."""
 
     middleware_id: str
     version: str = "1.0.0"
@@ -50,21 +34,14 @@ class MiddlewareDescriptor:
 
 
 class MiddlewareRegistry:
-    """Singleton registry for all discovered middleware packages.
-
-    Discovers middlewares from disk (TOML descriptors), loads their
-    classes on demand, and provides lookup by name.
-    """
+    """Singleton registry for all discovered middleware packages."""
 
     def __init__(self) -> None:
         self._descriptors: dict[str, MiddlewareDescriptor] = {}
         self._classes: dict[str, type] = {}
 
     def discover(self) -> int:
-        """Scan all middleware directories and register descriptors.
-
-        Returns the number of middlewares discovered.
-        """
+        """Scan all middleware directories and register descriptors."""
         self._descriptors.clear()
         self._classes.clear()
 
@@ -104,10 +81,7 @@ class MiddlewareRegistry:
     def instantiate(
         self, middleware_id: str, config: dict[str, Any] | None = None,
     ) -> Any | None:
-        """Load and instantiate a middleware by ID.
-
-        Returns the middleware instance, or None if not found.
-        """
+        """Load and instantiate a middleware by ID."""
         desc = self._descriptors.get(middleware_id)
         if desc is None:
             logger.warning("middleware_not_found: %s", middleware_id)
@@ -201,7 +175,7 @@ def get_middleware_registry() -> MiddlewareRegistry:
 
 
 def _parse_toml(path: Path, source: str) -> MiddlewareDescriptor | None:
-    """Parse a ``digitorn-middleware.toml`` file."""
+    """Parse a `digitorn-middleware.toml` file."""
     try:
         import tomllib
     except ImportError:
@@ -236,13 +210,7 @@ def _parse_toml(path: Path, source: str) -> MiddlewareDescriptor | None:
 
 
 def install_middleware(source_path: str | Path) -> MiddlewareDescriptor:
-    """Install a middleware from a local directory.
-
-    Copies the middleware directory to the user middleware dir.
-    Validates the TOML descriptor before installing.
-
-    Raises ValueError if validation fails.
-    """
+    """Install a middleware from a local directory."""
     src = Path(source_path).resolve()
     if not src.is_dir():
         raise ValueError(f"Source must be a directory: {src}")
@@ -284,11 +252,7 @@ def install_middleware(source_path: str | Path) -> MiddlewareDescriptor:
 
 
 def uninstall_middleware(middleware_id: str) -> bool:
-    """Uninstall a user-installed middleware.
-
-    Returns True if removed, False if not found.
-    Raises ValueError if trying to uninstall a builtin.
-    """
+    """Uninstall a user-installed middleware."""
     dest = user_middleware_dir() / middleware_id
     if not dest.exists():
         return False
@@ -466,11 +430,7 @@ def _build_db_model():
     from digitorn.core.database import Base
 
     class InstalledMiddleware(Base):
-        """Registry of installed middleware packages.
-
-        Mirrors the TOML descriptor in the database so the GUI can
-        list available middlewares without scanning the filesystem.
-        """
+        """Registry of installed middleware packages."""
 
         __tablename__ = "installed_middleware"
 
@@ -505,11 +465,7 @@ def get_installed_middleware_model():
 
 
 async def sync_middleware_to_db(session: Any) -> int:
-    """Sync discovered middlewares to the database.
-
-    Upserts all discovered descriptors so the GUI can query them.
-    Returns the number of synced records.
-    """
+    """Sync discovered middlewares to the database."""
     import uuid
     from sqlalchemy import select
 

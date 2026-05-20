@@ -1,10 +1,4 @@
-"""Background mode - daemon waiting for triggers.
-
-If the ``channels`` module is loaded, it handles all trigger types
-(cron, watch, http, email, rss, queue) via its adapter system.
-Otherwise, falls back to the legacy trigger loops for backward
-compatibility.
-"""
+"""Background mode - daemon waiting for triggers."""
 
 from __future__ import annotations
 
@@ -22,26 +16,12 @@ from digitorn.core.runtime.types import AgentContext
 logger = logging.getLogger(__name__)
 
 
-# Context-local reference to the activation event recorder for the
-# CURRENT running activation. Code anywhere in the runtime (channel
-# registry, modules, hooks) can read it via ``get_current_recorder()``
-# and push ``channel_sent`` / custom events into the timeline without
-# having to thread the recorder through every function signature.
-#
-# The background runtime sets this at the start of each activation and
-# resets it at the end - the contextvar scope is per-task so concurrent
-# activations never leak into each other.
 _CURRENT_ACTIVATION_RECORDER: contextvars.ContextVar[Any] = contextvars.ContextVar(
     "digitorn_activation_recorder", default=None,
 )
 
 
-# Strong references for fire-and-forget tasks. asyncio.create_task()
-# only returns a weak reference; if the caller doesn't keep it, GC can
-# collect the task mid-await and silently kill the operation. The
-# digitorn-lovable HTTP trigger that "never fired" intermittently and
-# the missing-thinking-tokens drops both trace back to this. Tasks are
-# auto-removed from the set when they finish (done_callback).
+# asyncio.create_task only returns a weak reference; without a strong ref, GC can collect a fire-and-forget task mid-await.
 _BG_ACTIVATION_TASKS: set[asyncio.Task[Any]] = set()
 _BG_EMIT_TASKS: set[asyncio.Task[Any]] = set()
 
@@ -50,10 +30,6 @@ def _spawn_tracked(
     coro: Any, *, name: str | None = None,
     bag: set[asyncio.Task[Any]] | None = None,
 ) -> asyncio.Task[Any]:
-    """``asyncio.create_task`` with a strong reference in ``bag`` (default:
-    activation set). Without this, a task that the caller doesn't await
-    can be GC'd before it completes -- a documented asyncio footgun.
-    """
     target = bag if bag is not None else _BG_ACTIVATION_TASKS
     task = asyncio.create_task(coro, name=name)
     target.add(task)
@@ -62,40 +38,12 @@ def _spawn_tracked(
 
 
 def get_current_activation_recorder() -> Any:
-    """Return the recorder for the currently running background activation.
-
-    Returns ``None`` in any non-background context, so call sites MUST
-    check for None before emitting events::
-
-        rec = get_current_activation_recorder()
-        if rec is not None:
-            await rec.record_channel_sent("email", target, success=True)
-    """
+    """Return the recorder for the currently running background activation."""
     return _CURRENT_ACTIVATION_RECORDER.get()
 
 
-# ── Activation event recorder ───────────────────────────────────────
-#
-# Wraps the caller-supplied on_tool_call / on_thinking callbacks so
-# that every event an agent_turn emits during a background activation
-# is ALSO persisted to the activation_events table, keyed by the
-# current activation_id. The dashboard drawer reads this table to
-# render the step-by-step timeline of a run.
-#
-# The recorder is a thin, failure-tolerant layer: if the DB is down or
-# the INSERT fails, the live activation is NOT interrupted. Telemetry
-# is a "nice to have", not a correctness requirement.
-
-# Tool actions that produce files - normalised into "artifact" events
-# on top of the raw tool_call record, so the UI can show a dedicated
-# "Artifacts" section without having to parse tool_call params itself.
-#
-# IMPORTANT: the ``on_tool_call`` callback receives the tool name in
-# whatever form the LLM emitted it - usually the Claude-Code-style
-# short name ("Write", "Edit", "NotebookAdd") rather than the FQN
-# ("filesystem.write"). We normalise to FQN via ``to_fqn()`` before
-# doing the membership check, and we keep the allowlist in FQN form
-# because it's the canonical, stable identifier.
+# wrap callbacks so every agent_turn event during a background activation persists to activation_events; failure-tolerant.
+# normalise tool names to FQN before checking this allowlist - the LLM may emit short names like "Write".
 _FILE_WRITE_ACTIONS = frozenset({
     "filesystem.write",
     "filesystem.edit",
@@ -112,9 +60,6 @@ _FILE_WRITE_ACTIONS = frozenset({
 })
 
 
-# Per-file cap for daemon-side payload loading. Bigger files are
-# recorded as a note but their bytes are NOT shipped to the LLM -
-# otherwise a 200 MB video in a session would blow up every activation.
 _PAYLOAD_MAX_FILE_BYTES = 10 * 1024 * 1024  # 10 MiB
 
 # MIME types we treat as plain text and inline verbatim. Anything else
@@ -141,12 +86,7 @@ def _mime_is_text(mime: str) -> bool:
 
 
 def _decode_as_text(data: bytes) -> str | None:
-    """Return the UTF-8 decoding of ``data`` iff it looks like real text.
-
-    We refuse to inline bytes that decode but contain a lot of NUL /
-    control characters (usually garbled binary) - those go through the
-    binary-note path instead.
-    """
+    """Return the UTF-8 decoding of `data` iff it looks like real text."""
     try:
         text = data.decode("utf-8")
     except UnicodeDecodeError:
@@ -161,21 +101,7 @@ def _decode_as_text(data: bytes) -> str | None:
 
 
 def _get_credential_store_for_activation(ctx: AgentContext) -> Any:
-    """Best-effort lookup of the daemon's ``CredentialStore`` from an AgentContext.
-
-    The credential store is attached to the FastAPI app state at
-    daemon startup (``app.state.credential_store``) and a reference
-    is stashed on the ``AppManager`` instance. Agent contexts are
-    built from the manager, so we can follow the chain:
-
-        ctx.runtime_app  →  manager  →  credential_store
-
-    Returns ``None`` if the chain doesn't resolve - for instance in
-    standalone CLI mode or in unit tests where no daemon is wired.
-    In that case the runtime resolver becomes a no-op, which is the
-    right behaviour: no store means no per-user secrets, fall back
-    to whatever the compile-time dict already had.
-    """
+    """Best-effort lookup of the daemon's `CredentialStore` from an AgentContext."""
     # Direct reference on the context (set by some callers)
     store = getattr(ctx, "credential_store", None)
     if store is not None:
@@ -201,21 +127,13 @@ def _get_credential_store_for_activation(ctx: AgentContext) -> Any:
         mgr = _manager_holder.get("manager") if _manager_holder else None
         if mgr is not None:
             return getattr(mgr, "_credential_store", None)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("credential_store lookup via manager_holder failed: %s", exc)
     return None
 
 
 def _get_app_payload_schema(ctx: AgentContext, app_id: str) -> dict[str, Any] | None:
-    """Look up the compiled ``payload_schema`` for the app currently running.
-
-    The compiled schema lives on ``deployed.compiled.execution.payload_schema``
-    in the AppManager. We try a few attribute paths because background
-    mode is reached from both the legacy entry point (raw AgentContext)
-    and the new app manager entry point (deployed app duck-typed onto
-    ctx.runtime_app). Returns ``None`` when no schema can be resolved
-    rather than raising - schema enforcement is a soft gate.
-    """
+    """Look up the compiled `payload_schema` for the app currently running."""
     try:
         runtime_app = getattr(ctx, "runtime_app", None) or getattr(
             ctx, "_runtime_app", None,
@@ -224,8 +142,8 @@ def _get_app_payload_schema(ctx: AgentContext, app_id: str) -> dict[str, Any] | 
             compiled = getattr(runtime_app, "compiled", None)
             if compiled is not None:
                 return getattr(compiled.execution, "payload_schema", None)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("payload_schema lookup failed for app=%s: %s", app_id, exc)
 
     return None
 
@@ -233,30 +151,7 @@ def _get_app_payload_schema(ctx: AgentContext, app_id: str) -> dict[str, Any] | 
 def _build_payload_message_content(
     base_text: str, payload: dict[str, Any],
 ) -> str | list[dict[str, Any]]:
-    """Fold a background session payload into the activation user message.
-
-    Reads every attached file from disk **on the daemon**, classifies
-    it, and returns either:
-
-    - a plain string (no files, or only inlinable text) - cheap path,
-      fully backwards compatible with legacy activations;
-    - a multimodal Anthropic-style content list ``[{type:text}, {type:image}, {type:document}, ...]``
-      when images or PDFs need to ride along.
-
-    Classification
-    ~~~~~~~~~~~~~~
-    - ``image/*`` → base64 image block
-    - ``application/pdf`` → base64 document block (Claude's native PDF path)
-    - text MIME types or any file that cleanly decodes as UTF-8 → inlined
-      verbatim in the text portion between ``--- name ---`` fences
-    - anything else → a short "[skipped: name (mime, size)]" note so the
-      agent is aware the file exists but its bytes can't be inlined
-
-    The agent never runs ``filesystem.read`` on these paths - that
-    keeps the system self-contained even when the daemon is remote
-    (the client uploaded the files over HTTP, they only live on the
-    daemon's disk, and the agent just consumes what we inject).
-    """
+    """Fold a background session payload into the activation user message."""
     if not isinstance(payload, dict) or not payload:
         return base_text
 
@@ -387,13 +282,7 @@ def _build_payload_message_content(
 
 
 def _resolve_tool_fqn(name: str) -> str:
-    """Resolve any tool name form to its FQN (module.action).
-
-    Short names ("Write"), double-underscored ("filesystem__write")
-    and FQN ("filesystem.write") all become the FQN form. Falls back
-    to the raw input on any resolver failure so a partial match is
-    still possible.
-    """
+    """Resolve any tool name form to its FQN (module.action)."""
     try:
         from digitorn.core.runtime.tool_names import to_fqn
         return to_fqn(name)
@@ -402,31 +291,10 @@ def _resolve_tool_fqn(name: str) -> str:
 
 
 class _ActivationEventRecorder:
-    """Wraps callbacks to also persist events into ActivationEvent.
-
-    Usage::
-
-        rec = _ActivationEventRecorder(store, activation_id)
-        wrapped_on_tool_call = rec.wrap_on_tool_call(user_on_tool_call)
-        wrapped_on_thinking = rec.wrap_on_thinking(user_on_thinking)
-        await agent_turn(..., on_tool_call=wrapped_on_tool_call, on_thinking=wrapped_on_thinking)
-        await rec.record_channel_sent("email", "alice@x.com", success=True)
-
-    The recorder assigns a monotonically increasing sequence number to
-    every event so the frontend can reliably sort them even when two
-    events share the same wall-clock timestamp.
-    """
+    """Wraps callbacks to also persist events into ActivationEvent."""
 
     def __init__(self, activation_store: Any, activation_id: str) -> None:
-        # ``activation_store`` parameter is kept for source-compat but
-        # the recorder no longer uses it. Each ``_emit`` now constructs
-        # a fresh ActivationStore on the persist_worker loop, where
-        # ``get_session_factory()`` returns the worker's own factory
-        # (via the contextvar override installed by ``run_async``).
-        # This keeps every record_event() asyncpg INSERT off the
-        # daemon's main loop -- critical on the hot path where one
-        # background activation can emit dozens of events per turn
-        # (tool_call, artifact, turn_boundary, channel_sent, ...).
+        # each _emit builds a fresh ActivationStore on the persist_worker loop so asyncpg INSERTs stay off the main loop.
         self._activation_id = activation_id
         self._sequence = 0
         self._lock = asyncio.Lock()
@@ -482,21 +350,11 @@ class _ActivationEventRecorder:
         })
 
     def wrap_on_tool_call(self, user_cb: Any | None) -> Any:
-        """Return an async callback that records AND forwards to user_cb.
-
-        Every tool call becomes a ``tool_call`` event. If the tool is in
-        ``_FILE_WRITE_ACTIONS`` and succeeded, a duplicate ``artifact``
-        event is ALSO written so the dashboard's Artifacts tab can show
-        the file without having to re-parse tool_call params.
-        """
+        """Return an async callback that records AND forwards to user_cb."""
         recorder = self
 
         async def _wrapped(name: str, params: dict, result: Any, call_id: str = "") -> None:
-            # Resolve the tool name to its canonical FQN form. The agent
-            # loop invokes on_tool_call with whatever name the LLM
-            # emitted, which is usually the short Claude-Code-style
-            # name ("Write") rather than the FQN ("filesystem.write").
-            # Without this resolution, the artifact detection below
+            # resolve to FQN - on_tool_call receives the LLM-emitted name (usually short), but the artifact set is keyed by FQN.
             # would NEVER fire.
             fqn_name = _resolve_tool_fqn(name)
 
@@ -539,10 +397,6 @@ class _ActivationEventRecorder:
                 "result_preview": result_preview,
             })
 
-            # Artifact tracking - normalise file-producing tool calls.
-            # Check against the FQN form so "Write", "filesystem.write"
-            # and "filesystem__write" all resolve to the same allowlist
-            # entry.
             if ok and fqn_name in _FILE_WRITE_ACTIONS:
                 path = None
                 if isinstance(params, dict):
@@ -578,23 +432,13 @@ class _ActivationEventRecorder:
         return _wrapped
 
     def wrap_on_thinking(self, user_cb: Any | None) -> Any:
-        """Return a thinking callback that records AND forwards.
-
-        The agent_loop calls on_thinking with the full reasoning text
-        at the end of each turn. We persist a truncated version (2 KB
-        max) - the full reasoning can be multi-MB and isn't useful for
-        a dashboard drawer.
-        """
+        """Return a thinking callback that records AND forwards."""
         recorder = self
         _MAX_THINKING_LEN = 2048
 
         def _wrapped(text: str) -> None:
             try:
                 truncated = text[:_MAX_THINKING_LEN]
-                # Tracked task: see ``_spawn_tracked`` -- without a
-                # strong ref the GC can collect the task before
-                # ``_emit`` finishes, silently losing the thinking
-                # chunk on the wire.
                 _spawn_tracked(
                     recorder._emit("thinking", {
                         "text": truncated,
@@ -615,13 +459,7 @@ class _ActivationEventRecorder:
         return _wrapped
 
 
-
-# ── Trigger Circuit Breaker ───────────────────────────────────────
-# Prevents infinite retry loops when triggers fail repeatedly. Pauses
-# the trigger temporarily with exponential backoff. Auto-resets when
-# it works again. Tripped by:
-#   - Fatal provider errors (billing, auth, quota) → trips fast
-#   - Repeated transient failures (timeouts, network, code crashes) → trips slower
+# Prevents infinite retry loops on repeated trigger failures (fatal errors trip fast, transient errors trip slowly).
 
 # Fatal: trip after 1-2 failures (these won't recover without intervention)
 _FATAL_KEYWORDS = {
@@ -638,13 +476,7 @@ _TRANSIENT_KEYWORDS = {
 
 
 class _TriggerCircuitBreaker:
-    """Per-trigger circuit breaker for fatal AND transient errors.
-
-    Trip thresholds:
-    - Fatal errors (billing/auth): trip after 2 consecutive failures
-    - Transient errors (network/timeout): trip after 5 consecutive failures
-    - Unknown errors (code crash, etc.): trip after 3 consecutive failures
-    """
+    """Per-trigger circuit breaker for fatal AND transient errors."""
 
     __slots__ = ("trigger_id", "_consecutive_failures", "_pause_until", "_backoff")
 
@@ -678,7 +510,6 @@ class _TriggerCircuitBreaker:
         self._backoff = 300.0
 
     def _classify(self, error: str) -> str:
-        """Classify an error as fatal, transient, or unknown."""
         error_lower = error.lower()
         if any(kw in error_lower for kw in _FATAL_KEYWORDS):
             return "fatal"
@@ -687,11 +518,7 @@ class _TriggerCircuitBreaker:
         return "unknown"
 
     def record_failure(self, error: str) -> None:
-        """Record a failure and trip the breaker if threshold reached.
-
-        Trip thresholds depend on error class - fatal errors trip fast
-        (2 failures), transient slower (5), unknown in between (3).
-        """
+        """Record a failure and trip the breaker if threshold reached."""
         category = self._classify(error)
         self._consecutive_failures += 1
 
@@ -732,28 +559,10 @@ async def run_background(
     app_id: str = "",
     max_concurrent_activations: int = 20,
 ) -> None:
-    """Run the agent in background mode.
-
-    If the channels module is loaded (via ``runtime_app.modules``),
-    it takes over all trigger handling. Otherwise, falls back to
-    the legacy cron/watch loops.
-
-    Args:
-        ctx: Agent context.
-        triggers: List of CompiledTrigger objects.
-        max_turns: Max turns per activation.
-        timeout: Timeout per activation.
-        on_tool_call: Callback for tool calls.
-        on_activation: Optional callback(trigger_id, message, result).
-        runtime_app: The RuntimeApp instance (used for channels module delegation).
-    """
-    # ── Try channels module first ────────────────────────────────
+    """Run the agent in background mode."""
     if runtime_app is not None:
         channels_mod = runtime_app.modules.get("channels")
         if channels_mod is not None:
-            # RuntimeApp.__post_init__ has already wired _runtime_app
-            # and _hook_runner. NOW we start the inbound listeners -
-            # this is the "run" phase (vs deploy which only prepares).
             await channels_mod.start_listeners()
 
             logger.info(
@@ -766,7 +575,6 @@ async def run_background(
                 logger.info("background_channels_stopped")
             return
 
-    # ── Legacy trigger loops ─────────────────────────────────────
     if not triggers:
         logger.error("Background mode requires at least one trigger")
         return
@@ -793,15 +601,7 @@ async def run_background(
         logger.error("No valid triggers to run")
         return
 
-    # ``return_exceptions=True`` so a crash in ONE trigger loop (e.g.
-    # a malformed cron expression in ``_cron_loop`` raises ValueError,
-    # or ``_watch_loop`` hits a permission error on its watched dir)
-    # does NOT cancel the other trigger loops. Without this, a single
-    # bad trigger took down every background activation in the app
-    # until the daemon was restarted. Each trigger loop already runs
-    # forever (while-True with CancelledError handling) so the only
-    # natural "completion" is daemon shutdown -- a returned exception
-    # here means that specific loop died and needs investigation.
+    # return_exceptions=True so a crash in one trigger loop doesn't cancel the others.
     results = await asyncio.gather(*tasks, return_exceptions=True)
     for i, res in enumerate(results):
         if isinstance(res, BaseException) and not isinstance(
@@ -827,13 +627,7 @@ async def _activate(
     app_id: str = "",
     max_concurrent: int = 20,
 ) -> None:
-    """Dispatch a trigger activation to the correct sessions.
-
-    Resolves routing (broadcast/user/session), then calls
-    _run_single_activation for each target session.
-
-    If no background sessions exist, falls back to global context activation.
-    """
+    """Dispatch a trigger activation to the correct sessions."""
     # Circuit breaker - skip if paused after fatal errors
     breaker = _get_breaker(trigger_id)
     if breaker.is_paused():
@@ -869,7 +663,6 @@ async def _activate(
     if not app_id:
         app_id = getattr(ctx, "app_id", "") or "default"
 
-    # ── Routing dispatch - resolve target sessions from DB ──────
     target_sessions: list[dict[str, Any]] = []
     bg_store = None
     try:
@@ -898,29 +691,16 @@ async def _activate(
         failed = 0
 
         async def _throttled_activation(sess: dict[str, Any]) -> None:
-            """Run a single activation in isolation.
-
-            CRITICAL: this MUST never raise. Any exception is caught and logged
-            so that one user's crash never impacts other users in the broadcast.
-            """
+            """Run a single activation in isolation."""
             nonlocal completed, failed
             try:
                 async with semaphore:
                     session_text: str = message
                     params = sess.get("params", {}) or {}
-                    # Payload is a reserved sub-dict of params. We surface
-                    # it separately so it shows up to the agent as the
-                    # user's scheduled input - NOT mixed into the
-                    # ``Session context:`` params block.
+                    # payload is a reserved sub-dict surfaced to the agent as the user's scheduled input, separate from `params`.
                     payload = params.get("_payload") or {}
 
-                    # Enforce ``payload_schema.required`` - when the app
-                    # declares a required schema and this session's
-                    # payload doesn't satisfy it, skip the activation
-                    # entirely. The dashboard already blocks the user
-                    # from activating an invalid session, but a stale
-                    # session that was valid then drifted (e.g. user
-                    # deleted a required file) must not silently fire.
+                    # enforce payload_schema.required so a stale session that drifted (deleted file, …) doesn't silently activate.
                     schema = _get_app_payload_schema(ctx, app_id)
                     if schema and schema.get("required"):
                         try:
@@ -947,10 +727,7 @@ async def _activate(
                             f"[{k}]: {v}" for k, v in visible_params.items()
                         )
                         session_text = f"{message}\n\nSession context:\n{param_lines}"
-                    # Read payload files from disk on the daemon and
-                    # build the final user message - either a plain
-                    # string (no images/PDFs) or a multimodal content
-                    # block list. The agent never touches the disk for
+                    # read payload files daemon-side and build the final user message; the agent never touches disk for
                     # these files.
                     session_message: str | list[dict[str, Any]] = (
                         _build_payload_message_content(session_text, payload)
@@ -1009,7 +786,6 @@ async def _activate(
         )
         return
 
-    # ── No sessions found - fall back to global context activation ──
     logger.info("Trigger '%s' (%s) → global activation (no sessions)", trigger_id, trigger_type)
     await _run_single_activation(
         ctx, trigger_id, message,
@@ -1034,25 +810,12 @@ async def _run_single_activation(
     user_id: str = "",
     app_id: str = "",
 ) -> None:
-    """Run a single agent turn for one activation.
-
-    Creates an Activation record in DB, runs agent_turn, persists the result.
-    """
+    """Run a single agent turn for one activation."""
     logger.info("Activation: trigger=%s session=%s", trigger_id, session_id[:10] or "global")
 
     if not app_id:
         app_id = getattr(ctx, "app_id", "") or "default"
 
-    # ── Runtime per-user secret resolution ──────────────────────────
-    # The compiler left per_user / per_app_per_user secrets as
-    # ``{{secret.X}}`` passthroughs because it didn't know which user
-    # would trigger this activation. Now that we DO know (user_id is
-    # on the BackgroundSession), walk the message payload and
-    # substitute those templates via the CredentialStore.
-    #
-    # ``resolve_runtime_secrets_in_value`` walks str/dict/list
-    # recursively so both plain text messages and multimodal content
-    # block lists are covered in one call.
     try:
         credential_store = _get_credential_store_for_activation(ctx)
         if credential_store is not None:
@@ -1073,11 +836,7 @@ async def _run_single_activation(
             trigger_id, user_id, app_id, exc,
         )
 
-    # The activation table + on_activation callback want a plain text
-    # message for display. When the user message is a multimodal
-    # content list (text + image/document blocks), extract the text
-    # portion plus a short "[+ N attachment(s)]" hint so the dashboard
-    # row stays readable and we don't try to JSON-encode raw bytes.
+    # collapse multimodal content to a text excerpt + "[+ N attachment(s)]" hint so the dashboard row stays readable.
     if isinstance(message, list):
         text_chunks = [
             b.get("text", "") for b in message
@@ -1097,21 +856,15 @@ async def _run_single_activation(
 
     # Create activation record in DB
     activation_id = None
-    # Route activation persistence through persist_worker so asyncpg
-    # never runs on the main loop. The store is instantiated INSIDE
-    # the worker coroutine -- ``get_session_factory()`` then returns
-    # the worker's own session factory (via contextvar override set
-    # by ``run_async``). Without this, every background trigger
-    # blocks the main loop on an asyncpg connect / TLS handshake
-    # against Neon -- 200ms-25s stalls on a slow link.
+    # route activation persistence through persist_worker - asyncpg connect/TLS handshake can stall the main loop 200ms-25s.
     activation_store_available = False
     try:
         from digitorn.core.app.activation_store import ActivationStore  # noqa: F401
         from digitorn.core.database import get_session_factory  # noqa: F401
         from digitorn.core.runtime.persist_worker import get_default_worker
         activation_store_available = True
-    except Exception:
-        pass
+    except ImportError as exc:
+        logger.debug("activation_store unavailable (import failed): %s", exc)
 
     if activation_store_available:
         async def _create_activation() -> str:
@@ -1132,35 +885,17 @@ async def _run_single_activation(
         except Exception as exc:
             logger.debug("Failed to create activation record: %s", exc)
 
-    # Wire an event recorder so every tool call + thinking block + any
-    # channel send during this activation is persisted into the
-    # activation_events table. The dashboard drawer uses that table to
-    # render the step-by-step timeline.
+    # persist every tool call + thinking block + channel send to activation_events for the timeline drawer.
     recorder: _ActivationEventRecorder | None = None
     wrapped_on_tool_call = on_tool_call
     wrapped_on_thinking = None
     _recorder_token = None  # type: ignore[assignment]
     if activation_id is not None and activation_store_available:
-        # Pass ``None`` for the legacy ``activation_store`` arg -- the
-        # recorder constructs a fresh store on the worker loop on each
-        # ``_emit`` (see ``_ActivationEventRecorder.__init__`` docstring).
         recorder = _ActivationEventRecorder(None, activation_id)
         wrapped_on_tool_call = recorder.wrap_on_tool_call(on_tool_call)
         wrapped_on_thinking = recorder.wrap_on_thinking(None)
-        # Make the recorder accessible via the AgentContext so modules
-        # (particularly channels) can emit their own channel_sent
-        # events without having to thread the recorder through every
-        # callback layer.
-        try:
-            ctx.activation_recorder = recorder  # type: ignore[attr-defined]
-        except Exception:
-            pass
-        # Also bind via a task-local contextvar so code that does NOT
-        # have access to the AgentContext (e.g. the global
-        # ChannelRegistry used at delivery time) can still retrieve the
-        # recorder. The scope is strictly this coroutine and its
-        # descendants - concurrent activations on other tasks see their
-        # own recorder or None.
+        ctx.activation_recorder = recorder  # type: ignore[attr-defined]
+        # bind via task-local contextvar so code without AgentContext (ChannelRegistry, etc.) can still retrieve the recorder.
         _recorder_token = _CURRENT_ACTIVATION_RECORDER.set(recorder)
 
     messages: list[dict[str, Any]] = [
@@ -1183,37 +918,21 @@ async def _run_single_activation(
         crash_error = "cancelled"
         raise
     except Exception as exc:
-        # Without this catch, any crash in agent_turn (provider 402,
-        # timeout, context overflow, tool schema violation, …) would
-        # leave the activation row pinned in `status=running` forever
-        # - that is the root of BUG-054's zombie rows. Capture the
-        # failure, log it, and let the completion block below mark
+        # catch agent_turn crashes so the activation row never stays pinned at `status=running` (zombie rows).
         # the row as `failed` so the dashboard keeps an honest count.
         crash_error = f"{type(exc).__name__}: {exc}"[:500]
         logger.exception(
             "Activation crashed before agent_turn returned: trigger=%s", trigger_id,
         )
     finally:
-        # Clean up the recorder reference so subsequent activations on
-        # the same context don't accidentally write into this one's
-        # table, and the task-local contextvar is reset even if the
-        # agent turn raised.
         if recorder is not None:
-            try:
-                ctx.activation_recorder = None  # type: ignore[attr-defined]
-            except Exception:
-                pass
+            ctx.activation_recorder = None  # type: ignore[attr-defined]
         if _recorder_token is not None:
             try:
                 _CURRENT_ACTIVATION_RECORDER.reset(_recorder_token)
-            except Exception:
-                pass
+            except (ValueError, LookupError) as exc:
+                logger.debug("activation recorder contextvar reset failed: %s", exc)
 
-    # Persist activation result - this MUST run whether agent_turn
-    # returned cleanly or crashed, otherwise the row is a zombie.
-    # Routed through persist_worker for the same reason as ``_create``
-    # above: keep asyncpg off the main loop on a slow / unreachable
-    # Neon link.
     if activation_id is not None and activation_store_available:
         async def _complete_activation() -> None:
             from digitorn.core.app.activation_store import ActivationStore
@@ -1244,26 +963,10 @@ async def _run_single_activation(
         except Exception as exc:
             logger.debug("Failed to save activation result: %s", exc)
 
-    # Surface failures to the session bus so a frontend attached to this
-    # session sees the same error banner it gets for foreground turns.
-    # Two failure shapes: (a) agent_turn raised - we captured ``crash_error``
-    # and have no ``result``; (b) agent_turn returned with ``result.error``
-    # set (e.g. LLM billing 402 wrapped via _handle_llm_error). Both are
-    # classified through the same pipeline so the client gets the same
-    # structured payload it receives for user-message turns.
-    #
-    # Gate on a non-empty ``session_id``: activations without a session
-    # are "global" (cron hooks, system tasks) - nobody is listening on a
-    # specific session bus for them, and emitting untagged error events
-    # would leak onto whichever session the client happens to have open
-    # (the client-side filter we just tightened drops those anyway).
     _activation_error: str | None = crash_error
     if _activation_error is None and result is not None and result.error and result.error != "aborted":
         _activation_error = result.error
     if _activation_error:
-        # Classify once for both the session bus emit AND the inbox
-        # fallback - same structured payload whether the user watches
-        # live or just sees the bell light up later.
         try:
             from digitorn.core.api.apps_v2 import _classify_error
             error_data = _classify_error(RuntimeError(_activation_error))
@@ -1273,9 +976,6 @@ async def _run_single_activation(
         if activation_id:
             error_data["activation_id"] = activation_id
 
-        # (a) Session-scoped emit when we have a real session - client
-        # sees the error banner + persistent timeline marker in that
-        # session's history.
         if session_id:
             try:
                 event_bus = getattr(ctx, "event_bus", None) or \
@@ -1301,12 +1001,6 @@ async def _run_single_activation(
                     trigger_id, session_id[:10], pub_exc,
                 )
 
-        # (b) Inbox entry - ALWAYS written (sessioned or not). The
-        # daemon's InboxProducer already handles ``error`` events from
-        # (a), so we only add a BG_ACTIVATION_FAILED entry directly
-        # when there's no session room at all - otherwise we'd double
-        # up on the inbox for sessioned runs. Either way the user gets
-        # one row in their bell, never zero.
         if not session_id:
             try:
                 from digitorn.core.database import get_session_factory
@@ -1363,7 +1057,6 @@ async def _cron_loop(
     app_id: str = "",
     max_concurrent: int = 20,
 ) -> None:
-    """Cron loop - fires the trigger on each cron tick via croniter."""
     from datetime import datetime, timezone
     from croniter import croniter
 
@@ -1411,10 +1104,7 @@ async def _watch_loop(
     app_id: str = "",
     max_concurrent: int = 20,
 ) -> None:
-    """File watch loop - polls for new files matching glob patterns.
-
-    Simple polling implementation. Will be replaced by inotify/fsevents later.
-    """
+    """File watch loop - polls for new files matching glob patterns."""
     import glob as glob_module
     from pathlib import Path
 
@@ -1467,16 +1157,7 @@ async def _http_loop(
     app_id: str = "",
     max_concurrent: int = 20,
 ) -> None:
-    """HTTP trigger - starts a lightweight HTTP endpoint that activates the agent.
-
-    Listens on the configured path for incoming requests. When a request
-    arrives, the body is injected into the trigger message template and
-    the agent is activated.
-
-    Uses aiohttp if available, falls back to raw asyncio TCP server.
-    For production webhooks with HMAC auth, use the channels module
-    webhook adapter instead.
-    """
+    """HTTP trigger - starts a lightweight HTTP endpoint that activates the agent."""
     path = trigger.path or f"/trigger/{trigger.id}"
     method = (trigger.method or "POST").upper()
     port = getattr(trigger, "port", 0) or 9100
@@ -1574,7 +1255,6 @@ async def _http_basic_loop(
     app_id: str = "",
     max_concurrent: int = 20,
 ) -> None:
-    """Minimal HTTP trigger using raw asyncio (no aiohttp dependency)."""
 
     async def _handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         try:
@@ -1631,8 +1311,8 @@ async def _http_basic_loop(
         finally:
             try:
                 writer.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("background best-effort block failed: %s", exc)
 
     try:
         server = await asyncio.start_server(_handle_client, "127.0.0.1", port)

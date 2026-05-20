@@ -1,31 +1,4 @@
-"""File-backed application + bundle registry.
-
-Replaces the ``applications`` and ``app_bundles`` Postgres tables for
-the local-mode runtime. The actual bundle CONTENT (yaml + assets)
-keeps living under ``~/.digitorn/apps/<app_id>/bundle-<hash>/`` exactly
-as before -- this module owns the registry METADATA only (which app
-exists, who owns it, which bundle is current, when it was disabled).
-
-Layout::
-
-    ~/.digitorn/apps_registry/
-    ├── system/
-    │   └── <app_id>/
-    │       ├── application.json    (Application row)
-    │       └── bundles.json        (list[AppBundleRecord])
-    └── users/
-        └── <user_id>/
-            └── <app_id>/
-                ├── application.json
-                └── bundles.json
-
-Multi-tenancy mirrors the DB schema: same ``app_id`` can exist as a
-system install AND as private installs for multiple users. The unique
-key is ``(scope, owner_user_id, app_id)``.
-
-Atomicity: every write goes via tmp + ``os.replace``. Reads tolerate
-missing/corrupt files gracefully (return None / [] + log warning).
-"""
+"""File-backed application + bundle registry."""
 
 from __future__ import annotations
 
@@ -51,7 +24,6 @@ def _utc_iso() -> str:
 
 
 def _validate_segment(value: str, label: str) -> None:
-    """Reject path-traversal attempts on identifiers used in dir paths."""
     if not value or "/" in value or "\\" in value or ".." in value:
         raise ValueError(f"invalid {label}: {value!r}")
 
@@ -179,9 +151,7 @@ class FileAppRegistry:
         source_type: str = "local",
         package_hash: str | None = None,
     ) -> Application:
-        """Create or upsert an application registry entry. If an entry
-        already exists for ``(scope, owner, app_id)``, fields are merged
-        and ``updated_at`` bumped. Returns the resulting Application."""
+        """Create or upsert an application registry entry. If an entry"""
         existing = await self.get_app(
             app_id=app_id, scope=scope, owner_user_id=owner_user_id,
         )
@@ -240,9 +210,7 @@ class FileAppRegistry:
         owner_user_id: str | None = None,
         include_disabled: bool = False,
     ) -> list[Application]:
-        """List apps. ``scope=None`` returns all (system + every user).
-        ``scope=user`` + ``owner_user_id=None`` returns every user's apps.
-        """
+        """List apps. `scope=None` returns all (system + every user)."""
         return await asyncio.to_thread(
             self._list_apps_sync, scope, owner_user_id, include_disabled,
         )
@@ -255,8 +223,7 @@ class FileAppRegistry:
         owner_user_id: str = "",
         **fields: Any,
     ) -> Application | None:
-        """Patch known fields. Unknown fields are silently ignored
-        (avoids silent corruption from typo'd kwargs)."""
+        """Patch known fields. Unknown fields are silently ignored"""
         existing = await self.get_app(
             app_id=app_id, scope=scope, owner_user_id=owner_user_id,
         )
@@ -305,9 +272,7 @@ class FileAppRegistry:
         scope: Scope = "system",
         owner_user_id: str = "",
     ) -> bool:
-        """Hard delete the registry entry. The bundle CONTENT on disk
-        (under ~/.digitorn/apps/<id>/bundle-<hash>/) is NOT touched --
-        operators rm-rf it manually if desired."""
+        """Hard delete the registry entry. The bundle CONTENT on disk"""
         return await asyncio.to_thread(
             self._delete_app_sync, scope, owner_user_id, app_id,
         )
@@ -326,8 +291,7 @@ class FileAppRegistry:
         bundle_id: str | None = None,
         set_current: bool = True,
     ) -> AppBundle:
-        """Persist a new bundle. If ``set_current=True`` the parent
-        Application's ``current_bundle_id`` is also updated."""
+        """Persist a new bundle. If `set_current=True` the parent"""
         bundle = AppBundle(
             id=bundle_id or uuid.uuid4().hex,
             app_id=app_id,

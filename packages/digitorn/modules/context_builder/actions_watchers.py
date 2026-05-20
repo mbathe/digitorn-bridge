@@ -20,7 +20,6 @@ from digitorn.modules.decorators import action
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass
 class Watcher:
     """Tracks a persistent periodic watcher launched via watch_start."""
@@ -70,9 +69,7 @@ class Watcher:
         if len(self.history) > self._HISTORY_MAX:
             self.history = self.history[-self._HISTORY_MAX:]
 
-
 import uuid
-
 
 class WatcherActionsMixin:
     """Watcher actions - start/stop/pause/resume/status/list/history + loop."""
@@ -404,8 +401,6 @@ class WatcherActionsMixin:
             },
         )
 
-    # ── Watcher internals ────────────────────────────────────────────
-
     async def _watcher_loop(self, watcher: Watcher) -> None:
         try:
             while watcher.status != "stopped":
@@ -647,10 +642,7 @@ class WatcherActionsMixin:
         # Route to the correct session queue
         self.push_module_notification(notification)
 
-    # ── Prompt sections ────────────────────────────────
-
     def _prompt_sections_watchers(self) -> list[dict[str, Any]]:
-        """Prompt instructions for persistent watchers. Gated by _watchers_enabled."""
         if not getattr(self, "_watchers_enabled", False):
             return []
         return [{

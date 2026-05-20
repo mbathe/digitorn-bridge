@@ -1,29 +1,4 @@
-"""LogScrubber - regex-based redactor that prevents secret leakage in logs.
-
-A defence-in-depth filter that runs on every log line emitted by the
-daemon. Even if a developer accidentally logs a credential dict or an
-exception that includes the secret, the scrubber catches and replaces
-the matching pattern with `[REDACTED:<provider>]`.
-
-Patterns are accumulated:
-
-  - **Built-in patterns** for well-known secret formats (OpenAI sk-,
-    Anthropic sk-ant-, Slack xoxb-, GitHub gh[ps]_, AWS access key
-    AKIA[0-9A-Z]{16}, JWT eyJ..., generic 32+ char base64-ish, etc.).
-  - **Dynamic patterns** registered at credential `upsert` time. When
-    a secret is created, the scrubber is told "redact <preview-of-secret>"
-    so even a custom format gets caught.
-
-The scrubber is installed as a logging.Filter on the root logger early
-in daemon boot. It also exposes a sync `scrub(s: str) -> str` helper
-for places that emit text outside the logging framework (e.g.
-SSE events, error responses).
-
-Performance: each log call iterates compiled patterns. Builtin set is
-~15 patterns; dynamic set capped at 256 (LRU on add). Total cost is
-sub-microsecond for non-matching lines, single-digit microsecond for
-matches. Negligible for daemon log volume.
-"""
+"""LogScrubber - regex-based redactor that prevents secret leakage in logs."""
 
 from __future__ import annotations
 
@@ -36,9 +11,6 @@ from typing import Pattern
 logger = logging.getLogger(__name__)
 
 
-# Hard-coded patterns for common secret formats.
-# Each entry is (compiled_regex, redaction_label).
-# Order matters: more specific patterns first.
 _BUILTIN_PATTERNS: list[tuple[Pattern[str], str]] = [
     # OpenAI / Anthropic / DeepSeek bearer keys
     (re.compile(r"sk-ant-[A-Za-z0-9_-]{20,}"), "anthropic"),
@@ -91,20 +63,9 @@ class LogScrubber(logging.Filter):
         self._lock = RLock()
         self._tpl = replacement_template
 
-    # ── Public API ───────────────────────────────────────────────
 
     def add_dynamic(self, secret: str, label: str = "secret") -> None:
-        """Register a runtime secret to redact.
-
-        Called by `CredentialStore.upsert_credential` after a new
-        credential is saved. The scrubber compiles a literal pattern
-        (escaped) so subsequent log lines containing this exact string
-        are caught.
-
-        Strings shorter than 8 characters are ignored - too short to
-        be a real secret and would cause false positives on common
-        words.
-        """
+        """Register a runtime secret to redact."""
         if not secret or len(secret) < 8:
             return
         with self._lock:
@@ -135,9 +96,7 @@ class LogScrubber(logging.Filter):
                 ]
 
     def scrub(self, text: str) -> str:
-        """Apply all patterns to a string and return the scrubbed
-        version. Public so SSE / error response builders can scrub
-        outside the logging framework."""
+        """Apply all patterns to a string and return the scrubbed"""
         if not text:
             return text
         for pat, label in _BUILTIN_PATTERNS:
@@ -150,16 +109,10 @@ class LogScrubber(logging.Filter):
             text = pat.sub(self._tpl.format(label=label), text)
         return text
 
-    # ── logging.Filter integration ──────────────────────────────
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """Mutate the log record's message in place. Always returns
-        True (we never DROP a record - just clean it)."""
+        """Mutate the log record's message in place. Always returns"""
         try:
-            # `record.getMessage()` formats `record.msg % record.args`.
-            # We scrub the formatted result and put it back as `msg`
-            # with `args=None` so the standard formatter doesn't try
-            # to re-apply the args.
             formatted = record.getMessage()
             scrubbed = self.scrub(formatted)
             if scrubbed != formatted:
@@ -180,9 +133,7 @@ _GLOBAL_SCRUBBER: LogScrubber | None = None
 def install_global_scrubber(
     max_dynamic: int = 256,
 ) -> LogScrubber:
-    """Attach a LogScrubber to the root logger. Idempotent. Returns
-    the singleton scrubber so the credential store can call
-    `add_dynamic` on it."""
+    """Attach a LogScrubber to the root logger. Idempotent. Returns"""
     global _GLOBAL_SCRUBBER
     if _GLOBAL_SCRUBBER is not None:
         return _GLOBAL_SCRUBBER

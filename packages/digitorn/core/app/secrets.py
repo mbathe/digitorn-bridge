@@ -1,16 +1,4 @@
-"""SecretStore - per-application encrypted secret storage.
-
-Provides async CRUD for application secrets stored in the database.
-Secrets are encrypted at rest using Fernet (shared key with OAuth tokens).
-
-Usage::
-
-    store = SecretStore()
-    await store.set_secret("my-app", "API_KEY", "sk-live-...")
-    value = await store.get_secret("my-app", "API_KEY")
-    keys = await store.list_secrets("my-app")
-    all_secrets = await store.get_all("my-app")
-"""
+"""SecretStore - per-application encrypted secret storage."""
 
 from __future__ import annotations
 
@@ -25,11 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class SecretStore:
-    """Backend-agnostic per-app secret management.
-
-    Uses the daemon's async SQLAlchemy engine for durable storage.
-    All methods are async and require ``init_db()`` to have been called.
-    """
+    """Backend-agnostic per-app secret management."""
 
     async def set_secret(self, app_id: str, key: str, value: str) -> None:
         """Store (or update) an encrypted secret for an application."""
@@ -113,10 +97,7 @@ class SecretStore:
         return []  # pragma: no cover
 
     async def get_all(self, app_id: str) -> dict[str, str]:
-        """Get all decrypted secrets for an app as a dict.
-
-        Used by the compiler for ``{{secret.XXX}}`` variable resolution.
-        """
+        """Get all decrypted secrets for an app as a dict."""
         from digitorn.core.database import get_session
         from digitorn.core.models import AppSecret
 

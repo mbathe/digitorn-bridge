@@ -1,25 +1,4 @@
-"""In-process cache of the Hub's curated MCP catalog.
-
-The Hub is the source of truth for which MCP servers are officially
-supported (see ``packages/hub/src/digitorn_hub/routers/mcp_featured.py``).
-This module fetches that list once at daemon startup, refreshes every
-5 minutes in the background, and exposes a **synchronous** lookup
-helper so existing call sites (install pipeline, route handlers) keep
-working without becoming async.
-
-Failure modes:
-
-* Hub unreachable on first fetch → cache stays empty; ``get`` returns
-  ``None``. The legacy ``catalog.CATALOG`` dict is used as a last-resort
-  fallback by callers of ``get_catalog_entry``.
-* Hub goes down mid-life → cache keeps the last known good list.
-  Refresh attempts log a warning but never wipe the cache.
-
-The fallback design matches the App Store / iPhone analogy: each
-per-user daemon is an installed app and the Hub is the canonical
-distribution point. Daemons can stay usable for hours during a Hub
-outage as long as they cached the catalog at some point.
-"""
+"""In-process cache of the Hub's curated MCP catalog."""
 from __future__ import annotations
 
 import asyncio
@@ -33,19 +12,11 @@ from .catalog import CatalogEntry
 
 logger = logging.getLogger(__name__)
 
-
-_DEFAULT_TTL_S = 300.0  # 5 min — matches the daemon registry proxy cache
+_DEFAULT_TTL_S = 300.0  # 5 min - matches the daemon registry proxy cache
 _FETCH_TIMEOUT_S = 10.0
 _REFRESH_INTERVAL_S = 300.0
 
-
 def _row_to_entry(row: dict[str, Any]) -> CatalogEntry | None:
-    """Translate a Hub row (JSON shape) to a ``CatalogEntry`` dataclass.
-
-    Returns ``None`` if the row is malformed. Tuple-typed dataclass
-    fields are reconstructed from lists; missing optional fields
-    default to the dataclass defaults.
-    """
     sid = row.get("server_id")
     name = row.get("display_name")
     if not sid or not name:
@@ -84,16 +55,8 @@ def _row_to_entry(row: dict[str, Any]) -> CatalogEntry | None:
         logger.warning("hub_catalog_row_invalid id=%s: %s", sid, exc)
         return None
 
-
 class HubCatalogCache:
-    """Async fetcher + sync reader for the Hub-curated MCP catalog.
-
-    Designed to be plugged into the daemon lifespan: ``await cache.refresh()``
-    once at boot, ``asyncio.create_task(cache.run_refresh_loop())`` for
-    the background heartbeat. Call sites read via ``get_sync`` /
-    ``all_sync`` — those never await, so existing sync code paths
-    (notably ``mcp_store.install_server``) stay unchanged.
-    """
+    """Async fetcher + sync reader for the Hub-curated MCP catalog."""
 
     def __init__(self, hub_url: str, ttl: float = _DEFAULT_TTL_S) -> None:
         self._hub_url = hub_url.rstrip("/") if hub_url else ""
@@ -122,11 +85,7 @@ class HubCatalogCache:
         return len(self._cache)
 
     async def refresh(self) -> bool:
-        """Fetch the full featured list and replace the in-memory cache.
-
-        Returns ``True`` on success, ``False`` on any failure (cache
-        is **not** wiped on failure — last-known-good is preserved).
-        """
+        """Fetch the full featured list and replace the in-memory cache."""
         if not self.enabled:
             return False
         async with self._lock:
@@ -157,10 +116,7 @@ class HubCatalogCache:
             return True
 
     async def run_refresh_loop(self) -> None:
-        """Background task — refreshes every ``_REFRESH_INTERVAL_S`` seconds.
-
-        Cancellable via ``stop()`` from the lifespan teardown.
-        """
+        """Background task - refreshes every `_REFRESH_INTERVAL_S` seconds."""
         if not self.enabled:
             return
         while not self._stop.is_set():
@@ -185,12 +141,7 @@ class HubCatalogCache:
     def all_sync(self) -> dict[str, CatalogEntry]:
         return dict(self._cache)
 
-
-# ── Module-level singleton ──────────────────────────────────────
-
-
 _INSTANCE: HubCatalogCache | None = None
-
 
 def init(hub_url: str) -> HubCatalogCache:
     """Initialise the module-level singleton (idempotent on the same URL)."""
@@ -200,14 +151,12 @@ def init(hub_url: str) -> HubCatalogCache:
     _INSTANCE = HubCatalogCache(hub_url)
     return _INSTANCE
 
-
 def get() -> HubCatalogCache | None:
-    """Return the singleton, or ``None`` if ``init`` was never called."""
+    """Return the singleton, or `None` if `init` was never called."""
     return _INSTANCE
 
-
 def reset() -> None:
-    """Test hook — drops the singleton."""
+    """Test hook - drops the singleton."""
     global _INSTANCE
     if _INSTANCE is not None:
         _INSTANCE.stop()

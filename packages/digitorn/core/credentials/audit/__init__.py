@@ -1,17 +1,4 @@
-"""Credential audit log.
-
-Append-only ledger of every operation performed on a credential.
-Chained by SHA-256 of the previous row so any tampering breaks the
-chain and is detectable.
-
-Public surface:
-
-    AuditLog                    interface
-    SqlAuditLog                 DB-backed implementation (HistoryLog table extension)
-    AuditAction                 enum of recordable actions
-    AuditOutcome                enum of outcomes
-    LogScrubber                 redacts secret patterns from log lines
-"""
+"""Credential audit log."""
 
 from __future__ import annotations
 

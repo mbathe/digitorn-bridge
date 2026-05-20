@@ -1,23 +1,4 @@
-"""Bridge: convert ``history.record(...)`` calls into ``Event``
-objects and route them to the in-memory ``SessionStore``.
-
-Why a bridge: the daemon already routes every persistence call through
-``digitorn.core.history.record()``. Adding a fan-out hook in that
-function lets every event land in the SessionStore in parallel with
-(or in place of) the legacy ``history_log`` Postgres write path -
-without touching ``agent_loop.py`` or any other call site.
-
-Modes:
-  * ``shadow``   -- write to BOTH backends. Use during transition to
-    diff outputs and validate byte-identical reconstruction.
-  * ``primary``  -- write ONLY to SessionStore. The legacy DB path is
-    skipped entirely. Use after shadow validation passes.
-
-Default mode is ``off`` (no bridge). Operators flip via env var:
-  ``DIGITORN_SESSION_STORE_MODE=off|shadow|primary``
-
-This module has no daemon imports. Tests run standalone.
-"""
+"""Bridge: convert `history.record(...)` calls into `Event`"""
 
 from __future__ import annotations
 
@@ -51,13 +32,7 @@ def resolve_mode_from_env() -> BridgeMode:
 
 
 class SessionStoreBridge:
-    """Converts ``history.record`` kwargs into Event + append_event.
-
-    Caller-facing API mirrors the kwargs of ``digitorn.core.history.record``
-    so the bridge can be invoked from anywhere that already calls
-    ``record()`` -- including the legacy ``history_writer.enqueue``
-    path on shadow mode.
-    """
+    """Converts `history.record` kwargs into Event + append_event."""
 
     def __init__(
         self,
@@ -104,22 +79,7 @@ class SessionStoreBridge:
         message: str = "",
         **_ignored: Any,
     ) -> int | None:
-        """Route a record() call into the SessionStore.
-
-        Returns the seq on success. ``None`` if the row was dropped
-        (no session_id, session not opened, mode=OFF, ...).
-
-        SEQ CONTRACT (locked):
-        If the caller passes ``seq > 0`` it MUST be honored exactly --
-        history seqs are never overridden. This is critical because
-        the wire-level allocator (EventBuffer in session_bus.emit) has
-        already stamped the envelope the client received; if the
-        persisted seq diverges from the wire seq, replay would surface
-        the same event under a different number and the frontend's
-        strict-seq dedup would treat it as a phantom. When ``seq == 0``
-        the SessionStore allocator picks one (internal callers without
-        a wire pipe -- e.g. compaction markers, parent-link bookkeeping).
-        """
+        """Route a record() call into the SessionStore."""
         if self.mode == BridgeMode.OFF:
             return None
 
@@ -129,12 +89,6 @@ class SessionStoreBridge:
 
         state = self._store.state(session_id)
         if state is None:
-            # Auto-open: the daemon's session creation lives in
-            # Postgres, not in the SessionStore. The first history
-            # event for a session is the implicit "session begins"
-            # signal -- open the session lazily so the bridge never
-            # drops legitimate traffic. Idempotent: a duplicate open
-            # for an already-loaded session is a no-op.
             try:
                 state = await self._store.open(
                     session_id,
@@ -153,13 +107,6 @@ class SessionStoreBridge:
                 self.dropped_unopened += 1
                 return None
 
-        # SEQ CONTRACT (locked):
-        # The caller may have already allocated a wire-level seq via
-        # EventBuffer and shipped it to the client. If so, propagate it
-        # into the Event so store.append_event keeps it intact instead
-        # of allocating a parallel one (which would make wire seq and
-        # persisted seq diverge). seq <= 0 means "no caller allocation,
-        # let the store assign one".
         ev = Event(
             type=type,
             seq=int(seq) if seq and seq > 0 else 0,
@@ -203,11 +150,7 @@ _DEFAULT_BRIDGE: "SessionStoreBridge | None" = None
 
 
 def set_default_bridge(bridge: "SessionStoreBridge | None") -> None:
-    """Install the process-wide bridge. ``None`` removes it (returns
-    history.record() to legacy-only behavior).
-
-    Wired at daemon startup once the SessionStore is ready. Tests
-    install a fresh bridge in setUp and remove it in tearDown."""
+    """Install the process-wide bridge. `None` removes it (returns"""
     global _DEFAULT_BRIDGE
     _DEFAULT_BRIDGE = bridge
 

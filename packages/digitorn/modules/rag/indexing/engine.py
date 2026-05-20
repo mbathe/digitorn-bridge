@@ -18,7 +18,6 @@ from .sync import ChangeRecord, SyncStrategy, create_sync
 
 logger = logging.getLogger(__name__)
 
-
 class IndexingEngine:
     """Manages source scanning, incremental indexing, and watcher integration."""
 
@@ -101,8 +100,6 @@ class IndexingEngine:
         if not fp.is_file():
             return []
         return await self._ingest_file(fp)
-
-    # ── Database indexing ─────────────────────────────────────────────
 
     async def index_database_schema(
         self,
@@ -201,8 +198,6 @@ class IndexingEngine:
         )
         return docs
 
-    # ── DB sync polling ───────────────────────────────────────────────
-
     async def setup_db_sync(
         self,
         connection_id: str,
@@ -237,8 +232,6 @@ class IndexingEngine:
             return []
         return await sync.poll(self._bus, connection_id, table_name, columns)
 
-    # ── Watcher event handling ────────────────────────────────────────
-
     async def on_file_changed(
         self, path: str, change_type: str,
     ) -> list[IngestDocument]:
@@ -258,8 +251,6 @@ class IndexingEngine:
         self._content_hashes[str(fp)] = new_hash
         return await self._ingest_file(fp)
 
-    # ── State ─────────────────────────────────────────────────────────
-
     def state_snapshot(self) -> dict[str, Any]:
         db_syncs = {}
         for conn_id, tables in self._db_syncs.items():
@@ -277,8 +268,6 @@ class IndexingEngine:
                 sync = create_sync(sync_data.get("strategy", "updated_at"))
                 sync.restore(sync_data)
                 self._db_syncs[conn_id][table] = sync
-
-    # ── Internals ─────────────────────────────────────────────────────
 
     @staticmethod
     def _hash_file(path: Path) -> str:

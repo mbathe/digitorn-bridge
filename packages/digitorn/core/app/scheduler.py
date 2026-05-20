@@ -1,27 +1,4 @@
-"""SchedulerService - fires due jobs via per-job asyncio tasks.
-
-One instance per daemon process. Persistence lives in JobStore (KV).
-The scheduler keeps an in-memory map of asyncio tasks, one per active
-job, that sleep until the job's ``next_run_at`` and then fire it.
-
-Cron parsing is delegated entirely to ``croniter`` (already a hard
-dependency, no fallback parser).
-
-Architecture
-------------
-- At ``start()``: load all active jobs from JobStore and create one
-  asyncio task per job.
-- ``register_job(job)``: cancel any existing task for this job, then
-  create a fresh task that sleeps until ``next_run_at``.
-- ``_wait_and_fire(job)``: ``asyncio.sleep`` until the target epoch,
-  then call ``_fire_job``. ``_fire_job`` recomputes ``next_run_at``,
-  persists, delivers via channel, and re-schedules the next run by
-  calling ``register_job(job)`` again.
-- ``unregister_job``: cancel the task and remove from the map.
-
-This replaces the previous heap+tick-loop design. The new model is
-~50 lines shorter and behaves identically from the outside.
-"""
+"""SchedulerService - fires due jobs via per-job asyncio tasks."""
 
 from __future__ import annotations
 
@@ -43,12 +20,7 @@ logger = logging.getLogger(__name__)
 
 
 class SchedulerService:
-    """Global scheduler that fires due jobs via per-job asyncio tasks.
-
-    Args:
-        job_store: Persistence layer for jobs.
-        channel_registry: Output channel registry for delivering results.
-    """
+    """Global scheduler that fires due jobs via per-job asyncio tasks."""
 
     def __init__(
         self,
@@ -62,18 +34,12 @@ class SchedulerService:
         self._app_executors: dict[str, Any] = {}
         self._wake_handlers: dict[str, Any] = {}
 
-    # ── Lifecycle ────────────────────────────────────────────────────
 
     async def start(self) -> None:
         """Start the scheduler and spawn one task per active job."""
         if self._running:
             return
         self._running = True
-        # Off-loop: ``list_all_active_jobs`` walks every job JSON under
-        # ``~/.digitorn/sessions/<scope>/jobs/`` with multiple
-        # ``rglob`` / ``read_json`` calls. On a daemon that scheduled a
-        # lot of background jobs this can take 100ms-1s; doing it on
-        # the lifespan loop delays uvicorn's "ready" signal.
         import asyncio as _asyncio
         jobs = await _asyncio.to_thread(self._job_store.list_all_active_jobs)
         for job in jobs:
@@ -95,11 +61,9 @@ class SchedulerService:
         self._tasks.clear()
         logger.info("scheduler_stopped")
 
-    # ── Public API (unchanged) ──────────────────────────────────────
 
     def register_job(self, job: ScheduledJob) -> None:
-        """Add or update a job. Cancels any existing task for this id
-        and spawns a fresh one that fires at ``job.next_run_at``."""
+        """Add or update a job. Cancels any existing task for this id"""
         self._cancel_task(job.app_id, job.job_id)
         self._spawn_task(job)
 
@@ -108,17 +72,11 @@ class SchedulerService:
         self._cancel_task(app_id, job_id)
 
     def register_app_executor(self, app_id: str, executor: Any) -> None:
-        """Register a callback for executing tools within an app.
-
-        ``executor`` must expose an async ``execute(action, params)``
-        method - typically the ContextBuilderModule.
-        """
+        """Register a callback for executing tools within an app."""
         self._app_executors[app_id] = executor
 
     def register_wake_handler(self, app_id: str, handler: Any) -> None:
-        """Register an async ``handler(session_id, message)`` that wakes
-        a session and runs a new agent turn with ``message`` as a system
-        reminder. Used for session-bound reminder jobs."""
+        """Register an async `handler(session_id, message)` that wakes"""
         self._wake_handlers[app_id] = handler
 
     def unregister_wake_handler(self, app_id: str) -> None:
@@ -129,15 +87,7 @@ class SchedulerService:
         self._app_executors.pop(app_id, None)
 
     def cancel_jobs_for_app(self, app_id: str) -> int:
-        """Cancel every running scheduled task that belongs to ``app_id``.
-
-        Without this, undeploying an app leaves its asyncio tasks alive
-        in ``self._tasks`` and they keep firing on schedule. Each fire
-        then tries to call the now-missing executor / wake handler and
-        either no-ops with an error log or wakes the next task at
-        ``next_run_at``, generating a permanent log-spam loop. Returns
-        the number of tasks cancelled.
-        """
+        """Cancel every running scheduled task that belongs to `app_id`."""
         prefix = f"{app_id}:"
         cancelled = 0
         for composite in [k for k in self._tasks.keys() if k.startswith(prefix)]:
@@ -152,7 +102,6 @@ class SchedulerService:
             )
         return cancelled
 
-    # ── Per-job task management ─────────────────────────────────────
 
     def _composite(self, app_id: str, job_id: str) -> str:
         return f"{app_id}:{job_id}"
@@ -181,7 +130,6 @@ class SchedulerService:
             task.cancel()
 
     async def _wait_and_fire(self, job: ScheduledJob, target_epoch: float) -> None:
-        """Sleep until target_epoch, then fire the job once."""
         try:
             delay = max(0.0, target_epoch - time.time())
             if delay:
@@ -189,7 +137,7 @@ class SchedulerService:
             if not self._running:
                 return
             # Re-fetch in case the job was paused or modified while we slept.
-            # Off-loop -- ``get_job`` reads from disk.
+            # Off-loop -- `get_job` reads from disk.
             current = await asyncio.to_thread(
                 self._job_store.get_job, job.app_id, job.job_id,
             )
@@ -204,17 +152,9 @@ class SchedulerService:
                 job.job_id, job.app_id,
             )
 
-    # ── Action execution ────────────────────────────────────────────
 
     async def _fire_job(self, job: ScheduledJob) -> None:
-        """Execute a job's action, persist state, deliver result.
-
-        Persistence is atomic: all state updates (run_count, next_run_at,
-        status, last_*) are computed first, then written in a single KV
-        write BEFORE the result is delivered. If the daemon crashes
-        between fire and persist, the old next_run_at remains and the
-        job re-fires on restart (at-least-once semantics).
-        """
+        """Execute a job's action, persist state, deliver result."""
         now = datetime.now(timezone.utc)
         job.run_count += 1
         job.last_run_at = now.isoformat()
@@ -296,7 +236,6 @@ class SchedulerService:
     async def _execute_tool(
         self, app_id: str, tool_name: str, params: dict[str, Any],
     ) -> tuple[Any, str | None]:
-        """Run a tool call via the app's context_builder executor."""
         executor = self._app_executors.get(app_id)
         if executor is None:
             return None, f"App '{app_id}' not deployed (executor not registered)"
@@ -316,11 +255,7 @@ class SchedulerService:
             return None, str(exc)
 
 
-# ── Helpers (module-level, no state) ─────────────────────────────────
-
-
 def _should_complete(job: ScheduledJob) -> bool:
-    """True if a job has reached its terminal state."""
     if job.schedule_type == "once":
         return True
     if job.max_runs > 0 and job.run_count >= job.max_runs:
@@ -329,7 +264,6 @@ def _should_complete(job: ScheduledJob) -> bool:
 
 
 def _compute_next_run(job: ScheduledJob, now: datetime) -> str | None:
-    """Compute the next run time for a recurring job via croniter."""
     if job.schedule_type == "interval" and job.interval_seconds:
         from datetime import timedelta
         nxt = now + timedelta(seconds=job.interval_seconds)

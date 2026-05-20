@@ -1,21 +1,9 @@
-"""Module layer - Capability Manifest.
-
-A ModuleManifest is the machine-readable contract between a module and the
-rest of the system (LangChain SDK generator, /modules API, IML validator).
-
-It describes:
-  - Module identity and version
-  - Supported platforms
-  - Available actions with their param schemas
-  - Required permission level
-  - Usage examples for LLM few-shot prompting
-"""
+"""Module layer - Capability Manifest."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
-
 
 @dataclass
 class ParamSpec:
@@ -28,7 +16,6 @@ class ParamSpec:
     default: Any = None
     enum: list[Any] | None = None
     example: Any = None
-
 
 @dataclass
 class ActionSpec:
@@ -165,12 +152,7 @@ class ActionSpec:
     )
 
     def to_json_schema(self) -> dict[str, Any]:
-        """Generate a JSONSchema dict for the params of this action.
-
-        When ``input_schema`` is set (auto-generated from a Pydantic
-        ``params_model``), it is returned directly - richer and more
-        accurate than hand-built ``ParamSpec`` lists.
-        """
+        """Generate a JSONSchema dict for the params of this action."""
         if self.input_schema is not None:
             return self.input_schema
 
@@ -208,21 +190,9 @@ class ActionSpec:
             "parameters": self.to_json_schema(),
         }
 
-
 @dataclass
 class Capability:
-    """Structured permission/capability with scope and constraints.
-
-    Extends plain string permissions with rich metadata for fine-grained
-    access control.  Plain strings are still supported - ``Capability``
-    adds scope and constraints for modules that need them.
-
-    Examples::
-
-        Capability("filesystem.write", scope="sandbox_only")
-        Capability("network.send", constraints={"allowed_hosts": ["api.example.com"]})
-        Capability("database.write", scope="schema_only", constraints={"tables": ["users"]})
-    """
+    """Structured permission/capability with scope and constraints."""
 
     permission: str
     scope: str = ""
@@ -250,26 +220,9 @@ class Capability:
             constraints=data.get("constraints", {}),
         )
 
-
 @dataclass
 class ConstraintSpec:
-    """Declaration of a constraint a module supports.
-
-    Modules declare which constraints they understand so the runtime knows
-    what to pass and the YAML compiler can validate app definitions.
-
-    Scope:
-      - ``"universal"`` - enforced by the runtime *before* calling the module
-        (e.g. ``paths``, ``rate_limit_per_minute``).
-      - ``"module"`` - enforced by the module itself (e.g. ``max_file_size``).
-
-    Example YAML (app definition)::
-
-        - module: filesystem
-          constraints:
-            paths: ["{{workspace}}"]
-            max_file_size: "50MB"
-    """
+    """Declaration of a constraint a module supports."""
 
     name: str
     type: str
@@ -291,19 +244,13 @@ class ConstraintSpec:
             d["applies_to"] = self.applies_to
         return d
 
-
 @dataclass
 class ServiceDescriptor:
-    """Description of a service provided by a module.
-
-    Used in the manifest to declare what services a module exposes
-    on the ServiceBus for inter-module communication.
-    """
+    """Description of a service provided by a module."""
 
     name: str
     methods: list[str] = field(default_factory=list)
     description: str = ""
-
 
 @dataclass
 class ResourceLimits:
@@ -314,7 +261,6 @@ class ResourceLimits:
     max_execution_seconds: float = 0.0
     max_concurrent_actions: int = 0
 
-
 @dataclass
 class ModuleSignature:
     """Ed25519 cryptographic signature of a module package."""
@@ -324,30 +270,9 @@ class ModuleSignature:
     signed_hash: str
     signed_at: str = ""
 
-
 @dataclass
 class ModuleManifest:
-    """Complete capability manifest for a module.
-
-    The ``declared_permissions`` field is part of the plugin security model.
-    Modules declare the OS-level or system capabilities they require, so the
-    PermissionGuard can enforce them at the platform level before loading.
-
-    Standard permission strings:
-      - ``"filesystem_read"``   - read access to the filesystem
-      - ``"filesystem_write"``  - write/delete access to the filesystem
-      - ``"process_execute"``   - ability to spawn subprocesses
-      - ``"process_kill"``      - ability to terminate processes
-      - ``"network_access"``    - outbound HTTP/HTTPS connections
-      - ``"screen_capture"``    - screenshot / display access
-      - ``"gpio_access"``       - GPIO hardware access (IoT/Raspberry Pi)
-      - ``"database_access"``   - database read/write
-      - ``"display_automation"``- GUI automation (keyboard/mouse injection)
-      - ``"browser_control"``   - headless browser automation
-
-    Community modules may declare custom strings prefixed with their module_id,
-    e.g. ``"mymodule:cloud_sync"``.
-    """
+    """Complete capability manifest for a module."""
 
     module_id: str
     version: str
@@ -403,29 +328,9 @@ class ModuleManifest:
         },
     )
 
-
     @classmethod
     def from_module(cls, module: "Any") -> "ModuleManifest":
-        """Build a ``ModuleManifest`` from a ``BaseModule`` instance.
-
-        **DRY entry point** - instead of manually listing every action's
-        ``ActionSpec`` in ``get_manifest()``, use this factory and only
-        override metadata (description, author, tags) via ``model_copy()``:
-
-        .. code-block:: python
-
-            def get_manifest(self) -> ModuleManifest:
-                return ModuleManifest.from_module(self).model_copy(update={
-                    "description": "File and directory operations",
-                    "author": "LLMOS Core Team",
-                    "tags": ["core", "io"],
-                })
-
-        Priority order for action discovery:
-        1.  ``_action_registry`` attribute (populated by ``@action`` decorator)
-        2.  ``_dynamic_specs`` (runtime-registered specs)
-        3.  ``_action_*`` method scanning (fallback for undecorated modules)
-        """
+        """Build a `ModuleManifest` from a `BaseModule` instance."""
         registry: dict[str, Any] = getattr(module, "_action_registry", {})
         if registry:
             actions = []
@@ -473,12 +378,7 @@ class ModuleManifest:
         )
 
     def model_copy(self, *, update: "dict[str, Any] | None" = None) -> "ModuleManifest":
-        """Return a shallow copy of this manifest with optional field overrides.
-
-        Mirrors the Pydantic v2 ``model_copy(update={...})`` API so the
-        doc examples work regardless of whether manifests are dataclasses
-        or Pydantic models.
-        """
+        """Return a shallow copy of this manifest with optional field overrides."""
         import dataclasses as _dc
         copy = _dc.replace(self)
         if update:
@@ -557,7 +457,6 @@ class ModuleManifest:
 
     @staticmethod
     def _action_to_dict(a: ActionSpec) -> dict[str, Any]:
-        """Serialise an ActionSpec to a dict, including v3 fields when non-default."""
         d: dict[str, Any] = {
             "name": a.name,
             "description": a.description,

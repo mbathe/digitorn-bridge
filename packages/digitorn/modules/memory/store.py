@@ -1,14 +1,11 @@
-"""Memory Store - persistent storage for all memory layers.
-
-Each layer has its own data structure but shares a common storage
-backend (in-memory dict for standalone, SQLite for daemon).
-
-The store is the single source of truth. The module reads from it,
-the hooks write to it, the context_builder renders it.
-"""
+"""Memory Store - persistent storage for all memory layers."""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 import hashlib
 import json
 import time
@@ -16,13 +13,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-
 class TodoStatus(str, Enum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     DONE = "done"
     BLOCKED = "blocked"
-
 
 @dataclass
 class TodoItem:
@@ -43,7 +38,6 @@ class TodoItem:
             "parent_id": self.parent_id,
         }
 
-
 @dataclass
 class Note:
     """A sticky note -- something the agent promised itself to do."""
@@ -51,7 +45,6 @@ class Note:
     content: str
     resolved: bool = False
     created_at: float = field(default_factory=time.monotonic)
-
 
 @dataclass
 class Checkpoint:
@@ -62,14 +55,9 @@ class Checkpoint:
     next_steps: str
     created_at: float = field(default_factory=time.monotonic)
 
-
 @dataclass
 class WorkingMemory:
-    """The agent's active cognitive workspace.
-
-    Always injected into the system prompt. Survives compaction.
-    This is what makes the agent 'conscious' of its situation.
-    """
+    """The agent's active cognitive workspace."""
 
     original_request: str = ""
 
@@ -183,7 +171,6 @@ class WorkingMemory:
         }
 
     def _current_status(self) -> str | None:
-        """Build a status line showing where the agent is in its work."""
         for item in self.todos:
             if item.status == TodoStatus.IN_PROGRESS:
                 return f"In progress: {item.content} [{item.id}]"
@@ -285,7 +272,6 @@ class WorkingMemory:
 
         return "\n".join(parts)
 
-
 @dataclass
 class CachedContent:
     """Cached file content for O(1) access."""
@@ -302,7 +288,6 @@ class CachedContent:
 
     def is_fresh(self, ttl: float = 60.0) -> bool:
         return (time.monotonic() - self.cached_at) < ttl
-
 
 @dataclass
 class Episode:
@@ -327,7 +312,6 @@ class Episode:
             "outcome": self.outcome,
         }
 
-
 @dataclass
 class SemanticFact:
     """A single fact with embedding for semantic search."""
@@ -350,7 +334,6 @@ class SemanticFact:
             "source": self.source,
         }
 
-
 @dataclass
 class GraphEdge:
     """A relationship between two entities."""
@@ -359,7 +342,6 @@ class GraphEdge:
     target: str
     properties: dict[str, Any] = field(default_factory=dict)
     created_at: float = field(default_factory=time.monotonic)
-
 
 @dataclass
 class SemanticMemory:
@@ -372,20 +354,13 @@ class SemanticMemory:
         self, content: str, category: str = "", importance: float = 1.0,
         source: str = "extracted",
     ) -> SemanticFact:
-        # BUG-007: the public-facing system prompt promises "duplicates
-        # are auto-detected and skipped" but the old add_fact blindly
-        # appended, producing f1..f7 copies of the same sentence. Run
-        # a case/whitespace-normalised equality check first and, on a
-        # match, bump the existing fact's importance rather than
-        # cloning it - net behaviour matches what the prompt advertises.
+        # Deduplicate case/whitespace-insensitively; bump importance on re-mention.
         needle = (content or "").strip().lower()
         if needle:
             for existing in self.facts:
                 if existing.superseded_by:
                     continue
                 if existing.content.strip().lower() == needle:
-                    # Reinforce importance on re-mention (capped at 10
-                    # so a pathological loop can't inflate it forever).
                     existing.importance = min(10.0, existing.importance + 0.1)
                     if category and not existing.category:
                         existing.category = category
@@ -429,7 +404,6 @@ class SemanticMemory:
             if e in edge.source.lower() or e in edge.target.lower()
         ]
 
-
 @dataclass
 class Procedure:
     """A learned pattern from past sessions."""
@@ -449,7 +423,6 @@ class Procedure:
             "success_rate": self.success_rate,
             "times_used": self.times_used,
         }
-
 
 @dataclass
 class MemoryConfig:
@@ -506,21 +479,8 @@ class MemoryConfig:
             self.runtime_goal_guardian, self.runtime_background_extraction,
         ])
 
-
 class MemoryStore:
-    """Unified container for all memory layers, scoped by session.
-
-    Memory isolation:
-    - **Per-session** (private): working memory, todos, episodic, content cache
-    - **Per-app** (shared): semantic facts, graph, procedural patterns
-
-    Each session gets its own working memory so users don't see
-    each other's goals/plans/progress. Semantic knowledge and
-    learned patterns are shared because they represent facts about
-    the project, not about a specific conversation.
-
-    The module manages multiple session stores via ``get_session_store()``.
-    """
+    """Unified container for all memory layers, scoped by session."""
 
     def __init__(self, config: MemoryConfig | None = None) -> None:
         self.config = config or MemoryConfig()
@@ -535,11 +495,7 @@ class MemoryStore:
         self.app_id: str | None = None
 
     def render_full_snapshot(self) -> str:
-        """Render ALL active memory layers as a single text block.
-
-        This is the 'open file and see everything' view.
-        The agent sees this in one shot - no queries needed.
-        """
+        """Render ALL active memory layers as a single text block."""
         sections: list[str] = []
 
         sections.append("═══ MEMORY ═══")
@@ -644,11 +600,8 @@ class MemoryStore:
                 importance=ep_data.get("importance", 0.5),
             ))
 
-        # Dedup on restore: the KV value can accumulate duplicates when
-        # multiple daemon instances / sessions persist before a full
-        # restart. Without this check, `semantic.facts` grew unbounded
-        # with the same string repeated 5–7x (the `remember` action's
-        # dedup was evaded at the restore boundary).
+        # Dedup at restore: `semantic.facts` would otherwise grow
+        # unbounded across multi-instance writes before a restart.
         existing_contents = {
             (f.content or "").strip().lower()
             for f in self.semantic.facts
@@ -668,15 +621,7 @@ class MemoryStore:
             ))
 
     def persist(self, backend: Any, app_id: str, session_id: str, user_id: str = "") -> None:
-        """Save long-term memory (facts, episodes, procedures) to a KV backend.
-
-        Working memory (goal, plan, todos) is session-specific and NOT persisted.
-        Only cross-session knowledge is saved: key_facts, episodes, semantic, procedures.
-
-        Scoped by user_id to prevent cross-user leakage on shared apps
-        (without the user_id segment, every user of digitorn-chat saw
-        every other user's accumulated facts).
-        """
+        """Save long-term memory (facts, episodes, procedures) to a KV backend."""
         key = self._memory_key(app_id, user_id)
         data = {
             "key_facts": self.working.key_facts,
@@ -694,26 +639,12 @@ class MemoryStore:
 
     @staticmethod
     def _memory_key(app_id: str, user_id: str = "") -> str:
-        """KV key for long-term memory. Per-user when a user_id is known,
-        per-app as a last resort (single-tenant dev / pre-auth daemons)."""
         if user_id:
             return f"memory:{app_id}:{user_id}:long_term"
         return f"memory:{app_id}:long_term"
 
     def restore(self, backend: Any, app_id: str, user_id: str = "") -> int:
-        """Load long-term memory from a KV backend. Returns count of facts restored.
-
-        Called at session start to give the agent context from previous sessions.
-
-        Migration: when a user-scoped key is missing and a legacy
-        app-scoped key exists, we copy the legacy data into the user's
-        new key AND delete the legacy entry. Single-tenant daemons
-        that pre-date the user-scope fix get their facts migrated
-        exactly once, on first read. In multi-tenant deployments the
-        legacy key may be ambiguous (whose memory was it?); the first
-        user to open the app inherits it, which matches the old
-        "everyone shares" behaviour but only for that one user.
-        """
+        """Load long-term memory from a KV backend. Returns count of facts restored."""
         key = self._memory_key(app_id, user_id)
         raw = backend.get(key)
         migrated_from_legacy = False
@@ -723,14 +654,11 @@ class MemoryStore:
             if raw:
                 try:
                     backend.set(key, raw, expire=86400 * 90)
-                    # Don't delete legacy yet - other users on the same
-                    # daemon may still need to migrate. Let the first
-                    # per-user write overwrite the user-scoped key via
-                    # normal persist. The legacy key can be cleared
-                    # manually or via a future migration tool.
+                    # Keep the legacy key so other users can still
+                    # migrate; the first per-user persist supersedes it.
                     migrated_from_legacy = True
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("store best-effort block failed: %s", exc)
         if not raw:
             return 0
 

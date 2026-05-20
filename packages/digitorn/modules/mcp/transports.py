@@ -1,20 +1,4 @@
-"""MCP transports - backed by the official MCP Python SDK.
-
-Wraps the SDK's transport context managers (stdio_client, sse_client,
-streamable_http_client) and ClientSession to provide long-lived
-connections for the MCPConnectionPool.
-
-Each transport exposes the same interface:
-
-    await transport.connect()
-    response = await transport.send("tools/list", {})
-    await transport.close()
-
-For stdio/SSE: uses AsyncExitStack to hold context managers open.
-For streamable_http: runs a background task that holds the context
-managers open (required because the SDK uses anyio task groups
-internally that don't work with AsyncExitStack).
-"""
+"""MCP transports - backed by the official MCP Python SDK."""
 
 from __future__ import annotations
 
@@ -29,14 +13,7 @@ from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
-
 def _format_missing_command(command: str) -> str:
-    """Build a clear, OS-specific error when an MCP server's command is missing.
-
-    Special-cases the lazy runtime tools (``uvx``, ``pipx``, ``npx``) with
-    actionable install instructions per platform. Falls back to a generic
-    "not found" message for arbitrary binaries.
-    """
     if not command:
         return "Command not found (empty)."
 
@@ -88,7 +65,6 @@ def _format_missing_command(command: str) -> str:
         f"and restart the daemon so it picks up the new PATH."
     )
 
-
 @runtime_checkable
 class MCPTransport(Protocol):
     """Protocol for MCP server communication."""
@@ -108,15 +84,8 @@ class MCPTransport(Protocol):
     @property
     def connected(self) -> bool: ...
 
-
 class MCPTransportError(Exception):
-    """Raised when an MCP transport operation fails.
-
-    Attributes:
-        code: JSON-RPC error code, or HTTP status code.
-        retryable: If True, the error may be resolved by reconnecting.
-            False for client errors (4xx, bad params, etc.).
-    """
+    """Raised when an MCP transport operation fails."""
 
     def __init__(
         self,
@@ -131,18 +100,14 @@ class MCPTransportError(Exception):
         self.data = data
         self.retryable = retryable
 
-
 def _session_result_to_dict(result: Any) -> dict[str, Any]:
-    """Convert an SDK Pydantic result to a raw dict."""
     if hasattr(result, "model_dump"):
         return result.model_dump(by_alias=True, exclude_none=True)
     if isinstance(result, dict):
         return result
     return {}
 
-
 def _extract_server_meta(init_result: Any) -> tuple[dict, dict]:
-    """Extract serverInfo and capabilities from InitializeResult."""
     server_info: dict[str, Any] = {}
     capabilities: dict[str, Any] = {}
     if hasattr(init_result, "serverInfo") and init_result.serverInfo:
@@ -155,28 +120,13 @@ def _extract_server_meta(init_result: Any) -> tuple[dict, dict]:
         )
     return server_info, capabilities
 
-
 def _unwrap_exception_group(exc: BaseException) -> BaseException:
-    """Walk a BaseExceptionGroup tree to the first leaf exception.
-
-    The MCP SDK runs streamable_http inside an anyio task group; any
-    HTTPStatusError therefore reaches us wrapped as an ExceptionGroup
-    whose ``str()`` is the useless "unhandled errors in a TaskGroup".
-    """
     cur: BaseException = exc
     while isinstance(cur, BaseExceptionGroup) and cur.exceptions:
         cur = cur.exceptions[0]
     return cur
 
-
 def _http_status(exc: BaseException) -> int | None:
-    """Return the HTTP status code on *exc* if any (handles httpx + wrappers).
-
-    Special-cases the MCP SDK's "Session terminated" pseudo-error: the SDK
-    raises it when the server returned **HTTP 404** to a JSON-RPC POST
-    (see ``mcp/client/streamable_http.py::_handle_post_request``). We
-    surface that as a real 404 so the higher layers can react accordingly.
-    """
     resp = getattr(exc, "response", None)
     if resp is not None and hasattr(resp, "status_code"):
         return int(resp.status_code)
@@ -187,9 +137,7 @@ def _http_status(exc: BaseException) -> int | None:
         return 404
     return None
 
-
 def _format_http_error(exc: BaseException, url: str, status: int | None) -> str:
-    """Build a single-line, user-readable message for an HTTP transport failure."""
     if status == 401:
         return (
             f"HTTP 401 Unauthorized at {url} - "
@@ -212,9 +160,7 @@ def _format_http_error(exc: BaseException, url: str, status: int | None) -> str:
         return f"HTTP {status} at {url}: {exc}"
     return f"Failed to connect HTTP server at {url}: {exc}"
 
-
 def _is_retryable_error(exc: BaseException) -> bool:
-    """Return True if *exc* indicates a transient failure worth retrying."""
     exc = _unwrap_exception_group(exc)
     # Network / timeout errors are always retryable
     if isinstance(exc, (ConnectionError, TimeoutError, asyncio.TimeoutError)):
@@ -236,17 +182,11 @@ def _is_retryable_error(exc: BaseException) -> bool:
         return status == 429 or status == 408 or status >= 500
     return False
 
-
 async def _route_send(
     session: Any,
     method: str,
     params: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Route a raw method+params call to the appropriate ClientSession method.
-
-    Returns the result as a raw dict for backward compatibility with
-    our protocol.py parsing functions (parse_tools_list, etc.).
-    """
     from mcp.shared.exceptions import McpError
 
     try:
@@ -289,19 +229,8 @@ async def _route_send(
             retryable=False,
         ) from exc
 
-
 class StdioTransport:
-    """Runs an MCP server as a subprocess via the SDK's stdio_client.
-
-    Args:
-        command: The command to run (e.g. "npx", "python", "node").
-        args: Arguments for the command.
-        env: Extra environment variables for the subprocess.
-            Merged on top of safe defaults (PATH, HOME, etc.).
-        cwd: Working directory for the subprocess.
-        timeout: Default timeout for requests (seconds).
-        buffer_size: Ignored (kept for API compat; SDK manages its own IO).
-    """
+    """Runs an MCP server as a subprocess via the SDK's stdio_client."""
 
     def __init__(
         self,
@@ -337,11 +266,7 @@ class StdioTransport:
         return self._server_capabilities
 
     async def connect(self) -> None:
-        """Start subprocess and perform MCP handshake via SDK.
-
-        Wraps the entire connect sequence with a timeout to prevent
-        hanging indefinitely if the subprocess never initializes.
-        """
+        """Start subprocess and perform MCP handshake via SDK."""
         if self._connected:
             return
 
@@ -431,20 +356,6 @@ class StdioTransport:
             self._exit_stack = None
 
     def _build_env(self) -> dict[str, str]:
-        """Build a safe environment for the subprocess.
-
-        Uses the centralized ``build_safe_env()`` from the MCP security
-        module, which:
-        - Starts from a strict allowlist of safe OS env vars
-        - Blocks dangerous keys (DIGITORN_SECRET_KEY, DATABASE_URL, etc.)
-          even if explicitly passed in YAML config
-        - Logs warnings for blocked keys
-
-        Then injects the daemon's NodeRuntime bin dir into PATH so that
-        Node-based MCP servers (node/npx) resolve to the runtime the
-        daemon manages, whether it came from the system, a version
-        manager, or the auto-installed LTS under ~/.digitorn/runtimes/.
-        """
         from digitorn.modules.mcp.security import build_safe_env
 
         env = build_safe_env(self._env)
@@ -470,15 +381,8 @@ class StdioTransport:
 
         return env
 
-
 class SSETransport:
-    """Connects to an MCP server via HTTP SSE using the SDK's sse_client.
-
-    Args:
-        url: The SSE endpoint URL.
-        headers: Extra HTTP headers.
-        timeout: Default request timeout.
-    """
+    """Connects to an MCP server via HTTP SSE using the SDK's sse_client."""
 
     def __init__(
         self,
@@ -577,20 +481,8 @@ class SSETransport:
                 await self._exit_stack.aclose()
             self._exit_stack = None
 
-
 class StreamableHTTPTransport:
-    """HTTP POST transport using the SDK's streamable_http_client.
-
-    The SDK's streamable_http_client uses anyio task groups internally,
-    which require structured concurrency. To hold the connection open
-    for the pool's lifetime, we run a background asyncio task that
-    holds all context managers open and processes requests via a queue.
-
-    Args:
-        url: The MCP server HTTP endpoint.
-        headers: Extra HTTP headers.
-        timeout: Default request timeout.
-    """
+    """HTTP POST transport using the SDK's streamable_http_client."""
 
     def __init__(
         self,
@@ -646,7 +538,6 @@ class StreamableHTTPTransport:
             ) from exc
 
     async def _connection_loop(self) -> None:
-        """Background task that holds SDK context managers open."""
         from mcp.client.session import ClientSession
         from mcp.client.streamable_http import streamable_http_client
 
@@ -747,29 +638,17 @@ class StreamableHTTPTransport:
                     await self._bg_task
             self._bg_task = None
 
-
 _NON_PYTHON_COMMANDS = frozenset({
     "node", "npx", "bun", "bunx", "deno", "docker", "podman",
 })
 
-
 def _is_python_command(command: str) -> bool:
-    """Check if *command* itself is a Python interpreter."""
     import os
 
     base = os.path.basename(command)
     return base == "python" or base.startswith("python3")
 
-
 def _is_python_script(command: str) -> bool:
-    """Check if an entry-point script is backed by Python.
-
-    Uses two heuristics:
-    1. Shebang contains "python"
-    2. File contains a Python import pattern (covers scripts without shebangs)
-
-    Returns False for commands that can't be resolved or read.
-    """
     import shutil
 
     path = shutil.which(command)
@@ -797,19 +676,9 @@ def _is_python_script(command: str) -> bool:
 
     return False
 
-
 def _wrap_with_sdk_fix(
     command: str, args: list[str],
 ) -> tuple[str, list[str]]:
-    """Wrap a Python MCP server command with the SDK fix wrapper.
-
-    The wrapper patches the MCP SDK's ``pre_parse_json`` to fix handling
-    of ``Optional[str]`` parameters (the SDK incorrectly auto-parses JSON
-    string values into dicts, breaking servers that expect string params).
-
-    Only wraps Python-based commands.  Non-Python commands (node, npx,
-    docker, etc.) are returned unchanged.
-    """
     import os
 
     if "sdk_fix_wrapper" in command or (
@@ -835,7 +704,6 @@ def _wrap_with_sdk_fix(
 
     return command, args
 
-
 def create_transport(
     transport_type: str,
     *,
@@ -848,19 +716,7 @@ def create_transport(
     timeout: float = 30.0,
     buffer_size: int | None = None,
 ) -> MCPTransport:
-    """Create a transport instance by type.
-
-    Args:
-        transport_type: "stdio", "sse", or "streamable_http".
-        command: Command to run (stdio only).
-        args: Command arguments (stdio only).
-        env: Environment variables (stdio only).
-        url: Server URL (sse/http only).
-        headers: HTTP headers (sse/http only).
-        cwd: Working directory (stdio only).
-        timeout: Request timeout.
-        buffer_size: Ignored (kept for API compat).
-    """
+    """Create a transport instance by type."""
     if transport_type == "stdio":
         if not command:
             raise ValueError("StdioTransport requires 'command'")

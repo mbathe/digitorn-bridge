@@ -1,9 +1,4 @@
-"""Slash command registry and handlers for the Digitorn CLI.
-
-All slash commands (``/help``, ``/tools``, ``/tasks``, etc.) are defined here.
-Handlers receive a :class:`CLISession` and work identically in standalone and
-daemon modes.
-"""
+"""Slash command registry and handlers for the Digitorn CLI."""
 
 from __future__ import annotations
 
@@ -62,11 +57,7 @@ class SlashCommandRegistry:
         return sorted(names)
 
     def dispatch(self, line: str, session: CLISession, console: Console) -> bool:
-        """Parse and dispatch a slash command line.
-
-        Returns True if the line was handled, False if not a valid command.
-        Raises QuitSignal for /quit.
-        """
+        """Parse and dispatch a slash command line."""
         parts = line.strip().split(None, 2)
         if not parts:
             return False
@@ -603,11 +594,7 @@ def _cmd_model(session: CLISession, args: str, console: Console) -> None:
 
 
 def _cmd_connect(session: CLISession, args: str, console: Console) -> None:
-    """Handle /connect [server_id] - trigger OAuth flow for an MCP server.
-
-    Without arguments: lists servers that need OAuth.
-    With a server_id: starts the OAuth flow for that server.
-    """
+    """Handle /connect [server_id] - trigger OAuth flow for an MCP server."""
     import asyncio
     import logging
 
@@ -1062,9 +1049,6 @@ def _disconnect_standalone(
     )
 
 
-# ── /cost ─────────────────────────────────────────────────────────
-
-
 def _cmd_memory(session: CLISession, args: str, console: Console) -> None:
     """Show agent memory: facts, goals, todos, episodes."""
     import asyncio
@@ -1187,9 +1171,6 @@ def _cmd_cost(session: CLISession, args: str, console: Console) -> None:
     console.print()
 
 
-# ── /diff ─────────────────────────────────────────────────────────
-
-
 def _cmd_diff(session: CLISession, args: str, console: Console) -> None:
     """Show all file changes (git diff + file checkpoints)."""
     import asyncio
@@ -1225,9 +1206,6 @@ async def _async_tool(session: CLISession, tool_name: str, params: dict[str, Any
     if cb is None:
         return {}
     return await cb.execute(tool_name.replace(".", "__"), params)
-
-
-# ── /doctor ───────────────────────────────────────────────────────
 
 
 def _cmd_doctor(session: CLISession, args: str, console: Console) -> None:
@@ -1276,9 +1254,6 @@ def _cmd_doctor(session: CLISession, args: str, console: Console) -> None:
     console.print(f"  [{color}]{icon}[/{color}] Context: {pct:.0f}% used")
 
     console.print()
-
-
-# ── /rewind ───────────────────────────────────────────────────────
 
 
 def _cmd_rewind(session: CLISession, args: str, console: Console) -> None:

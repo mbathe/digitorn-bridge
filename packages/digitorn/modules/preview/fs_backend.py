@@ -1,21 +1,4 @@
-"""Filesystem persistence for preview state - the single source of truth.
-
-Every session has a directory under
-``{workspace}/.digitorn/sessions/{session_id}/`` that holds the
-canonical snapshot of its preview state. Copying the workspace dir
-exports the session wholesale (cross-machine migration, git-trackable).
-
-Atomic writes: state is serialised to ``state.json.tmp`` then renamed
-to ``state.json``. On POSIX rename is atomic; on Windows os.replace is
-atomic since 3.3.
-
-Layout:
-    {workspace}/.digitorn/sessions/{sid}/
-        state.json          - {app_id, user_id, state, resources, saved_at}
-        baselines/<path>    - last-approved version of a workspace file
-        baselines/<path>.history/_index.json
-                            - revision log for that file
-"""
+"""Filesystem persistence for preview state - the single source of truth."""
 
 from __future__ import annotations
 
@@ -27,13 +10,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
 def session_dir(workspace: str, session_id: str) -> Path:
-    """Return ``{workspace}/.digitorn/sessions/{sid}/``, creating parents."""
+    """Return `{workspace}/.digitorn/sessions/{sid}/`, creating parents."""
     p = Path(workspace).expanduser() / ".digitorn" / "sessions" / session_id
     p.mkdir(parents=True, exist_ok=True)
     return p
-
 
 def baseline_path(workspace: str, session_id: str, rel_path: str) -> Path:
     """Path of the baseline (last-approved version) of a workspace file."""
@@ -42,7 +23,6 @@ def baseline_path(workspace: str, session_id: str, rel_path: str) -> Path:
     target = base / rel_path.lstrip("/")
     target.parent.mkdir(parents=True, exist_ok=True)
     return target
-
 
 def write_snapshot(
     workspace: str,
@@ -54,13 +34,7 @@ def write_snapshot(
     resources: dict[str, dict[str, Any]],
     saved_at: str,
 ) -> None:
-    """Atomically write the snapshot to ``state.json`` under the session dir.
-
-    No ``seq`` field - preview events derive their ordering key from
-    the ``SessionBus`` envelope seq stored in ``history_log``, not
-    from a per-state-file counter. The state.json is just "current
-    state at flush time", not a timestamped log.
-    """
+    """Atomically write the snapshot to `state.json` under the session dir."""
     sd = session_dir(workspace, session_id)
     payload = {
         "format": "digitorn.workspace.snapshot",
@@ -77,19 +51,10 @@ def write_snapshot(
     tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, final)
 
-
 _KNOWN_VERSIONS: frozenset[int] = frozenset({1, 2})
 
-
 def read_snapshot(workspace: str, session_id: str) -> dict[str, Any] | None:
-    """Return the persisted snapshot dict, or None if missing / unreadable.
-
-    Forward-tolerant: a v1 file (carries the deprecated ``seq`` field)
-    is read as-is and the caller's ``restore_from_dict`` ignores
-    fields it does not recognise. Files with an unknown ``version`` are
-    still returned but log a warning so a stale daemon notices it is
-    reading data it does not fully understand.
-    """
+    """Return the persisted snapshot dict, or None if missing / unreadable."""
     try:
         sd = Path(workspace).expanduser() / ".digitorn" / "sessions" / session_id
         f = sd / "state.json"
@@ -115,7 +80,6 @@ def read_snapshot(workspace: str, session_id: str) -> dict[str, Any] | None:
         logger.warning("fs_backend_read_failed sid=%s: %s", session_id, exc)
         return None
 
-
 def write_baseline(
     workspace: str,
     session_id: str,
@@ -127,18 +91,7 @@ def write_baseline(
     deletions: int = 0,
     record_in_history: bool = True,
 ) -> None:
-    """Store the baseline (last-approved) version of a workspace file.
-
-    Also appends a revision entry to ``{baseline}.history/_index.json`` -
-    lets the client answer "when was this file last approved?" / "how
-    many revisions since session start?". Revision bodies land beside
-    the index for diff-between-revisions support.
-
-    Pass ``record_in_history=False`` for synthetic baselines (e.g.
-    auto-snapshot on first agent touch) - they still pin the baseline
-    so future diffs work, but they don't pollute the user-visible
-    history view with implementation-detail entries.
-    """
+    """Store the baseline (last-approved) version of a workspace file."""
     import time as _time
     p = baseline_path(workspace, session_id, rel_path)
     p.write_text(content, encoding="utf-8")
@@ -168,16 +121,7 @@ def write_baseline(
     except Exception as exc:
         logger.debug("baseline_history_write_failed path=%s: %s", rel_path, exc)
 
-
 def _read_history_index(idx_path: Path) -> list[dict[str, Any]]:
-    """Read a baseline history ``_index.json``, recovering from corruption.
-
-    Silent-reset on parse failure caused real users to lose their entire
-    edit history (single-character disk corruption wiped 100 revisions).
-    Now we back the malformed file up to ``_index.json.corrupt-<ts>``
-    and log a WARNING so the caller is aware data was salvaged out of
-    the active path.
-    """
     if not idx_path.is_file():
         return []
     try:
@@ -188,8 +132,8 @@ def _read_history_index(idx_path: Path) -> list[dict[str, Any]]:
         backup = idx_path.with_suffix(f".json.corrupt-{int(_time.time())}")
         try:
             os.replace(idx_path, backup)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("fs_backend best-effort block failed: %s", exc)
         logger.warning(
             "baseline_history_index_corrupted path=%s backup=%s err=%s - "
             "starting fresh history; previous file preserved at backup",
@@ -197,20 +141,10 @@ def _read_history_index(idx_path: Path) -> list[dict[str, Any]]:
         )
         return []
 
-
 def has_user_approval(
     workspace: str, session_id: str, rel_path: str,
 ) -> bool:
-    """Return True iff the baseline was set at least once by an explicit
-    user/auto approval (not just our internal session-start snapshot).
-
-    Lets ``reject_file`` distinguish "the user actually approved this"
-    (in which case reject = revert to baseline) from "we just auto-
-    snapshotted on first touch and the user has never approved"
-    (in which case reject = delete the file entirely, which matches
-    the user's mental model: a brand-new file they didn't ratify
-    should not survive a reject).
-    """
+    """Return True iff the baseline was set at least once by an explicit."""
     try:
         hist_dir = baseline_path(workspace, session_id, rel_path).with_name(
             baseline_path(workspace, session_id, rel_path).name + ".history",
@@ -225,17 +159,8 @@ def has_user_approval(
     except Exception:
         return False
 
-
 def read_baseline(workspace: str, session_id: str, rel_path: str) -> str | None:
-    """Return the baseline content of a file, or None if no baseline yet.
-
-    Defends against silent disk corruption: if ``_index.json`` records
-    a known byte length for the latest revision and the on-disk file
-    no longer matches, return ``None`` rather than the truncated
-    content. Otherwise diff comparisons against a half-written
-    baseline produce nonsense pending counters and a future approve
-    cements the corruption.
-    """
+    """Return the baseline content of a file, or None if no baseline yet."""
     try:
         base = Path(workspace).expanduser() / ".digitorn" / "sessions" / session_id / "baselines"
         p = base / rel_path.lstrip("/")
@@ -258,13 +183,11 @@ def read_baseline(workspace: str, session_id: str, rel_path: str) -> str | None:
                                 rel_path, expected, actual,
                             )
                             return None
-        except Exception:
-            # Best-effort check; never block the read on a stat failure.
-            pass
+        except Exception as exc:
+            logger.debug("fs_backend best-effort block failed: %s", exc)
         return content
     except Exception:
         return None
-
 
 def delete_baseline(workspace: str, session_id: str, rel_path: str) -> None:
     """Remove a file's baseline (used on rejection when the file was added)."""
@@ -272,5 +195,5 @@ def delete_baseline(workspace: str, session_id: str, rel_path: str) -> None:
         p = Path(workspace).expanduser() / ".digitorn" / "sessions" / session_id / "baselines" / rel_path.lstrip("/")
         if p.is_file():
             p.unlink()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("fs_backend best-effort block failed: %s", exc)

@@ -1,14 +1,4 @@
-"""Content-addressed blob storage for multimedia attachments.
-
-Each blob is stored under ``<root>/<bucket>/<hash>/`` where ``bucket``
-is a 2-char hex prefix of the sha256. With 256 buckets and uniform
-hash distribution, no single directory holds more than ``total / 256``
-entries even at millions of blobs.
-
-Same content = same hash = stored ONCE. Two sessions sending the same
-image dedupe naturally. Ref-counting in meta.json tracks orphans for
-GC.
-"""
+"""Content-addressed blob storage for multimedia attachments."""
 
 from __future__ import annotations
 
@@ -37,9 +27,7 @@ class BlobStore:
         return self._root / blob_hash[:2] / blob_hash
 
     async def put(self, data: bytes, mime: str) -> BlobRef:
-        """Store ``data`` under its sha256, return a BlobRef. If the
-        blob already exists (same hash), increments ref count and
-        returns the existing ref."""
+        """Store `data` under its sha256, return a BlobRef. If the"""
         h = hashlib.sha256(data).hexdigest()
         size = len(data)
         return await asyncio.to_thread(self._put_sync, h, data, mime, size)

@@ -1,39 +1,4 @@
-"""Shared helpers + request models for the app installation lifecycle.
-
-HISTORY: this module USED to expose ``/api/packages/*`` HTTP routes.
-On 2026-04-21 the routes were physically moved under ``/api/apps/*``
-(see ``api/apps_install.py``) so the Flutter client has a single
-mental model (``app``) instead of juggling both ``package`` and
-``app`` entities.
-
-The module stays as a **library layer** - other code paths (built-in
-bootstrap, CLI installers, admin scripts, tests) still need the
-helpers and Pydantic bodies. Importing from here keeps those callers
-stable even as the HTTP surface evolves.
-
-What lives here:
-
-- ``_get_registry(request)`` - pull the singleton ``PackageRegistry``.
-- ``_build_install_flow(request)`` - assemble an ``InstallFlow`` with
-  all four sources wired (builtin/local/hub/git).
-- ``_resolve_deploy_callback(request)`` - build an optional ``on_deploy``
-  callback that hands the package's ``app.yaml`` to the live
-  ``AppManager`` so ``install/upgrade`` can deploy in the same call.
-- ``_caller_user_id`` / ``_caller_is_admin`` - auth helpers.
-- ``InstallRequest`` / ``UpgradeRequest`` / ``UninstallRequest`` -
-  Pydantic request bodies (kept stable; Flutter + HTTP handlers in
-  ``apps_install.py`` depend on them).
-
-What is NOT here anymore:
-
-- ``router = APIRouter(...)`` - deleted. HTTP routes live under
-  ``/api/apps/*`` in ``apps_install.py``.
-- Route handlers (``list_packages``, ``install_package``, …) - ditto.
-
-If you're looking for the HTTP routes, see ``api/apps_install.py``.
-If you're writing non-HTTP code that needs to drive an install
-(CLI tool, bootstrap, tests), import from here.
-"""
+"""Shared helpers + request models for the app installation lifecycle."""
 
 from __future__ import annotations
 
@@ -57,19 +22,11 @@ from digitorn.core.packages.sources.local import LocalSource
 logger = logging.getLogger(__name__)
 
 
-# ────────────────────────────────────────────────────────────────────
 # Registry / flow helpers
-# ────────────────────────────────────────────────────────────────────
 
 
 def _get_registry(request: Request) -> PackageRegistry:
-    """Pull the singleton ``PackageRegistry`` off ``app.state``.
-
-    Initialised in the lifespan after the credential store. If the
-    bootstrap path failed for any reason (no DB, schema mismatch),
-    we surface a 503 with a clear message instead of a 500 stack
-    trace deeper in the call chain.
-    """
+    """Pull the singleton `PackageRegistry` off `app.state`."""
     registry = getattr(request.app.state, "package_registry", None)
     if registry is None:
         raise HTTPException(
@@ -84,18 +41,7 @@ def _get_registry(request: Request) -> PackageRegistry:
 
 
 def _build_install_flow(request: Request) -> InstallFlow:
-    """Construct an InstallFlow with all 4 sources mapped.
-
-    BuiltinSource is wired against the wheel's ``packages/digitorn/builtins/``
-    directory so the route can technically install a builtin from
-    its source URI. In practice the bootstrap loop installs all
-    builtins automatically and users only ever install from the
-    other 3 sources via the HTTP route.
-
-    Hub and git sources are stubs that raise NotImplementedError -
-    ``InstallFlow`` translates those into ``InstallError`` which the
-    HTTP layer surfaces as 501.
-    """
+    """Construct an InstallFlow with all 4 sources mapped."""
     from digitorn.core.config import get_settings
     from digitorn.core.packages.bootstrap import _default_builtins_dir
 
@@ -120,25 +66,9 @@ def _build_install_flow(request: Request) -> InstallFlow:
 
 
 def _resolve_deploy_callback(request: Request):
-    """Return an optional ``on_deploy`` callback for the install flow.
-
-    The callback hands the package's ``app.yaml`` to the live
-    ``AppManager`` so the package becomes a deployed app in the same
-    operation. If the manager isn't accessible (early lifespan,
-    test harness without HTTP state), we just return ``None`` and
-    the install completes without deploying - the caller deploys
-    later via the existing apps API.
-
-    The callback uses the 4-arg signature ``(yaml_path, package_id,
-    scope, owner_user_id)`` so the deploy lands under the SAME key
-    (``system:<id>`` or ``user:<uid>:<id>``) that uninstall will later
-    pop. The 2-arg legacy form would deploy under ``system:<id>``
-    regardless of the install scope, and a subsequent user-scope
-    uninstall would miss the key - leaving the app wedged in memory
-    even after its registry row + disk are gone.
-    """
+    """Return an optional `on_deploy` callback for the install flow."""
     try:
-        # Late import to avoid cycles when ``apps.py`` imports this module.
+        # Late import to avoid cycles when `apps.py` imports this module.
         from digitorn.core.api.apps_v2 import _get_manager
         manager = _get_manager(request)
     except Exception:
@@ -156,66 +86,47 @@ def _resolve_deploy_callback(request: Request):
     return _on_deploy
 
 
-# ────────────────────────────────────────────────────────────────────
 # Auth helpers
-# ────────────────────────────────────────────────────────────────────
 
 
 def _caller_user_id(request: Request) -> str:
-    """Pull the authenticated caller's user_id (or 'local' in dev)."""
     return getattr(request.state, "user_id", None) or "local"
 
 
 def _caller_is_admin(request: Request) -> bool:
-    """True when the caller has admin perms (``*``, ``admin``, or ``packages.admin``)."""
     perms = getattr(request.state, "permissions", []) or []
     return "*" in perms or "admin" in perms or "packages.admin" in perms
 
 
-# ────────────────────────────────────────────────────────────────────
-# Pydantic request bodies
-# ────────────────────────────────────────────────────────────────────
-#
-# These are the stable contract the Flutter client POSTs. The HTTP
-# routes in ``api/apps_install.py`` import them unchanged. Any change
-# here is a breaking API change for existing clients - bump carefully.
-
-
 class InstallRequest(BaseModel):
-    """``POST /api/apps/install`` body.
-
-    BUG-100 back-compat: older SDKs and the original README example
-    post ``{source, force}`` instead of ``{source_type, source_uri}``.
-    The ``_expand_source`` validator accepts either shape and fills in
-    the missing parts so both forms keep working.
-    """
+    """`POST /api/apps/install` body."""
 
     model_config = {"populate_by_name": True, "extra": "allow"}
 
     source_type: str = Field(
         default="",
-        description="One of: builtin, local, hub, git. Inferred from ``source`` when absent.",
+        description="One of: builtin, local, hub, git. Inferred from `source` when absent.",
     )
     source_uri: str = Field(
         default="",
         description=(
-            "Source-specific URI. ``local``: a filesystem path. "
-            "``hub``: ``hub://publisher/name@version`` (v2). "
-            "``git``: ``git+https://...`` (v2). ``builtin``: ``bundle://digitorn/<id>``."
+            "Source-specific URI. `local`: a filesystem path. "
+            "`hub`: `hub://publisher/name@version` (v2). "
+            "`git`: `git+https://...` (v2). `builtin`: `bundle://digitorn/<id>`."
         ),
     )
     source: str | None = Field(
         default=None,
         description=(
             "Convenience alias: a single string the server splits into "
-            "(source_type, source_uri). Example: ``bundle://digitorn/chat``, "
-            "``hub://user/app@1``, ``git+https://github.com/...``, a plain "
-            "filesystem path, or ``digitorn-chat`` (resolved as builtin)."
+            "(source_type, source_uri). Example: `bundle://digitorn/chat`, "
+            "`hub://user/app@1`, `git+https://github.com/...`, a plain "
+            "filesystem path, or `digitorn-chat` (resolved as builtin)."
         ),
     )
     force: bool = Field(
         default=False,
-        description="Legacy alias for ``accept_permissions``; when true, skip the permissions probe.",
+        description="Legacy alias for `accept_permissions`; when true, skip the permissions probe.",
     )
     accept_permissions: bool = Field(
         default=False,
@@ -244,7 +155,7 @@ class InstallRequest(BaseModel):
 
     @model_validator(mode="after")
     def _expand_source(self) -> "InstallRequest":
-        # If caller only gave ``source``, split into type + uri so the
+        # If caller only gave `source`, split into type + uri so the
         # rest of the pipeline keeps its explicit contract.
         if (not self.source_type or not self.source_uri) and self.source:
             s = self.source.strip()
@@ -261,11 +172,11 @@ class InstallRequest(BaseModel):
                 self.source_type = self.source_type or "local"
                 self.source_uri = self.source_uri or s
             else:
-                # Bare ID: assume a builtin bundle (``digitorn-chat``).
+                # Bare ID: assume a builtin bundle (`digitorn-chat`).
                 self.source_type = self.source_type or "builtin"
                 self.source_uri = self.source_uri or f"bundle://digitorn/{s}"
         if self.force and not self.accept_permissions:
-            # Back-compat: ``force=true`` used to imply permissions
+            # Back-compat: `force=true` used to imply permissions
             # pre-accepted on older SDKs.
             object.__setattr__(self, "accept_permissions", True)
         if not self.source_type or not self.source_uri:
@@ -276,13 +187,7 @@ class InstallRequest(BaseModel):
 
 
 class UpgradeRequest(BaseModel):
-    """``POST /api/apps/{app_id}/upgrade`` body.
-
-    Both ``source_type`` and ``source_uri`` are optional; when omitted the
-    handler reuses the values stored in the install registry, so a UI
-    "Upgrade" click against a hub-installed app no longer needs to
-    re-specify them.
-    """
+    """`POST /api/apps/{app_id}/upgrade` body."""
 
     source_type: str | None = Field(
         default=None,
@@ -302,7 +207,7 @@ class UpgradeRequest(BaseModel):
 
 
 class UninstallRequest(BaseModel):
-    """``POST /api/apps/{app_id}/uninstall`` body."""
+    """`POST /api/apps/{app_id}/uninstall` body."""
 
     force: bool = Field(
         default=False,

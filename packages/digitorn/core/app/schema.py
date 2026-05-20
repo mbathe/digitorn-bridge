@@ -1,19 +1,4 @@
-"""Pydantic models defining the app YAML structure.
-
-These models are the **parse target** - the YAML is validated directly
-against ``AppDefinition``.  They also serve as the documentation: every
-field has a description that can be rendered in ``digitorn app schema``.
-
-The structure is intentionally generic.  The ``modules`` block maps
-module IDs to ``ModuleBlock``s, and each block contains:
-
-- ``setup``: ordered list of action calls (action name + params)
-- ``constraints``: runtime restrictions (validated against the module's
-  ``ConstraintSpec`` declarations)
-
-No module-specific knowledge is baked in - any module with ``@action``
-methods is automatically configurable.
-"""
+"""Pydantic models defining the app YAML structure."""
 
 from __future__ import annotations
 
@@ -55,7 +40,6 @@ class AppMeta(BaseModel):
     author: str = Field(default="", description="Application author.")
     tags: list[str] = Field(default_factory=list, description="Searchable tags.")
 
-    # ── Visual / UI metadata ─────────────────────────────────────
     icon: str = Field(
         default="",
         description=(
@@ -91,16 +75,16 @@ class AppMeta(BaseModel):
         default=None,
         description=(
             "Attachment types the chat composer accepts.\n"
-            "  - ``image``    PNG / JPG / GIF / WEBP / HEIC, routed to a "
+            "  - `image`    PNG / JPG / GIF / WEBP / HEIC, routed to a "
             "vision-capable LLM\n"
-            "  - ``document`` PDF / TXT / MD / CSV / XLSX / DOCX / code "
+            "  - `document` PDF / TXT / MD / CSV / XLSX / DOCX / code "
             "files, extracted as text before being handed to the model\n"
-            "  - ``audio``    MP3 / WAV / M4A / OGG, transcribed via STT\n"
-            "  - ``video``    MP4 / MOV / WEBM, accepted by a few vision "
+            "  - `audio`    MP3 / WAV / M4A / OGG, transcribed via STT\n"
+            "  - `video`    MP4 / MOV / WEBM, accepted by a few vision "
             "models (Gemini, Sonnet)\n\n"
-            "Pass the string ``*`` to enable every supported type. "
-            "Leaving the field empty (``null`` / unset) disables "
-            "attachments entirely: the composer's ``+`` menu collapses "
+            "Pass the string `*` to enable every supported type. "
+            "Leaving the field empty (`null` / unset) disables "
+            "attachments entirely: the composer's `+` menu collapses "
             "to slash-commands + snippets only. Apps must opt in - the "
             "default is no attachments."
         ),
@@ -109,21 +93,17 @@ class AppMeta(BaseModel):
         default="direct",
         description=(
             "How the agent sees attached files. Two modes only.\n"
-            "  - ``direct`` (default) Full extracted text is prepended "
+            "  - `direct` (default) Full extracted text is prepended "
             "to the user message. Agent answers immediately, no tool "
             "call needed. Use for chat apps.\n"
-            "  - ``tool``   Files are mirrored into the workspace "
-            "under ``attachments/`` and the agent is told to use "
+            "  - `tool`   Files are mirrored into the workspace "
+            "under `attachments/` and the agent is told to use "
             "WsRead / WsGlob / WsGrep to inspect them. Use when you "
             "want the agent to read partially, iterate, or edit big "
-            "files - requires the ``workspace`` module loaded and "
-            "``workspace.read`` granted to the agent."
+            "files - requires the `workspace` module loaded and "
+            "`workspace.read` granted to the agent."
         ),
     )
-    # ── Nested client-UI mirrors (for clients that look under app.*) ──
-    # These mirror the top-level AppDefinition.features / .theme fields so a
-    # YAML that nests them under app: also parses cleanly. The compiler
-    # merges top-level + nested when assembling the manifest summary.
     features: dict[str, bool] = Field(
         default_factory=dict,
         description=(
@@ -144,12 +124,7 @@ class AppMeta(BaseModel):
 
 
 class SetupStep(BaseModel):
-    """A single action call to execute during app bootstrap.
-
-    Maps directly to ``module.execute(action, params)``.
-    The ``params`` dict is validated at compile time against the action's
-    ``params_model`` (Pydantic JSON Schema).
-    """
+    """A single action call to execute during app bootstrap."""
 
     model_config = {"extra": "forbid"}
 
@@ -174,9 +149,7 @@ class CapabilityGrant(BaseModel):
 
 
 class BehaviorCustomRule(BaseModel):
-    """Legacy custom rule format. Kept for backward compatibility.
-    Prefer ``rule_definitions`` for new apps.
-    """
+    """Legacy custom rule format. Kept for backward compatibility."""
 
     model_config = {"extra": "forbid"}
 
@@ -190,31 +163,7 @@ class BehaviorCustomRule(BaseModel):
 
 
 class BehaviorRuleDefinition(BaseModel):
-    """A fully declarative behavioral rule - works for ANY action.
-
-    Example::
-
-        rule_definitions:
-          - id: read_before_edit
-            description: "Must read a file before editing it"
-            trigger: [edit]
-            when: pre_tool
-            action: warn
-            condition:
-              target_not_in_set: read_files
-            message: "You are editing '{target}' without reading it first."
-
-          - id: no_sql_injection
-            description: "Block raw SQL in user-facing queries"
-            trigger: [database.execute]
-            when: pre_tool
-            action: block
-            condition:
-              param_matches:
-                param: query
-                pattern: ".*;\\s*(DROP|DELETE|TRUNCATE)"
-            message: "Dangerous SQL detected. Use parameterized queries."
-    """
+    """A fully declarative behavioral rule - works for ANY action."""
 
     model_config = {"extra": "forbid"}
 
@@ -314,30 +263,7 @@ class StateTrackingFlagConfig(BaseModel):
 
 
 class StateTrackingConfig(BaseModel):
-    """Configure what the session state tracks - fully declarative.
-
-    Example::
-
-        state_tracking:
-          sets:
-            read_files:
-              add_on: [read, filesystem.read]
-              target: file_path
-            fetched_urls:
-              add_on: [web.fetch]
-              target: url
-          counters:
-            changes_since_test:
-              increment_on: [edit, write]
-              reset_on: [bash]
-              reset_when:
-                tool: bash
-                param: command
-                matches: "pytest|npm test"
-          flags:
-            has_web_searched:
-              set_on: [web.search, search]
-    """
+    """Configure what the session state tracks - fully declarative."""
 
     model_config = {"extra": "forbid"}
 
@@ -374,28 +300,10 @@ class ClassifierContextConfig(BaseModel):
 
 
 class ClassifierConfig(BaseModel):
-    """Configuration for the semantic classifier LLM.
-
-    The classifier is a generic pre-turn analysis engine. Each app
-    configures what it analyzes, when it runs, and what it produces.
-
-    Example::
-
-        behavior:
-          classify_turns: true
-          classifier:
-            frequency: every_turn
-            timeout: 15
-            complexity_levels: [trivial, simple, moderate, complex, critical]
-            approaches: [direct, explore_first, plan_and_confirm, delegate, research_first]
-            risk_levels: [none, low, medium, high]
-            max_directives: 5
-            system_prompt: "{{prompt.classifier}}"
-    """
+    """Configuration for the semantic classifier LLM."""
 
     model_config = {"extra": "forbid"}
 
-    # ── When to run ──
     frequency: Literal[
         "every_turn", "first_turn", "every_n_turns", "on_new_message",
     ] = Field(
@@ -425,7 +333,6 @@ class ClassifierConfig(BaseModel):
         description="Max seconds to wait for the classifier LLM response.",
     )
 
-    # ── Output schema - what the classifier produces ──
     complexity_levels: list[str | dict[str, str]] = Field(
         default_factory=lambda: ["trivial", "simple", "moderate", "complex", "critical"],
         description=(
@@ -473,13 +380,11 @@ class ClassifierConfig(BaseModel):
         description="Maximum number of directives the classifier should produce.",
     )
 
-    # ── What context to include ──
     context: ClassifierContextConfig = Field(
         default_factory=ClassifierContextConfig,
         description="What context the classifier receives.",
     )
 
-    # ── The behavioral model (system prompt) ──
     system_prompt: str | None = Field(
         default=None,
         description=(
@@ -491,7 +396,6 @@ class ClassifierConfig(BaseModel):
         ),
     )
 
-    # ── Directive format ──
     directive_prefix: str = Field(
         default="[BEHAVIOR DIRECTIVE - {complexity} complexity, {risk} risk]",
         description=(
@@ -520,29 +424,7 @@ class ClassifierConfig(BaseModel):
 
 
 class BehaviorConfig(BaseModel):
-    """Behavioral enforcement rules - actively monitored at runtime.
-
-    Define a profile preset and/or individual rules. All enabled rules
-    are enforced by the behavior engine on every tool call.
-
-    Example::
-
-        behavior:
-          profile: coding
-          classify_turns: true
-          classifier:
-            frequency: every_turn
-            timeout: 15
-            approaches: [direct, plan_and_confirm, delegate]
-          rules:
-            read_before_edit: true
-            test_after_changes: true
-          custom:
-            - id: protect_migrations
-              rule: "Never modify migration files without asking"
-              trigger: edit
-              action: block
-    """
+    """Behavioral enforcement rules - actively monitored at runtime."""
 
     model_config = {"extra": "forbid"}
 
@@ -646,38 +528,7 @@ class CapabilitiesConfig(BaseModel):
 
 
 class MCPServerSandbox(BaseModel):
-    """Per-MCP-server OS-level sandbox permissions.
-
-    Every MCP server must explicitly declare what it needs.
-    No declaration = no OS-level rights (deny-by-default).
-
-    Example::
-
-        mcp:
-          config:
-            servers:
-              github:
-                command: npx @modelcontextprotocol/server-github
-                sandbox:
-                  permissions: [process.exec, net.http]
-                  paths:
-                    read: ['{{workspace}}']
-                    write: []
-                  allowed_hosts: [api.github.com]
-
-    Permission categories::
-
-        process.exec     - spawn subprocesses (required for stdio transport)
-        process.*        - all process permissions (exec + spawn_daemon)
-        net.http         - outbound HTTP (required for SSE/HTTP transport)
-        net.socket       - raw socket access
-        net.listen       - bind/listen on a port
-        net.*            - all network permissions
-        fs.read          - read files beyond workspace
-        fs.write         - write files beyond workspace
-        fs.delete        - delete files beyond workspace
-        fs.*             - all filesystem permissions
-    """
+    """Per-MCP-server OS-level sandbox permissions."""
 
     model_config = {"extra": "forbid"}
 
@@ -706,36 +557,7 @@ class MCPServerSandbox(BaseModel):
 
 
 class ModuleBlock(BaseModel):
-    """Configuration block for a single module in the app YAML.
-
-    Three sections:
-
-    - ``config``: Static module configuration - pushed via
-      ``module.on_config_update(config)`` at bootstrap time.  Validated
-      against the module's ``CONFIG_MODEL`` (Pydantic) if declared.
-
-    - ``setup``: Ordered list of action calls executed at bootstrap time.
-
-    - ``constraints``: Runtime restrictions applied during the app's lifetime.
-
-    Example::
-
-        perception:
-          config:
-            enabled: false
-            capture_after: true
-            ocr_enabled: false
-            timeout_seconds: 10
-            actions:
-              browser.take_screenshot:
-                capture_after: true
-                ocr_enabled: true
-          setup:
-            - action: register_handler
-              params: { ... }
-          constraints:
-            allowed_actions: [capture_screen, parse_screen]
-    """
+    """Configuration block for a single module in the app YAML."""
 
     model_config = {"extra": "forbid"}
 
@@ -800,27 +622,7 @@ class ModuleBlock(BaseModel):
 
 
 class ContextConfig(BaseModel):
-    """Context management configuration for the agent loop.
-
-    Controls how the context window is managed to prevent overflow errors.
-    When the context fills up, the runtime can automatically compact it
-    using the configured strategy.
-
-    Can be set at two levels:
-    - ``execution.context`` - default for all agents
-    - ``agent.brain.context`` - per-brain override (multi-agent apps)
-
-    Example::
-
-        brain:
-          provider: deepseek
-          model: deepseek-chat
-          context:
-            max_tokens: 131072
-            strategy: summarize
-            keep_recent: 30
-            compression_trigger: 0.70
-    """
+    """Context management configuration for the agent loop."""
 
     model_config = {"extra": "forbid"}
 
@@ -871,26 +673,7 @@ class ContextConfig(BaseModel):
 
 
 class AgentBrain(BaseModel):
-    """LLM brain configuration for an agent.
-
-    Two modes:
-
-    1. **Inline** - full provider config embedded in the agent::
-
-        brain:
-          provider: deepseek
-          model: deepseek-chat
-          temperature: 0.2
-          config:
-            api_key: "{{secret.DEEPSEEK_API_KEY}}"
-            base_url: "https://api.deepseek.com/v1"
-
-    2. **Reference** - points to a named provider in ``modules.llm_provider``::
-
-        brain:
-          provider_id: deepseek_main
-          temperature: 0.2
-    """
+    """LLM brain configuration for an agent."""
 
     model_config = {"extra": "forbid"}
 
@@ -947,9 +730,6 @@ class AgentBrain(BaseModel):
     @field_validator("credential", mode="before")
     @classmethod
     def _normalise_credential(cls, v: Any) -> Any:
-        # Accept None, string (compact), or dict (explicit). Type
-        # check only - structural validation (ref slug, scope value)
-        # happens in `parse_credential_ref` at compile time.
         if v is None:
             return None
         if isinstance(v, (str, dict)):
@@ -997,7 +777,6 @@ class AgentBrain(BaseModel):
         ),
     )
 
-    # ── Multimodal capabilities ──────────────────────────
     vision: bool | None = Field(
         default=None,
         description=(
@@ -1029,9 +808,6 @@ class AgentBrain(BaseModel):
 
     @model_validator(mode="after")
     def _validate_credential_source(self) -> "AgentBrain":
-        # Skip credential check when model is missing - the compiler
-        # later raises a clearer "model is required" error and we don't
-        # want to mask it with auth advice.
         if not self.model:
             return self
 
@@ -1059,11 +835,6 @@ class AgentBrain(BaseModel):
         if api_key == "claude-code":
             return self
 
-        # No provider declared at all + no credential ref + no provider_id
-        # is suspicious but not strictly invalid (provider_id can be
-        # resolved later, model alone might match a default). Skip strict
-        # validation when both provider and credential are absent so the
-        # error stays actionable.
         if self.provider is None and self.credential is None and not api_key:
             return self
 
@@ -1083,9 +854,6 @@ class AgentBrain(BaseModel):
 
     @model_validator(mode="after")
     def _validate_vision_model_match(self) -> "AgentBrain":
-        # Only complain when the user EXPLICITLY enabled vision on a
-        # model that has no known vision capability. ``vision=None``
-        # (auto-detect) and ``vision=False`` (force off) are fine.
         if self.vision is True and self.model:
             model = self.model.lower()
             _VISION_MODELS = {
@@ -1126,18 +894,7 @@ class AgentBrain(BaseModel):
 
 
 class InputConfig(BaseModel):
-    """Input contract for one_shot mode.
-
-    Defines what the application expects as input and how the CLI
-    should present it to the agent.
-
-    Example::
-
-        input:
-          type: text
-          description: "Code source to analyse"
-          required: true
-    """
+    """Input contract for one_shot mode."""
 
     model_config = {"extra": "forbid"}
 
@@ -1172,22 +929,7 @@ class InputConfig(BaseModel):
 
 
 class OutputConfig(BaseModel):
-    """Output contract for one_shot mode.
-
-    Defines what the application produces and how the CLI should
-    format it.
-
-    Example::
-
-        output:
-          type: json
-          description: "Structured analysis report"
-          schema:
-            type: object
-            properties:
-              bugs: { type: array }
-              score: { type: integer }
-    """
+    """Output contract for one_shot mode."""
 
     model_config = {"extra": "forbid"}
 
@@ -1217,43 +959,14 @@ class OutputConfig(BaseModel):
 
 
 class HookConditionConfig(BaseModel):
-    """Condition configuration for an internal hook.
-
-    Built-in conditions:
-    - ``context_pressure``: fires when token usage exceeds threshold
-    - ``turn_count``: fires at a specific turn number or every N turns
-    - ``tool_calls``: fires when tool call count exceeds threshold
-    - ``message_count``: fires when message count exceeds threshold
-    - ``always``: fires every time (useful with cooldown)
-
-    Example::
-
-        condition:
-          type: context_pressure
-          threshold: 0.75
-          max_tokens: 128000
-    """
+    """Condition configuration for an internal hook."""
 
     type: str = Field(..., description="Condition type (registered name).")
     model_config = {"extra": "allow"}
 
 
 class HookActionConfig(BaseModel):
-    """Action configuration for an internal hook.
-
-    Built-in actions:
-    - ``compact_context``: intelligently compact message history
-    - ``inject_message``: inject a message into the conversation
-    - ``module_action``: call any module action
-    - ``log``: log a message (debugging)
-
-    Example::
-
-        action:
-          type: compact_context
-          strategy: summarize
-          keep_last: 10
-    """
+    """Action configuration for an internal hook."""
 
     type: str = Field(..., description="Action type (registered name).")
     model_config = {"extra": "allow"}
@@ -1274,34 +987,7 @@ _HOOK_EVENTS: frozenset[str] = frozenset({
 
 
 class HookConfig(BaseModel):
-    """An internal hook: condition → action, evaluated during the agent loop.
-
-    Three accepted forms for the event field (pick whichever reads
-    best for you — they all compile to the same hook)::
-
-        hooks:
-          - id: a
-            event: turn_end          # ← preferred: unambiguous, no YAML quirk
-            condition: {...}
-            action: {...}
-
-          - id: b
-            "on": turn_end           # ← canonical legacy form, quoted
-            condition: {...}
-            action: {...}
-
-          - id: c
-            on: turn_end             # ← unquoted, also accepted: YAML 1.1
-                                     #   parses ``on`` as bool ``True``, the
-                                     #   schema's pre-validator rewrites it
-            condition: {...}
-            action: {...}
-
-    Internally everything normalises to the ``on`` field. The
-    ``event:`` alias exists because ``on`` is famously fragile
-    in YAML 1.1 (the "Norway problem" — every truthy bareword
-    gets coerced to ``true`` / ``false``).
-    """
+    """An internal hook: condition → action, evaluated during the agent loop."""
 
     model_config = {"extra": "forbid"}
 
@@ -1311,33 +997,19 @@ class HookConfig(BaseModel):
         description=(
             "When to evaluate. One of: "
             + ", ".join(sorted(_HOOK_EVENTS))
-            + ". Equivalent aliases: ``event``, quoted ``\"on\"``, "
-            "unquoted ``on`` (auto-rewritten from YAML bool)."
+            + ". Equivalent aliases: `event`, quoted `\"on\"`, "
+            "unquoted `on` (auto-rewritten from YAML bool)."
         ),
     )
 
     @model_validator(mode="before")
     @classmethod
     def _normalize_event_aliases(cls, data: Any) -> Any:
-        """Accept ``event``, ``"on"`` and unquoted ``on`` interchangeably.
-
-        YAML 1.1 parses unquoted ``on`` / ``off`` / ``yes`` / ``no`` as
-        booleans. PyYAML loads ``- id: x\\n  on: tool_end`` as the dict
-        ``{"id": "x", True: "tool_end"}`` — a bool key that Pydantic's
-        ``extra: forbid`` rejects at the outer level before any field
-        validator can run. We patch the dict here so the bool key is
-        transparently renamed to ``"on"``. We also accept ``event``
-        as the human-friendly alias for the same field.
-
-        Conflict resolution: if multiple of (``event``, ``"on"``, bool
-        ``True``) are present with different values, we raise so the
-        author fixes the ambiguity. Same string repeated is fine —
-        deduped silently.
-        """
+        """Accept `event`, `"on"` and unquoted `on` interchangeably."""
         if not isinstance(data, dict):
             return data
         candidates: dict[str, Any] = {}
-        # The bool-key path (unquoted YAML 1.1 ``on:``).
+        # The bool-key path (unquoted YAML 1.1 `on:`).
         if True in data:
             candidates["bareword on"] = data.pop(True)
         # The alias path.
@@ -1354,10 +1026,10 @@ class HookConfig(BaseModel):
                 )
                 raise ValueError(
                     f"Hook declares multiple conflicting event aliases: "
-                    f"{pairs}. Pick one of ``event:`` (preferred), "
-                    f"``\"on\":`` (quoted), or fix the values."
+                    f"{pairs}. Pick one of `event:` (preferred), "
+                    f"`\"on\":` (quoted), or fix the values."
                 )
-        # Materialise the canonical ``on`` field. Priority order:
+        # Materialise the canonical `on` field. Priority order:
         #   explicit "on" > "event" alias > rescued bool key.
         if "on" not in data:
             if "event" in candidates:
@@ -1370,10 +1042,6 @@ class HookConfig(BaseModel):
     @classmethod
     def _validate_on(cls, v: Any) -> str:
         if isinstance(v, bool):
-            # Defence in depth: the model_validator above should have
-            # rewritten this. If we still see a bool, the author wrote
-            # ``on: true`` (literal) which is meaningless for a hook
-            # event field.
             raise ValueError(
                 "Hook 'on'/'event' was set to a literal boolean. Use "
                 "a string event name like 'tool_end', 'turn_start', etc."
@@ -1431,7 +1099,7 @@ class HookConfig(BaseModel):
             "(catastrophic regex, infinite loop in transform_params, "
             "stuck shell, …). Default 30s - enough for compaction. Lower "
             "for cheap hooks (log, notify, gate) so a misconfig can't "
-            "stall the loop. Cancellation surfaces as an ``error`` "
+            "stall the loop. Cancellation surfaces as an `error` "
             "event for the hook, the turn keeps going."
         ),
     )
@@ -1445,16 +1113,7 @@ class HookConfig(BaseModel):
 
 
 class TriggerConfig(BaseModel):
-    """A trigger for background mode.
-
-    Example::
-
-        triggers:
-          - id: new_csv
-            type: watch
-            paths: ["./inbox/*.csv"]
-            message: "New file: {{event.path}}"
-    """
+    """A trigger for background mode."""
 
     model_config = {"extra": "forbid"}
 
@@ -1497,22 +1156,7 @@ class TriggerConfig(BaseModel):
 
 
 class SandboxConfig(BaseModel):
-    """OS-level sandbox configuration for per-session isolation.
-
-    Levels (presets):
-        - off: no sandbox (current non-sandbox path)
-        - standard: Landlock + seccomp + cgroups (single worker)
-        - strict: + warm pool + user/PID namespaces + capability drop + MDWE
-        - maximum: + network namespace + seccomp-notify audit + workspace snapshot
-
-    Example::
-
-        execution:
-          sandbox:
-            level: strict
-            pool_size: 4
-            namespaces: [user, pid, net]
-    """
+    """OS-level sandbox configuration for per-session isolation."""
 
     model_config = {"extra": "forbid"}
 
@@ -1573,11 +1217,7 @@ class SandboxConfig(BaseModel):
 
 
 class PayloadFieldConfig(BaseModel):
-    """One declared field on a background app's session payload metadata.
-
-    The list of these is what the Flutter dashboard uses to render a
-    typed form for the user instead of a generic key/value editor.
-    """
+    """One declared field on a background app's session payload metadata."""
 
     model_config = {"extra": "forbid"}
 
@@ -1587,13 +1227,13 @@ class PayloadFieldConfig(BaseModel):
     )
     label: str = Field(
         default="",
-        description="Human-friendly label shown in the form. Defaults to ``name``.",
+        description="Human-friendly label shown in the form. Defaults to `name`.",
     )
     type: Literal["string", "number", "integer", "boolean", "select", "text"] = Field(
         default="string",
         description=(
-            "Form field type. ``text`` = multiline string. ``select`` requires "
-            "``options`` to be set."
+            "Form field type. `text` = multiline string. `select` requires "
+            "`options` to be set."
         ),
     )
     required: bool = Field(
@@ -1614,7 +1254,7 @@ class PayloadFieldConfig(BaseModel):
     )
     options: list[str] = Field(
         default_factory=list,
-        description="Allowed values for ``type: select``.",
+        description="Allowed values for `type: select`.",
     )
     min: float | None = Field(
         default=None,
@@ -1634,9 +1274,9 @@ class PayloadFileRuleConfig(BaseModel):
     name: str = Field(
         ...,
         description=(
-            "Logical slot name (e.g. ``cv``, ``cover_letter``). Free-form. "
-            "When ``required: true``, the user must upload at least one file "
-            "matching ``mime`` for this slot."
+            "Logical slot name (e.g. `cv`, `cover_letter`). Free-form. "
+            "When `required: true`, the user must upload at least one file "
+            "matching `mime` for this slot."
         ),
     )
     label: str = Field(default="", description="Human-friendly label.")
@@ -1645,8 +1285,8 @@ class PayloadFileRuleConfig(BaseModel):
     mime: list[str] = Field(
         default_factory=list,
         description=(
-            "Accepted MIME types (e.g. ``['application/pdf']``). Empty = any. "
-            "Wildcards like ``image/*`` are supported."
+            "Accepted MIME types (e.g. `['application/pdf']`). Empty = any. "
+            "Wildcards like `image/*` are supported."
         ),
     )
     max_size_mb: float = Field(
@@ -1662,10 +1302,7 @@ class PayloadFileRuleConfig(BaseModel):
 
 
 class CredentialFieldConfig(BaseModel):
-    """One field inside a credential provider (e.g. ``api_key``, ``bot_token``).
-
-    Directly mapped to the form widget the Flutter client renders.
-    """
+    """One field inside a credential provider (e.g. `api_key`, `bot_token`)."""
 
     model_config = {"extra": "forbid"}
 
@@ -1677,9 +1314,9 @@ class CredentialFieldConfig(BaseModel):
     ] = Field(
         default="secret",
         description=(
-            "Form widget type. ``secret`` = masked password field, "
-            "``url`` = URL input with validation, ``select`` requires "
-            "``options``, ``connection_string`` = URL with scheme/host check."
+            "Form widget type. `secret` = masked password field, "
+            "`url` = URL input with validation, `select` requires "
+            "`options`, `connection_string` = URL with scheme/host check."
         ),
     )
     required: bool = Field(default=False)
@@ -1695,7 +1332,7 @@ class CredentialFieldConfig(BaseModel):
     )
     options: list[str] = Field(
         default_factory=list,
-        description="Allowed values for ``type: select``.",
+        description="Allowed values for `type: select`.",
     )
     help: str = Field(
         default="",
@@ -1704,12 +1341,7 @@ class CredentialFieldConfig(BaseModel):
 
 
 class CredentialProviderConfig(BaseModel):
-    """One provider entry inside ``credentials_schema.providers``.
-
-    Each provider declares which fields are needed, which handler
-    should process them (``type``), and which scope rules apply
-    (``per_user`` / ``per_app_shared`` / ``system_wide``).
-    """
+    """One provider entry inside `credentials_schema.providers`."""
 
     model_config = {"extra": "forbid"}
 
@@ -1717,7 +1349,7 @@ class CredentialProviderConfig(BaseModel):
         ...,
         description=(
             "Internal provider id. Used as the path segment in "
-            "``/credentials/{app_id}/{provider_name}`` routes."
+            "`/credentials/{app_id}/{provider_name}` routes."
         ),
     )
     label: str = Field(default="", description="Human label for the UI.")
@@ -1736,9 +1368,9 @@ class CredentialProviderConfig(BaseModel):
     ] = Field(
         default="per_user",
         description=(
-            "Where the credential lives: ``per_user`` means each user has "
-            "their own (default), ``per_app_shared`` means one credential "
-            "for all users of this app, ``system_wide`` means daemon-level "
+            "Where the credential lives: `per_user` means each user has "
+            "their own (default), `per_app_shared` means one credential "
+            "for all users of this app, `system_wide` means daemon-level "
             "config (admin only)."
         ),
     )
@@ -1755,11 +1387,10 @@ class CredentialProviderConfig(BaseModel):
         description="Fields the user must fill.",
     )
 
-    # ── OAuth specific ──
     oauth_provider: str = Field(
         default="",
         description=(
-            "For ``type: oauth2``: the key of the OAuth provider registered "
+            "For `type: oauth2`: the key of the OAuth provider registered "
             "on the daemon (notion, google, github, slack). The daemon's "
             "client_id / client_secret for this provider must be configured "
             "by the admin."
@@ -1770,10 +1401,9 @@ class CredentialProviderConfig(BaseModel):
         description="OAuth scopes to request during the flow.",
     )
 
-    # ── MCP server specific ──
     transport: Literal["stdio", "http", "ws", ""] = Field(
         default="",
-        description="For ``type: mcp_server``: stdio / http / ws.",
+        description="For `type: mcp_server`: stdio / http / ws.",
     )
     command: list[str] = Field(
         default_factory=list,
@@ -1787,7 +1417,7 @@ class CredentialProviderConfig(BaseModel):
         default_factory=dict,
         description=(
             "For MCP servers: extra env vars to inject into the spawned "
-            "process. Supports ``{{field.X}}`` substitution pulling from "
+            "process. Supports `{{field.X}}` substitution pulling from "
             "the filled credential fields."
         ),
     )
@@ -1795,60 +1425,22 @@ class CredentialProviderConfig(BaseModel):
         default_factory=dict,
         description=(
             "For MCP servers: how to check the server is alive. "
-            "e.g. ``{method: tools/list, timeout_s: 5}``."
+            "e.g. `{method: tools/list, timeout_s: 5}`."
         ),
     )
 
-    # ── Live test (optional for api_key/connection_string) ──
     test: dict[str, Any] = Field(
         default_factory=dict,
         description=(
             "Optional live-connection test declaration. For api_key: "
-            "``{method, url, auth_header, expected_status}``. For "
-            "connection_string: ``{test_query}``."
+            "`{method, url, auth_header, expected_status}`. For "
+            "connection_string: `{test_query}`."
         ),
     )
 
 
 class CredentialsSchemaConfig(BaseModel):
-    """Declarative credentials schema for a Digitorn app.
-
-    When set, the Flutter client fetches this from
-    ``GET /api/apps/{id}/credentials/schema`` and renders a typed
-    form for each provider. The daemon's resolver also uses it to
-    know what's expected so it can fail with a clean "credential
-    missing" error rather than a cryptic compile-time secret miss.
-
-    Example::
-
-        credentials_schema:
-          required: true
-          providers:
-            - name: openai
-              label: OpenAI
-              type: api_key
-              scope: per_user
-              fields:
-                - name: api_key
-                  type: secret
-                  required: true
-                  validation_regex: "^sk-[A-Za-z0-9_-]{20,}$"
-            - name: notion
-              type: oauth2
-              oauth_provider: notion
-              scope: per_user
-              oauth_scopes: [read_content, update_content]
-            - name: notion_mcp
-              type: mcp_server
-              transport: stdio
-              command: ["npx", "-y", "@modelcontextprotocol/server-notion"]
-              env_template:
-                NOTION_API_KEY: "{{field.api_key}}"
-              fields:
-                - name: api_key
-                  type: secret
-                  required: true
-    """
+    """Declarative credentials schema for a Digitorn app."""
 
     model_config = {"extra": "forbid"}
 
@@ -1866,47 +1458,7 @@ class CredentialsSchemaConfig(BaseModel):
 
 
 class PayloadSchemaConfig(BaseModel):
-    """Declarative description of the user-pre-filled session payload.
-
-    When set on a background app, the Flutter dashboard renders a typed
-    form (instead of the generic key/value editor) and the daemon can
-    enforce validation before letting the cron fire on an empty
-    session. See ``ExecutionConfig.payload_schema``.
-
-    Example::
-
-        execution:
-          mode: background
-          payload_schema:
-            required: true
-            prompt:
-              required: true
-              label: "What should I look for?"
-              placeholder: "Find me remote Python jobs paying 80k+"
-              min_length: 20
-            metadata:
-              - name: location
-                type: string
-                required: true
-                label: "City"
-              - name: min_salary
-                type: integer
-                min: 0
-                default: 60000
-              - name: remote_only
-                type: boolean
-                default: true
-            files:
-              - name: cv
-                label: "Your CV"
-                required: true
-                mime: [application/pdf]
-                max_size_mb: 5
-              - name: portfolio
-                required: false
-                mime: [application/pdf, image/*]
-                max_count: 5
-    """
+    """Declarative description of the user-pre-filled session payload."""
 
     model_config = {"extra": "forbid"}
 
@@ -1922,9 +1474,9 @@ class PayloadSchemaConfig(BaseModel):
     prompt: dict[str, Any] = Field(
         default_factory=lambda: {"required": False},
         description=(
-            "Prompt field config. Recognised keys: ``required`` (bool), "
-            "``label`` (str), ``placeholder`` (str), ``description`` (str), "
-            "``default`` (str), ``min_length`` (int), ``max_length`` (int)."
+            "Prompt field config. Recognised keys: `required` (bool), "
+            "`label` (str), `placeholder` (str), `description` (str), "
+            "`default` (str), `min_length` (int), `max_length` (int)."
         ),
     )
     metadata: list[PayloadFieldConfig] = Field(
@@ -1938,21 +1490,7 @@ class PayloadSchemaConfig(BaseModel):
 
 
 class ExecutionConfig(BaseModel):
-    """Execution mode and runtime parameters.
-
-    Example::
-
-        execution:
-          mode: conversation
-          entry_agent: coordinator
-          max_turns: 50
-          timeout: 300
-          input:
-            type: text
-            required: true
-          output:
-            type: json
-    """
+    """Execution mode and runtime parameters."""
 
     model_config = {"extra": "forbid"}
 
@@ -2025,7 +1563,7 @@ class ExecutionConfig(BaseModel):
             "Optional declarative credentials schema. Declares every "
             "external service (OpenAI API, Notion OAuth, Slack bot, "
             "Postgres DB, MCP servers, …) the app needs to run. The "
-            "daemon exposes this to the Flutter client which renders a "
+            "daemon exposes this to the client which renders a "
             "typed form, and blocks activations until all required "
             "providers are filled for the current user."
         ),
@@ -2035,10 +1573,10 @@ class ExecutionConfig(BaseModel):
         default=None,
         description=(
             "Optional declarative schema for the per-session user payload "
-            "(prompt + typed metadata + file slots). When set, the Flutter "
+            "(prompt + typed metadata + file slots). When set, the client "
             "dashboard renders a typed form and the daemon validates the "
             "payload before firing triggers. Only meaningful in "
-            "``mode: background``."
+            "`mode: background`."
         ),
     )
 
@@ -2144,30 +1682,8 @@ class ExecutionConfig(BaseModel):
     )
 
 
-
 class UserResolverConfig(BaseModel):
-    """Configuration for auto-resolving user-specific delivery targets.
-
-    When a channel delivers a notification, the resolver automatically
-    looks up the user's contact info (email, phone, chat_id, etc.) from
-    a data source, using the session_id to identify who the user is.
-
-    This works like authentication middleware: the system knows who the
-    user is and adapts. One app serves 10,000 users - no per-user
-    configuration needed.
-
-    Example::
-
-        user_resolver:
-          module: database
-          action: fetch_results
-          params:
-            query: "SELECT phone, email FROM users WHERE session_id = :session_id"
-          mapping:
-            to_number: phone
-            to_address: email
-          cache_ttl: 300
-    """
+    """Configuration for auto-resolving user-specific delivery targets."""
 
     model_config = {"extra": "forbid"}
 
@@ -2212,36 +1728,7 @@ class UserResolverConfig(BaseModel):
 
 
 class ChannelInstanceConfig(BaseModel):
-    """Configuration for a named output channel instance.
-
-    Each entry in the ``channels:`` block defines a channel instance
-    with a user-chosen name, a channel type, and type-specific config.
-
-    Optionally, a ``user_resolver`` auto-resolves per-user delivery targets
-    (email, phone, chat_id) from a data source - no manual ``output_config``
-    needed.
-
-    Example::
-
-        channels:
-          slack_alerts:
-            type: webhook
-            config:
-              url: "{{secret.SLACK_WEBHOOK}}"
-
-          sms_user:
-            type: sms
-            config:
-              account_sid: "{{env.TWILIO_SID}}"
-              from_number: "+33600000000"
-            user_resolver:
-              module: database
-              action: fetch_results
-              params:
-                query: "SELECT phone FROM users WHERE session_id = :session_id"
-              mapping:
-                to_number: phone
-    """
+    """Configuration for a named output channel instance."""
 
     model_config = {"extra": "forbid"}
 
@@ -2273,27 +1760,7 @@ class ChannelInstanceConfig(BaseModel):
 
 
 class AgentDefinition(BaseModel):
-    """Definition of a single agent in the app YAML.
-
-    Only ``id`` and ``brain`` are required for now.
-    Other fields (tools, signals, loop, watch) will be added
-    when we implement the full agent runtime.
-
-    Example::
-
-        agents:
-          - id: coordinator
-            role: coordinator
-            brain:
-              provider: deepseek
-              model: deepseek-chat
-              temperature: 0.2
-              config:
-                api_key: "{{secret.DEEPSEEK_API_KEY}}"
-                base_url: "https://api.deepseek.com/v1"
-            system_prompt: |
-              You are a coordinator agent.
-    """
+    """Definition of a single agent in the app YAML."""
 
     model_config = {"extra": "forbid"}
 
@@ -2335,10 +1802,10 @@ class AgentDefinition(BaseModel):
         default_factory=list,
         description=(
             "List of skill names to auto-load from the bundle's "
-            "``skills/`` directory. The compiler reads "
-            "``skills/<name>.md`` for each entry and appends the "
-            "content to this agent's ``system_prompt`` under an "
-            "``## Available capabilities`` section. Clean way to "
+            "`skills/` directory. The compiler reads "
+            "`skills/<name>.md` for each entry and appends the "
+            "content to this agent's `system_prompt` under an "
+            "`## Available capabilities` section. Clean way to "
             "separate the agent's identity (system_prompt) from "
             "its skill definitions (individual markdown files)."
         ),
@@ -2356,9 +1823,6 @@ class AgentDefinition(BaseModel):
     @field_validator("modules", mode="before")
     @classmethod
     def _validate_modules_shape(cls, v: Any) -> list:
-        # Each entry is either a plain string (module id) or a single-key
-        # dict mapping module id to a list of action names. Anything else
-        # is a malformed entry the user almost certainly wrote by mistake.
         if not isinstance(v, list):
             raise ValueError("agent.modules must be a list, got " + type(v).__name__)
         for i, entry in enumerate(v):
@@ -2388,11 +1852,6 @@ class AgentDefinition(BaseModel):
         default_factory=AgentPoolConfig,
         description="Agent pool config for coordinators (max_workers, progress, auto_retry).",
     )
-    # ── Phase 9 grouped sub-blocks ─────────────────────────────
-    # `coordination:` and `instructions:` collect the historical
-    # scatter of delegate_to/pool/specialty/skills/capabilities.
-    # When set, they are aliased into the legacy fields at compile
-    # so downstream code (compiler, runtime, canvas) keeps working.
     coordination: CoordinationBlock | None = Field(
         default=None,
         description=(
@@ -2410,7 +1869,7 @@ class AgentDefinition(BaseModel):
     hooks: list[HookConfig] = Field(
         default_factory=list,
         description=(
-            "Per-agent hooks - merged with ``execution.hooks`` but only "
+            "Per-agent hooks - merged with `execution.hooks` but only "
             "evaluated when this specific agent is active. Use for "
             "specialist-specific behavior (e.g. a `reviewer` agent that "
             "runs extra lint, a `writer` agent that logs every edit). "
@@ -2420,28 +1879,10 @@ class AgentDefinition(BaseModel):
 
 
 class ModeDef(BaseModel):
-    """Per-mode runtime configuration.
-
-    The chat composer surfaces a "mode picker" pill (Ask / Plan / Auto / …)
-    backed by `runtime.modes`. Each entry is a *sparse* override:
-    only fields the user sets are applied on top of the app's normal
-    runtime / agent / tool config when that mode is the active one.
-    Empty fields fall back to the app's defaults.
-
-    Conceptually a mode lets one app behave like several:
-      - tighten / loosen the agent's autonomy (`max_turns`, `timeout`)
-      - swap or amend the system prompt (`system_prompt`)
-      - gate which tools the agent can reach (`tool_grants`)
-      - flip the behavior engine profile (`behavior_profile`)
-
-    Picker UX: the composer hides the picker entirely when only a
-    single mode is declared (no choice = no menu). Apps that want the
-    picker must declare at least two entries.
-    """
+    """Per-mode runtime configuration."""
 
     model_config = {"extra": "forbid"}
 
-    # ── Picker affordance ────────────────────────────────────────
     label: str = Field(
         default="",
         description=(
@@ -2475,7 +1916,6 @@ class ModeDef(BaseModel):
         ),
     )
 
-    # ── Runtime overrides (sparse, optional) ─────────────────────
     max_turns: int | None = Field(
         default=None, ge=1,
         description=(
@@ -2495,7 +1935,6 @@ class ModeDef(BaseModel):
         ),
     )
 
-    # ── Agent context overrides ──────────────────────────────────
     system_prompt: str = Field(
         default="",
         description=(
@@ -2505,7 +1944,6 @@ class ModeDef(BaseModel):
         ),
     )
 
-    # ── Tool gating ──────────────────────────────────────────────
     tool_grants: list[CapabilityGrant] = Field(
         default_factory=list,
         description=(
@@ -2515,7 +1953,6 @@ class ModeDef(BaseModel):
         ),
     )
 
-    # ── Behavior engine ──────────────────────────────────────────
     behavior_profile: str = Field(
         default="",
         description=(
@@ -2527,22 +1964,7 @@ class ModeDef(BaseModel):
 
 
 class RuntimeBlock(BaseModel):
-    """Lifecycle + execution policy: how the app actually runs.
-
-    Holds every field that controls the daemon's per-turn behaviour:
-    mode, max_turns, triggers, hooks, sandbox/security gates, context
-    window, and the orchestration extensions (middleware, pipeline,
-    flow).
-
-    Fields formerly named under ``execution:`` keep their semantics
-    here unchanged. Two renames for unambiguity:
-
-    -  ``execution.workspace``      ->  ``runtime.workdir``
-    -  ``execution.workspace_mode`` ->  ``runtime.workdir_mode``
-
-    The renames disambiguate from ``ui.workspace`` (the Flutter
-    renderer block) which is a completely different concept.
-    """
+    """Lifecycle + execution policy: how the app actually runs."""
 
     model_config = {"extra": "forbid"}
 
@@ -2566,7 +1988,7 @@ class RuntimeBlock(BaseModel):
     modes: dict[str, ModeDef] = Field(
         default_factory=dict,
         description=(
-            "Composer mode picker — keyed by mode id (`ask`, `plan`, "
+            "Composer mode picker - keyed by mode id (`ask`, `plan`, "
             "`auto`, or anything app-specific). Each value is a "
             "sparse `ModeDef` that overrides the app's runtime / "
             "agent / tools / behavior config when the user picks "
@@ -2616,7 +2038,7 @@ class RuntimeBlock(BaseModel):
     workdir: str = Field(
         default="",
         description=(
-            "Working directory (formerly ``execution.workspace``). The "
+            "Working directory (formerly `execution.workspace`). The "
             "filesystem path the app's modules operate within. Auto-indexed "
             "at startup. Supports {{variables}} and {{env.PWD}}. Renamed "
             "from `workspace` to disambiguate from `ui.workspace` (renderer)."
@@ -2625,7 +2047,7 @@ class RuntimeBlock(BaseModel):
     workdir_mode: Literal["none", "required", "fixed", "auto"] = Field(
         default="auto",
         description=(
-            "Working-directory mode (formerly ``execution.workspace_mode``):"
+            "Working-directory mode (formerly `execution.workspace_mode`):"
             " 'none', 'required', 'fixed', or 'auto'."
         ),
     )
@@ -2686,22 +2108,9 @@ class RuntimeBlock(BaseModel):
         ),
     )
 
-    # Note: ``flow:`` is now a TOP-LEVEL block (8th canonical block).
-    # It changes how agents coordinate (explicit scenography vs
-    # implicit ``Agent()`` calls), which is a big enough shift that
-    # it gets its own block instead of sitting under ``runtime``.
-    # The legacy alias ``runtime.flow`` still works via
-    # ``schema_aliases`` for backward compat.
-
 
 class ToolsBlock(BaseModel):
-    """What the agent can call: modules, capabilities (grant/deny), output channels.
-
-    Modules expose actions; capabilities filter which actions are
-    callable (auto / approve / deny); channels are the typed output
-    surfaces (slack, email, webhook, ...) that triggers and the
-    scheduler can deliver to.
-    """
+    """What the agent can call: modules, capabilities (grant/deny), output channels."""
 
     model_config = {"extra": "forbid"}
 
@@ -2720,13 +2129,7 @@ class ToolsBlock(BaseModel):
 
 
 class SecurityBlock(BaseModel):
-    """Runtime security boundaries: behavioral rules, OS sandbox, secret vault.
-
-    `behavior` describes per-tool checks the daemon enforces at
-    runtime. `sandbox` is the OS-level isolation layer (Landlock /
-    seccomp / namespaces). `credentials_schema` declares every external
-    secret the app needs.
-    """
+    """Runtime security boundaries: behavioral rules, OS sandbox, secret vault."""
 
     model_config = {"extra": "forbid"}
 
@@ -2755,22 +2158,12 @@ class SecurityBlock(BaseModel):
 
 
 class UIBlock(BaseModel):
-    """How the client renders the app: pure display, daemon never reads.
-
-    Holds the Flutter / web client manifest extensions. Theme, feature
-    toggles, declarative widgets, the workspace renderer, slash
-    commands, quick prompts, and the welcome greeting.
-    """
+    """How the client renders the app: pure display, daemon never reads."""
 
     model_config = {"extra": "forbid"}
 
     @classmethod
     def model_validate(cls, obj: Any, *args: Any, **kwargs: Any) -> "UIBlock":
-        # ``ui.preview`` was removed when dev-server lifecycle moved to
-        # the LLM-driven ``web_preview`` module. Old YAMLs (user apps
-        # deployed before the migration) still ship the block — silently
-        # drop it instead of failing the whole compile, since the rest
-        # of UIBlock is still valid.
         if isinstance(obj, dict) and "preview" in obj:
             obj = {k: v for k, v in obj.items() if k != "preview"}
         return super().model_validate(obj, *args, **kwargs)
@@ -2785,13 +2178,13 @@ class UIBlock(BaseModel):
     features: dict[str, bool] = Field(
         default_factory=dict,
         description=(
-            "UI feature toggles consumed by the Flutter client. Missing "
+            "UI feature toggles consumed by the client. Missing "
             "keys default to true (feature visible)."
         ),
     )
     widgets: "WidgetsConfig | None" = Field(
         default=None,
-        description="Declarative UI widgets rendered by the Flutter client.",
+        description="Declarative UI widgets rendered by the client.",
     )
     workspace: "WorkspaceBlock | None" = Field(
         default=None,
@@ -2818,19 +2211,6 @@ class UIBlock(BaseModel):
             "execution.greeting."
         ),
     )
-    # ── Chat layout / behaviour blocks (added 2026-05-04) ──────────
-    #
-    # All optional. When omitted the client falls back to its
-    # default (current behaviour) so existing app YAMLs keep working
-    # untouched. Each new sub-block lets the YAML override one
-    # specific aspect of the chat panel without redefining the rest.
-    #
-    # ``layout`` is the high-level preset: it lets the client pick
-    # an opinionated combination of the lower-level flags
-    # (Lovable-style, builder, research, …) without the YAML having
-    # to set ten flags individually. The fine-grained sub-blocks
-    # below ALWAYS win over the preset so an author can derive from
-    # ``lovable`` and tweak just the bits they need.
     layout: str = Field(
         default="default",
         description=(
@@ -2846,7 +2226,7 @@ class UIBlock(BaseModel):
     thinking: ChatThinkingBlock | None = Field(
         default=None,
         description=(
-            "Visibility / collapse defaults for ``<thinking>`` blocks "
+            "Visibility / collapse defaults for `<thinking>` blocks "
             "in assistant messages."
         ),
     )
@@ -2854,22 +2234,22 @@ class UIBlock(BaseModel):
         default=None,
         description=(
             "Visibility / collapse defaults for tool-call chips. "
-            "``show_silent`` controls plumbing-tool rendering."
+            "`show_silent` controls plumbing-tool rendering."
         ),
     )
     composer: ChatComposerBlock | None = Field(
         default=None,
         description=(
             "Composer toolbar config (file upload, voice, slash, "
-            "quick prompts). Wins over the legacy ``features.X`` "
+            "quick prompts). Wins over the legacy `features.X` "
             "boolean keys for the same concepts."
         ),
     )
     visual: ChatVisualBlock | None = Field(
         default=None,
         description=(
-            "Bubble accent / style / alignment overrides. ``accent`` "
-            "wins over ``theme.accent`` and ``app.color`` when set."
+            "Bubble accent / style / alignment overrides. `accent` "
+            "wins over `theme.accent` and `app.color` when set."
         ),
     )
     slots: SlotsConfig | None = Field(
@@ -2878,9 +2258,7 @@ class UIBlock(BaseModel):
             "Per-app placement of inline widgets in the chat "
             "surface (header, sidebar_left, sidebar_right, "
             "above_composer, footer). Each slot references an "
-            "entry from ``ui.widgets.inline`` by name. The "
-            "architectural foundation for Phase 2 message actions "
-            "and Phase 3 tool renderers."
+            "entry from `ui.widgets.inline` by name."
         ),
     )
     activity: "ActivityPanelBlock | None" = Field(
@@ -2888,53 +2266,44 @@ class UIBlock(BaseModel):
         description=(
             "Opt-in Activity pane: live sub-agent fan-out + recent "
             "terminal events + aggregate stats. The block being "
-            "PRESENT in YAML is the gate — both clients hide the "
+            "PRESENT in YAML is the gate - both clients hide the "
             "Activity workspace mode entry when this field is null. "
             "Simple chat apps that never spawn sub-agents leave it "
             "off. Coordinator / multi-agent / dev-assistant apps "
             "opt in."
         ),
     )
-    # Phase 3 - YAML-driven custom rendering for tool calls. Lives in
-    # ``tool_renderers.py`` so it can be removed without touching this
-    # file beyond this single field. Forward-string type means schema.py
-    # still imports cleanly if the module is ever deleted.
     tool_renderers: "ToolRenderersBlock | None" = Field(
         default=None,
         description=(
-            "Phase-3 dispatcher mapping tool names (or regex "
-            "patterns) to inline-widget refs. When the block is "
-            "absent or ``enabled: false``, every tool call uses the "
-            "client's legacy chip - opt-in only. The widget tree "
-            "receives ``{{tool.name}}``, ``{{tool.params.X}}``, "
-            "``{{tool.result.X}}``, ``{{tool.error}}``, "
-            "``{{tool.duration_ms}}``, ``{{tool.status}}`` bindings."
+            "Dispatcher mapping tool names (or regex patterns) to "
+            "inline-widget refs. When the block is absent or "
+            "`enabled: false`, every tool call uses the client's "
+            "legacy chip; opt-in only. The widget tree receives "
+            "`{{tool.name}}`, `{{tool.params.X}}`, "
+            "`{{tool.result.X}}`, `{{tool.error}}`, "
+            "`{{tool.duration_ms}}`, `{{tool.status}}` bindings."
         ),
     )
-    # Phase 2 - per-message custom action rows. Same isolation
-    # pattern as tool_renderers; lives in ``message_actions.py``.
+    # Per-message custom action rows. Same isolation pattern as
+    # `tool_renderers`; lives in `message_actions.py`.
     message_actions: "MessageActionsBlock | None" = Field(
         default=None,
         description=(
-            "Phase-2 dispatcher mounting a custom widget tree UNDER "
+            "Dispatcher mounting a custom widget tree under "
             "each chat message that matches one of the rules. When "
-            "the block is absent or ``enabled: false``, no extra "
+            "the block is absent or `enabled: false`, no extra "
             "row renders under messages - opt-in only. The widget "
-            "tree receives ``{{message.role}}``, ``{{message.id}}``, "
-            "``{{message.text}}``, ``{{message.has_tools}}``, "
-            "``{{message.tools}}``, ``{{message.first_tool}}``, "
-            "``{{message.tool_status}}`` bindings."
+            "tree receives `{{message.role}}`, `{{message.id}}`, "
+            "`{{message.text}}`, `{{message.has_tools}}`, "
+            "`{{message.tools}}`, `{{message.first_tool}}`, "
+            "`{{message.tool_status}}` bindings."
         ),
     )
 
 
 class DevBlock(BaseModel):
-    """Developer affordances: skills, variables, fragmentation directives.
-
-    Things authored at design time that don't fit cleanly into the
-    other blocks. Skills are /command markdown files. Variables are
-    template substitutions. Include is the fragmentation directive.
-    """
+    """Developer affordances: skills, variables, fragmentation directives."""
 
     model_config = {"extra": "forbid"}
 
@@ -2946,9 +2315,9 @@ class DevBlock(BaseModel):
         default=False,
         description=(
             "When true, end users may CRUD their own skills for this app "
-            "via ``/api/apps/{app_id}/skills`` (stored per-user in the "
-            "``user_skills`` table). When false the endpoints are "
-            "read-only and the user palette shows only ``dev.skills`` "
+            "via `/api/apps/{app_id}/skills` (stored per-user in the "
+            "`user_skills` table). When false the endpoints are "
+            "read-only and the user palette shows only `dev.skills` "
             "entries declared in this YAML. Defaults to false so apps "
             "opt in explicitly to user-authored content."
         ),
@@ -2967,30 +2336,7 @@ class DevBlock(BaseModel):
 
 
 class TemplateBlock(BaseModel):
-    """A starter template declared by the app.
-
-    The chat client renders these in a native gallery under the
-    composer. The user picks one, previews it in an iframe, attaches
-    it to their next message; on send the daemon copies the seed
-    files into the workspace and injects ``system_prompt`` as a
-    one-turn system addendum so the agent knows the directive.
-
-    Both path fields are **relative to the app's install directory**.
-    No path traversal is allowed (no leading ``/``, no ``..``).
-
-    Example YAML — typically lives in a ``templates.yaml`` fragment
-    next to ``app.yaml`` to keep the main manifest small::
-
-        templates:
-          - id: landing-ai-saas
-            name: "AI SaaS landing"
-            description: "Mesh-gradient hero, features, pricing, FAQ."
-            preview_path: "templates/landing-ai-saas/dist/index.html"
-            seed_dir: "templates/landing-ai-saas/files/"
-            system_prompt: |
-              You are working from the AI SaaS landing template.
-              Keep the mesh-gradient hero and premium dark feel.
-    """
+    """A starter template declared by the app."""
 
     model_config = {"extra": "forbid"}
 
@@ -2998,7 +2344,7 @@ class TemplateBlock(BaseModel):
         ...,
         description=(
             "Unique slug for this template within the app. Used as a "
-            "URL segment and as the ``template_id`` the chat client "
+            "URL segment and as the `template_id` the chat client "
             "sends with the user message. Lowercase letters, digits, "
             "hyphens."
         ),
@@ -3015,9 +2361,9 @@ class TemplateBlock(BaseModel):
         ...,
         description=(
             "Path relative to the app's install_dir pointing at a "
-            "browser-loadable file (built ``dist/index.html``, .pdf, "
+            "browser-loadable file (built `dist/index.html`, .pdf, "
             ".html, etc.). The daemon serves it via "
-            "``GET /api/apps/{id}/template-assets/{path}`` and the "
+            "`GET /api/apps/{id}/template-assets/{path}` and the "
             "chat client loads that URL in the preview iframe."
         ),
     )
@@ -3054,9 +2400,6 @@ class TemplateBlock(BaseModel):
     @field_validator("preview_path", "seed_dir")
     @classmethod
     def _validate_relative_path(cls, v: str) -> str:
-        # Reject absolute paths + traversal segments. The daemon will
-        # also re-check before serving / copying, but failing here makes
-        # bad YAML a deploy-time error instead of a runtime surprise.
         if not v:
             raise ValueError("path must not be empty")
         if v.startswith("/") or v.startswith("\\"):
@@ -3068,51 +2411,7 @@ class TemplateBlock(BaseModel):
 
 
 class AppDefinition(BaseModel):
-    """Root model - direct parse target for an app YAML file.
-
-    The schema groups every field into 7 semantic blocks. There is
-    exactly ONE canonical place to declare each field: no top-level
-    flat aliases, no duplicates between ``app.X`` / ``ui.X``. Legacy
-    YAMLs (flat shape) still work via :mod:`schema_aliases`, which
-    reshapes them to this canonical form before Pydantic validates.
-
-    Example YAML::
-
-        app:
-          app_id: my-agent
-          name: "My Agent"
-
-        runtime:
-          mode: conversation
-          entry_agent: coordinator
-
-        agents:
-          - id: coordinator
-            role: coordinator
-            brain:
-              provider: deepseek
-              model: deepseek-chat
-
-        tools:
-          modules:
-            database:
-              setup: [...]
-          capabilities:
-            default_policy: auto
-            grant: [...]
-
-        security:
-          behavior:
-            profile: coding
-
-        ui:
-          theme: { accent: "#6EE7B7" }
-          features: { voice: false }
-
-        dev:
-          variables:
-            workspace: "{{env.PWD}}"
-    """
+    """Root model - direct parse target for an app YAML file."""
 
     model_config = {"extra": "forbid"}
 
@@ -3120,9 +2419,9 @@ class AppDefinition(BaseModel):
         default=2,
         description=(
             "Canonical schema version. v2 = 8 nested top-level blocks "
-            "(``app``, ``runtime``, ``agents``, ``tools``, ``security``, "
-            "``ui``, ``dev``, ``flow``). v1 = legacy flat shape "
-            "(``execution:``, ``modules:`` at top level, ...). The alias "
+            "(`app`, `runtime`, `agents`, `tools`, `security`, "
+            "`ui`, `dev`, `flow`). v1 = legacy flat shape "
+            "(`execution:`, `modules:` at top level, ...). The alias "
             "pass auto-detects when this field is absent. Setting it "
             "explicitly future-proofs the file against breaking changes."
         ),
@@ -3168,44 +2467,17 @@ class AppDefinition(BaseModel):
         description=(
             "Starter templates the chat client renders as a native "
             "gallery below the composer. Typically loaded from a "
-            "``templates.yaml`` fragment beside ``app.yaml`` so the "
+            "`templates.yaml` fragment beside `app.yaml` so the "
             "main manifest stays readable. Each entry points at a "
             "pre-built preview asset and a seed directory; on send "
             "the daemon copies seeds into the workspace and injects "
-            "the template's ``system_prompt`` for that turn."
+            "the template's `system_prompt` for that turn."
         ),
     )
 
 
 class ActivityPanelBlock(BaseModel):
-    """``ui.activity:`` block — opt-in observability pane for sub-agents.
-
-    Surfaces the live sub-agent fan-out, background tasks, and recent
-    terminal events as a dedicated workspace mode (web) / shell pane
-    (Flutter). Pure display: the daemon never inspects this; both
-    clients consume the field through the manifest summary and gate
-    the Activity mode entry on its presence.
-
-    **Opt-in contract**: when this block is omitted (default), the
-    Activity mode is HIDDEN from the workspace mode menu and the
-    panel is not rendered. A simple chat app that never spawns
-    sub-agents shouldn't see it. Apps that orchestrate fan-out
-    (coordinator, dev assistant, multi-agent research) opt in.
-
-    Example YAML::
-
-        ui:
-          activity:
-            enabled: true
-            position: right
-            title: "Activity"
-            show_running: true
-            show_recent: true
-            show_stats: true
-            show_bg_tasks: true
-            max_recent: 50
-            auto_open_on_spawn: false
-    """
+    """`ui.activity:` block - opt-in observability pane for sub-agents."""
 
     model_config = {"extra": "forbid"}
 
@@ -3213,8 +2485,8 @@ class ActivityPanelBlock(BaseModel):
         default=True,
         description=(
             "Master switch. When this block is present in YAML the "
-            "client renders the Activity mode entry. Set ``enabled: "
-            "false`` to disable the pane while keeping the rest of "
+            "client renders the Activity mode entry. Set `enabled: "
+            "false` to disable the pane while keeping the rest of "
             "the config (useful for staged rollouts)."
         ),
     )
@@ -3223,13 +2495,13 @@ class ActivityPanelBlock(BaseModel):
         description=(
             "Where the activity pane sits relative to the chat: "
             "right | bottom | overlay. Mirror of "
-            "``WorkspaceBlock.position`` semantics."
+            "`WorkspaceBlock.position` semantics."
         ),
     )
     title: str | None = Field(
         default=None,
         description=(
-            "Panel header label. Defaults to a localised ``Activity`` "
+            "Panel header label. Defaults to a localised `Activity` "
             "string when omitted."
         ),
     )
@@ -3245,7 +2517,7 @@ class ActivityPanelBlock(BaseModel):
         default=True,
         description=(
             "Render the recent-terminal-events scrollable list. "
-            "Carries the last ``max_recent`` agents that completed / "
+            "Carries the last `max_recent` agents that completed / "
             "failed / cancelled, with one-line preview."
         ),
     )
@@ -3254,7 +2526,7 @@ class ActivityPanelBlock(BaseModel):
         description=(
             "Render the aggregate stats footer (total spawned / "
             "completed / failed, average duration, success rate). "
-            "Pulls from ``/api/metrics`` digitorn_agent_* counters."
+            "Pulls from `/api/metrics` digitorn_agent_* counters."
         ),
     )
     show_bg_tasks: bool = Field(
@@ -3279,29 +2551,13 @@ class ActivityPanelBlock(BaseModel):
         description=(
             "When true, the client auto-switches to the Activity pane "
             "the first time the agent spawns a sub-agent. Off by "
-            "default — surface only when the user opens it explicitly."
+            "default - surface only when the user opens it explicitly."
         ),
     )
 
 
 class WorkspaceBlock(BaseModel):
-    """Top-level ``workspace:`` block in app.yaml.
-
-    Tells the client this app uses a virtual file workspace streamed
-    via Socket.IO.  The daemon emits ``preview:state_changed`` with
-    ``key: "workspace"`` on the first file write, carrying these values
-    so the client can pick the correct renderer.
-
-    Example YAML::
-
-        workspace:
-          render_mode: react
-          entry_file: src/App.tsx
-          title: "My App"
-          position: right
-          width_pct: 60
-          auto_open_on_first_tool: true
-    """
+    """Top-level `workspace:` block in app.yaml."""
 
     model_config = {"extra": "forbid"}
 
@@ -3325,10 +2581,6 @@ class WorkspaceBlock(BaseModel):
         default=None,
         description="Optional title shown in the workspace toolbar.",
     )
-    # ── Layout / behavior hints (added 2026-05-04) ─────────────────
-    # Pure display: the daemon ships these to the client and the
-    # client decides how to lay out chat ↔ workspace. Defaults
-    # preserve current behaviour (right split, opt-in open).
     position: str = Field(
         default="right",
         description=(
@@ -3340,8 +2592,8 @@ class WorkspaceBlock(BaseModel):
         default=50, ge=10, le=90,
         description=(
             "Workspace pane width as a percentage of the available "
-            "split (10..90). Ignored when ``position`` is "
-            "``hidden`` / ``overlay``."
+            "split (10..90). Ignored when `position` is "
+            "`hidden` / `overlay`."
         ),
     )
     auto_open_on_first_tool: bool = Field(
@@ -3349,7 +2601,7 @@ class WorkspaceBlock(BaseModel):
         description=(
             "When true (default), the client opens the workspace "
             "pane the first time the agent writes a file or emits "
-            "a workbench_* event (Lovable-style). Set to ``false`` "
+            "a workbench_* event (Lovable-style). Set to `false` "
             "to keep the workspace closed unless the user opens it "
             "manually - useful for chat-only apps that should not "
             "surface a renderer just because a tool wrote one log."
@@ -3364,8 +2616,8 @@ class WorkspaceBlock(BaseModel):
             "workspace IS the product surface (templates gallery, "
             "live preview iframe). When false (default) the "
             "workspace only appears after the first tool call "
-            "(if ``auto_open_on_first_tool: true``) or on user "
-            "click. Independent of ``auto_open_on_first_tool``."
+            "(if `auto_open_on_first_tool: true`) or on user "
+            "click. Independent of `auto_open_on_first_tool`."
         ),
     )
     preview_chrome: "PreviewChromeBlock" = Field(
@@ -3377,19 +2629,19 @@ class WorkspaceBlock(BaseModel):
             "(refresh + open-in-tab visible, viewport toggle "
             "hidden, URL bar auto-shown when the iframe app uses "
             "routing). Apps that want a bare iframe can disable "
-            "the whole chrome via ``enabled: false``."
+            "the whole chrome via `enabled: false`."
         ),
     )
     default_view: Literal["code", "preview", "changes", "activity", "auto"] = Field(
         default="auto",
         description=(
             "Which workspace view the client opens by default. "
-            "``code`` = Monaco editor / file tree, ``preview`` = "
-            "live iframe, ``changes`` = pending diffs, "
-            "``activity`` = activity panel. ``auto`` (default) "
-            "picks ``preview`` when a preview is available "
-            "(render_mode != code or ``preview_chrome.enabled`` "
-            "is on), otherwise ``code``."
+            "`code` = Monaco editor / file tree, `preview` = "
+            "live iframe, `changes` = pending diffs, "
+            "`activity` = activity panel. `auto` (default) "
+            "picks `preview` when a preview is available "
+            "(render_mode != code or `preview_chrome.enabled` "
+            "is on), otherwise `code`."
         ),
     )
     hidden_views: list[Literal["code", "preview", "changes", "activity"]] = Field(
@@ -3397,9 +2649,9 @@ class WorkspaceBlock(BaseModel):
         description=(
             "Views that should NOT appear in the workspace mode "
             "menu. Right for hiding Monaco on apps where the user "
-            "should never see the file editor (``[\"code\"]``), or "
+            "should never see the file editor (`[\"code\"]`), or "
             "hiding the Changes pane on auto-approve sandboxes "
-            "(``[\"changes\"]``). The remaining views still render "
+            "(`[\"changes\"]`). The remaining views still render "
             "normally; only their entries in the mode dropdown are "
             "removed. Empty list (default) = all views available."
         ),
@@ -3407,35 +2659,17 @@ class WorkspaceBlock(BaseModel):
 
 
 class PreviewChromeBlock(BaseModel):
-    """Per-feature flags for the toolbar above the preview iframe.
-
-    The chrome is a thin bar (~36 px) that hosts browser-like
-    controls. Each feature is independently opt-in/out so the
-    chrome stays minimal for apps that don't need it (chat-only
-    apps, single-page dashboards) and gets richer for builder
-    apps (Lovable, future no-code makers).
-
-    Example YAML::
-
-        ui:
-          workspace:
-            preview_chrome:
-              enabled: true
-              refresh: true
-              open_in_new_tab: true
-              viewport_toggle: true   # Lovable-style
-              url_bar: auto           # show when routes detected
-    """
+    """Per-feature flags for the toolbar above the preview iframe."""
 
     model_config = {"extra": "forbid"}
 
     enabled: bool = Field(
         default=True,
         description=(
-            "Master switch — set to ``false`` to render the iframe "
+            "Master switch - set to `false` to render the iframe "
             "with no chrome at all (just the preview surface). "
             "Right for apps where the iframe content IS the entire "
-            "UX (embedded dashboards, kiosks). Default ``true`` "
+            "UX (embedded dashboards, kiosks). Default `true` "
             "shows the standard control set."
         ),
     )
@@ -3445,7 +2679,7 @@ class PreviewChromeBlock(BaseModel):
             "Show the refresh button. Triggers a full iframe "
             "remount (cache-bust + reload). Useful for any preview "
             "where the user might want to retry after a flaky "
-            "load. Default ``true``."
+            "load. Default `true`."
         ),
     )
     open_in_new_tab: bool = Field(
@@ -3453,7 +2687,7 @@ class PreviewChromeBlock(BaseModel):
         description=(
             "Show the 'open in new tab' button. Opens the current "
             "preview URL in a fresh browser tab for full-page "
-            "inspection. Default ``true``. Auto-suppressed for "
+            "inspection. Default `true`. Auto-suppressed for "
             "bundled SDK apps (where the URL is the daemon's "
             "/web-static/ route and tab-open would just open the "
             "same daemon route)."
@@ -3465,17 +2699,17 @@ class PreviewChromeBlock(BaseModel):
             "Show the mobile / tablet / desktop viewport toggle "
             "(375 / 768 / 100% widths). Opt-in because it only "
             "makes sense for responsive web apps the user is "
-            "designing (Lovable, web builders). Default ``false`` "
-            "— most non-builder apps don't need it."
+            "designing (Lovable, web builders). Default `false` "
+            "- most non-builder apps don't need it."
         ),
     )
     url_bar: Literal["auto", "always", "never"] = Field(
         default="auto",
         description=(
             "URL bar visibility for showing the current route. "
-            "``auto`` (default): shown when ≥2 distinct routes "
+            "`auto` (default): shown when ≥2 distinct routes "
             "have been visited (detected via SDK postMessage). "
-            "``always``: shown unconditionally. ``never``: hidden. "
+            "`always`: shown unconditionally. `never`: hidden. "
             "Auto is right for builder apps that may or may not "
             "ship multi-page output; never is right for single-"
             "page tools / dashboards."
@@ -3484,7 +2718,7 @@ class PreviewChromeBlock(BaseModel):
 
 
 class ChatThinkingBlock(BaseModel):
-    """Per-app visibility / collapse defaults for ``<thinking>`` blocks."""
+    """Per-app visibility / collapse defaults for `<thinking>` blocks."""
 
     model_config = {"extra": "forbid"}
 
@@ -3496,18 +2730,13 @@ class ChatThinkingBlock(BaseModel):
         default=True,
         description=(
             "Initial collapsed state of thinking blocks; the user can "
-            "still toggle them when ``visible`` is true."
+            "still toggle them when `visible` is true."
         ),
     )
 
 
 class IntentPhrasesLLMConfig(BaseModel):
-    """LLM-driven generation of progressive intent phrases for the
-    Lovable-style strict mode. The daemon fires one cheap LLM call at
-    turn start (via the gateway, never direct provider) to produce 4-6
-    '-ing' phrases that match the user's specific request, then emits
-    them to the frontend via the ``intent_phrases`` SSE event. The
-    frontend cycles through them while the agent works."""
+    """LLM-driven generation of progressive intent phrases for the"""
 
     model_config = {"extra": "forbid"}
 
@@ -3515,7 +2744,7 @@ class IntentPhrasesLLMConfig(BaseModel):
         default="claude-haiku-4-5",
         description=(
             "Gateway alias for the phrase-generation model. Resolved "
-            "by the gateway catalogue — ALL outbound AI traffic from "
+            "by the gateway catalogue - ALL outbound AI traffic from "
             "the daemon goes through the gateway, no exception. Pick "
             "the cheapest model that can produce short, contextual "
             "verb phrases (Haiku, Gemini Flash, Llama 3 8B all work)."
@@ -3528,8 +2757,8 @@ class IntentPhrasesLLMConfig(BaseModel):
         description=(
             "Hard cap on the phrase-generation call. Past this, the "
             "daemon abandons the LLM path and falls back to the static "
-            "matrix (when ``source=auto``) or emits an empty list "
-            "(when ``source=llm``)."
+            "matrix (when `source=auto`) or emits an empty list "
+            "(when `source=llm`)."
         ),
     )
     prompt: str = Field(
@@ -3543,8 +2772,8 @@ class IntentPhrasesLLMConfig(BaseModel):
             "Request: {user_message}"
         ),
         description=(
-            "Prompt template for the phrase generator. ``{user_message}`` "
-            "and ``{min}`` / ``{max}`` are substituted. Override per "
+            "Prompt template for the phrase generator. `{user_message}` "
+            "and `{min}` / `{max}` are substituted. Override per "
             "app to bias the style (more technical, more casual, "
             "branded vocabulary, etc.)."
         ),
@@ -3552,9 +2781,7 @@ class IntentPhrasesLLMConfig(BaseModel):
 
 
 class IntentPhrasesStaticConfig(BaseModel):
-    """Static fallback matrix of phrases by agent phase. Always
-    available even when the LLM path is disabled or failing — the
-    frontend cycles through these as a final safety net."""
+    """Static fallback matrix of phrases by agent phase. Always"""
 
     model_config = {"extra": "forbid"}
 
@@ -3583,13 +2810,13 @@ class IntentPhrasesStaticConfig(BaseModel):
         },
         description=(
             "Phrases grouped by agent phase. Known phase keys:\n"
-            "- ``analyzing``: early streaming, agent thinking about "
+            "- `analyzing`: early streaming, agent thinking about "
             "the request before any tool call.\n"
-            "- ``thinking``: an open ``thinking`` block is streaming.\n"
-            "- ``tool_streaming``: a tool call is in flight without "
+            "- `thinking`: an open `thinking` block is streaming.\n"
+            "- `tool_streaming`: a tool call is in flight without "
             "an LLM-declared intent.\n"
-            "- ``between_tools``: text between two tool calls.\n"
-            "- ``finalizing``: last segment before the final answer.\n"
+            "- `between_tools`: text between two tool calls.\n"
+            "- `finalizing`: last segment before the final answer.\n"
             "Unknown phase keys are tolerated but unused. The "
             "frontend picks one phrase per phase at random per turn."
         ),
@@ -3597,27 +2824,14 @@ class IntentPhrasesStaticConfig(BaseModel):
 
 
 class IntentPhrasesConfig(BaseModel):
-    """Configures how progressive intent phrases are produced for the
-    Lovable-style ``strict_mode``. Three sources supported:
-
-    - ``llm``    : always call the gateway model. Empty list on
-                   timeout / error (no fallback).
-    - ``static`` : always pick from ``static.phases``. No LLM call,
-                   zero cost.
-    - ``auto``   : try LLM first; if it times out, errors, or returns
-                   an empty list, fall back to ``static``. Default.
-
-    The phrases are only generated when ``tool_calls.strict_mode`` is
-    ``true`` — otherwise this whole block is ignored and no LLM call
-    is fired, zero overhead for apps that don't use strict mode.
-    """
+    """Configures how progressive intent phrases are produced for the"""
 
     model_config = {"extra": "forbid"}
 
     source: Literal["llm", "static", "auto"] = Field(
         default="auto",
         description=(
-            "Where to source the phrases. ``auto`` is the recommended "
+            "Where to source the phrases. `auto` is the recommended "
             "default: best quality (LLM) with deterministic fallback "
             "(static) on any failure."
         ),
@@ -3651,11 +2865,11 @@ class ChatToolCallsBlock(BaseModel):
         default=False,
         description=(
             "When true, the context builder prepends a required "
-            "``intent`` string field to every tool's input schema. The "
+            "`intent` string field to every tool's input schema. The "
             "LLM fills it with a short present-continuous verb phrase "
-            "(``Analyzing requirements``, ``Reviewing components``, "
+            "(`Analyzing requirements`, `Reviewing components`, "
             "etc.) AS THE FIRST KEY of the tool call. The runtime "
-            "strips it in ``tool_exec`` before dispatching to the "
+            "strips it in `tool_exec` before dispatching to the "
             "handler, so no tool code changes. The frontend renders "
             "the captured intents as a single live progress line "
             "(Lovable-style) instead of individual tool rows. "
@@ -3666,9 +2880,9 @@ class ChatToolCallsBlock(BaseModel):
     hide_details: bool = Field(
         default=False,
         description=(
-            "Only meaningful when ``inject_intent`` is true. When true, "
+            "Only meaningful when `inject_intent` is true. When true, "
             "the progressive intent line in the frontend renders with "
-            "NO chevron and NO expandable detail block at all — the "
+            "NO chevron and NO expandable detail block at all - the "
             "user sees just the shimmering verb and that is the whole "
             "tool-call surface. Per-tool params, results, diffs are "
             "completely hidden from the chat. Use this for apps where "
@@ -3676,25 +2890,25 @@ class ChatToolCallsBlock(BaseModel):
             "never inspect raw tool plumbing (consumer apps, demo "
             "surfaces, deeply branded experiences). When false "
             "(default) the chevron stays and the user can drill into "
-            "every individual call. No effect when ``inject_intent`` "
+            "every individual call. No effect when `inject_intent` "
             "is false."
         ),
     )
     strict_mode: bool = Field(
         default=False,
         description=(
-            "Lovable-style ``strict mode``: every assistant content "
+            "Lovable-style `strict mode`: every assistant content "
             "block (intermediate text, thinking, tool calls) is "
             "rendered as a single shimmering phrase, except blocks "
-            "that the user MUST read — the final answer and any text "
+            "that the user MUST read - the final answer and any text "
             "that immediately precedes a user-facing interaction "
-            "(``ask_user``, approval request). The phrases come from "
-            "``intent_phrases`` (LLM-generated per turn, or static "
-            "fallback). Default ``false`` — apps must opt in. When "
+            "(`ask_user`, approval request). The phrases come from "
+            "`intent_phrases` (LLM-generated per turn, or static "
+            "fallback). Default `false` - apps must opt in. When "
             "off, no LLM phrase call is fired and no per-turn "
-            "overhead is incurred. Works alongside ``inject_intent`` "
+            "overhead is incurred. Works alongside `inject_intent` "
             "(tool calls keep their own auto-declared intent line) "
-            "and ``hide_details`` (extends the hidden surface to "
+            "and `hide_details` (extends the hidden surface to "
             "non-tool blocks too)."
         ),
     )
@@ -3702,18 +2916,14 @@ class ChatToolCallsBlock(BaseModel):
         default_factory=IntentPhrasesConfig,
         description=(
             "Configures the progressive shimmer phrases used by "
-            "``strict_mode``. Ignored entirely when ``strict_mode`` "
-            "is false — no LLM call, no event emitted."
+            "`strict_mode`. Ignored entirely when `strict_mode` "
+            "is false - no LLM call, no event emitted."
         ),
     )
 
 
 class ChatComposerBlock(BaseModel):
-    """Composer toolbar configuration (file upload, voice, ...).
-
-    Mirrors the existing ``ui.features`` flags for backward
-    compatibility - if both are present, ``composer.X`` wins.
-    """
+    """Composer toolbar configuration (file upload, voice, ...)."""
 
     model_config = {"extra": "forbid"}
 
@@ -3724,19 +2934,19 @@ class ChatComposerBlock(BaseModel):
     voice: bool = Field(
         default=True,
         description=(
-            "Microphone button. Default ``true`` to match the legacy "
-            "``features.voice`` default - apps that want voice off "
-            "should set ``composer.voice: false`` explicitly."
+            "Microphone button. Default `true` to match the legacy "
+            "`features.voice` default - apps that want voice off "
+            "should set `composer.voice: false` explicitly."
         ),
     )
     slash_commands: bool = Field(
         default=True,
-        description="Slash command palette via ``/``.",
+        description="Slash command palette via `/`.",
     )
     quick_prompts_visible: bool = Field(
         default=True,
         description=(
-            "Show suggested ``ui.quick_prompts`` chips above the composer "
+            "Show suggested `ui.quick_prompts` chips above the composer "
             "when the conversation is empty."
         ),
     )
@@ -3750,8 +2960,8 @@ class ChatVisualBlock(BaseModel):
     accent: str = Field(
         default="",
         description=(
-            "Hex accent colour, e.g. ``#3b82f6``. Falls back to "
-            "``ui.theme.accent`` then ``app.color`` when empty."
+            "Hex accent colour, e.g. `#3b82f6`. Falls back to "
+            "`ui.theme.accent` then `app.color` when empty."
         ),
     )
     bubble_style: str = Field(
@@ -3765,73 +2975,28 @@ class ChatVisualBlock(BaseModel):
 
 
 class SlotEntry(BaseModel):
-    """One slot placement: which widget kind and what to render.
-
-    Phase 1 (2026-05-04) supports a single ``kind: inline`` that
-    references an entry from ``ui.widgets.inline`` by name. Phase 4
-    will add ``chart``, ``data_table``, ``iframe`` as native kinds
-    so a slot can carry a primitive without going through
-    ``inline``. The ``extra: allow`` policy keeps the contract
-    forward-compatible - unknown kind-specific fields stay on the
-    payload and reach the client untouched.
-    """
+    """One slot placement: which widget kind and what to render."""
 
     model_config = {"extra": "allow"}
 
     kind: str = Field(
         default="inline",
         description=(
-            "Renderer for this slot. Phase 1 supports ``inline`` "
-            "(reference to ``ui.widgets.inline.<ref>``)."
+            "Renderer for this slot. Currently supports `inline` "
+            "(reference to `ui.widgets.inline.<ref>`)."
         ),
     )
     ref: str = Field(
         default="",
         description=(
             "Name of the inline widget to render (must exist in "
-            "``ui.widgets.inline``). Required when ``kind: inline``."
+            "`ui.widgets.inline`). Required when `kind: inline`."
         ),
     )
 
 
 class SlotsConfig(BaseModel):
-    """Per-app placement of inline widgets in the chat surface.
-
-    Generalises the legacy ``ui.widgets.chat_side`` (single
-    right-side panel) to five named placements the YAML can fill
-    independently:
-
-    - ``header``: floating overlay at the top of the chat panel
-      (top-right). Does NOT take vertical layout space.
-    - ``sidebar_left`` / ``sidebar_right``: left/right of the
-      message list (inside the chat panel - distinct from the
-      global workspace splitter).
-    - ``footer_left``: REPLACES the workspace-path chip in the
-      ``StatusLine`` row below the composer. Renders inline at
-      the left edge of that row, no extra vertical space.
-    - ``footer_right``: REPLACES the model chip in the same
-      ``StatusLine`` row, pinned to the far-right edge.
-
-    The footer pair is the "no-extra-row" override mechanism:
-    instead of adding a new line below the composer (which users
-    rejected as wasted vertical space), the YAML can hijack the
-    two existing chips that already live there - workspace path
-    on the left, model name on the right - and substitute its
-    own widget. Set neither and the StatusLine is unchanged.
-
-    No ``above_composer`` slot: action rows between the message
-    list and the composer were rejected as visually competing
-    with both the chat scroll area and the composer itself.
-    Apps that want pre-composer affordances should use
-    ``header`` (overlay) or the upcoming Phase-2
-    ``message_actions`` (per-message buttons) instead.
-
-    Each slot is optional; omitted slots stay empty so existing
-    apps without a ``ui.slots`` block keep their historical
-    layout. The slot system is the architectural foundation that
-    Phase 2 (``message_actions``) and Phase 3 (``tool_renderers``)
-    build on.
-    """
+    """Per-app placement of inline widgets in the chat surface."""
 
     model_config = {"extra": "forbid"}
 
@@ -3841,26 +3006,6 @@ class SlotsConfig(BaseModel):
     footer_left: SlotEntry | None = Field(default=None)
     footer_right: SlotEntry | None = Field(default=None)
 
-
-# ─────────────────────────────────────────────────────────────────
-# Widgets - declarative UI rendered by the Flutter client (v1)
-# ─────────────────────────────────────────────────────────────────
-#
-# Spec: docs/app-language/42-widgets.md
-#
-# Compile-time guarantees enforced here:
-#   - ``version`` must equal 1 (the only one we support today)
-#   - ``type`` of every WidgetNode is in WIDGET_PRIMITIVES
-#   - Action ``action`` field is in WIDGET_ACTIONS
-#   - ``accent`` / ``color`` use a closed semantic palette
-#   - Recursive children/arrays are typed as ``WidgetNode``
-#   - Free-form ``data:`` blocks accept any dict (validated at deploy
-#     time by the data-source resolver, not by pydantic, because the
-#     spec lists 5 source types each with their own schema)
-#
-# The ``ref:`` mechanism (an inline widget referenced from chat_side
-# or modals or by widget.render SSE) is validated structurally here
-# but cycle-checked in compiler.py during the compile pass.
 
 # Closed sets ---------------------------------------------------------
 
@@ -3939,21 +3084,14 @@ WIDGET_FILTERS: frozenset[str] = frozenset({
 
 
 class WidgetNode(BaseModel):
-    """Recursive widget tree node - every primitive shares this base.
-
-    Pydantic refuses extra fields globally, BUT each primitive needs
-    its own keys (``items`` for list, ``rows`` for table, ``children``
-    for column/row, etc.). Rather than declare 30 strict subclasses
-    we use a permissive shape and validate the per-primitive contract
-    in :func:`digitorn.core.app.compiler._validate_widget_tree`.
-    """
+    """Recursive widget tree node - every primitive shares this base."""
 
     type: str = Field(..., description="Primitive name - must be in WIDGET_PRIMITIVES.")
 
     # Universal node fields (spec §4)
     id: str | None = None
     when: str | None = Field(default=None, description="Conditional render expression.")
-    # ``for`` is reserved in Python - accept it via alias
+    # `for` is reserved in Python - accept it via alias
     for_: str | None = Field(default=None, alias="for")
     as_: str | None = Field(default=None, alias="as")
     key: str | None = None
@@ -3973,9 +3111,6 @@ class WidgetNode(BaseModel):
     submit: dict[str, Any] | None = None
     reset: dict[str, Any] | None = None
 
-    # Per-primitive payload - validated post-parse by the compiler.
-    # We accept arbitrary keys to keep the schema flexible enough for
-    # all 30+ primitives without 30 subclasses.
     model_config = {"extra": "allow", "populate_by_name": True}
 
 
@@ -4013,7 +3148,7 @@ class WorkspaceTabWidget(BaseModel):
 
 
 class ModalWidget(BaseModel):
-    """Z4 - modal pushed by ``action: open_modal``."""
+    """Z4 - modal pushed by `action: open_modal`."""
 
     model_config = {"extra": "forbid"}
 
@@ -4030,7 +3165,7 @@ class ModalWidget(BaseModel):
 
 
 class InlineWidget(BaseModel):
-    """Named inline widget - referenceable by ``ref:`` from agent SSE."""
+    """Named inline widget - referenceable by `ref:` from agent SSE."""
 
     model_config = {"extra": "forbid"}
 
@@ -4039,17 +3174,7 @@ class InlineWidget(BaseModel):
 
 
 class WidgetsConfig(BaseModel):
-    """Top-level ``widgets:`` block in app.yaml.
-
-    Structure mirrors the Flutter spec v1: one optional chat_side
-    panel, an array of workspace_tabs, a dict of named modals, and a
-    dict of named inline widgets that the agent can push via
-    ``widget.render`` with a ``ref:``.
-
-    External widget files under ``./widgets/*.yaml`` in the bundle
-    dir are loaded by the compiler and merged into the ``inline``
-    map (keyed by file stem) - same pattern as skills.
-    """
+    """Top-level `widgets:` block in app.yaml."""
 
     model_config = {"extra": "forbid"}
 
@@ -4066,10 +3191,6 @@ class WidgetsConfig(BaseModel):
 # Resolve the FlowConfig forward reference. Imported lazily to keep the
 # module surface small - flow.py lives in its own file.
 from digitorn.core.app.flow import FlowConfig  # noqa: E402
-# Phase-3 tool_renderers block - same lazy import pattern. Wrapped in
-# try / except so deleting tool_renderers.py also cleanly drops the
-# field (UIBlock then has a permanently-None tool_renderers attribute,
-# which is exactly the rollback behaviour we want).
 try:
     from digitorn.core.app.tool_renderers import (  # noqa: E402, F401
         ToolRenderersBlock,

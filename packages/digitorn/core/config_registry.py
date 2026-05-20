@@ -1,27 +1,4 @@
-"""Runtime configuration registry — introspect, persist, hot-reload.
-
-The dashboard reads the schema (every config field with type, default,
-description, constraints) and writes overrides via this registry.
-Subsystems that want live reconfiguration subscribe to their keys and
-receive a callback the moment the value changes.
-
-Isolation contract — never violated:
-
-* No side effects at import. Schema introspection is deferred until
-  ``ConfigRegistry.load()`` is called.
-* Override file I/O runs through ``asyncio.to_thread`` (write) or
-  happens once at startup (read) — never on the request hot path.
-* A failing subscriber callback NEVER blocks other subscribers or
-  the writer; each callback runs in its own ``asyncio.Task`` with a
-  shielded ``try/except``.
-* The registry is COMPLETELY decoupled from Settings. If the Settings
-  import fails for any reason, the registry still works (empty
-  schema). Endpoints degrade gracefully.
-
-Wiring is OFF by default. ``install_config_registry()`` from the
-lifespan is the only entry point; nothing in the hot path imports
-this module.
-"""
+"""Runtime configuration registry: introspect, persist, hot-reload."""
 from __future__ import annotations
 
 import asyncio
@@ -46,9 +23,9 @@ SubscriberCallback = Callable[[str, Any], "Any | Awaitable[Any]"]
 class FieldSchema:
     """JSON-serialisable description of one config field."""
 
-    key: str                       # dot-path, e.g. "server.port"
-    section: str                   # top-level section, e.g. "server"
-    py_type: str                   # "int" | "float" | "bool" | "str" | "list" | "dict" | "literal" | "model"
+    key: str
+    section: str
+    py_type: str
     default: Any
     current: Any
     description: str = ""
@@ -56,7 +33,7 @@ class FieldSchema:
     max_value: float | None = None
     choices: list[Any] | None = None
     hot_reloadable: bool = False
-    sensitive: bool = False        # mask in UI (api keys, tokens)
+    sensitive: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -67,16 +44,12 @@ class FieldSchema:
 
 
 _HOT_RELOADABLE_KEYS: frozenset[str] = frozenset({
-    # Runtime safety caps (loop_guards.LoopState reads these on every
-    # turn start when from_runtime_config is called).
     "runtime.max_consecutive_failures",
     "runtime.max_consecutive_failures_hard",
     "runtime.max_repeat_window",
     "runtime.max_repeats",
     "runtime.max_consecutive_same_tool",
-    # Rate limit knobs (re-read by middleware on each request).
     "server.rate_limit_rpm",
-    # Logging verbosity.
     "logging.level",
 })
 
@@ -101,8 +74,7 @@ def _is_sensitive(key: str) -> bool:
 
 
 class ConfigRegistry:
-    """Singleton owning the schema, the override store, and the
-    subscriber graph."""
+    """Singleton owning the schema, overrides, and subscriber graph."""
 
     def __init__(self) -> None:
         self._schema: dict[str, FieldSchema] = {}
@@ -111,11 +83,8 @@ class ConfigRegistry:
         self._write_lock = asyncio.Lock()
         self._loaded = False
 
-    # ── Lifecycle ─────────────────────────────────────────────────
-
     def load(self) -> None:
-        """Synchronously load overrides from disk and introspect the
-        Settings schema. Called once from the lifespan startup."""
+        """Load overrides from disk and introspect the Settings schema."""
         if self._loaded:
             return
         self._overrides = _read_overrides_sync()
@@ -126,19 +95,15 @@ class ConfigRegistry:
             len(self._schema), len(self._overrides), _OVERRIDE_PATH,
         )
 
-    # ── Read API (read-only, used by GET endpoints) ───────────────
-
     def schema(self) -> list[dict[str, Any]]:
-        """Return every field as a JSON-safe dict, sensitive values
-        masked. Sorted by (section, key) for stable UI rendering."""
+        """Return every field as a JSON-safe dict (sensitive values masked)."""
         items = sorted(
             self._schema.values(), key=lambda f: (f.section, f.key),
         )
         return [f.to_dict() for f in items]
 
     def get(self, key: str) -> Any:
-        """Return the current effective value for ``key`` or ``None``
-        if unknown."""
+        """Return the current effective value or None if unknown."""
         s = self._schema.get(key)
         if s is None:
             return self._overrides.get(key)
@@ -151,11 +116,8 @@ class ConfigRegistry:
             out[k] = _mask(v) if _is_sensitive(k) else v
         return out
 
-    # ── Write API (used by PUT endpoints) ─────────────────────────
-
     async def set(self, key: str, value: Any) -> dict[str, Any]:
-        """Set an override and notify subscribers. Persists to disk.
-        Returns a dict describing the outcome."""
+        """Set an override, persist to disk, notify subscribers."""
         if not self._loaded:
             raise RuntimeError("config_registry not loaded")
 
@@ -211,8 +173,7 @@ class ConfigRegistry:
         }
 
     async def reset(self, key: str) -> dict[str, Any]:
-        """Remove an override, falling back to whichever upstream
-        source (env / yaml / default) wins."""
+        """Remove an override, falling back to the upstream source."""
         if not self._loaded:
             raise RuntimeError("config_registry not loaded")
         schema = self._schema.get(key)
@@ -234,11 +195,8 @@ class ConfigRegistry:
         await self._notify_subscribers(key, schema.default)
         return {"ok": True, "key": key, "reverted_to": schema.default}
 
-    # ── Subscriber API ────────────────────────────────────────────
-
     def subscribe(self, key: str, cb: SubscriberCallback) -> None:
-        """Register a callback fired (in its own task) whenever the
-        value for ``key`` changes. The callback receives ``(key, value)``."""
+        """Register a callback fired when key changes."""
         self._subscribers.setdefault(key, []).append(cb)
 
     def unsubscribe(self, key: str, cb: SubscriberCallback) -> None:
@@ -282,14 +240,9 @@ class ConfigRegistry:
             )
 
 
-# ── Helpers (introspection, coercion, IO) ─────────────────────────
-
-
 def _introspect_settings_safe(
     overrides: dict[str, Any],
 ) -> dict[str, FieldSchema]:
-    """Walk Settings + nested models, returning a flat key->FieldSchema
-    dict. Failure-safe: import errors yield an empty schema."""
     out: dict[str, FieldSchema] = {}
     try:
         from digitorn.core.config import Settings
@@ -470,7 +423,7 @@ def _read_overrides_sync() -> dict[str, Any]:
         import yaml
     except ImportError:
         logger.warning(
-            "config_registry_pyyaml_missing — overrides ignored",
+            "config_registry_pyyaml_missing - overrides ignored",
         )
         return {}
     try:
@@ -513,8 +466,7 @@ def get_registry() -> ConfigRegistry | None:
 
 
 def install_config_registry() -> ConfigRegistry:
-    """Synchronous installer for the lifespan startup. Safe to call
-    multiple times — second call is a no-op."""
+    """Synchronous installer for the lifespan startup (idempotent)."""
     global _REGISTRY
     if _REGISTRY is not None:
         return _REGISTRY

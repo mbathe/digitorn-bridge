@@ -1,12 +1,4 @@
-"""Tools view - searchable tool catalog with categories and details.
-
-Interactive modal:
-  ↑/↓    Navigate tools
-  Enter  Show full tool schema
-  /      Search by name or description
-  Tab    Switch between categories
-  Esc    Close
-"""
+"""Tools view - searchable tool catalog with categories and details."""
 
 from __future__ import annotations
 

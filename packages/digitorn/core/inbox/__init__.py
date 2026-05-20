@@ -1,22 +1,4 @@
-"""Inbox subsystem - persistent cross-device notification store.
-
-Public surface::
-
-    from digitorn.core.inbox import InboxStore, InboxProducer, InboxKind
-
-The store is a CRUD layer over the ``inbox_items`` +
-``inbox_devices`` + ``inbox_notification_prefs`` tables. The
-producer is a background task that listens to the event bus's
-per-user fan-out and creates inbox rows for events that merit
-user attention (session completed, failed, approval requested,
-credential missing, background activation finished, quota
-warning).
-
-The Flutter ``ActivityInboxService`` syncs from this store on
-launch and listens to the global ``/api/users/me/events`` SSE for
-live updates. See ``docs/FLUTTER_OMNIBUS_INTEGRATION.md`` §5 for
-the full contract.
-"""
+"""Inbox subsystem - persistent cross-device notification store."""
 
 from digitorn.core.inbox.dispatcher import (
     FCMBackend,

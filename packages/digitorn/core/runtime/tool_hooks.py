@@ -1,30 +1,4 @@
-"""Tool-level hooks - pre/post tool execution events.
-
-Extends the hook system with ``tool_start`` and ``tool_end`` events.
-These fire around individual tool calls (not turns), enabling patterns like:
-  - Run a linter after every filesystem.edit
-  - Log every shell.run invocation
-  - Validate params before a dangerous tool executes
-
-Condition: ``tool_match``
-    Fires when the tool name matches one of the specified patterns.
-
-Usage in YAML::
-
-    hooks:
-      - id: lint_after_edit
-        on: tool_end
-        condition:
-          type: tool_match
-          tools: ["filesystem.edit", "filesystem.write"]
-        action:
-          type: module_action
-          module: shell
-          action: run
-          params:
-            command: "ruff check {{tool.path}}"
-        cooldown: 5
-"""
+"""Tool-level hooks - pre/post tool execution events."""
 
 from __future__ import annotations
 
@@ -39,11 +13,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ToolCallContext:
-    """Context for a tool-level hook evaluation.
-
-    Attached to ``TurnState.tool_context`` so conditions and actions
-    can inspect the current tool call.
-    """
+    """Context for a tool-level hook evaluation."""
 
     tool_name: str = ""
     tool_params: dict[str, Any] = field(default_factory=dict)
@@ -54,14 +24,7 @@ class ToolCallContext:
 
 @register_condition("tool_match")
 def _eval_tool_match(state: TurnState, params: dict[str, Any]) -> bool:
-    """Fire when the current tool matches one of the listed names.
-
-    Params:
-        tools: list of tool names (exact match or prefix with ``*``).
-            Examples: ``["filesystem.edit"]``, ``["filesystem.*"]``, ``["shell.run"]``
-
-    The tool name is read from ``state.tool_context.tool_name``.
-    """
+    """Fire when the current tool matches one of the listed names."""
     tool_ctx: ToolCallContext | None = getattr(state, "tool_context", None)
     if tool_ctx is None:
         return False
@@ -89,11 +52,7 @@ def make_tool_state(
     ok: bool = True,
     elapsed: float = 0.0,
 ) -> TurnState:
-    """Create a TurnState copy with tool_context attached for hook evaluation.
-
-    Does NOT copy messages (they share the same list reference - this is intentional
-    so that hook actions like inject_message affect the live conversation).
-    """
+    """Create a TurnState copy with tool_context attached for hook evaluation."""
     # Shallow copy via dataclass replace isn't available for non-frozen dataclasses,
     # so we just attach the extra attribute.
     state = base_state

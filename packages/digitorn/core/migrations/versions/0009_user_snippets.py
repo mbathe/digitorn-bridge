@@ -5,22 +5,22 @@ Revises: 0008
 Create Date: 2026-05-16
 
 Stores the prompt templates the chat composer's "Insert snippet" menu
-hands the user. Scoped per ``(user_id, app_id)`` so each agent has its
-own personal library — snippets built in one app don't appear when the
+hands the user. Scoped per `(user_id, app_id)` so each agent has its
+own personal library - snippets built in one app don't appear when the
 user switches to another.
 
 Columns:
 
-  - ``id``: UUID primary key.
-  - ``user_id`` / ``app_id``: scope.
-  - ``title``: short human label rendered in the picker.
-  - ``body``: the prompt content, may contain ``{{variable}}``
+  - `id`: UUID primary key.
+  - `user_id` / `app_id`: scope.
+  - `title`: short human label rendered in the picker.
+  - `body`: the prompt content, may contain `{{variable}}`
     placeholders that the composer cycles through with Tab.
-  - ``emoji``: optional decoration (UI chip prefix).
-  - ``tags``: optional JSON array of strings for future filtering.
-  - ``created_at`` / ``updated_at``: standard audit columns.
+  - `emoji`: optional decoration (UI chip prefix).
+  - `tags`: optional JSON array of strings for future filtering.
+  - `created_at` / `updated_at`: standard audit columns.
 
-Idempotent: ``CREATE TABLE IF NOT EXISTS`` is implicit because the
+Idempotent: `CREATE TABLE IF NOT EXISTS` is implicit because the
 inspector check skips the create when the table already exists.
 """
 
@@ -69,10 +69,8 @@ def upgrade() -> None:
             server_default=sa.func.now(),
         ),
     )
-    # Composite index: the most common query is "list this user's
-    # snippets for this app, newest first". A single (user_id, app_id)
-    # index covers the WHERE; ordering by updated_at is cheap on
-    # ≤ N hundreds of rows so we skip an extra trailing column.
+    # Composite `(user_id, app_id)` index covers the typical WHERE;
+    # `updated_at` ordering stays cheap on bounded sets.
     op.create_index(
         "ix_user_snippets_user_app",
         "user_snippets",

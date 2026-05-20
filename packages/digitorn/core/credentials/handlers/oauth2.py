@@ -1,45 +1,4 @@
-"""OAuth2Handler - 3-legged OAuth with refresh token support.
-
-The OAuth dance goes through the daemon:
-
-1. Client calls ``POST /credentials/{app_id}/{provider}/oauth/start``
-   → daemon returns an ``auth_url`` + ``state`` uuid
-2. User opens ``auth_url`` in a browser, authorises the app
-3. Provider redirects to the daemon's callback URL
-   ``GET /credentials/oauth/callback?code=...&state=...``
-4. Daemon exchanges the code for access + refresh tokens
-5. Daemon stores the tokens encrypted via ``CredentialStore.upsert``
-6. Client polls ``GET /credentials/{app_id}/{provider}/oauth/status?state=...``
-   until it sees ``"connected"``
-
-This handler is responsible for the **token exchange** and the
-**refresh** logic. The HTTP routes in ``core/api/credentials.py``
-handle the front-end of the flow (URLs, state tracking).
-
-**Scope enforcement**: a YAML schema declaring a provider with
-``type: oauth2`` MUST use ``scope: per_user``. The compiler is
-hooked (see ``credentials.schema``) to reject any other scope.
-
-**Provider registry**: the daemon ships a config file
-``~/.digitorn/oauth_providers.toml`` (generated on first boot) where
-admins register client_id/client_secret for each supported provider
-(Notion, Google, GitHub, …). A schema declaration references one of
-these by name::
-
-    providers:
-      - name: my_notion
-        type: oauth2
-        oauth_provider: notion       # key in oauth_providers.toml
-        scopes: [read_content]
-
-If the named provider isn't configured in oauth_providers.toml, the
-handler raises ``HandlerNotAvailable`` with a clear error message.
-
-**This is the scaffolding** - the actual HTTP token exchange and
-refresh calls are implemented in the routes + handler in
-subsequent iterations. The class here defines the complete interface
-so that integration is a drop-in replacement of the stubbed methods.
-"""
+"""OAuth2Handler - 3-legged OAuth with refresh token support."""
 
 from __future__ import annotations
 
@@ -57,10 +16,6 @@ logger = logging.getLogger(__name__)
 
 class OAuth2Handler(CredentialHandler):
     provider_type = "oauth2"
-    # OAuth tokens are individual to each user - sharing an access_token
-    # would mean every user impersonates the same external account.
-    # The compiler rejects YAML that declares scope: system_wide or
-    # scope: per_app_shared with an oauth2 provider.
     allowed_scopes = ("per_user", "per_app_per_user")
 
     @classmethod
@@ -104,19 +59,7 @@ class OAuth2Handler(CredentialHandler):
         fields: dict[str, Any],
         schema_fields: list[dict[str, Any]],
     ) -> None:
-        """OAuth tokens come from the provider exchange, not user input.
-
-        The standard fields for an OAuth credential are:
-
-            access_token   (required, secret)
-            refresh_token  (optional, secret)
-            token_type     (optional, usually "Bearer")
-            scope          (optional, space-separated)
-
-        When called during an upsert from the token exchange, these
-        should all be present. We don't run regex checks on them
-        because providers use arbitrary formats.
-        """
+        """OAuth tokens come from the provider exchange, not user input."""
         if not fields:
             raise ValueError("OAuth credential has no fields")
         if "access_token" not in fields:
@@ -127,17 +70,7 @@ class OAuth2Handler(CredentialHandler):
         credential: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> dict[str, Any]:
-        """Exchange the refresh token for a new access token.
-
-        Pulls the provider config from the OAuth provider registry,
-        calls the provider's /token endpoint with grant_type=
-        refresh_token, and returns a new credential dict with the
-        fresh access_token + updated expires_at.
-
-        If the provider doesn't support refresh (no refresh_token
-        stored), the credential is marked ``invalid`` so the user
-        is prompted to reconnect from scratch.
-        """
+        """Exchange the refresh token for a new access token."""
         fields = credential.get("fields") or {}
         refresh_token = fields.get("refresh_token")
         if not refresh_token:
@@ -146,9 +79,6 @@ class OAuth2Handler(CredentialHandler):
             updated["last_error"] = "no refresh_token, reconnect required"
             return updated
 
-        # Which OAuth provider are we talking to? It comes from the
-        # schema declaration (oauth_provider field), not the
-        # credential itself - schema_provider is the declaration.
         from digitorn.core.credentials.oauth_flow import (
             TokenExchange,
             TokenExchangeError,
@@ -172,9 +102,6 @@ class OAuth2Handler(CredentialHandler):
                 provider, refresh_token,
             )
         except TokenExchangeError as exc:
-            # Refresh failed → the token is most likely revoked or
-            # the refresh_token itself has expired. Flag as invalid
-            # so the user is asked to reconnect.
             updated = dict(credential)
             updated["status"] = "invalid"
             updated["last_error"] = f"refresh failed: {exc}"
@@ -212,14 +139,7 @@ class OAuth2Handler(CredentialHandler):
         credential: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> None:
-        """POST the provider's revocation endpoint.
-
-        Hits the provider's `revoke_url` (when declared) with the
-        access_token. After a successful revoke, callers MUST set
-        the credential's status to INVALID so injectors stop using
-        it. Failures are logged but not raised - the local credential
-        deletion still happens.
-        """
+        """POST the provider's revocation endpoint."""
         from digitorn.core.credentials.oauth_providers import (
             get_default_registry,
         )

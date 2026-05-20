@@ -35,11 +35,6 @@ def inject_bg_notifications(ctx: AgentContext, messages: list[dict[str, Any]]) -
         if ntype == "watcher":
             text = format_watcher_notification(notif)
         elif ntype in _AGENT_EVENT_TYPES:
-            # Sub-agent lifecycle events get a dedicated formatter so
-            # the coordinator sees structured fields (agent_id,
-            # specialist, task, result_summary, errors) instead of
-            # the generic ``[BACKGROUND TASK COMPLETED] task_id=?``
-            # treatment that buries the actually-important data.
             text = format_agent_notification(notif)
         else:
             text = format_bg_task_notification(notif)
@@ -100,32 +95,7 @@ def format_bg_task_notification(notif: dict[str, Any]) -> str:
 
 
 def format_agent_notification(notif: dict[str, Any]) -> str:
-    """Format a sub-agent lifecycle event for the coordinator's prompt.
-
-    Replaces the generic ``[BACKGROUND TASK ...]`` treatment that lost
-    the structured fields the runner actually emits. Outputs one of:
-
-      [SUB-AGENT COMPLETED] agent_id=..., specialist=...
-      Task: <prompt>
-      Duration: 12.4s | Turns: 5 | Tool calls: 17
-      Result: <result_summary>
-
-      [SUB-AGENT FAILED]    agent_id=..., specialist=...
-      Task: <prompt>
-      Duration: 8.1s | Turns: 3
-      Error: <first error>
-
-      [SUB-AGENT CANCELLED] agent_id=..., reason=<reason>
-
-      [SUB-AGENT TIMEOUT]   agent_id=..., timeout=<timeout>s
-      Task: <prompt>
-
-      [SUB-AGENT PROGRESS]  agent_id=..., turns=N, tool_calls=N
-      Latest: <preview>
-
-    The coordinator can ingest these directly without parsing the
-    generic envelope.
-    """
+    """Format a sub-agent lifecycle event for the coordinator's prompt."""
     ev_type = notif.get("type", "")
     agent_id = notif.get("agent_id", "?")
     specialist = notif.get("specialist") or "generic"
@@ -162,7 +132,7 @@ def format_agent_notification(notif: dict[str, Any]) -> str:
             f"[SUB-AGENT TIMEOUT] agent_id={agent_id}, specialist={specialist}\n"
             f"Task: {task}\n"
             f"Duration: {duration_s} (timed out before completing). "
-            f"Consider raising ``timeout`` or breaking the task into smaller chunks."
+            f"Consider raising `timeout` or breaking the task into smaller chunks."
         )
 
     if ev_type in ("agent_cancelled", "agent_cancel"):
@@ -187,11 +157,6 @@ def format_agent_notification(notif: dict[str, Any]) -> str:
         turns = notif.get("turns", 0)
         tool_calls = notif.get("tool_calls_count", 0)
         preview = (notif.get("preview") or "")[:200]
-        # Drop noisy progress events (every-token relays). Only
-        # surface progress when there's actual content to report -
-        # otherwise we'd flood the coordinator's prompt with empty
-        # heartbeats. The relay-fn in agent_spawn produces many of
-        # these; the formatter trims them.
         if not preview and tool_calls == 0 and turns == 0:
             return ""
         return (
@@ -254,16 +219,8 @@ def format_watcher_notification(notif: dict[str, Any]) -> str:
     return f"{header}\nResult: {result_str}"
 
 
-
 _MAX_FACTS = 15
 
-# UI-only notification types whose data already lives in the memory
-# store under its proper field (goal / todos / facts). Re-persisting
-# them via the bg-task catchall would create garbage rows like
-# ``[Background: ]`` in ``key_facts`` and crowd out the agent's real
-# bg-task summaries -- the memory module already saves the canonical
-# content via ``store.semantic.add_fact`` / ``store.working.set_goal``
-# / ``store.working.add_todo`` before firing the notify.
 _UI_ONLY_NOTIF_TYPES = frozenset({
     "fact_added",       # memory.remember -- data already in store.semantic.facts
     "goal_set",         # memory.set_goal -- data already in store.working.goal
@@ -275,7 +232,6 @@ _UI_ONLY_NOTIF_TYPES = frozenset({
 
 
 def _persist_to_memory(ctx: AgentContext, notif: dict[str, Any]) -> None:
-    """Store async event results in memory so they survive compaction."""
     mem = ctx.memory_module
     if mem is None:
         return
@@ -283,9 +239,6 @@ def _persist_to_memory(ctx: AgentContext, notif: dict[str, Any]) -> None:
     store = mem.store
     notif_type = notif.get("type", "")
 
-    # Skip notifications whose data already lives in the right place
-    # in the store -- the catchall would otherwise persist them as
-    # empty ``[Background: ]`` facts and pollute key_facts.
     if notif_type in _UI_ONLY_NOTIF_TYPES:
         return
 

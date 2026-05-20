@@ -4,30 +4,30 @@ Revision ID: 0010
 Revises: 0009
 Create Date: 2026-05-16
 
-Stores the skill instructions the chat composer's ``/use_skill <name>
-<prompt>`` syntax injects as a turn-scoped ``role: system`` directive.
-Distinct from ``dev.skills`` (declared in YAML by the app author, loaded
+Stores the skill instructions the chat composer's `/use_skill <name>
+<prompt>` syntax injects as a turn-scoped `role: system` directive.
+Distinct from `dev.skills` (declared in YAML by the app author, loaded
 from .md files at compile time) - these are owned by the end user and
-gated behind ``dev.allow_user_skills: true`` in the app YAML.
+gated behind `dev.allow_user_skills: true` in the app YAML.
 
-Scoped per ``(user_id, app_id)`` so each agent has its own personal
+Scoped per `(user_id, app_id)` so each agent has its own personal
 skill library - the skills a user authors while talking to
-``digitorn-code`` don't appear when they switch to ``digitorn-chat``.
+`digitorn-code` don't appear when they switch to `digitorn-chat`.
 
 Columns:
 
-  - ``id``: UUID primary key.
-  - ``user_id`` / ``app_id``: scope.
-  - ``name``: short slug used as the skill identifier, e.g.
-    ``commit``. The composer surfaces ``/<name>`` in the palette; the
-    daemon's ``/use_skill`` parser matches against ``name`` directly.
-  - ``description``: short label shown in the picker.
-  - ``instructions``: the markdown body that becomes the system
+  - `id`: UUID primary key.
+  - `user_id` / `app_id`: scope.
+  - `name`: short slug used as the skill identifier, e.g.
+    `commit`. The composer surfaces `/<name>` in the palette; the
+    daemon's `/use_skill` parser matches against `name` directly.
+  - `description`: short label shown in the picker.
+  - `instructions`: the markdown body that becomes the system
     prompt the agent must follow for the turn.
-  - ``created_at`` / ``updated_at``: standard audit columns.
+  - `created_at` / `updated_at`: standard audit columns.
 
 Idempotent: the inspector check skips the create when the table
-already exists, mirroring the pattern from migration ``0009``.
+already exists, mirroring the pattern from migration `0009`.
 """
 
 from __future__ import annotations
@@ -75,16 +75,14 @@ def upgrade() -> None:
         ),
     )
     # Composite index: the hot path is "list this user's skills for
-    # this app". Same shape as ``user_snippets`` from 0009.
+    # this app". Same shape as `user_snippets` from 0009.
     op.create_index(
         "ix_user_skills_user_app",
         "user_skills",
         ["user_id", "app_id"],
     )
-    # Per-(user, app) uniqueness on ``name`` so the ``/use_skill <name>``
-    # lookup is unambiguous. Two users CAN share a name, two apps for
-    # the same user CAN share a name, but a single (user, app) pair
-    # cannot have two skills with the same name.
+    # `(user_id, app_id, name)` unique so `/use_skill <name>`
+    # resolves unambiguously per user/app pair.
     op.create_index(
         "ux_user_skills_user_app_name",
         "user_skills",

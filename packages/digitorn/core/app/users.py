@@ -1,20 +1,4 @@
-"""Daemon-side user-bound storage: OAuth tokens + session bindings.
-
-Identity (id, email, display_name, avatar, phone, attributes) lives at
-the central auth service (digitorn-auth). The daemon does NOT own a
-``User`` model anymore - everywhere a user is referenced, ``user_id``
-is just the opaque ``sub`` claim from the JWT.
-
-What's left here:
-  - Encrypted OAuth tokens stored per (user_id, provider). Used to
-    authenticate MCP server calls on the user's behalf. Daemon-local
-    by design - we don't ship third-party API tokens to the central.
-  - Session-to-user binding (which user owns this session_id). Read
-    by channel routing and other delivery code paths.
-
-Token encryption uses Fernet via ``digitorn.core.crypto`` (auto-key
-in ``~/.digitorn/server.key``).
-"""
+"""Daemon-side user-bound storage: OAuth tokens + session bindings."""
 
 from __future__ import annotations
 
@@ -53,16 +37,8 @@ class OAuthTokenInfo:
 
 
 class UserStore:
-    """OAuth token storage + session-to-user binding for the daemon.
+    """OAuth token storage + session-to-user binding for the daemon."""
 
-    Identity-related methods (``create_user``, ``find_by_email``, etc.)
-    were removed when the auth service became the single source of
-    identity. Use ``request.state.user_id`` / ``claims`` from the
-    middleware to know who's calling, and call ``GET /auth/me`` on
-    the auth service when richer profile data is needed.
-    """
-
-    # ── Session ↔ user binding ─────────────────────────────────────
 
     async def bind_session(self, session_id: str, user_id: str) -> bool:
         """Link a session_id to a user. Returns True on success."""
@@ -95,17 +71,12 @@ class UserStore:
 
         return None  # pragma: no cover
 
-    # Back-compat shim: callers used to receive a UserInfo dataclass.
-    # They now get just ``{"user_id": ...}``. The few that read .email
-    # / .display_name from the result must fetch them from the auth
-    # service directly (or read from request.state.claims).
     async def resolve_user_for_session(self, session_id: str) -> dict[str, Any] | None:
         user_id = await self.get_user_id_for_session(session_id)
         if not user_id:
             return None
         return {"user_id": user_id}
 
-    # ── OAuth token storage (per user, per provider) ───────────────
 
     async def store_token(
         self,
@@ -214,17 +185,7 @@ class UserStore:
         refresh_callback: Any | None = None,
         buffer_seconds: int = 300,
     ) -> OAuthTokenInfo | None:
-        """Get a valid access token, refreshing if expired.
-
-        If the token is expired (or will expire within ``buffer_seconds``),
-        and a ``refresh_callback`` is provided, it will be called to obtain
-        new tokens. The callback signature::
-
-            async def refresh_callback(refresh_token: str) -> dict[str, Any]
-
-        Returns a valid OAuthTokenInfo, or None if no token exists or
-        refresh failed.
-        """
+        """Get a valid access token, refreshing if expired."""
         token = await self.get_token(user_id, provider)
         if token is None:
             return None
@@ -271,11 +232,7 @@ class UserStore:
     async def find_token_by_provider(
         self, provider: str
     ) -> OAuthTokenInfo | None:
-        """Find the most recent valid token for a provider (any user).
-
-        Used at startup to pre-inject stored OAuth tokens into MCP servers
-        before any specific user is known.
-        """
+        """Find the most recent valid token for a provider (any user)."""
         from digitorn.core.database import get_session
         from digitorn.core.models import UserOAuthToken
 

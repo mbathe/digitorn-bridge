@@ -1,17 +1,4 @@
-"""Twilio ConversationRelay backend.
-
-Twilio handles STT and TTS internally. This backend only exchanges
-text over WebSocket - no audio processing needed.
-
-Flow:
-    1. Incoming call → Twilio hits our TwiML webhook
-    2. We return <Connect><ConversationRelay> pointing to our WS server
-    3. Twilio opens a WebSocket to us
-    4. We receive transcripts (text), we send responses (text)
-    5. Twilio synthesizes speech and plays it to the caller
-
-Requires: aiohttp (already a project dependency)
-"""
+"""Twilio ConversationRelay backend."""
 
 from __future__ import annotations
 
@@ -28,7 +15,6 @@ from digitorn.modules.channels.adapters.voice.base import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 class TwilioCRBackend(VoiceBackend):
     """Twilio ConversationRelay - hosted STT+TTS, text-only WebSocket."""
@@ -106,8 +92,8 @@ class TwilioCRBackend(VoiceBackend):
         if ws and not ws.closed:
             try:
                 await ws.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("twilio_cr best-effort block failed: %s", exc)
         self._calls.pop(call_id, None)
 
     async def _handle_twiml(self, request: Any) -> Any:

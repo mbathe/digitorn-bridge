@@ -15,7 +15,6 @@ from .message import QueueMessage
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass
 class QueueStats:
     """Queue statistics."""
@@ -37,7 +36,6 @@ class QueueStats:
             "consumer_count": self.consumer_count,
         }
 
-
 @runtime_checkable
 class QueueBackend(Protocol):
     """Queue backend protocol."""
@@ -55,7 +53,6 @@ class QueueBackend(Protocol):
     async def dead_letter(self, name: str, count: int = 10) -> list[QueueMessage]: ...
     async def close(self) -> None: ...
 
-
 @dataclass(order=True)
 class _PrioritizedMessage:
     """Heap entry for priority queue."""
@@ -64,13 +61,8 @@ class _PrioritizedMessage:
     timestamp: float
     message: QueueMessage = field(compare=False)
 
-
 class InMemoryQueueBackend:
-    """In-memory queue backend using asyncio queues and heaps.
-
-    Suitable for single-process development and testing. Messages are
-    lost on process restart.
-    """
+    """In-memory queue backend using asyncio queues and heaps."""
 
     def __init__(self) -> None:
         self._queues: dict[str, list[_PrioritizedMessage]] = {}
@@ -215,13 +207,8 @@ class InMemoryQueueBackend:
                 remaining.append(msg)
         self._delayed[name] = remaining
 
-
 class RedisQueueBackend:
-    """Redis Streams-backed queue backend for production multi-worker deployments.
-
-    Uses XADD/XREADGROUP/XACK for consumer group semantics with
-    at-least-once delivery. Dead-letter via separate streams.
-    """
+    """Redis Streams-backed queue backend for production multi-worker deployments."""
 
     def __init__(self, app_id: str, url: str = "redis://localhost:6379/0") -> None:
         import redis.asyncio as aioredis
@@ -392,13 +379,8 @@ class RedisQueueBackend:
     async def close(self) -> None:
         await self._redis.close()
 
-
 def create_queue_backend(url: str | None = None, *, app_id: str = "default") -> QueueBackend:
-    """Create a queue backend.
-
-    - ``None`` → InMemoryQueueBackend
-    - ``redis://...`` → RedisQueueBackend
-    """
+    """Create a queue backend."""
     if url and url.startswith(("redis://", "rediss://")):
         return RedisQueueBackend(app_id=app_id, url=url)
     return InMemoryQueueBackend()

@@ -1,12 +1,4 @@
-"""Digitorn - Async event bus.
-
-Provides several EventBus implementations:
-    NullEventBus   - no-op (tests, disabled events)
-    LogEventBus    - writes events as NDJSON to a file
-    FanoutEventBus - dispatches to multiple backends simultaneously
-
-All buses use the EventRouter for wildcard topic matching.
-"""
+"""Digitorn - Async event bus."""
 
 from __future__ import annotations
 
@@ -24,7 +16,6 @@ logger = structlog.get_logger(__name__)
 
 EventHandler = Callable[[UniversalEvent], Coroutine[Any, Any, None]]
 
-
 class EventBus(ABC):
     """Abstract async event bus."""
 
@@ -40,7 +31,6 @@ class EventBus(ABC):
     def unsubscribe(self, pattern: str, handler: EventHandler) -> None:
         """Remove a subscription."""
 
-
 class NullEventBus(EventBus):
     """No-op event bus. Silently discards all events."""
 
@@ -53,12 +43,8 @@ class NullEventBus(EventBus):
     def unsubscribe(self, pattern: str, handler: EventHandler) -> None:
         pass
 
-
 class LogEventBus(EventBus):
-    """Event bus that writes events as NDJSON to a log file.
-
-    Also dispatches to subscribed handlers via the router.
-    """
+    """Event bus that writes events as NDJSON to a log file."""
 
     def __init__(self, log_path: Path | str = "events.ndjson") -> None:
         self._log_path = Path(log_path)
@@ -74,7 +60,6 @@ class LogEventBus(EventBus):
         await self._dispatch(event)
 
     def _write_log(self, line: str) -> None:
-        """Synchronous file write, called in a thread."""
         self._log_path.parent.mkdir(parents=True, exist_ok=True)
         with self._log_path.open("a") as f:
             f.write(line)
@@ -93,18 +78,8 @@ class LogEventBus(EventBus):
                 return_exceptions=True,
             )
 
-
 class FanoutEventBus(EventBus):
-    """Dispatches events to multiple EventBus backends simultaneously.
-
-    Usage::
-
-        bus = FanoutEventBus([
-            LogEventBus("events.ndjson"),
-            socketio_bus,
-        ])
-        await bus.publish(event)
-    """
+    """Dispatches events to multiple EventBus backends simultaneously."""
 
     def __init__(self, backends: list[EventBus] | None = None) -> None:
         self._backends: list[EventBus] = backends or []

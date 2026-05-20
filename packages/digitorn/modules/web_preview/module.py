@@ -1,21 +1,4 @@
-"""Session-scoped iframe preview attachments.
-
-The agent points an iframe at a running dev server it spawned via Bash:
-``PreviewProxy(port=5173, name="default")``. The daemon stores the
-``(session_id, name) -> port/host`` mapping and emits a Socket.IO
-``web_preview:attached`` event carrying the direct-connect URL the
-client should load. The daemon does NOT proxy HTTP, does NOT serve
-static files, does NOT spawn processes - it is purely a registry.
-
-Attachments are *session-scoped*: two different sessions of the same
-app see two independent previews. Multiple attachments per session
-are supported via the ``name`` field, e.g. one app can expose
-``name="frontend"`` and ``name="backend"`` simultaneously.
-
-For static-built apps (e.g. ``npm run build`` -> ``dist/``), the agent
-runs ``python -m http.server`` on a port via Bash, then PreviewProxy.
-Same path for everything - one tool, one mode.
-"""
+"""Session-scoped iframe preview attachments."""
 
 from __future__ import annotations
 
@@ -44,55 +27,22 @@ from digitorn.modules.web_preview.params import (
 
 logger = logging.getLogger(__name__)
 
-# Hard limits to keep a single agent / session from accidentally
-# spawning hundreds of dev servers and bringing the daemon to its
-# knees. Both ceilings are checked at attach time. The agent gets a
-# clear error so it can either detach an existing one or revisit
-# its strategy. Numbers chosen to be roomy for legitimate use
-# (frontend + backend + docs + admin = 4) but tight enough to catch
-# runaway loops.
-# Per-session: exactly 1 proxy + 1 bundled = 2 max, fixed by design.
-# Per-user: sanity cap on concurrent active sessions with previews —
-# each session can carry up to 3 entries (1 proxy + 1 published +
-# 1 bundled) so this stays bounded under the per-user ceiling below.
+# Caps checked at attach time so a runaway agent can't spawn hundreds
+# of dev servers. Per-session covers 1 proxy + 1 published + 1 bundled.
 _MAX_ATTACHMENTS_PER_SESSION = 3
 _MAX_ATTACHMENTS_PER_USER = 40
 
-# Idle reaper: an attachment with no HTTP traffic for this long is
-# considered abandoned and gets dropped. The matching bash task is
-# killed too if it was registered (best-effort). Conservative
-# default; an actively-used preview hits HTTP at least every few
-# minutes (HMR pings, asset reloads, user navigation).
 _IDLE_REAP_AFTER_SEC = 30 * 60  # 30 minutes
 _REAPER_INTERVAL_SEC = 5 * 60   # scan every 5 minutes
 
-
 class WebPreviewConfig(BaseModel):
-    """Compile-time config (currently empty — kept for forward compat)."""
+    """Compile-time config (currently empty - kept for forward compat)."""
 
     model_config = {"extra": "allow"}
 
-
 @dataclass
 class Attachment:
-    """One iframe-preview pointer for a (session, name) pair.
-
-    Three sources of URL:
-      - ``proxy``:    agent registered a dev server via PreviewProxy(port=N).
-                      URL = ``http://{host}:{port}`` (browser direct-connect).
-                      Right tool for local installs where HMR matters.
-      - ``bundled``:  app ships a pre-built ``web/dist/`` and uses the SDK.
-                      Auto-registered at session create. URL points at the
-                      daemon's ``/api/apps/{app_id}/web-static/index.html``
-                      static-file route. No process to spawn or reap.
-      - ``published``: agent ran a one-shot ``npm run build`` via
-                      PreviewPublish. Output sits under
-                      ``~/.digitorn/published/{app_id}/{session_id}/``. URL
-                      points at the daemon's per-session
-                      ``/api/apps/{app_id}/sessions/{session_id}/published/``
-                      route. Same-origin with the frontend, survives daemon
-                      restart, no port. Cloud-friendly.
-    """
+    """One iframe-preview pointer for a (session, name) pair."""
 
     name: str
     session_id: str
@@ -105,8 +55,8 @@ class Attachment:
     # Bundled + Published + TemplatePreview attachments (static serving)
     app_id: str | None = None
     install_dir: str | None = None  # bundled
-    dist_dir: str | None = None  # published — absolute path to the copied dist/
-    template_id: str | None = None  # template_preview — id of the seeded template
+    dist_dir: str | None = None  # published - absolute path to the copied dist/
+    template_id: str | None = None  # template_preview - id of the seeded template
     # Common
     created_at: float = field(default_factory=time.time)
     last_hit_at: float = field(default_factory=time.time)
@@ -145,7 +95,6 @@ class Attachment:
     def touch(self) -> None:
         self.last_hit_at = time.time()
 
-
 class WebPreviewModule(BaseModule):
     """Iframe-preview attachment registry, keyed by (session, name)."""
 
@@ -169,16 +118,11 @@ class WebPreviewModule(BaseModule):
         })
 
     def get_prompt_sections(self) -> list[dict[str, Any]]:
-        """Inject the agent's mental model of the preview surface.
-
-        Without this, the agent knows the tools but not the UX:
-        where the preview lives, when the user expects to see it,
-        what to say when the dev server starts, etc.
-        """
+        """Inject the agent's mental model of the preview surface."""
         return [
             {
                 "id": "web_preview.context",
-                "title": "Live Preview — Environment Awareness",
+                "title": "Live Preview - Environment Awareness",
                 "priority": 40,
                 "position": "after_tools",
                 "content": (
@@ -190,28 +134,28 @@ class WebPreviewModule(BaseModule):
                     "loads whatever URL you publish via a preview "
                     "action.\n\n"
                     "## Preview actions available to you\n"
-                    "Check your tool list — your app may expose only "
+                    "Check your tool list - your app may expose only "
                     "ONE of these, or both:\n"
-                    "- **PreviewPublish** — one-shot static build "
+                    "- **PreviewPublish** - one-shot static build "
                     "(install + build + serve at a same-origin URL on "
                     "the daemon). No HMR; every change needs a "
                     "re-publish. Survives daemon restart, no port. "
                     "Cloud-friendly.\n"
-                    "- **PreviewProxy** — live Vite dev server with HMR. "
+                    "- **PreviewProxy** - live Vite dev server with HMR. "
                     "Install + run dev + attach in one call. Iframe "
-                    "loads ``http://localhost:<port>`` direct-connect. "
+                    "loads `http://localhost:<port>` direct-connect. "
                     "Right for local installs.\n\n"
                     "If both are exposed, prefer PreviewProxy for "
                     "iteration speed (HMR) and PreviewPublish for "
                     "shareable / stable URLs. If only one is exposed, "
-                    "use it — your app YAML decides which mode fits "
+                    "use it - your app YAML decides which mode fits "
                     "the deployment.\n\n"
                     "## Template-attached sessions\n"
                     "If the user picked a template from a gallery, "
                     "the daemon AUTOMATICALLY registered a pristine "
-                    "preview (``template_preview`` slot) before your "
+                    "preview (`template_preview` slot) before your "
                     "first turn. The iframe is ALREADY showing the "
-                    "template — don't call any preview action just "
+                    "template - don't call any preview action just "
                     "to display it. Edit the files via the workspace "
                     "tools, THEN publish to update the iframe with "
                     "your customisations.\n\n"
@@ -223,10 +167,10 @@ class WebPreviewModule(BaseModule):
                     "*'Live in the Preview tab. What would you like to "
                     "change?'*\n"
                     "- Don't say 'PreviewProxy' / 'PreviewPublish' to "
-                    "the user — they don't care which tool you used.\n\n"
+                    "the user - they don't care which tool you used.\n\n"
                     "## Common pitfalls\n"
                     "- **PreviewPublish asset URLs**: your build MUST "
-                    "emit relative paths. Vite: ``base: './'``. "
+                    "emit relative paths. Vite: `base: './'`. "
                     "Without it, the iframe loads the HTML but every "
                     "asset 404s and the page is blank.\n"
                     "- **PreviewProxy override mode**: don't call "
@@ -235,34 +179,20 @@ class WebPreviewModule(BaseModule):
                     "'ready in' first.\n"
                     "- **Iframes inside your own app code**: if you "
                     "embed an iframe and write to its contentDocument, "
-                    "use ``sandbox=\"allow-scripts allow-same-origin\"`` "
-                    "(or no sandbox). ``allow-scripts`` alone throws "
+                    "use `sandbox=\"allow-scripts allow-same-origin\"` "
+                    "(or no sandbox). `allow-scripts` alone throws "
                     "SecurityError on every contentDocument access."
                 ),
             },
         ]
 
-    # Daemon-singleton sio reference. Set once at server startup via
-    # ``WebPreviewModule.attach_sio(sio)``. Class-level because the
-    # module is ``isolation=shared`` (one instance for the whole
-    # daemon) and the sio is also a daemon-level resource.
     _sio_ref: Any = None
-
-    # Operator-controlled template for the publicly reachable URL of
-    # a proxy attachment. Set once at startup from ``settings.web_preview``.
-    # Default works for local dev (loopback), cloud deploys override.
     _public_url_template: str = "http://{host}:{port}"
-
-    # Kill switch. ``False`` makes ``proxy()`` refuse new attachments
-    # with a clear error message. Existing attachments keep working -
-    # operators can drain in place without yanking the rug out from
-    # under live sessions.
     _enabled: bool = True
 
     @classmethod
     def attach_sio(cls, sio: Any) -> None:
-        """Wire the AsyncSocketIO server. Called from ``server.py``
-        once at startup, before any deploy."""
+        """Wire the AsyncSocketIO server. Called from `server.py`."""
         cls._sio_ref = sio
 
     @classmethod
@@ -272,14 +202,13 @@ class WebPreviewModule(BaseModule):
         public_url_template: str,
         enabled: bool = True,
     ) -> None:
-        """Apply daemon-level settings. Called from ``server.py`` at
-        startup."""
+        """Apply daemon-level settings. Called from `server.py`."""
         if public_url_template:
             cls._public_url_template = public_url_template
         cls._enabled = bool(enabled)
         if not cls._enabled:
             logger.warning(
-                "web_preview kill switch ENABLED — new attachments "
+                "web_preview kill switch ENABLED - new attachments "
                 "will be refused (existing ones keep serving). Set "
                 "DIGITORN_WEB_PREVIEW__ENABLED=true to re-enable."
             )
@@ -294,20 +223,7 @@ class WebPreviewModule(BaseModule):
         session_id: str,
         name: str,
     ) -> str:
-        """Build the iframe-loadable URL for a proxy attachment.
-
-        Templated via ``str.format`` so a missing field doesn't break
-        the daemon — falls back to the loopback default on any error
-        (KeyError / ValueError) so a malformed config is never fatal.
-
-        Loopback IPs (``127.0.0.1`` and ``::1``) are normalised to the
-        ``localhost`` hostname. Browsers treat ``127.0.0.1`` and
-        ``localhost`` as DIFFERENT sites (different host strings),
-        so an iframe at ``127.0.0.1:3001`` inside a parent at
-        ``localhost:3000`` is third-party — third-party cookies are
-        blocked, storage is partitioned, some apps refuse to render.
-        Both names resolve to the same loopback so swapping is safe.
-        """
+        """Build the iframe-loadable URL for a proxy attachment."""
         if host in ("127.0.0.1", "::1", "0.0.0.0"):
             host = "localhost"
         try:
@@ -320,7 +236,7 @@ class WebPreviewModule(BaseModule):
             )
         except (KeyError, IndexError, ValueError) as exc:
             logger.warning(
-                "web_preview_url_template_failed template=%r err=%s — "
+                "web_preview_url_template_failed template=%r err=%s - "
                 "falling back to loopback",
                 cls._public_url_template, exc,
             )
@@ -328,57 +244,17 @@ class WebPreviewModule(BaseModule):
 
     def __init__(self) -> None:
         super().__init__()
-        # (session_id, name) → Attachment
         self._attachments: dict[tuple[str, str], Attachment] = {}
-        # Injected by bootstrap.
         self._workspace: Any | None = None
-        # Shell module reference — injected by bootstrap so the
-        # idle reaper / cleanup_session can kill bash tasks the
-        # agent registered alongside the attachment.
-        # Last-bootstrapped shell instance. Kept for backward-compat
-        # callers (e.g. the idle reaper that doesn't carry app context),
-        # but the per-app dict below is the SINGLE source of truth for
-        # action handlers that DO know the current app.
         self._shell: Any | None = None
-        # web_preview is a daemon-wide singleton; the shell module is
-        # per-app. Each app's bootstrap registers its own shell here so
-        # action handlers can look up the right one based on the active
-        # app/session context. Without this, _shell would be whatever
-        # app bootstrapped LAST, breaking cross-module checks (e.g.
-        # bash_task_id liveness lookup) for every other app.
         self._shells_by_app: dict[str, Any] = {}
-        # Idle reaper task — started lazily on first attach so
-        # daemon boot stays fast (and so that tests / scripts that
-        # import the module don't get a runaway background task).
         self._reaper_task: asyncio.Task[None] | None = None
-        # Restore any attachments that survived a daemon restart.
-        # Stale entries (port no longer bound) are filtered out lazily
-        # on first lookup or by the idle reaper, so this load is fast
-        # and never blocks daemon boot.
         self._load_persisted()
-
-    # ─── public daemon-side accessors ────────────────────────────────
 
     def get_attachment(
         self, session_id: str, name: str = "default",
     ) -> Attachment | None:
-        """Used by the HTTP proxy route to look up the target.
-
-        Bumps ``last_hit_at`` on the attachment so the idle reaper
-        knows it's still in use — the proxy / 302 redirect / static
-        serve all flow through this single accessor, so a single
-        ``touch`` call is sufficient.
-
-        Returns ``None`` when nothing is attached for the session.
-
-        **Slot priority**: ``proxy`` > ``published`` > ``template_preview``
-        > ``bundled``. The agent's live dev server (proxy) wins; if
-        absent, the agent's per-session static publish; then the
-        pristine template snapshot auto-registered at template-attach
-        time; finally the SDK-shipped static bundle. ``name`` is kept
-        for backwards compatibility but ignored — there's at most one
-        attachment per slot type per session.
-        """
+        """Used by the HTTP proxy route to look up the target."""
         if not session_id:
             return None
         att = (
@@ -398,24 +274,7 @@ class WebPreviewModule(BaseModule):
         template_id: str,
         user_id: str | None = None,
     ) -> Attachment:
-        """Auto-register a preview attachment for a freshly-seeded template.
-
-        Called from the messages endpoint (``apps_v2/messages.py``)
-        right after the template's ``files/`` are copied into the
-        session workspace. The iframe loads the template's pre-built
-        ``dist/`` (shipped alongside ``files/`` in every lovable
-        template) so the user sees the pristine template **before**
-        the agent's first turn even runs.
-
-        When the agent later calls ``PreviewPublish``, the ``published``
-        slot takes priority over this ``template_preview`` slot — see
-        ``get_attachment`` for the resolution order.
-
-        Idempotent: re-registering for the same session simply
-        replaces the existing template_preview entry (no quota check,
-        no event spam — but we always emit ``web_preview:attached``
-        so a reload-and-reattach refreshes the iframe URL).
-        """
+        """Auto-register a preview attachment for a freshly-seeded template."""
         if not session_id or not app_id or not template_id:
             raise ValueError(
                 "session_id, app_id, and template_id are all required"
@@ -441,13 +300,7 @@ class WebPreviewModule(BaseModule):
         return att
 
     def get_fallback_attachment(self, session_id: str) -> Attachment | None:
-        """Return the session's ``bundled`` slot, if any.
-
-        Used by the proxy HTTP route when the primary ``proxy`` slot
-        is up but its upstream is unreachable (dev server died, port
-        closed). Lets the route redirect to the static bundle instead
-        of returning a 502.
-        """
+        """Return the session's `bundled` slot, if any."""
         if not session_id:
             return None
         return self._attachments.get((session_id, "bundled"))
@@ -462,14 +315,7 @@ class WebPreviewModule(BaseModule):
         ]
 
     async def health_check(self) -> dict[str, Any]:
-        """Standard module health check — exposed at
-        ``GET /api/modules/web_preview/health``.
-
-        Wraps :meth:`health_snapshot` and adds the standard
-        ``status``/``module_id``/``version`` envelope. Operator
-        observability for the production launch: query this every
-        minute to track active attachments, oldest-idle, etc.
-        """
+        """Standard module health check - exposed."""
         snap = self.health_snapshot()
         return {
             "status": "ok",
@@ -479,13 +325,7 @@ class WebPreviewModule(BaseModule):
         }
 
     def health_snapshot(self) -> dict[str, Any]:
-        """Operator-facing summary for the health endpoint. O(N)
-        over the attachments map, cheap.
-
-        Returns ``{count, by_type, by_user, oldest_age_seconds,
-        oldest_idle_seconds, sessions, max_per_session, max_per_user,
-        idle_reap_after_seconds}``.
-        """
+        """Operator-facing summary for the health endpoint. O(N)."""
         now = time.time()
         atts = list(self._attachments.values())
         by_type: dict[str, int] = {}
@@ -516,21 +356,9 @@ class WebPreviewModule(BaseModule):
         }
 
     async def cleanup_session(self, session_id: str) -> None:
-        """Drop every attachment owned by this session.
-
-        Also kills any bash task the agent had associated with the
-        attachment — best-effort, so a missing shell module / dead
-        process doesn't break session teardown. The shell module's
-        own ``cleanup_session`` runs in parallel and would catch any
-        miss; we just guarantee web_preview-owned tasks get a
-        proper kill signal as part of attachment teardown.
-        """
+        """Drop every attachment owned by this session."""
         if not session_id:
             return
-        # Trace caller — knowing WHO triggered cleanup is critical for
-        # debugging "my attachment disappeared" mysteries. Stack trace
-        # shows the path through manager.end_session, abort handler,
-        # or wherever the cleanup was kicked off.
         import traceback
         logger.warning(
             "web_preview cleanup_session sid=%s caller-stack:\n%s",
@@ -548,10 +376,6 @@ class WebPreviewModule(BaseModule):
             dropped.append(att)
             if att.bash_task_id:
                 to_kill.append(att.bash_task_id)
-            # Published builds: queue the dist dir for removal so a
-            # cleaned-up session doesn't leave gigabytes of stale
-            # bundles on the daemon's disk. Best-effort, off the
-            # event loop.
             if att.type == "published" and att.dist_dir:
                 dist_dirs_to_remove.append(att.dist_dir)
         for task_id in to_kill:
@@ -583,16 +407,7 @@ class WebPreviewModule(BaseModule):
                     killed_bash=bool(att.bash_task_id),
                 )
 
-    # ─── structured logging ──────────────────────────────────────────
-
     def _emit_event(self, event: str, **fields: Any) -> None:
-        """Log a single-line JSON event for post-mortem analysis.
-
-        Operators can ``grep '"event":"preview_attach"' digitorn.log |
-        jq` to count attaches per user, drill into a session, etc.
-        Failure to serialize is swallowed so a weird payload field
-        never breaks the runtime path that triggered the log.
-        """
         try:
             payload = {
                 "event": event,
@@ -605,17 +420,6 @@ class WebPreviewModule(BaseModule):
             logger.info("web_preview_event %s (serialize_failed)", event)
 
     def _app_id_str(self) -> str:
-        """Return the current session's app_id, per-call accurate.
-
-        web_preview is ``isolation=shared`` (one instance daemon-wide).
-        ``_app_id_override`` is set on the instance at each app's
-        bootstrap, so the LAST app to bootstrap wins, which means
-        PreviewPublish from app A lands under ``published/app_B/...``
-        when B was bootstrapped after A. Reading ``ctx.app_id`` at call
-        time fixes it; fall back to the legacy attributes for code paths
-        that have no ctx (background reaper, externally-triggered events).
-        Mirror of ``workspace._resolve_app_id`` (same root cause + fix).
-        """
         try:
             ctx = self._context_var.get()
         except Exception:
@@ -628,24 +432,11 @@ class WebPreviewModule(BaseModule):
             or getattr(self, "_app_id", "default")
         )
 
-    # ─── persistence ─────────────────────────────────────────────────
-
     @staticmethod
     def _persist_path() -> Path:
-        """Daemon-wide JSON file holding all live attachments. Single
-        file (not per-session) so the daemon can reload everything on
-        boot with one read instead of walking workspace dirs."""
         return Path.home() / ".digitorn" / "web_preview_attachments.json"
 
     def _load_persisted(self) -> None:
-        """Restore attachments from the on-disk JSON. Best-effort —
-        file missing / corrupt = empty registry, daemon keeps booting.
-
-        Stale entries (port no longer bound for proxy attachments) are
-        kept in memory; the idle reaper or first-lookup probe will
-        clean them up. Avoiding the network probe here keeps daemon
-        boot synchronous and fast.
-        """
         path = self._persist_path()
         if not path.is_file():
             return
@@ -653,7 +444,7 @@ class WebPreviewModule(BaseModule):
             data = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
             logger.warning(
-                "web_preview persist load failed (%s) — starting empty",
+                "web_preview persist load failed (%s) - starting empty",
                 exc,
             )
             return
@@ -682,7 +473,7 @@ class WebPreviewModule(BaseModule):
                     dist_dir = entry.get("dist_dir")
                     if not dist_dir or not Path(dist_dir).is_dir():
                         # Stale entry: dir was wiped between daemon
-                        # runs. Skip — the agent can re-publish.
+                        # runs. Skip - the agent can re-publish.
                         continue
                     att = Attachment(
                         type="published",
@@ -723,14 +514,8 @@ class WebPreviewModule(BaseModule):
                         last_hit_at=entry.get("last_hit_at", time.time()),
                         user_id=entry.get("user_id"),
                     )
-                # Slot-keyed registry: the slot is the attachment's
-                # ``type`` (proxy or bundled), NOT the legacy ``name``
-                # field. Old persistence files keyed by arbitrary name
-                # (``default``, ``frontend``, ``backend``, ...) are
-                # transparently migrated here. If two old entries
-                # collide on the same slot for the same session (e.g.
-                # one ``frontend`` + one ``backend`` both type proxy),
-                # the LATER one wins — single-slot is the new invariant.
+                # Slot key = (session_id, type); migrates legacy `name`-
+                # keyed entries with last-write-wins.
                 self._attachments[(att.session_id, att.type)] = att
             except (KeyError, TypeError) as exc:
                 logger.debug("web_preview persist skip malformed entry: %s", exc)
@@ -741,13 +526,6 @@ class WebPreviewModule(BaseModule):
             )
 
     def _persist_to_disk(self) -> None:
-        """Write the current registry to disk atomically.
-
-        Writes to a temp file then renames (POSIX-atomic on Unix,
-        best-effort on Windows). Synchronous and cheap for the
-        registry size we expect (max ~100 entries across all
-        sessions).
-        """
         path = self._persist_path()
         path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -787,29 +565,12 @@ class WebPreviewModule(BaseModule):
         except OSError as exc:
             logger.warning("web_preview persist write failed: %s", exc)
 
-    # ─── client notification (no ack) ─────────────────────────────────
-
     def attachment_url(self, attachment: "Attachment") -> str:
-        """Compute the URL the iframe should load for this attachment.
-
-        Three flavours:
-          - ``proxy``: browser direct-connect URL templated by
-            ``_public_url_template``. Cross-origin to the frontend.
-          - ``bundled``: daemon-served static route from the app's
-            install dir. Same-origin with the frontend.
-          - ``published``: daemon-served static route from the per-
-            session published dir (``~/.digitorn/published/...``).
-            Same-origin with the frontend. Survives daemon restart.
-        """
+        """Compute the URL the iframe should load for this attachment."""
         if attachment.type == "bundled":
             app_id = attachment.app_id or self._app_id_str()
             return f"/api/apps/{app_id}/web-static/index.html"
         if attachment.type == "template_preview":
-            # Pristine template snapshot — served from the pre-built
-            # ``install_dir/templates/<id>/dist/`` via the existing
-            # template-assets route. The agent can later overwrite
-            # this with its own ``published`` build, which takes
-            # priority in ``get_attachment``.
             app_id = attachment.app_id or self._app_id_str()
             tpl_id = attachment.template_id or "default"
             return (
@@ -825,8 +586,8 @@ class WebPreviewModule(BaseModule):
             suffix = (attachment.path or "").strip()
             if not suffix:
                 return base
-            # When the agent published a non-root entry (e.g. ``/admin.html``),
-            # swap ``index.html`` for that suffix. Otherwise the iframe
+            # When the agent published a non-root entry (e.g. `/admin.html`),
+            # swap `index.html` for that suffix. Otherwise the iframe
             # would load index.html and ignore the agent's intent.
             if not suffix.startswith("/"):
                 suffix = "/" + suffix
@@ -856,11 +617,6 @@ class WebPreviewModule(BaseModule):
         return base + suffix
 
     def _emit_attached(self, attachment: "Attachment") -> None:
-        """Fire-and-forget Socket.IO event to wake up the client.
-
-        The client switches to the Preview tab + mounts the iframe at
-        the URL we publish. Single emit, no ack expected.
-        """
         if self._sio_ref is None:
             return
         payload: dict[str, Any] = {
@@ -883,8 +639,6 @@ class WebPreviewModule(BaseModule):
         except Exception as exc:
             logger.debug("web_preview emit failed: %s", exc)
 
-    # ─── @action handlers ────────────────────────────────────────────
-
     @action(
         description=(
             "Start (or attach to) the session's dev server preview."
@@ -892,44 +646,44 @@ class WebPreviewModule(BaseModule):
         params_model=ProxyParams,
         tool_prompt=(
             "Start (or attach to) the user's live preview. Default mode "
-            "is **fully automated** — call ``PreviewProxy()`` with no "
+            "is **fully automated** - call `PreviewProxy()` with no "
             "args once your project sits at the workspace root and the "
             "daemon does the rest:\n\n"
             "  1. Picks a free port (5173, then 5174/5175…).\n"
-            "  2. ``npm install`` (foreground).\n"
-            "  3. ``npm run dev`` on that port (background, auto-killed "
+            "  2. `npm install` (foreground).\n"
+            "  3. `npm run dev` on that port (background, auto-killed "
             "     when the session ends).\n"
             "  4. Waits for the port to bind.\n"
             "  5. Attaches the iframe.\n\n"
             "## Success\n"
-            "Returns ``{url, port, ...}``. Tell the user: 'Dev server "
-            "live in the Preview tab.' — that's it.\n\n"
+            "Returns `{url, port, ...}`. Tell the user: 'Dev server "
+            "live in the Preview tab.' - that's it.\n\n"
             "## Failure\n"
-            "Returns ``{success: false, error: '...'}`` with the actual "
+            "Returns `{success: false, error: '...'}` with the actual "
             "stderr / exit code so you can diagnose. Common causes the "
             "error message will point to:\n"
-            "  - **No package.json** — your project isn't scaffolded yet.\n"
-            "  - **npm install failed** — look at stderr (peer-dep "
+            "  - **No package.json** - your project isn't scaffolded yet.\n"
+            "  - **npm install failed** - look at stderr (peer-dep "
             "    mismatch, missing binary, network error).\n"
-            "  - **Dev server crashed** — vite/next config error, "
+            "  - **Dev server crashed** - vite/next config error, "
             "    missing file, port collision (the daemon already "
             "    fell back through 5173→5180, so this is rarer).\n"
-            "  - **Port never bound** — the dev command runs but never "
+            "  - **Port never bound** - the dev command runs but never "
             "    listens. Usually a config or import error.\n\n"
             "ALWAYS read the returned error before retrying. Don't loop "
-            "blindly on PreviewProxy() — fix the cause, then call again.\n\n"
+            "blindly on PreviewProxy() - fix the cause, then call again.\n\n"
             "## Re-attach\n"
-            "Calling ``PreviewProxy()`` again automatically replaces "
+            "Calling `PreviewProxy()` again automatically replaces "
             "the previous proxy (kills the old dev server, spawns a "
-            "fresh one). One proxy per session — no accumulation.\n\n"
+            "fresh one). One proxy per session - no accumulation.\n\n"
             "## Override mode (advanced)\n"
             "If you really need to spawn the dev server yourself (custom "
-            "command, env vars, non-npm runtime), pass both ``port`` and "
-            "``bash_task_id`` from your own ``Bash(run_in_background=true)`` "
+            "command, env vars, non-npm runtime), pass both `port` and "
+            "`bash_task_id` from your own `Bash(run_in_background=true)` "
             "call. The daemon then just attaches the iframe to your "
             "existing server, skipping install + run.\n\n"
             "## Static single-file previews\n"
-            "Override mode + ``path='/landing.html'`` covers the python "
+            "Override mode + `path='/landing.html'` covers the python "
             "http.server case when the user just wants to look at one "
             "HTML file (no React/Vite). Spawn the server yourself."
         ),
@@ -941,7 +695,7 @@ class WebPreviewModule(BaseModule):
         if not sid:
             return ActionResult(
                 success=False,
-                error="No active session — PreviewProxy must be called from within a session.",
+                error="No active session - PreviewProxy must be called from within a session.",
             )
 
         if not self._enabled:
@@ -955,24 +709,15 @@ class WebPreviewModule(BaseModule):
                 ),
             )
 
-        # Quota gate: per-user cap only — the per-session cap is
+        # Quota gate: per-user cap only - the per-session cap is
         # always 1 (proxy slot is always replaced, never grows).
         # Re-attaching the proxy slot for THIS session is a free pass.
         quota_err = self._check_attach_quota(sid, "proxy")
         if quota_err is not None:
             return ActionResult(success=False, error=quota_err)
 
-        # ── Mode dispatch ────────────────────────────────────────────
-        # AUTOMATED mode: no bash_task_id provided → daemon runs the
-        # full install + dev + bind + attach pipeline. The agent only
-        # needs to ensure the project sits at the workspace root with
-        # a valid package.json; everything else is handled here.
         if params.bash_task_id is None:
             return await self._proxy_automated(params, sid)
-
-        # OVERRIDE mode below: the agent has already spawned its dev
-        # server via Bash(run_in_background=true) and passes the
-        # task_id + port. We skip install/run and just attach.
 
         if params.port is None:
             return ActionResult(
@@ -984,20 +729,9 @@ class WebPreviewModule(BaseModule):
                 ),
             )
 
-        # Cross-module sanity: when the agent passes a bash_task_id,
-        # make sure that task is still alive. The shell module's
-        # 300ms early-exit watchdog can miss processes that die just
-        # after (e.g. python http.server taking ~400-500ms to detect
-        # a port collision). Without this check the port would
-        # PROBE-bind (a zombie from a previous session is still
-        # listening) and we'd attach to the wrong server, serving
-        # files from the wrong cwd → mysterious 404s for the user.
-        #
-        # We're a daemon-wide singleton but the shell module is
-        # per-app, so we look up the right shell instance via the
-        # per-app dict populated at bootstrap. If the agent's task
-        # was registered in a different app's shell, we won't find
-        # it here - skip the check and let the probe-only path run.
+        # Verify the bash task is still alive: shell's 300 ms early-exit
+        # watchdog can miss servers that die slightly later, leading us
+        # to probe-bind onto a zombie listener.
         shell_for_app = self._resolve_shell_for_current_app()
         if params.bash_task_id and shell_for_app is not None:
             task = getattr(shell_for_app, "_tasks", {}).get(
@@ -1024,13 +758,8 @@ class WebPreviewModule(BaseModule):
                     ),
                 )
 
-        # Bind-wait with bounded retry. LLMs used to do this manually
-        # via `tail -f /dev/null` / `until` loops which were either
-        # broken or wasteful. Doing it inside the action eliminates the
-        # whole pattern: agents call PreviewProxy once, we wait for
-        # the dev server to bind, then attach. Override budget per
-        # call via ``wait_seconds`` for known-slow stacks (Next.js
-        # / Remix SSR can take 20-40s on first compile).
+        # Bounded bind-wait so callers attach only once the dev server is up.
+        # Override the budget per call via `wait_seconds` for slow stacks.
         if params.health_check:
             wait_budget_s = float(getattr(params, "wait_seconds", 0) or 0)
             if wait_budget_s <= 0:
@@ -1052,18 +781,10 @@ class WebPreviewModule(BaseModule):
                             (attempt + 1) * poll_interval_s,
                         )
                     break
-                # Don't sleep after the last attempt - we'll fall through
-                # to the "still not bound" path immediately.
                 if attempt < attempts - 1:
                     await asyncio.sleep(poll_interval_s)
-            # Hard refuse when the port is genuinely dead. Earlier we
-            # used to log a warning and attach anyway, banking on the
-            # iframe's auto-retry. That's wrong for the common case
-            # where the agent's spawn FAILED outright (binary missing,
-            # syntax error, env issue): there's nothing for the iframe
-            # to recover towards, the user just sees a broken preview
-            # forever. Better to surface the error to the agent so it
-            # can either fix the spawn or fall back to a different stack.
+            # Hard refuse when the port stays dead; surface the failure to the agent
+            # so it can fix the spawn instead of handing the iframe a broken target.
             if not ok:
                 bash_hint = ""
                 if params.bash_task_id and self._shell is not None:
@@ -1104,10 +825,6 @@ class WebPreviewModule(BaseModule):
                 )
 
         t0 = time.time()
-        # Single-proxy-per-session invariant: if a proxy slot already
-        # exists for this session, kill its bash task (if any) before
-        # overwriting. Bundled slot (separate) is untouched — it
-        # remains as fallback when the proxy goes down.
         prev_proxy = self._attachments.get((sid, "proxy"))
         if prev_proxy is not None and prev_proxy.bash_task_id:
             try:
@@ -1161,48 +878,48 @@ class WebPreviewModule(BaseModule):
             "is too expensive, AND for **shareable snapshots** (demos, "
             "stable links) on any deploy.\n\n"
             "## Pipeline\n"
-            "  1. ``npm install`` (only if ``node_modules`` missing or "
-            "     ``install=true``).\n"
-            "  2. ``npm run build`` (or whatever script you set in "
-            "     ``build_script``).\n"
-            "  3. Copy the ``output_dir`` (default ``dist/``) to "
-            "     ``~/.digitorn/published/<app_id>/<session_id>/``.\n"
-            "  4. Register a ``published`` attachment + emit "
-            "     ``web_preview:attached`` so the iframe reloads at "
+            "  1. `npm install` (only if `node_modules` missing or "
+            "     `install=true`).\n"
+            "  2. `npm run build` (or whatever script you set in "
+            "     `build_script`).\n"
+            "  3. Copy the `output_dir` (default `dist/`) to "
+            "     `~/.digitorn/published/<app_id>/<session_id>/`.\n"
+            "  4. Register a `published` attachment + emit "
+            "     `web_preview:attached` so the iframe reloads at "
             "     the new same-origin URL.\n\n"
             "## When to use Publish vs Proxy\n"
-            "- ``PreviewProxy`` = live dev server with HMR. Right for **local "
+            "- `PreviewProxy` = live dev server with HMR. Right for **local "
             "  installs** where the user has the resources for a Vite process "
             "  and wants instant edit-to-preview feedback.\n"
-            "- ``PreviewPublish`` = static build, no port, no HMR. Right for "
+            "- `PreviewPublish` = static build, no port, no HMR. Right for "
             "  **cloud deploys** (no port to expose), **demo URLs** "
             "  (survives daemon restart), and when you want a stable "
             "  snapshot the user can share or come back to later.\n\n"
             "## Failure modes\n"
-            "Returns ``{success: false, error: ...}`` with the actual "
+            "Returns `{success: false, error: ...}` with the actual "
             "stderr / exit code on:\n"
-            "  - No ``package.json``: the project isn't scaffolded.\n"
-            "  - ``npm install`` failed: peer-dep mismatch, network, etc.\n"
-            "  - ``npm run build`` failed: TS error, missing import, "
-            "    bad config — read the stderr.\n"
-            "  - ``output_dir`` empty or missing after build: the build "
-            "    script doesn't write where ``output_dir`` says.\n\n"
-            "Read the error before retrying — same rule as PreviewProxy. "
+            "  - No `package.json`: the project isn't scaffolded.\n"
+            "  - `npm install` failed: peer-dep mismatch, network, etc.\n"
+            "  - `npm run build` failed: TS error, missing import, "
+            "    bad config - read the stderr.\n"
+            "  - `output_dir` empty or missing after build: the build "
+            "    script doesn't write where `output_dir` says.\n\n"
+            "Read the error before retrying - same rule as PreviewProxy. "
             "Don't loop blindly. Fix the cause, call again.\n\n"
             "## Re-publish\n"
-            "Calling ``PreviewPublish`` again replaces the previous "
+            "Calling `PreviewPublish` again replaces the previous "
             "publish for the session (old dir is overwritten). One "
             "published slot per session, no accumulation.\n\n"
             "## Asset URL gotcha (CRITICAL)\n"
             "The iframe loads the build under "
-            "``/api/apps/<id>/sessions/<sid>/published/index.html``, "
-            "NOT under ``/`` of the daemon. So your build MUST emit "
-            "RELATIVE asset URLs (``./assets/index.js``), not "
-            "absolute (``/assets/index.js``). For **Vite**: set "
-            "``base: './'`` in ``vite.config.ts``. For **CRA**: set "
-            "``\"homepage\": \".\"`` in ``package.json``. For "
-            "**Next-export**: set ``assetPrefix: ''`` and use "
-            "``next export``. If you skip this, the HTML loads but "
+            "`/api/apps/<id>/sessions/<sid>/published/index.html`, "
+            "NOT under `/` of the daemon. So your build MUST emit "
+            "RELATIVE asset URLs (`./assets/index.js`), not "
+            "absolute (`/assets/index.js`). For **Vite**: set "
+            "`base: './'` in `vite.config.ts`. For **CRA**: set "
+            "`\"homepage\": \".\"` in `package.json`. For "
+            "**Next-export**: set `assetPrefix: ''` and use "
+            "`next export`. If you skip this, the HTML loads but "
             "all the JS/CSS 404s and the iframe shows a blank page."
         ),
         risk_level="low",
@@ -1214,7 +931,7 @@ class WebPreviewModule(BaseModule):
             return ActionResult(
                 success=False,
                 error=(
-                    "No active session — PreviewPublish must be called "
+                    "No active session - PreviewPublish must be called "
                     "from within a session."
                 ),
             )
@@ -1238,7 +955,6 @@ class WebPreviewModule(BaseModule):
     async def _publish_automated(
         self, params: "PublishParams", sid: str,
     ) -> ActionResult:
-        """Full publish pipeline: install + build + copy + register."""
         # 1. Workspace + package.json sanity check
         ws_path = self._resolve_workspace_path()
         if ws_path is None:
@@ -1265,7 +981,7 @@ class WebPreviewModule(BaseModule):
             return ActionResult(
                 success=False,
                 error=(
-                    "Shell module is not loaded for this app — "
+                    "Shell module is not loaded for this app - "
                     "PreviewPublish needs it to run npm. Add "
                     "`shell: {}` to the app's modules block."
                 ),
@@ -1305,17 +1021,9 @@ class WebPreviewModule(BaseModule):
                     data=install_result.data or {},
                 )
 
-        # 3.5. Project-wide TypeScript check BEFORE the expensive build.
-        # ``vite build`` happily transpiles broken TS by default — it
-        # skips type-checking unless you wire it in. So a TS error that
-        # spans files (broken import, refactored signature) sails right
-        # past vite and only blows up at runtime in the iframe. Running
-        # ``tsc --noEmit`` first catches cross-file type errors in 5-15 s
-        # vs the ~30-60 s wasted on a doomed build. We only invoke tsc
-        # when the project actually declares it (``tsconfig.json`` +
-        # ``typescript`` in package.json deps) so non-TS projects aren't
-        # penalised. Output is verbose-enough for the agent to locate
-        # the bad line without needing a separate lint pass.
+        # 3.5. Pre-build `tsc --noEmit` to catch cross-file type errors
+        # before `vite build` (which transpiles broken TS by default).
+        # Only runs when `tsconfig.json` exists.
         tsconfig = ws_path / "tsconfig.json"
         if tsconfig.is_file():
             tsc_result = await _run_bash({
@@ -1328,7 +1036,7 @@ class WebPreviewModule(BaseModule):
                 if isinstance(tsc_result.data, dict):
                     stderr_tail = str(tsc_result.data.get("stderr", "")).strip()
                     stdout_tail = str(tsc_result.data.get("stdout", "")).strip()
-                    # tsc writes to stdout, not stderr — surface both.
+                    # tsc writes to stdout, not stderr - surface both.
                     if not stderr_tail and stdout_tail:
                         stderr_tail = stdout_tail
                     exit_code = tsc_result.data.get("exit_code")
@@ -1381,8 +1089,8 @@ class WebPreviewModule(BaseModule):
                 error=(
                     f"Build succeeded but `{output_rel}/` is missing under "
                     f"the workspace root ({ws_path}). Either the build "
-                    f"script writes elsewhere — pass the correct "
-                    f"`output_dir` — or it crashed silently."
+                    f"script writes elsewhere - pass the correct "
+                    f"`output_dir` - or it crashed silently."
                 ),
             )
         index_html = output_dir / "index.html"
@@ -1479,7 +1187,6 @@ class WebPreviewModule(BaseModule):
                 success=True,
                 data={"removed": False, "hint": "No proxy attachment to remove."},
             )
-        # Kill the bash task that backed this proxy, if any. Best-effort.
         if prev.bash_task_id:
             try:
                 await self._kill_bash_task(sid, prev.bash_task_id)
@@ -1501,10 +1208,6 @@ class WebPreviewModule(BaseModule):
             reason="agent_request",
             killed_bash=bool(prev.bash_task_id),
         )
-        # Confirm AND report the remaining state of the session's
-        # slots (only the bundled fallback can still be alive after
-        # a proxy detach). Mirrors ``_build_attach_result`` so the
-        # agent's mental model stays consistent across attach/detach.
         bundled = self._attachments.get((sid, "bundled"))
         return ActionResult(
             success=True,
@@ -1519,25 +1222,9 @@ class WebPreviewModule(BaseModule):
             },
         )
 
-    # ─── Automated proxy pipeline ────────────────────────────────────
-
     async def _proxy_automated(
         self, params: "ProxyParams", sid: str,
     ) -> ActionResult:
-        """Full pipeline: install deps + run dev server + attach iframe.
-
-        Steps:
-          1. Resolve workspace + verify package.json
-          2. Find a free port (preferred → fallback chain)
-          3. Run `npm install` synchronously
-          4. Spawn `npm run dev` in the background
-          5. Wait for the port to bind
-          6. Register the attachment, return URL
-
-        Any failure short-circuits with a structured error that names
-        WHAT went wrong + the actual stderr/exit_code so the agent
-        can fix the root cause instead of looping blindly.
-        """
         # 1. Resolve workspace
         ws_path = self._resolve_workspace_path()
         if ws_path is None:
@@ -1580,27 +1267,19 @@ class WebPreviewModule(BaseModule):
             return ActionResult(
                 success=False,
                 error=(
-                    "Shell module is not loaded for this app — the "
+                    "Shell module is not loaded for this app - the "
                     "automated PreviewProxy needs it to run npm. Add "
                     "`shell: {}` to the app's modules block."
                 ),
             )
 
-        # Helper: dispatch through ``execute`` (the canonical entry
-        # point) instead of calling ``shell.bash`` directly. In worker
-        # mode the @action method gets replaced by an unbound proxy
-        # that doesn't accept the bound-method signature; ``execute``
-        # routes via ``_get_handler`` which works in both modes.
-        # CRITICAL: propagate our own ExecutionContext to shell so
-        # shell._check_cwd can resolve the workspace. Without this,
-        # BaseModule.execute(context=None) overwrites the SHARED
-        # contextvar to None mid-call, and shell sees a workspace-less
-        # ctx — the result is the bogus "No workspace resolved for
-        # this session" error 40ms after PreviewProxy starts.
+        # Dispatch through `execute` so worker-mode proxies work; pass
+        # our own context so shell._check_cwd resolves the workspace
+        # instead of clobbering the shared contextvar to `None`.
         our_ctx = self._context_var.get()
         async def _run_bash(args: dict[str, Any]):
             raw = await shell.execute("bash", args, context=our_ctx)
-            # Normalise: ``execute`` returns whatever the handler
+            # Normalise: `execute` returns whatever the handler
             # returned (usually an ActionResult, sometimes a dict
             # from the worker-proxy path).
             if isinstance(raw, ActionResult):
@@ -1657,7 +1336,7 @@ class WebPreviewModule(BaseModule):
                 success=False,
                 error=(
                     "Spawned dev server but no task_id returned by the "
-                    "shell module — this should never happen. Retry."
+                    "shell module - this should never happen. Retry."
                 ),
             )
 
@@ -1696,7 +1375,7 @@ class WebPreviewModule(BaseModule):
                     + (
                         f"Stderr tail:\n{stderr_tail}\n"
                         if stderr_tail else
-                        "No stderr captured — the process may still be "
+                        "No stderr captured - the process may still be "
                         "starting; bump `wait_seconds` for slow SSR "
                         "frameworks (Next.js, Remix, Nuxt). "
                     )
@@ -1747,11 +1426,6 @@ class WebPreviewModule(BaseModule):
         return self._build_attach_result(att)
 
     def _resolve_workspace_path(self) -> Path | None:
-        """Return the current session's workspace as a Path, or None.
-
-        Reads ctx.workspace first; falls back to the workspace module's
-        ``_resolve_sync_dir`` when not set on the agent context.
-        """
         ctx = self._context_var.get()
         ws = getattr(ctx, "workspace", None) if ctx else None
         if not ws:
@@ -1772,14 +1446,6 @@ class WebPreviewModule(BaseModule):
     async def _find_free_port(
         self, preferred: int, max_tries: int = 8,
     ) -> int | None:
-        """Return the first port >= ``preferred`` that is bindable.
-
-        Uses ``socket.bind`` rather than connect-probe so we correctly
-        reject ports held by NON-HTTP servers (databases, custom TCP
-        backends) which would otherwise appear "free" to a connect+
-        HTTP probe. Returns None when none of the candidates is free
-        within ``max_tries`` attempts.
-        """
         import socket as _socket
 
         def _bind_test(port: int) -> bool:
@@ -1810,11 +1476,6 @@ class WebPreviewModule(BaseModule):
     async def _wait_for_bind(
         self, host: str, port: int, budget_s: float,
     ) -> tuple[bool, str]:
-        """Wait up to ``budget_s`` seconds for ``host:port`` to bind.
-
-        Returns (True, "") on success, (False, hint) on timeout. Uses
-        ``_probe_port`` which checks TCP + HTTP health.
-        """
         poll_interval_s = 0.5
         attempts = max(1, int(budget_s / poll_interval_s))
         hint = ""
@@ -1832,20 +1493,6 @@ class WebPreviewModule(BaseModule):
         self,
         attachment: "Attachment",
     ) -> ActionResult:
-        """Shape the final ActionResult for proxy attachments.
-
-        Confirms the attachment landed AND reports the session's full
-        slot state — proxy + (optional) bundled fallback — so the
-        agent never has to make a follow-up ``PreviewList`` call
-        (which used to exist before single-slot semantics made it
-        redundant). Each call to ``PreviewProxy`` returns the full
-        truth: which slots are filled, total count, fallback URL if
-        any.
-
-        Registration is synchronous; the Socket.IO ``web_preview:attached``
-        notification fires fire-and-forget so the agent gets
-        ``success: true`` in <100ms.
-        """
         sid = attachment.session_id
         proxy = self._attachments.get((sid, "proxy"))
         bundled = self._attachments.get((sid, "bundled"))
@@ -1875,8 +1522,6 @@ class WebPreviewModule(BaseModule):
         )
         return ActionResult(success=True, data=base)
 
-    # ─── auto-attach for SDK / bundled-dist apps ────────────────────
-
     def auto_attach_bundled_dist(
         self,
         *,
@@ -1886,22 +1531,7 @@ class WebPreviewModule(BaseModule):
         user_id: str | None = None,
         name: str = "bundled",
     ) -> bool:
-        """Register the session's bundled-dist fallback attachment.
-
-        Called by the session-create path for SDK apps that ship a
-        ``web/dist`` (e.g. digitorn-builder, digitorn-lovable).
-        Lives in the fixed ``bundled`` slot — never collides with the
-        ``proxy`` slot that ``PreviewProxy`` writes. When both exist
-        for a session, the HTTP route prefers ``proxy``; if the proxy
-        fails (connection refused / dev server died) the iframe falls
-        back to ``bundled``.
-
-        The ``name`` parameter is kept for log compatibility but is
-        ignored for the slot key (always ``bundled``).
-
-        Returns ``True`` when an attachment was added, ``False`` when
-        the dist isn't there or the kill switch is off.
-        """
+        """Register the session's bundled-dist fallback attachment."""
         if not self._enabled:
             return False
         if not session_id or not app_id or not install_dir:
@@ -1934,21 +1564,9 @@ class WebPreviewModule(BaseModule):
         )
         return True
 
-    # ─── quotas, reaper, helpers ─────────────────────────────────────
-
     def _check_attach_quota(
         self, session_id: str, name: str,
     ) -> str | None:
-        """Return ``None`` when a new attachment is allowed; an error
-        message string otherwise.
-
-        Single-proxy-per-session invariant: ``PreviewProxy`` always
-        REPLACES the session's existing proxy slot — never accumulates.
-        Bundled (auto-attached) lives in a separate fixed slot. So a
-        single session has at most TWO attachments total (1 proxy +
-        1 bundled), and the per-session quota is never reached in
-        normal use.
-        """
         # Re-attach over an existing slot → free pass.
         if (session_id, name) in self._attachments:
             return None
@@ -1970,9 +1588,6 @@ class WebPreviewModule(BaseModule):
         return None
 
     def _current_user_id(self) -> str | None:
-        """Read user_id off the contextvar (set by the runtime when
-        an action runs inside a session). Falls back to None for
-        out-of-band calls (tests, scripts)."""
         try:
             ctx = self._context_var.get()
         except Exception:
@@ -1982,15 +1597,7 @@ class WebPreviewModule(BaseModule):
         uid = getattr(ctx, "user_id", None)
         return uid if uid else None
 
-    # ─── idle reaper ────────────────────────────────────────────────
-
     def _ensure_reaper_running(self) -> None:
-        """Start the idle reaper task if it isn't already.
-
-        Lazily started on first attach to keep daemon boot fast and
-        to avoid a permanent background task in tests / scripts that
-        instantiate the module without ever attaching anything.
-        """
         if self._reaper_task is not None and not self._reaper_task.done():
             return
         try:
@@ -2000,14 +1607,6 @@ class WebPreviewModule(BaseModule):
         self._reaper_task = loop.create_task(self._idle_reaper_loop())
 
     async def _idle_reaper_loop(self) -> None:
-        """Scan attachments every ``_REAPER_INTERVAL_SEC`` seconds,
-        drop any that haven't been hit in ``_IDLE_REAP_AFTER_SEC``.
-
-        For each reaped attachment, also kill the agent's bash task
-        if one was registered (best-effort via the shell module).
-        Never raises — a one-off scan failure must not break the
-        loop.
-        """
         while True:
             try:
                 await asyncio.sleep(_REAPER_INTERVAL_SEC)
@@ -2018,8 +1617,6 @@ class WebPreviewModule(BaseModule):
                 logger.warning("web_preview_reaper_iter_failed: %s", exc)
 
     async def _reap_idle_once(self) -> int:
-        """Run a single pass of the idle reaper. Returns the count
-        of attachments dropped."""
         now = time.time()
         cutoff = now - _IDLE_REAP_AFTER_SEC
         stale_keys: list[tuple[str, str]] = []
@@ -2051,17 +1648,6 @@ class WebPreviewModule(BaseModule):
         return len(stale_keys)
 
     def _resolve_shell_for_current_app(self) -> Any | None:
-        """Return the shell module instance for the active app.
-
-        web_preview is a daemon-wide singleton; shell is per-app.
-        Each app's bootstrap registers its shell under the app's id
-        in ``_shells_by_app``. This lookup uses the active app from
-        the action's execution context to pick the right one.
-        Falls back to the legacy ``_shell`` attribute (last app's
-        shell) when no per-app entry exists - good enough for
-        contexts where the active app can't be determined (idle
-        reaper running detached, tests, etc.).
-        """
         app_id = self._app_id_str()
         shell_mod = self._shells_by_app.get(app_id)
         if shell_mod is not None:
@@ -2071,13 +1657,6 @@ class WebPreviewModule(BaseModule):
     def _resolve_shell_for_attachment(
         self, attachment: "Attachment",
     ) -> Any | None:
-        """Return the shell that owns ``attachment``'s bash task.
-
-        Used by the idle reaper which doesn't have an active app
-        context. ``attachment.app_id`` is set for bundled but absent
-        for proxy attachments registered before this multi-shell
-        refactor; fall back to the legacy ``_shell`` then.
-        """
         if attachment.app_id:
             shell_mod = self._shells_by_app.get(attachment.app_id)
             if shell_mod is not None:
@@ -2088,12 +1667,6 @@ class WebPreviewModule(BaseModule):
         self, session_id: str, task_id: str,
         shell_mod: Any | None = None,
     ) -> None:
-        """Best-effort kill of the agent's background bash process.
-
-        Uses the per-app shell module that owned the task. Caller
-        passes the shell explicitly when known; otherwise we fall
-        back to the legacy single-shell ref.
-        """
         if shell_mod is None:
             shell_mod = self._shell
         if shell_mod is None:
@@ -2118,8 +1691,6 @@ class WebPreviewModule(BaseModule):
                 session_id, task_id, exc,
             )
 
-    # ─── helpers ─────────────────────────────────────────────────────
-
     def _current_session_id(self) -> str | None:
         try:
             ctx = self._context_var.get()
@@ -2134,21 +1705,7 @@ class WebPreviewModule(BaseModule):
     async def _probe_port(
         host: str, port: int, timeout: float = 0.8,
     ) -> tuple[bool, str]:
-        """Probe a dev-server endpoint and return (ok, hint).
-
-        Goes beyond a TCP open: also fires an HTTP GET / and inspects
-        the response body for known dev-server rejection patterns
-        (Vite ``Blocked request``, webpack-dev-server ``Invalid Host
-        header``, Next.js ``Cross origin request blocked``). When any
-        of those fire, the port IS bound but the server will refuse
-        the iframe's requests — we surface that as a structured hint
-        so the agent can react before the user sees a broken iframe.
-
-        ``ok=True`` only when both TCP succeeds AND the HTTP response
-        looks healthy (any 2xx / 3xx). Returns the hint string so the
-        caller can log it without parsing.
-        """
-        # Phase 1: TCP probe
+        # Step 1: TCP probe.
         try:
             _, writer = await asyncio.wait_for(
                 asyncio.open_connection(host, port), timeout=timeout,
@@ -2156,12 +1713,12 @@ class WebPreviewModule(BaseModule):
             writer.close()
             try:
                 await writer.wait_closed()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
         except (ConnectionRefusedError, OSError, asyncio.TimeoutError) as exc:
             return False, f"port {port} not bound ({type(exc).__name__})"
 
-        # Phase 2: HTTP GET to detect host-header rejection
+        # Step 2: HTTP GET to detect host-header rejection.
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(host, port), timeout=timeout,
@@ -2181,8 +1738,8 @@ class WebPreviewModule(BaseModule):
             writer.close()
             try:
                 await writer.wait_closed()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
             head = data[:600].decode("utf-8", errors="replace")
             status_line = head.split("\r\n", 1)[0] if head else ""
             body_lower = head.lower()
@@ -2205,7 +1762,7 @@ class WebPreviewModule(BaseModule):
                 )
             if not status_line.startswith("HTTP/"):
                 return False, (
-                    f"port {port} responded with non-HTTP data — is this "
+                    f"port {port} responded with non-HTTP data - is this "
                     f"actually a web server?"
                 )
             # Accept any 2xx or 3xx as healthy
@@ -2213,7 +1770,7 @@ class WebPreviewModule(BaseModule):
                 return True, f"HTTP probe ok ({status_line.strip()})"
             return True, f"HTTP probe got {status_line.strip()} (attaching anyway)"
         except (ConnectionRefusedError, OSError, asyncio.TimeoutError) as exc:
-            # TCP worked, HTTP didn't — server hung or non-HTTP. Still
+            # TCP worked, HTTP didn't - server hung or non-HTTP. Still
             # consider OK because the port is alive; some dev servers
             # need more than 800ms to first-respond.
             return True, f"TCP ok, HTTP probe inconclusive ({type(exc).__name__})"

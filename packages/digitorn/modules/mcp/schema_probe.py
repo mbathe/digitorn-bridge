@@ -1,18 +1,4 @@
-"""MCP API schema probing - auto-discover JSON structures at startup.
-
-After MCP servers connect, this module calls minimal read operations
-(search, get_*) to capture real API responses and extract structural
-templates.  These templates are injected into the system prompt so
-the LLM knows the EXACT JSON format for writer tools (create_page,
-append_blocks, etc.) - without relying on pre-training knowledge.
-
-This is critical for models (Qwen3, Llama, etc.) that don't have
-specific API knowledge baked in.  Without probing, the LLM invents
-JSON structures and fails on every write call.
-
-The probe is best-effort: if the server has no data, requires auth
-that hasn't been set up yet, or times out, it silently skips.
-"""
+"""MCP API schema probing - auto-discover JSON structures at startup."""
 
 from __future__ import annotations
 
@@ -45,20 +31,11 @@ _MAX_TEMPLATE_CHARS = 2500
 _MAX_TOTAL_CHARS = 5000
 _MAX_PROBES = 3
 
-
 async def probe_mcp_server(
     pool: Any,
     server_id: str,
 ) -> dict[str, str]:
-    """Probe an MCP server to discover API response structures.
-
-    Calls minimal read operations to capture real API responses,
-    then extracts structural templates for use in LLM prompts.
-
-    Returns ``{getter_tool_name: template_json_string}`` for each
-    successfully probed getter.  Empty dict if probing fails or
-    the server has no writer tools.
-    """
+    """Probe an MCP server to discover API response structures."""
     entry = pool.get_server(server_id)
     if entry is None or entry.status != "connected":
         return {}
@@ -115,9 +92,7 @@ async def probe_mcp_server(
 
     return templates
 
-
 def _has_writer_tools(tools: list[Any]) -> bool:
-    """Check if any tool has JSON string parameters (writer tools)."""
     for tool in tools:
         schema = tool.input_schema or {}
         props = schema.get("properties", {})
@@ -129,16 +104,7 @@ def _has_writer_tools(tools: list[Any]) -> bool:
                 return True
     return False
 
-
 def _prioritize_getters(tools: list[Any]) -> list[Any]:
-    """Sort getter tools by usefulness for structure discovery.
-
-    Priority:
-    1. Tools with "children" or "block" in name (show content structure)
-    2. Tools with "page" in name (show property structure)
-    3. Tools with "database" in name (show schema)
-    4. Other get_* tools
-    """
     getters = [t for t in tools if t.name.startswith("get_")]
 
     def _priority(tool: Any) -> int:
@@ -153,13 +119,11 @@ def _prioritize_getters(tools: list[Any]) -> list[Any]:
 
     return sorted(getters, key=_priority)
 
-
 async def _find_sample_id(
     pool: Any,
     server_id: str,
     entry: Any,
 ) -> str | None:
-    """Find a resource ID by calling search/list tools."""
     for tool in entry.tools:
         if "search" not in tool.name.lower():
             continue
@@ -204,9 +168,7 @@ async def _find_sample_id(
 
     return None
 
-
 def _extract_first_id(response_text: str) -> str | None:
-    """Extract the first ID-like value from an API response."""
     try:
         data = json.loads(response_text)
     except (json.JSONDecodeError, ValueError):
@@ -228,14 +190,7 @@ def _extract_first_id(response_text: str) -> str | None:
 
     return None
 
-
 def _extract_template_from_response(response_text: str) -> str | None:
-    """Extract a structural template from an API response.
-
-    Strips metadata keys, truncates arrays to 1 element, and
-    replaces long string values with "..." while keeping type
-    discriminators (short enum-like values).
-    """
     if not response_text or not response_text.strip().startswith(("{", "[")):
         return None
 
@@ -273,13 +228,7 @@ def _extract_template_from_response(response_text: str) -> str | None:
 
     return None
 
-
 def _has_content(item: Any) -> bool:
-    """Check if an API response item has non-trivial content.
-
-    Prefers blocks with actual text over empty blocks, and pages
-    with non-default properties over blank pages.
-    """
     if not isinstance(item, dict):
         return False
     for v in item.values():
@@ -289,20 +238,7 @@ def _has_content(item: Any) -> bool:
                     return True
     return False
 
-
 def _fill_empty_content_arrays(template_json: str) -> str:
-    """Fill empty arrays that likely hold structured content.
-
-    When the probed resource has blank fields (e.g. an empty paragraph),
-    the template shows ``[]`` which hides the expected item structure.
-
-    This scans the template for empty arrays whose sibling ``"type"``
-    key provides a hint, and fills them with a generic typed item::
-
-        {"type": "<sibling_type>", "<sibling_type>": {"content": "..."}}
-
-    Works universally - not tied to any specific API.
-    """
     try:
         data = json.loads(template_json)
     except (json.JSONDecodeError, ValueError):
@@ -311,25 +247,7 @@ def _fill_empty_content_arrays(template_json: str) -> str:
     _fill_empty_arrays_recursive(data)
     return json.dumps(data, indent=2, ensure_ascii=False)
 
-
 def _fill_empty_arrays_recursive(value: Any, parent_has_type: bool = False) -> None:
-    """Recursively find empty arrays in typed objects and fill them.
-
-    The pattern we detect (universal across APIs):
-    - A dict has a ``"type"`` key (discriminator) and other keys
-    - One of those keys points to a sub-dict containing empty arrays
-    - Those empty arrays likely hold structured content items
-
-    Example (Notion blocks)::
-
-        {"type": "paragraph", "paragraph": {"rich_text": [], ...}}
-        → fills rich_text with [{"type": "text", "text": {"content": "..."}}]
-
-    Example (Google Docs)::
-
-        {"type": "paragraph", "paragraph": {"elements": [], ...}}
-        → fills elements with [{"type": "text", "text": {"content": "..."}}]
-    """
     if isinstance(value, dict):
         has_type = "type" in value and isinstance(value.get("type"), str)
 
@@ -346,20 +264,11 @@ def _fill_empty_arrays_recursive(value: Any, parent_has_type: bool = False) -> N
             if isinstance(item, (dict, list)):
                 _fill_empty_arrays_recursive(item, parent_has_type)
 
-
 def _clean_structure(
     value: Any,
     depth: int = 0,
     max_depth: int = 7,
 ) -> Any:
-    """Recursively clean a JSON value to extract structural template.
-
-    - Removes metadata keys (id, timestamps, etc.)
-    - Removes verbose annotation dicts (bold/italic/etc.)
-    - Keeps type discriminator values ("paragraph", "text", "default")
-    - Truncates arrays to first element
-    - Replaces long/content strings with "..."
-    """
     if depth >= max_depth:
         return "..."
 

@@ -1,21 +1,4 @@
-"""Shared helpers for the chat attachments pipeline.
-
-Single source of truth for two things that used to be duplicated across
-``messages.py`` (ingest side) and ``_dispatch.py`` (retrieval side):
-
-  1. The knowledge-base name for a chat session. If the format ever
-     drifts between the two sites, ingestion lands in KB-A while
-     retrieval queries KB-B and the LLM silently sees no excerpts.
-     Funnel both through :func:`kb_name_for_session`.
-
-  2. Format detection by magic bytes. Extension-based dispatch breaks
-     the moment a client uploads ``report`` (no suffix, mime
-     ``application/pdf``) - the file ends up parsed as UTF-8 garbage
-     and the canary never reaches the index. :func:`sniff_format`
-     reads the first 16 bytes and returns a canonical suffix
-     (``.pdf`` / ``.docx`` / ``.xlsx`` / ``.png`` / ...). Falls back
-     to the on-disk extension when bytes are ambiguous.
-"""
+"""Shared helpers for the chat attachments pipeline."""
 
 from __future__ import annotations
 
@@ -30,17 +13,8 @@ _KB_PREFIX: Final[str] = "chat-session-"
 
 
 def kb_name_for_session(session_id: str) -> str:
-    """Return the canonical RAG knowledge-base name for a chat session.
-
-    Used by both the ingest path (``POST /messages``) and the retrieval
-    path (pre-turn context injection). NEVER inline the format string
-    elsewhere - the two sites would drift and ingestion + query would
-    silently target different KBs.
-    """
+    """Return the canonical RAG knowledge-base name for a chat session."""
     return f"{_KB_PREFIX}{session_id}"
-
-
-# ── Format detection ──────────────────────────────────────────────────
 
 
 _MAGIC_BYTES: Final[tuple[tuple[bytes, str], ...]] = (
@@ -67,20 +41,7 @@ _ZIP_OFFICE: Final[frozenset[str]] = frozenset(
 
 
 def sniff_format(path: Path | str, *, filename_hint: str = "") -> str:
-    """Return a canonical lowercase suffix (``.pdf``, ``.txt``, ...).
-
-    Reads up to 16 bytes from disk to identify the format. Pure magic-
-    byte detection is the fast path; if it returns ``.zip`` we look at
-    the filename hint (or the on-disk extension) to refine to
-    ``.docx`` / ``.xlsx`` / ``.pptx`` / ... When nothing matches we
-    fall back to the extension verbatim, or ``.txt`` when the file
-    carries no extension at all.
-
-    Defensive: any OS error during the small read collapses to
-    extension-only detection. We never raise from this helper - the
-    caller's whole pipeline (file_store → rag.ingest_file) depends on
-    it being infallible.
-    """
+    """Return a canonical lowercase suffix (`.pdf`, `.txt`, ...)."""
     p = Path(path)
     try:
         with p.open("rb") as fh:
@@ -107,10 +68,7 @@ def sniff_format(path: Path | str, *, filename_hint: str = "") -> str:
 
 
 def _hint_suffix(filename_hint: str) -> str:
-    """Extract a lowercase ``.ext`` from a free-form filename string.
-
-    Returns ``""`` when the hint carries no suffix or is empty.
-    """
+    """Extract a lowercase `.ext` from a free-form filename string."""
     if not filename_hint:
         return ""
     return Path(filename_hint).suffix.lower()

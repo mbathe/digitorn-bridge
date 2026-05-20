@@ -1,18 +1,4 @@
-"""MCPConnectionPool - manages named MCP server connections.
-
-Follows the same pattern as the database module's ConnectionPool:
-named connections, lazy initialization, graceful cleanup on on_stop().
-
-Usage::
-
-    pool = MCPConnectionPool()
-    entry = await pool.connect("slack", "stdio",
-                                command="npx",
-                                args=["@anthropic/mcp-server-slack"],
-                                env={"SLACK_TOKEN": "xoxb-..."})
-    result = await pool.call_tool("slack", "post_message", {"channel": "#general", "text": "hi"})
-    await pool.disconnect("slack")
-"""
+"""MCPConnectionPool - manages named MCP server connections."""
 
 from __future__ import annotations
 
@@ -45,7 +31,6 @@ from digitorn.modules.mcp.transports import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class MCPServerEntry:
@@ -91,13 +76,8 @@ class MCPServerEntry:
             ),
         }
 
-
 class MCPConnectionPool:
-    """Manages named MCP server connections.
-
-    One pool per app (created fresh per-app via registry.create()).
-    Handles connection lifecycle, capability caching, and tool execution.
-    """
+    """Manages named MCP server connections."""
 
     def __init__(self) -> None:
         self._servers: dict[str, MCPServerEntry] = {}
@@ -113,18 +93,7 @@ class MCPConnectionPool:
         transport_type: str,
         **kwargs: Any,
     ) -> MCPServerEntry:
-        """Connect to an MCP server.
-
-        If already connected, disconnects first (like database module).
-
-        Args:
-            server_id: User-chosen name (e.g. "slack", "github").
-            transport_type: "stdio", "sse", or "streamable_http".
-            **kwargs: Transport-specific config (command, args, env, url, etc.).
-
-        Returns:
-            The connected MCPServerEntry with cached tools/resources/prompts.
-        """
+        """Connect to an MCP server."""
         async with self._lock:
             if server_id in self._servers:
                 await self._disconnect_unlocked(server_id)
@@ -164,7 +133,6 @@ class MCPConnectionPool:
             await self._disconnect_unlocked(server_id)
 
     async def _disconnect_unlocked(self, server_id: str) -> None:
-        """Disconnect without acquiring the lock (caller must hold it)."""
         entry = self._servers.pop(server_id, None)
         if entry is None:
             return
@@ -188,16 +156,7 @@ class MCPConnectionPool:
     async def reconnect(
         self, server_id: str, *, max_retries: int | None = None, base_delay: float = 1.0, max_delay: float = 30.0,
     ) -> MCPServerEntry:
-        """Reconnect a server using its original config with exponential backoff.
-
-        Updates the existing MCPServerEntry **in-place** (new transport,
-        refreshed tools, updated status) so that all holders of the same
-        reference - including per-app pools sharing a daemon entry - see
-        the reconnected state without re-acquiring.
-
-        On failure, retries up to *max_retries* times with exponential
-        backoff (1s, 2s, 4s, 8s… capped at *max_delay*).
-        """
+        """Reconnect a server using its original config with exponential backoff."""
         if max_retries is None:
             try:
                 from digitorn.core.config import get_settings
@@ -211,8 +170,8 @@ class MCPConnectionPool:
 
             try:
                 await entry.transport.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("connections best-effort block failed: %s", exc)
 
             kwargs = entry._connect_kwargs.copy()
             transport_type = kwargs.pop("transport_type")
@@ -246,8 +205,8 @@ class MCPConnectionPool:
                         entry.transport = old_transport
                         try:
                             await transport.close()
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("connections best-effort block failed: %s", exc)
                         raise
                     entry.status = "connected"
                     entry.error = None
@@ -274,7 +233,6 @@ class MCPConnectionPool:
                 server_id, max_retries + 1, last_exc,
             )
             raise last_exc  # type: ignore[misc]
-
 
     async def call_tool(
         self, server_id: str, tool_name: str, arguments: dict[str, Any] | None = None,
@@ -303,7 +261,6 @@ class MCPConnectionPool:
             )
         return parse_tool_result(result)
 
-
     async def list_resources(self, server_id: str) -> list[MCPResourceDef]:
         """List resources from an MCP server."""
         entry = self._get_connected(server_id)
@@ -315,7 +272,6 @@ class MCPConnectionPool:
         entry = self._get_connected(server_id)
         result = await entry.transport.send("resources/read", {"uri": uri})
         return result
-
 
     async def list_prompts(self, server_id: str) -> list[MCPPromptDef]:
         """List prompts from an MCP server."""
@@ -332,7 +288,6 @@ class MCPConnectionPool:
         if arguments:
             params["arguments"] = arguments
         return await entry.transport.send("prompts/get", params)
-
 
     async def ping(self, server_id: str, *, timeout: float = 10.0) -> bool:
         """Ping an MCP server. Returns True if alive."""
@@ -357,7 +312,6 @@ class MCPConnectionPool:
         await self._refresh_capabilities(entry)
         return entry
 
-
     def get_server(self, server_id: str) -> MCPServerEntry | None:
         return self._servers.get(server_id)
 
@@ -373,7 +327,6 @@ class MCPConnectionPool:
                     result.append((entry.server_id, tool))
         return result
 
-
     def _get_connected(self, server_id: str) -> MCPServerEntry:
         entry = self._servers.get(server_id)
         if entry is None:
@@ -385,7 +338,6 @@ class MCPConnectionPool:
         return entry
 
     async def _refresh_capabilities(self, entry: MCPServerEntry) -> None:
-        """Fetch tools, resources, and prompts from a server."""
         caps = entry.server_capabilities
 
         _CAP_TIMEOUT = 15.0  # Max time per capability category

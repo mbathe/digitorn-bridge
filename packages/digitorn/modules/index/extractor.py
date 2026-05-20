@@ -1,11 +1,4 @@
-"""Index module - extractor system.
-
-Extractors transform raw content into IndexEntry + Relation lists.
-The module ships with a ``TextExtractor`` (fallback) and a ``PythonExtractor``
-(understands classes, functions, imports).
-
-Other modules register custom extractors at runtime via the service bus.
-"""
+"""Index module - extractor system."""
 
 from __future__ import annotations
 
@@ -16,13 +9,8 @@ from typing import Any, Protocol
 
 from .types import IndexEntry, Relation, make_entry_id
 
-
 class Extractor(Protocol):
-    """Interface for content extractors.
-
-    Any module can provide an extractor by implementing this protocol
-    and registering it via ``index.register_extractor``.
-    """
+    """Interface for content extractors."""
 
     name: str
 
@@ -40,12 +28,8 @@ class Extractor(Protocol):
         """Parse content and return entries + relations."""
         ...
 
-
 class TextExtractor:
-    """Simple line-based extractor - works on any text file.
-
-    Produces a single ``file`` entry per file with line count and hash.
-    """
+    """Simple line-based extractor - works on any text file."""
 
     name = "text"
 
@@ -77,13 +61,8 @@ class TextExtractor:
         )
         return [entry], []
 
-
 class PythonExtractor:
-    """AST-based Python extractor - understands classes, functions, imports.
-
-    Produces entries for each top-level and nested class/function, plus
-    import relations.
-    """
+    """AST-based Python extractor - understands classes, functions, imports."""
 
     name = "python"
 
@@ -158,7 +137,6 @@ class PythonExtractor:
 
         return entries, relations
 
-
 def _function_entry(
     source_id: str, path: str, node: ast.FunctionDef | ast.AsyncFunctionDef,
     content_hash: str,
@@ -188,7 +166,6 @@ def _function_entry(
         content_hash=content_hash,
     )
 
-
 def _class_entry(
     source_id: str, path: str, node: ast.ClassDef, content_hash: str,
 ) -> IndexEntry:
@@ -209,7 +186,6 @@ def _class_entry(
         line_end=node.end_lineno,
         content_hash=content_hash,
     )
-
 
 def _import_entries(
     source_id: str, path: str, node: ast.Import | ast.ImportFrom,
@@ -251,9 +227,7 @@ def _import_entries(
             results.append((entry, rel))
     return results
 
-
 def _format_args(args: ast.arguments) -> str:
-    """Format function arguments as a compact string."""
     parts = []
     defaults_offset = len(args.args) - len(args.defaults)
     for i, arg in enumerate(args.args):
@@ -280,9 +254,7 @@ def _format_args(args: ast.arguments) -> str:
         parts.append(f"**{args.kwarg.arg}")
     return ", ".join(parts)
 
-
 def _node_name(node: ast.expr) -> str | None:
-    """Get the name from a Name or Attribute node."""
     if isinstance(node, ast.Name):
         return node.id
     if isinstance(node, ast.Attribute):
@@ -290,9 +262,7 @@ def _node_name(node: ast.expr) -> str | None:
         return f"{prefix}.{node.attr}" if prefix else node.attr
     return None
 
-
 def _extract_module_docstring(content: str) -> str:
-    """Extract the first line of a module docstring."""
     try:
         tree = ast.parse(content)
         docstring = ast.get_docstring(tree)
@@ -300,9 +270,7 @@ def _extract_module_docstring(content: str) -> str:
     except SyntaxError:
         return ""
 
-
 def _guess_language(path: str) -> str:
-    """Guess programming language from file extension."""
     ext_map = {
         ".py": "python", ".js": "javascript", ".ts": "typescript",
         ".jsx": "jsx", ".tsx": "tsx", ".rs": "rust", ".go": "go",
@@ -316,7 +284,6 @@ def _guess_language(path: str) -> str:
         if path.endswith(ext):
             return lang
     return "unknown"
-
 
 class ExtractorRegistry:
     """Manages extractors - builtin + custom from other modules."""

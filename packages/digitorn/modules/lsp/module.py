@@ -1,34 +1,4 @@
-"""LSP module v3 - Universal real-time feedback for any language.
-
-Fully dynamic: every YAML entry = a feedback channel. Supports 3 modes:
-  - ``lsp``: JSON-RPC persistent (pyright, gopls, texlab, rust-analyzer)
-  - ``compiler``: Re-run after each edit (cargo check, tsc --noEmit)
-  - ``linter``: Shell-out on-demand (ruff, eslint, stylelint)
-
-Config examples::
-
-    # Minimal - auto-detect from root markers
-    lsp: {}
-
-    # Simple - auto-detect protocol from command name
-    lsp:
-      config:
-        python: "pyright-langserver --stdio"
-        rust: "cargo check --message-format=json"
-
-    # Full control
-    lsp:
-      config:
-        servers:
-          python:
-            command: "pyright-langserver --stdio"
-            protocol: lsp
-            extensions: [".py", ".pyi"]
-          latex:
-            command: "texlab"
-            protocol: lsp
-            extensions: [".tex", ".bib"]
-"""
+"""LSP module v3 - Universal real-time feedback for any language."""
 
 from __future__ import annotations
 
@@ -51,18 +21,8 @@ from .protocols import FeedbackProtocol, create_protocol
 
 logger = logging.getLogger(__name__)
 
-
-# ── Config model (compile-time validation via CONFIG_MODEL) ──────
-
-
 class LspConfig(BaseModel):
-    """Pydantic config for the lsp module (validated at compile time).
-
-    Top-level keys beyond ``workspace``/``servers`` are treated as shorthand
-    language-server definitions by ``_parse_config`` (e.g. ``python:
-    "ruff check ..."`` or ``markdown: {command: "markdownlint ..."}``),
-    so ``extra="allow"`` is intentional.
-    """
+    """Pydantic config for the lsp module (validated at compile time)."""
 
     model_config = {"extra": "allow"}
 
@@ -71,9 +31,6 @@ class LspConfig(BaseModel):
         default_factory=dict,
         description="Named language server configs (command, protocol, extensions, ...).",
     )
-
-
-# ── Auto-detection tables ────────────────────────────────────────
 
 _NAME_TO_EXTENSIONS: dict[str, list[str]] = {
     "python": [".py", ".pyi"], "py": [".py", ".pyi"],
@@ -136,9 +93,7 @@ _LSP_KEYWORDS = {"langserver", "language-server", "lsp", "server", "analyzer", "
 _COMPILER_KEYWORDS = {"check", "vet", "build", "compile", "noemit", "watch"}
 _LINTER_COMMANDS = {"ruff", "eslint", "stylelint", "jsonlint", "flake8", "pylint", "mypy", "black", "prettier", "biome"}
 
-
 def _detect_protocol(command: str) -> str:
-    """Guess protocol from command string."""
     cmd_lower = command.lower()
     parts = set(cmd_lower.replace("-", " ").replace("_", " ").split())
     cmd_name = command.split()[0].lower() if command else ""
@@ -155,9 +110,7 @@ def _detect_protocol(command: str) -> str:
         return "compiler"
     return "linter"
 
-
 def _detect_parser(command: str) -> str:
-    """Guess parser from command name."""
     cmd = command.split()[0].lower() if command else ""
     if "ruff" in cmd:
         return "ruff"
@@ -173,33 +126,17 @@ def _detect_parser(command: str) -> str:
         return "ruff"  # Similar JSON format
     return "fallback"
 
-
 _RGLOB_LIMIT = 500  # max entries to scan for extension markers
 
-
 def _marker_present(ws: Path, marker: str) -> bool:
-    """Check if a marker exists in workspace root.
-
-    File/dir markers (e.g. "pyproject.toml") use direct existence check.
-    Extension markers (e.g. ".css") scan for any matching file, with a
-    limit to avoid crawling huge trees.
-    """
     if marker.startswith(".") and "/" not in marker:
         # Extension marker - check if any file with that extension exists
         # Use next() on lazy rglob: stops at first match, avoids full scan
         return next(ws.rglob(f"*{marker}"), None) is not None
     return (ws / marker).exists()
 
-
-# ── Module ───────────────────────────────────────────────────────
-
-
 class LspModule(BaseModule):
-    """Universal real-time feedback - any language, any tool.
-
-    v3: Fully dynamic configuration. 3 protocol modes.
-    Auto-detects project language and available tools.
-    """
+    """Universal real-time feedback - any language, any tool."""
 
     MODULE_ID = "lsp"
     MODULE_TYPE = "action"
@@ -212,38 +149,12 @@ class LspModule(BaseModule):
         self._workspace: str = ""
         self._sidecar_pool: Any = None
         self._app_id: str = "default"
-        # Per-app keyed state -- mandatory for the workered path where
-        # one ``LspModule()`` instance is shared across every deployed
-        # app routed to the ``tools`` worker. Without per-app keying,
-        # ``app A`` configuring ``python: "ruff ..."`` would leak ruff
-        # diagnostics into every other app's .py writes (verified by
-        # ``state_isolation`` scenario).
-        #
-        # **Multi-protocol per extension**: ``_app_protocols[app_id][ext]``
-        # is a LIST. Apps routinely need to layer protocols on the same
-        # extension -- texlab (LSP) + tectonic (compiler) + chktex
-        # (linter) all active on ``.tex``, pyright + ruff + mypy on
-        # ``.py``, rust-analyzer + cargo + clippy on ``.rs``.
-        # ``notify_change`` fans out to every protocol in the list and
-        # merges their diagnostics with dedup. ``request`` (raw LSP RPC)
-        # routes to the single protocol with ``mode == "lsp"``.
-        # The list preserves YAML order so the first-listed wins ties
-        # (e.g., when two LSP servers are configured for the same ext).
         self._app_protocols: dict[str, dict[str, list[FeedbackProtocol]]] = {}
         self._app_protocol_instances: dict[str, list[FeedbackProtocol]] = {}
         self._app_pending_specs: dict[str, dict[str, dict[str, Any]]] = {}
         self._owns_pool: bool = False
-        # Phase 3: in-flight request tracking for abort + supersession.
-        # Keyed by (session_id, request_id) → asyncio.Task. Secondary
-        # index by (session_id, path, method) for supersede_previous
-        # semantics so completion/hover keystrokes auto-cancel stale
-        # requests without the client doing bookkeeping.
         self._inflight: dict[tuple[str, str], asyncio.Task] = {}
         self._inflight_by_trio: dict[tuple[str, str, str], str] = {}
-        # Methods where we default to "latest wins" - stale results are
-        # discarded by the client anyway, so cancelling saves the LSP
-        # server work. Rename/references/symbols are NOT in here:
-        # those are user-initiated, should always deliver.
         self._supersede_methods: set[str] = {
             "textDocument/completion",
             "textDocument/hover",
@@ -251,27 +162,16 @@ class LspModule(BaseModule):
         }
 
     async def cleanup_session(self, session_id: str) -> int:
-        """Cancel every in-flight LSP request for a session.
-
-        Called by the app manager on ``end_session`` + abort paths so
-        we don't leak asyncio tasks when a user closes a tab mid-hover.
-        Returns the number of cancellations.
-
-        Safe to call on sessions with nothing in-flight (no-op).
-        Ignored for requests created with empty session_id (global /
-        anonymous scope - rare, typically only CLI/standalone).
-        """
+        """Cancel every in-flight LSP request for a session."""
         if not session_id:
             return 0
         cancelled = 0
-        # Snapshot keys up front - we mutate _inflight in the loop.
         keys = [k for k in list(self._inflight) if k[0] == session_id]
         for k in keys:
             task = self._inflight.pop(k, None)
             if task is not None and not task.done():
                 task.cancel()
                 cancelled += 1
-        # Clear trio index entries for this session too.
         for trio_key in [t for t in list(self._inflight_by_trio) if t[0] == session_id]:
             self._inflight_by_trio.pop(trio_key, None)
         if cancelled:
@@ -281,16 +181,7 @@ class LspModule(BaseModule):
             )
         return cancelled
 
-    # ── Per-app state helpers ───────────────────────────────────
-
     def _current_app_id(self) -> str:
-        """Best-effort app_id for the *current* call. Consults the
-        active ``ExecutionContext`` first (the worker route reconstructs
-        it from the daemon-side ctx envelope on every dispatch), falls
-        back to ``self._app_id`` which is set during the last
-        ``on_config_update`` -- good enough for in-process / legacy
-        callers where the module instance is per-app anyway.
-        """
         try:
             ec = self._context_var.get()
         except LookupError:
@@ -302,16 +193,11 @@ class LspModule(BaseModule):
         return self._app_id or "default"
 
     def _protos_for(self, app_id: str) -> dict[str, list[FeedbackProtocol]]:
-        """Per-app, per-ext list of feedback protocols. Each ext can
-        hold N protocols (LSP server + compiler + linter typically)."""
         return self._app_protocols.setdefault(app_id, {})
 
     def _protos_for_ext(
         self, app_id: str, ext: str,
     ) -> list[FeedbackProtocol]:
-        """Convenience: protocols registered for one (app, ext) pair.
-        Returns the live list (mutating it adds to the registration).
-        """
         return self._protos_for(app_id).setdefault(ext, [])
 
     def _pending_for(self, app_id: str) -> dict[str, dict[str, Any]]:
@@ -323,41 +209,23 @@ class LspModule(BaseModule):
     def _lsp_proto_for(
         self, app_id: str, ext: str,
     ) -> FeedbackProtocol | None:
-        """The first protocol with ``mode == "lsp"`` for (app, ext) --
-        i.e., the JSON-RPC LSP server. ``request()`` routes here; the
-        other modes (compiler / linter) don't speak LSP RPC.
-        """
         for proto in self._protos_for_ext(app_id, ext):
             if getattr(proto, "mode", None) == "lsp":
                 return proto
         return None
 
     async def _drain_app(self, app_id: str) -> None:
-        """Stop and forget every protocol instance owned by ``app_id``.
-        Called before re-registering on a hot redeploy so we don't end
-        up with two pyright subprocesses serving the same extension.
-        """
         for proto in self._instances_for(app_id):
             try:
                 await proto.stop()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
         self._app_protocols.pop(app_id, None)
         self._app_protocol_instances.pop(app_id, None)
         self._app_pending_specs.pop(app_id, None)
 
-    # ── Legacy single-tenant views (read-only) ──────────────────
-
     @property
     def _protocols(self) -> dict[str, FeedbackProtocol]:
-        """Aggregated single-protocol view across all apps -- returns
-        the FIRST protocol for each ext, last-app-deployed wins on
-        collisions. Kept for diagnostic introspection / tests that
-        don't carry an ExecutionContext + for the dead-code check
-        in ``state_isolation`` scenario. New code should go through
-        ``_protos_for_ext`` with an explicit ``app_id`` to get the
-        full list.
-        """
         merged: dict[str, FeedbackProtocol] = {}
         for m in self._app_protocols.values():
             for ext, protos in m.items():
@@ -379,8 +247,6 @@ class LspModule(BaseModule):
             merged.update(m)
         return merged
 
-    # ── Lifecycle ────────────────────────────────────────────────
-
     async def on_config_update(
         self,
         config: dict[str, Any],
@@ -392,10 +258,6 @@ class LspModule(BaseModule):
         if not self._workspace:
             self._workspace = ""
 
-        # Resolve the owning app. Priority: explicit kwarg from the
-        # worker's ``/admin/config/{module}`` route → ctx app_id →
-        # legacy ``_app_id`` slot. ``default`` only for genuine
-        # tenantless callers (CLI smoke tests).
         if app_id is None:
             app_id = self._current_app_id()
         self._app_id = app_id  # legacy slot consumers still read this
@@ -426,7 +288,6 @@ class LspModule(BaseModule):
             await self._auto_detect(app_id=app_id)
 
     def _parse_config(self, config: dict[str, Any]) -> list[dict[str, Any]]:
-        """Parse YAML config into normalized server specs."""
         servers: list[dict[str, Any]] = []
 
         explicit = config.get("servers", {})
@@ -452,23 +313,6 @@ class LspModule(BaseModule):
         return servers
 
     def _normalize_spec(self, name: str, spec: str | dict[str, Any]) -> dict[str, Any]:
-        """Normalize a server spec to a standard dict.
-
-        Accepts either a bare command string (legacy short form):
-
-            python: "ruff check --output-format=json"
-
-        or a full dict (long form) with these fields:
-
-            python:
-              command: "pyright-langserver --stdio"     # required
-              protocol: lsp                              # auto-detected if absent
-              extensions: [".py", ".pyi"]                # auto if absent
-              parser: ruff                                # auto if absent
-              initialization_options: {...}              # LSP only
-              settings: {...}                            # LSP only (workspace config)
-              roots: ["/abs/path1", "/abs/path2"]        # LSP only (multi-root)
-        """
         if isinstance(spec, str):
             command = spec
             protocol = _detect_protocol(command)
@@ -494,7 +338,7 @@ class LspModule(BaseModule):
             "parser": parser,
         }
         # Optional LSP-specific extensions; passed through to
-        # ``LspProtocol.start`` (compiler / linter protocols ignore them).
+        # `LspProtocol.start` (compiler / linter protocols ignore them).
         for key in ("initialization_options", "settings", "roots"):
             if key in spec:
                 out[key] = spec[key]
@@ -503,9 +347,6 @@ class LspModule(BaseModule):
     async def _start_server(
         self, spec: dict[str, Any], *, app_id: str | None = None,
     ) -> bool:
-        """Start a feedback server from a normalized spec under
-        ``app_id`` (defaults to the current execution context's app
-        when omitted)."""
         if app_id is None:
             app_id = self._current_app_id()
         name = spec["name"]
@@ -513,12 +354,6 @@ class LspModule(BaseModule):
         if not command:
             logger.debug("lsp_empty_command name=%s", name)
             return False
-        # Use shlex.split so paths with spaces survive when quoted —
-        # ``command.split()`` would mangle ``"C:/Program Files/foo.exe"
-        # --stdio`` into three pieces. ``posix=False`` on Windows keeps
-        # backslash literal and treats double-quoted segments as one
-        # token; we still fall back to plain split() if shlex bails so
-        # legacy callers passing un-shell-safe commands don't regress.
         try:
             import shlex
             cmd_parts = shlex.split(command, posix=(sys.platform != "win32"))
@@ -528,15 +363,11 @@ class LspModule(BaseModule):
             logger.debug("lsp_empty_command_after_split name=%s", name)
             return False
 
-        # Check binary exists. Bumped to warning level so failed
-        # registrations surface in daemon logs instead of vanishing
-        # silently — the LSP module was previously losing entire
-        # linter protocols (e.g. chktex.cmd on Windows) without any
-        # user-visible signal.
+        # Warn (not debug) so missing linter binaries are visible in daemon logs.
         if not shutil.which(cmd_parts[0]):
             logger.warning(
                 "lsp_binary_not_found name=%s cmd=%s app=%s "
-                "(install missing or PATH/PATHEXT issue) — server skipped",
+                "(install missing or PATH/PATHEXT issue) - server skipped",
                 name, cmd_parts[0], app_id,
             )
             return False
@@ -545,9 +376,7 @@ class LspModule(BaseModule):
         protocol.name = name
         protocol.extensions = spec.get("extensions", [])
 
-        # LSP-specific kwargs propagated to ``LspProtocol.start``.
-        # Compiler / linter subclasses accept and discard them via
-        # ``**_ignored``, so this is safe to pass unconditionally.
+        # Extra kwargs forwarded to LspProtocol.start; non-LSP subclasses ignore them.
         extra_kwargs: dict[str, Any] = {}
         if "initialization_options" in spec:
             extra_kwargs["initialization_options"] = spec["initialization_options"]
@@ -565,10 +394,6 @@ class LspModule(BaseModule):
         if success:
             self._instances_for(app_id).append(protocol)
             for ext in protocol.extensions:
-                # Append to the (app, ext) list instead of overwriting.
-                # Order preserved so YAML-declared layering reflects:
-                #   first server listed answers ``request()`` ties
-                #   (relevant if two LSP-mode servers configured).
                 bucket = self._protos_for_ext(app_id, ext)
                 if protocol not in bucket:
                     bucket.append(protocol)
@@ -580,7 +405,6 @@ class LspModule(BaseModule):
         return success
 
     async def _auto_detect(self, *, app_id: str | None = None) -> None:
-        """Auto-detect project languages and register servers as pending (lazy startup)."""
         if app_id is None:
             app_id = self._current_app_id()
         ws = Path(self._workspace) if self._workspace else Path.cwd()
@@ -622,8 +446,8 @@ class LspModule(BaseModule):
             for proto in self._app_protocol_instances.get(app_id, []):
                 try:
                     await proto.stop()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("module best-effort block failed: %s", exc)
         self._app_protocols.clear()
         self._app_protocol_instances.clear()
         self._app_pending_specs.clear()
@@ -647,20 +471,6 @@ class LspModule(BaseModule):
     async def _get_protocols(
         self, path: str,
     ) -> list[FeedbackProtocol]:
-        """Resolve EVERY feedback protocol for ``path`` within the
-        currently-active app's scope.
-
-        Multi-protocol: an ext can have N protocols layered (LSP +
-        compiler + linter). All are returned in YAML-declared order.
-
-        Cross-app isolation: an app that didn't configure a server
-        for this extension gets ``[]`` -- it doesn't inherit another
-        app's protocol. This is what makes the workered LSP module
-        safe to share across tenants.
-
-        Lazy startup: if no protocol is registered yet but a pending
-        spec exists from ``_auto_detect``, start it now and return.
-        """
         ext = Path(path).suffix.lower()
         app_id = self._current_app_id()
         protos_map = self._protos_for(app_id)
@@ -701,14 +511,8 @@ class LspModule(BaseModule):
         return []
 
     async def _get_protocol(self, path: str) -> FeedbackProtocol | None:
-        """Legacy single-protocol resolver. Returns the FIRST protocol
-        registered for the extension (YAML-declared order). New code
-        should use ``_get_protocols`` (plural) and route per ``mode``.
-        """
         protos = await self._get_protocols(path)
         return protos[0] if protos else None
-
-    # ── Actions ──────────────────────────────────────────────────
 
     @action(
         description=(
@@ -716,8 +520,8 @@ class LspModule(BaseModule):
             "Uses real-time LSP if available, falls back to compiler or linter. "
             "Called by hooks / middleware / other modules - NOT exposed "
             "to the LLM (diagnostics flow to the agent via the inline "
-            "``lint`` field of write/edit responses and via the "
-            "``diagnostics`` preview channel for the client UI)."
+            "`lint` field of write/edit responses and via the "
+            "`diagnostics` preview channel for the client UI)."
         ),
         params_model=DiagnosticsParams,
         risk_level="low",
@@ -732,10 +536,6 @@ class LspModule(BaseModule):
             protos = await self._get_protocols(params.path)
             active = [p for p in protos if p.is_connected]
             if active:
-                # Aggregate cached diagnostics across all registered
-                # protocols. Dedup by (file, line, severity, message[:80])
-                # so the same error reported by two sources (e.g.,
-                # texlab + tectonic) doesn't double-count.
                 merged: list[Any] = []
                 seen: set[tuple[str, int, str, str]] = set()
                 for p in active:
@@ -752,7 +552,7 @@ class LspModule(BaseModule):
                         merged.append(d)
                 errors = [d for d in merged if d.severity == "error"]
                 # Pick the most informative protocol for the response
-                # banner; same priority as ``notify_change``.
+                # banner; same priority as `notify_change`.
                 priority = {"lsp": 0, "compiler": 1, "linter": 2}
                 primary = min(
                     active, key=lambda p: priority.get(p.mode, 99),
@@ -815,7 +615,7 @@ class LspModule(BaseModule):
         active = [p for p in protos if p.is_connected]
         if active:
             # Aggregate diagnostics across all protocols, dedup, then
-            # ``passed`` = no error from any source.
+            # `passed` = no error from any source.
             merged: list[Any] = []
             seen: set[tuple[str, int, str, str]] = set()
             for p in active:
@@ -855,7 +655,7 @@ class LspModule(BaseModule):
         description=(
             "Notify that a file was changed - triggers fresh diagnostics. "
             "Internal - called automatically by the workspace/filesystem "
-            "modules and the ``lsp_diagnose`` hook after write/edit. "
+            "modules and the `lsp_diagnose` hook after write/edit. "
             "Agents never need to call this themselves."
         ),
         params_model=NotifyChangeParams,
@@ -864,17 +664,7 @@ class LspModule(BaseModule):
         internal=True,
     )
     async def notify_change(self, params: NotifyChangeParams) -> ActionResult:
-        """Fan-out a file-change notification to EVERY protocol
-        registered for the extension. Each protocol (LSP server,
-        compiler, linter) runs in parallel; their diagnostics are
-        merged with content-based dedup before returning.
-
-        Per-protocol cold-start: only the LSP-mode protocol needs the
-        3-second post-didOpen wait (the server pushes
-        publishDiagnostics asynchronously). Compiler / linter
-        protocols are one-shot synchronous shell-outs -- they return
-        as soon as the subprocess finishes.
-        """
+        """Fan-out a file-change notification to EVERY protocol."""
         path = params.path if hasattr(params, "path") else params.get("path", "")
         if not path:
             return ActionResult(success=False, error="Missing 'path' parameter")
@@ -920,12 +710,6 @@ class LspModule(BaseModule):
             *(_run_one(p) for p in active), return_exceptions=False,
         )
 
-        # Merge + dedup. The same error often surfaces from both the
-        # LSP server and the compiler (e.g., Undefined control sequence
-        # reported by both texlab and tectonic). Dedup keys on
-        # (file, line, severity, message[:80]) -- the
-        # first-encountered wins, so the YAML-declared order picks the
-        # canonical source.
         merged: list[Any] = []
         seen: set[tuple[str, int, str, str]] = set()
         sources_active: list[str] = []
@@ -943,9 +727,6 @@ class LspModule(BaseModule):
                 seen.add(key)
                 merged.append(d)
 
-        # Primary "mode" / "server" reported back picks the most
-        # informative source: LSP > compiler > linter. Falls back to
-        # the first when no LSP is in the mix.
         priority = {"lsp": 0, "compiler": 1, "linter": 2}
         primary = min(
             active, key=lambda p: priority.get(p.mode, 99),
@@ -977,26 +758,12 @@ class LspModule(BaseModule):
         internal=True,
     )
     async def request(self, params: LspRequestParams) -> ActionResult:
-        """Generic LSP method dispatch. See ``LspRequestParams``.
-
-        Phase 3 additions:
-
-        - Tracks each in-flight request by ``(session_id, request_id)``
-          so the client can cancel it via ``cancel_request``.
-        - Supersedes stale keystroke-driven requests automatically when
-          a new one of the same kind arrives for the same file.
-        """
+        """Generic LSP method dispatch. See `LspRequestParams`."""
         path = params.path
         method = params.method
         req_params = dict(params.params or {})
         session_id = params.session_id or ""
 
-        # Multi-protocol routing: ``request`` only makes sense for the
-        # JSON-RPC LSP-mode protocol. We walk the full list for this
-        # extension and pick the first ``mode == "lsp"`` server. If
-        # there are zero (only a compiler/linter is configured), we
-        # report a precise error so the caller can fall back to
-        # ``check`` / ``diagnostics`` / ``notify_change``.
         protos = await self._get_protocols(path)
         if not protos:
             return ActionResult(
@@ -1025,13 +792,6 @@ class LspModule(BaseModule):
                 ),
             )
 
-        # Auto-fill textDocument.uri from `path` when absent - standard
-        # LSP clients send this but we support shorthand requests.
-        # ``Path.as_uri()`` is RFC 8089-compliant (``file:///C:/...`` on
-        # Windows, three slashes + forward slashes); the legacy
-        # ``f"file://{...resolve()}"`` shape would mismatch the URI that
-        # ``notify_file_changed`` registered via didOpen and pyright /
-        # tsserver would silently fail to find the document.
         from pathlib import Path as _Path
         td = req_params.get("textDocument")
         if not isinstance(td, dict):
@@ -1040,32 +800,25 @@ class LspModule(BaseModule):
         if not td.get("uri"):
             td["uri"] = _Path(path).resolve().as_uri()
 
-        # Some servers require the doc to be explicitly opened before
-        # accepting hover / goto / completion. Open-if-needed -- and
-        # let the server actually parse the file before we ask it to
-        # answer questions about it. Pyright / typescript-language-
-        # server cold-start their analysis on the first didOpen for a
-        # URI (~1-3 s); a hover fired immediately after returns ``null``
-        # because no symbol table exists yet. We mirror the same warm-
-        # up window used by ``notify_change`` (3 s on cold, 0.3 s on
-        # warm) so the first request after a deploy gets a real reply.
+        # Open-if-needed + warm-up: pyright / tsserver cold-start
+        # analysis on the first didOpen so an immediate hover returns
+        # null. Mirror the same 3 s / 0.3 s window as `notify_change`.
         is_cold = _Path(path).resolve().as_uri() not in getattr(
             proto, "_opened", set(),
         )
         try:
             await proto.notify_file_changed(path)  # no-op if already opened
             await asyncio.sleep(3.0 if is_cold else 0.3)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("module best-effort block failed: %s", exc)
 
         # Mint a request_id if the client didn't supply one.
         import uuid as _uuid
         request_id = params.request_id or _uuid.uuid4().hex[:12]
 
-        # Supersession: if an older in-flight request exists for the
-        # same (session, path, method) triple AND the method is in the
-        # "latest wins" set, cancel it before taking over. This is the
-        # server-side equivalent of keystroke debouncing.
+        # Supersede: cancel an older inflight request for the same
+        # (session, path, method) when the method is in the
+        # "latest wins" set.
         if params.supersede_previous and method in self._supersede_methods:
             trio_key = (session_id, path, method)
             prev_rid = self._inflight_by_trio.get(trio_key)

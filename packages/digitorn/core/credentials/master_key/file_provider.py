@@ -1,25 +1,4 @@
-"""FileKeyProvider - master key from `~/.digitorn/master.key`.
-
-The "default" provider for single-machine deployments. The key is
-auto-generated on first boot if absent, written with mode 0600 (owner-
-only read), and reused on subsequent boots. Identical operational mode
-to `EnvKeyProvider` (direct, no envelope) but persists to disk instead
-of relying on env injection.
-
-Threats addressed:
-  - **Disk leak via backup**: write 0600, owner-only, separate dir.
-    Backup of `~/.digitorn` requires explicit awareness of the
-    `master.key` row.
-  - **Concurrent first-boot generation**: open/create with O_EXCL +
-    fall back to read on conflict, so two daemons starting at the
-    same time agree on the same key.
-  - **Permission audit**: a missing 0600 emits a WARNING but doesn't
-    refuse to start (Windows can't enforce).
-
-NOT addressed:
-  - Hardware extraction of the key file (see `AwsKmsProvider` for that).
-  - Memory dump of the daemon (any direct-mode provider has this).
-"""
+"""FileKeyProvider - master key from `~/.digitorn/master.key`."""
 
 from __future__ import annotations
 
@@ -44,8 +23,7 @@ DEFAULT_PATH = Path.home() / ".digitorn" / "master.key"
 
 
 class FileKeyProvider:
-    """Implements `MasterKeyProvider`. Loads/generates the key file at
-    init, holds the key in memory thereafter."""
+    """Implements `MasterKeyProvider`. Loads/generates the key file at"""
 
     def __init__(self, path: Path | None = None) -> None:
         self._path = (path or DEFAULT_PATH).expanduser().resolve()
@@ -58,10 +36,7 @@ class FileKeyProvider:
 
     @staticmethod
     def _load_or_create(path: Path) -> bytes:
-        """Read existing key or atomically create a new one.
-
-        Atomicity: write to `path.tmp` first then rename, so a crash
-        mid-write doesn't leave a half-written key file."""
+        """Read existing key or atomically create a new one."""
         if path.is_file():
             try:
                 b64 = path.read_text(encoding="ascii").strip()
@@ -96,8 +71,7 @@ class FileKeyProvider:
 
     @staticmethod
     def _check_permissions(path: Path) -> None:
-        """Warn if the file is world-readable (POSIX). On Windows
-        permission checks are best-effort; we don't fail the boot."""
+        """Warn if the file is world-readable (POSIX). On Windows"""
         try:
             mode = stat.S_IMODE(path.stat().st_mode)
             if mode & 0o077:  # any permission for group/other
@@ -153,5 +127,5 @@ class FileKeyProvider:
     async def close(self) -> None:
         try:
             self._key = b""
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("file_provider best-effort block failed: %s", exc)

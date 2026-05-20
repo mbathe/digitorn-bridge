@@ -1,21 +1,4 @@
-"""FileUploadHandler - binary file blob credential.
-
-Covers credentials that are file-shaped: kubeconfig, GCP service
-account JSON, client certificates (PEM), JKS keystores, .p12 PKCS#12,
-PGP private keys, etc.
-
-The user uploads a file via the UI; the handler stores its bytes
-encrypted. At runtime, the injector writes the bytes to a temp file
-in the session's tmpdir (mode 0600), passes the path to the consumer
-module, and deletes the file at session end.
-
-Fields:
-  - `content_b64`: base64-encoded file bytes (so JSON-serializable
-    inside the encrypted_fields blob).
-  - `mime_type`: optional MIME hint.
-  - `filename`: original filename (for the injector's temp file
-    extension).
-"""
+"""FileUploadHandler - binary file blob credential."""
 
 from __future__ import annotations
 

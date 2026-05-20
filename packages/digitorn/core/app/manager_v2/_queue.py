@@ -13,15 +13,7 @@ class _QueueMixin:
     async def drain_session_queue(
         self, app_id: str, session_id: str, user_id: str = "local",
     ) -> int:
-        """Dispatch queued messages for a session until the queue is
-        empty. Called from Socket.IO ``join_session`` after a crash /
-        reconnect so pending work resumes without the user having to
-        trigger it.
-
-        Returns the number of messages successfully processed (PAUSED
-        and FAILED entries don't count - they stop the loop or get
-        recorded as failed and we move on).
-        """
+        """Dispatch queued messages for a session until the queue is"""
         from digitorn.core.app import message_queue as _mq
         from digitorn.core.api.apps_v2._dispatch import (
             dispatch_turn, TurnEntry, TurnSource, TurnStatus,
@@ -43,12 +35,12 @@ class _QueueMixin:
                 break
 
             # Re-publish the JWT stashed at enqueue (None when missing).
-            # Without this, gateway-routed turns lose ``Authorization``.
+            # Without this, gateway-routed turns lose `Authorization`.
             queued_jwt = _mq.pop_jwt(entry.id)
             _jwt_token = set_inbound_user_jwt(queued_jwt) if queued_jwt else None
             try:
                 outcome = await dispatch_turn(
-                    None,  # no FastAPI request — Socket.IO context
+                    None,  # no FastAPI request - Socket.IO context
                     app_id, session_id,
                     entry=TurnEntry(
                         correlation_id=entry.correlation_id,
@@ -68,11 +60,6 @@ class _QueueMixin:
                     reset_inbound_user_jwt(_jwt_token)
 
             if outcome.status == TurnStatus.PAUSED:
-                # Credential gate hit - mark the row failed with
-                # `credential_required` so is_turn_running drops to
-                # False (otherwise the user's RETRY queues behind a
-                # stuck row). Then stop the resume loop: the next
-                # queued entries likely need the same missing key.
                 try:
                     await _mq.mark_failed(
                         entry.id, error_code="credential_required",
@@ -81,8 +68,8 @@ class _QueueMixin:
                         entry.correlation_id,
                         RuntimeError("credential_required"),
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("_queue best-effort block failed: %s", exc)
                 break
             if outcome.status == TurnStatus.COMPLETED:
                 try:
@@ -90,8 +77,8 @@ class _QueueMixin:
                     _mq.resolve_awaiter(
                         entry.correlation_id, {"status": "completed"},
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("_queue best-effort block failed: %s", exc)
                 processed += 1
             else:
                 # FAILED or CANCELLED - mark the row terminal and keep
@@ -107,8 +94,8 @@ class _QueueMixin:
                         entry.correlation_id,
                         RuntimeError(err_code),
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("_queue best-effort block failed: %s", exc)
         if processed:
             logger.info(
                 "drain_session_queue finished app=%s sid=%s processed=%d",

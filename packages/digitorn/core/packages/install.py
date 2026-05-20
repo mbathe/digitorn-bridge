@@ -1,38 +1,4 @@
-"""InstallFlow - orchestrates the install / upgrade / uninstall lifecycle.
-
-This is the **only** module that knows the full sequence of steps
-to install a package. Routes call into it; sources don't talk to it.
-This single-place-of-orchestration makes the lifecycle testable
-without spinning up a daemon.
-
-The flow is **failure-safe at every step**: the install dir is only
-moved into place after the manifest validates AND the daemon
-compatibility checks pass AND the user has accepted permissions
-AND there's no existing package with the same id. If anything
-fails before the move, no state is changed.
-
-Public API::
-
-    flow = InstallFlow(registry=..., source_map={...}, install_root=...)
-
-    # Install
-    result = await flow.install(
-        source_type="local",
-        source_uri="/path/to/my-app",
-        installed_by="alice",
-        accept_permissions=True,
-        on_deploy=manager.deploy,  # optional callable
-    )
-
-    # Probe permissions (no install)
-    perms = await flow.probe_permissions("local", "/path/to/my-app")
-
-    # Uninstall
-    await flow.uninstall("my-app", on_undeploy=manager.undeploy)
-
-    # Upgrade
-    await flow.upgrade("my-app", source_uri="/new/path", ...)
-"""
+"""InstallFlow - orchestrates the install / upgrade / uninstall lifecycle."""
 
 from __future__ import annotations
 
@@ -56,41 +22,21 @@ from digitorn.core.packages.source import FetchError, PackageSource
 
 logger = logging.getLogger(__name__)
 
-
 # Upgrade policy: PRESERVE BY DEFAULT.
 #
-# ``_patch_in_place`` overlays every file from the new source over the
+# `_patch_in_place` overlays every file from the new source over the
 # existing install dir. Files present in the install dir but absent
 # from the source tarball are NEVER touched - we don't know what an
 # app may have stashed (data dir, user assets, agent-generated build
 # outputs, cached deps, …). The new tarball declares what it ships;
 # anything else stays.
 #
-# The ONLY exception is ``.digitorn/`` (daemon-owned metadata:
+# The ONLY exception is `.digitorn/` (daemon-owned metadata:
 # hash.sha256 + manifest.lock). The daemon rewrites these post-patch,
-# so the source's ``.digitorn/`` would be a stale snapshot if shipped.
+# so the source's `.digitorn/` would be a stale snapshot if shipped.
 _DAEMON_PRIVATE_DIR: str = ".digitorn"
 
-
 def _patch_in_place(src: Path, dst: Path) -> tuple[int, int]:
-    """Overlay every file in ``src`` over the matching path in ``dst``.
-
-    Used in lieu of an atomic rename swap when the install dir is held
-    open on Windows (Vite, antivirus, file watcher). Never renames or
-    deletes ``dst`` itself - only individual files are overwritten in
-    place.
-
-    Policy: PRESERVE BY DEFAULT. Files present in ``dst`` but absent
-    from ``src`` are left untouched at every depth. We don't know what
-    an app may stash on disk (data dir, user assets, agent build
-    outputs, cached deps, ...) - the new tarball declares what it
-    ships, everything else stays. The only exception is the daemon-
-    owned ``.digitorn/`` directory (hash.sha256 + manifest.lock) which
-    the daemon rewrites post-patch, so we skip it during overlay to
-    avoid copying a stale snapshot from the source tarball.
-
-    Returns ``(written, skipped_due_to_lock)``.
-    """
     import os as _os
     import errno as _errno
     written = 0
@@ -124,20 +70,11 @@ def _patch_in_place(src: Path, dst: Path) -> tuple[int, int]:
                     )
     return written, skipped_locked
 
-
-# ────────────────────────────────────────────────────────────────────
-# Errors
-# ────────────────────────────────────────────────────────────────────
-
-
 class InstallError(Exception):
     """Generic install/upgrade failure with a user-friendly message."""
 
-
 class PermissionsRequired(Exception):
-    """Raised when accept_permissions is missing - the route translates
-    this into a 409 with the perms payload so the client can show a
-    confirmation dialog."""
+    """Raised when accept_permissions is missing - the route translates."""
 
     def __init__(self, perms: dict[str, Any], manifest_id: str):
         self.perms = perms
@@ -146,10 +83,8 @@ class PermissionsRequired(Exception):
             f"permissions required for package {manifest_id!r}"
         )
 
-
 class PackageIdCollision(Exception):
-    """Raised when a package with the same id is already installed -
-    locked design D12 says we refuse rather than overwrite."""
+    """Raised when a package with the same id is already installed."""
 
     def __init__(self, package_id: str, existing: dict[str, Any]):
         self.package_id = package_id
@@ -159,20 +94,12 @@ class PackageIdCollision(Exception):
             f"source {existing.get('source_type')!r}"
         )
 
-
 class IncompatibleDaemonVersion(Exception):
-    """Raised when the package declares a daemon version range we
-    don't satisfy."""
-
-
-# ────────────────────────────────────────────────────────────────────
-# Result dataclass
-# ────────────────────────────────────────────────────────────────────
-
+    """Raised when the package declares a daemon version range we."""
 
 @dataclass
 class InstallResult:
-    """Returned by ``InstallFlow.install`` and friends."""
+    """Returned by `InstallFlow.install` and friends."""
 
     package_id: str
     version: str
@@ -183,18 +110,11 @@ class InstallResult:
     deployed: bool = False
     deploy_error: str | None = None
 
-
-# ────────────────────────────────────────────────────────────────────
-# The orchestrator
-# ────────────────────────────────────────────────────────────────────
-
-
 # Type alias for the optional deploy callback. The orchestrator
 # doesn't import the AppManager directly to keep this module
 # decoupled from the rest of the daemon.
 DeployCallback = Callable[[Path, str], Awaitable[Any]]
 UndeployCallback = Callable[[str], Awaitable[Any]]
-
 
 class InstallFlow:
     def __init__(
@@ -206,16 +126,7 @@ class InstallFlow:
         daemon_version: str = "2.0.0",
         user_install_root: Path | None = None,
     ) -> None:
-        """Args:
-            registry: PackageRegistry instance
-            source_map: source_type → PackageSource (e.g. {"local": LocalSource()})
-            install_root: where system-scoped packages live (~/.digitorn/packages)
-            daemon_version: current daemon semver, used for compat checks
-            user_install_root: base dir for user-scoped installs. Each
-                user gets a subdir under here
-                (``<user_install_root>/<user_id>/packages/<id>/``).
-                Defaults to ``~/.digitorn/users``.
-        """
+        """"""
         self._registry = registry
         self._sources = source_map
         self._install_root = install_root
@@ -231,12 +142,6 @@ class InstallFlow:
         scope: str,
         owner_user_id: str | None,
     ) -> Path:
-        """Return the on-disk directory where a package lives.
-
-        Deterministic layout under ``~/.digitorn/apps/``:
-          - System: ``~/.digitorn/apps/<package_id>/``
-          - User:   ``~/.digitorn/apps/_@<uid>__<package_id>/``
-        """
         from digitorn.core.app.manager_v2._models import _scoped_slug
         from digitorn.core.packages.registry import Scope
 
@@ -253,23 +158,12 @@ class InstallFlow:
             raise ValueError(f"unknown scope {scope!r}")
         return self._install_root / slug
 
-    # ── Permissions probe ───────────────────────────────────────
-
     async def probe_permissions(
         self,
         source_type: str,
         source_uri: str,
     ) -> dict[str, Any]:
-        """Fetch the package, parse its manifest, return permissions.
-
-        Used by the HTTP route's "no accept_permissions" path: the
-        client gets back the permissions dict, shows a dialog, then
-        re-calls install with accept_permissions=true.
-
-        Side effect: a temporary copy is created in
-        ``install_root/.tmp/<id>/`` so the next install call can
-        reuse it. This avoids fetching twice.
-        """
+        """Fetch the package, parse its manifest, return permissions."""
         manifest, scratch_dir = await self._fetch_and_validate(
             source_type, source_uri,
         )
@@ -285,8 +179,6 @@ class InstallFlow:
             "scratch_dir": str(scratch_dir),
         }
 
-    # ── Install ─────────────────────────────────────────────────
-
     async def install(
         self,
         *,
@@ -298,23 +190,7 @@ class InstallFlow:
         scope: str = "system",
         owner_user_id: str | None = None,
     ) -> InstallResult:
-        """Run the full install pipeline.
-
-        Steps:
-
-        1. Fetch package into a scratch dir (source.fetch)
-        2. Parse + validate package.toml
-        3. Check daemon version compat
-        4. Check id collision WITHIN THIS SCOPE
-           (a system install and a user install of the same
-           package_id can coexist)
-        5. If accept_permissions=False → raise PermissionsRequired
-        6. Move scratch dir → resolved install dir (atomic rename)
-        7. Compute + write content hash
-        8. Insert row in registry with scope + owner_user_id
-        9. Call on_deploy(install_dir/app.yaml, package_id)
-        10. Return InstallResult
-        """
+        """Run the full install pipeline."""
         from digitorn.core.packages.registry import Scope
 
         if scope not in Scope.ALL:
@@ -356,11 +232,8 @@ class InstallFlow:
                 manifest_id=manifest.id,
             )
 
-        # Move scratch -> final install dir (atomic on the same FS).
-        # All disk ops off-loop: rmtree / rename / mkdir / write on Windows
-        # with antivirus can each stall hundreds of ms per call, and with
-        # bootstrap_builtins running 4 installs in parallel that would
-        # block every other connected user during the whole boot.
+        # Move scratch into the final install dir (atomic on the same
+        # FS); all disk ops are off-loop to spare Windows + AV stalls.
         import asyncio as _asyncio
         install_dir = self._resolve_install_dir(
             manifest.id, scope=scope, owner_user_id=owner_user_id,
@@ -423,10 +296,8 @@ class InstallFlow:
         deploy_error: str | None = None
         if on_deploy is not None:
             try:
-                # Newer deploy callbacks accept (yaml_path, package_id,
-                # scope, owner_user_id) - fall back to (yaml_path,
-                # package_id) for legacy callbacks so we don't break
-                # existing wiring.
+                # New callbacks accept (yaml_path, package_id, scope,
+                # owner_user_id); fall back to the 2-arg legacy shape.
                 import inspect
                 sig = inspect.signature(on_deploy)
                 if len(sig.parameters) >= 4:
@@ -463,8 +334,6 @@ class InstallFlow:
             deploy_error=deploy_error,
         )
 
-    # ── Uninstall ───────────────────────────────────────────────
-
     async def uninstall(
         self,
         package_id: str,
@@ -474,15 +343,7 @@ class InstallFlow:
         scope: str = "system",
         owner_user_id: str | None = None,
     ) -> bool:
-        """Remove a package: stop the deployed app, wipe the dir, drop the row.
-
-        Scope-aware: two installs of the same package_id (one
-        system, one per-user) are distinct - uninstalling one does
-        not touch the other.
-
-        Refuses with InstallError if the package is a builtin and
-        ``force=False`` (locked design D9).
-        """
+        """Remove a package: stop the deployed app, wipe the dir, drop the row."""
         existing = await self._registry.get(
             package_id, scope=scope, owner_user_id=owner_user_id,
         )
@@ -537,8 +398,6 @@ class InstallFlow:
             package_id, scope=scope, owner_user_id=owner_user_id,
         )
 
-    # ── Upgrade ─────────────────────────────────────────────────
-
     async def upgrade(
         self,
         package_id: str,
@@ -551,18 +410,7 @@ class InstallFlow:
         scope: str = "system",
         owner_user_id: str | None = None,
     ) -> InstallResult:
-        """Replace an installed package with a new version.
-
-        Strategy:
-        - Fetch the new version into ``<install_dir>-new/``
-        - Validate, check compat, check perms
-        - Rename current install dir → ``<install_dir>-old/``
-        - Rename new dir → ``<install_dir>/``
-        - Update registry version + hash
-        - Call deploy
-        - On success: delete ``<install_dir>-old/``
-        - On failure: roll back (swap dirs back, redeploy old)
-        """
+        """Replace an installed package with a new version."""
         existing = await self._registry.get(
             package_id, scope=scope, owner_user_id=owner_user_id,
         )
@@ -571,16 +419,11 @@ class InstallFlow:
                 f"package {package_id!r} is not installed - use install instead"
             )
 
-        # Defensive: a registry row can be in a half-broken state where
-        # ``install_dir`` is empty / "." (legacy bug, dev-CLI deploy that
-        # never wrote the column, etc). The dir-swap math below crashes
-        # on ``Path('').name``, so detect this and re-route to a fresh
-        # install which writes the column correctly.
         existing_dir = (existing.get("install_dir") or "").strip()
         if not existing_dir or existing_dir in (".", "./"):
             logger.warning(
                 "InstallFlow.upgrade: registry row for %s has empty "
-                "install_dir — falling back to fresh install",
+                "install_dir - falling back to fresh install",
                 package_id,
             )
             await self._registry.delete(
@@ -613,12 +456,8 @@ class InstallFlow:
                 manifest_id=new_manifest.id,
             )
 
-        # All shutil ops below run off the event loop. The bootstrap
-        # path that triggers this (``bootstrap_builtins`` →
-        # ``_upgrade_builtin``) has been observed stalling the main
-        # loop for 17+ seconds via ``shutil.rmtree`` of populated app
-        # dirs. Off-loading restores Socket.IO ping/pong cadence and
-        # lets the agent loop complete turns while builtins upgrade.
+        # Off-load every shutil op: `rmtree` over a populated install
+        # dir can stall the loop for tens of seconds on Windows.
         import asyncio as _asyncio
         install_dir = Path(existing["install_dir"])
         old_dir = install_dir.with_name(install_dir.name + "-old")
@@ -640,18 +479,12 @@ class InstallFlow:
             scope=scope, owner_user_id=owner_user_id,
         )
 
-        # Clear any stale ``-old`` leftover from a previous failed upgrade.
+        # Clear any stale `-old` leftover from a previous failed upgrade.
         if await _asyncio.to_thread(old_dir.exists):
             await _asyncio.to_thread(shutil.rmtree, old_dir, True)
 
-        # BACKUP current V1 -> old_dir so we can roll back if the new V2
-        # deploy fails. Full copy: since upgrade preserves everything
-        # in install_dir by default (PRESERVE BY DEFAULT policy), the
-        # backup must mirror EVERYTHING too - we don't know what state
-        # the app stashed there and rollback must restore it 1:1.
-        # Cost: a ``cp -r`` of the full install dir incl. node_modules
-        # (can be 100-200 MB on web-heavy apps). Acceptable price for
-        # a correct rollback.
+        # Full backup of the current install dir into `old_dir` so a
+        # failed upgrade can roll back 1:1, including any app state.
         def _backup_copy() -> None:
             shutil.copytree(
                 install_dir, old_dir,
@@ -733,12 +566,8 @@ class InstallFlow:
                     package_id,
                 )
                 deploy_error = str(exc)
-                # Rollback: swap dirs back AND revert registry metadata
-                # (version + hash + manifest) to V1. Without this, the
-                # registry keeps the V2 values set a few lines above via
-                # update_version() even though disk has been restored to
-                # V1 - the client would see a version/hash drift on
-                # every GET /api/apps/{id}.
+                # Rollback: swap dirs back AND revert registry metadata to V1
+                # so disk and registry stay consistent.
                 try:
                     await _asyncio.to_thread(shutil.rmtree, install_dir, True)
                     if await _asyncio.to_thread(old_dir.exists):
@@ -806,19 +635,11 @@ class InstallFlow:
             deploy_error=deploy_error,
         )
 
-    # ── Internals ───────────────────────────────────────────────
-
     async def _fetch_and_validate(
         self,
         source_type: str,
         source_uri: str,
     ) -> tuple[PackageManifest, Path]:
-        """Fetch into a scratch dir + validate the manifest.
-
-        Returns (manifest, scratch_dir). The scratch dir is inside
-        ``install_root/.tmp/`` and the caller is responsible for
-        either moving it into place or cleaning it up.
-        """
         source = self._sources.get(source_type)
         if source is None:
             raise InstallError(
@@ -857,11 +678,6 @@ class InstallFlow:
         return manifest, package_dir
 
     def _check_daemon_compat(self, manifest: PackageManifest) -> None:
-        """Reject if the package declares a daemon version range we don't satisfy.
-
-        Best-effort: we only honour ``digitorn_min`` and ``digitorn_max``
-        in v1. Full PEP 440 / semver range matching can come later.
-        """
         compat = manifest.compatibility
         if not compat.digitorn_min and not compat.digitorn_max:
             return
@@ -877,33 +693,12 @@ class InstallFlow:
                 f"running {ours}"
             )
 
-
-# ────────────────────────────────────────────────────────────────────
-# Tiny semver range checker - enough for >=, <=, >, <, ==, !=
-# ────────────────────────────────────────────────────────────────────
-
-
 def _safe_user_dir_name(user_id: str) -> str:
-    """Sanitize a user_id into a safe directory name.
-
-    Strips path separators and keeps only chars that are safe
-    everywhere (letters, digits, dash, underscore). Falls back to
-    "user" if the result is empty. Path traversal via the
-    owner_user_id is blocked at this layer.
-    """
     import re
     safe = re.sub(r"[^A-Za-z0-9_-]", "_", user_id or "")
     return safe.strip("_") or "user"
 
-
 def _satisfies(version: str, requirement: str) -> bool:
-    """Naive semver range check: parses ``op + version`` and compares.
-
-    Returns True when ``version`` satisfies ``requirement``. Falls
-    back to True on parse errors (be lenient - better to install
-    a maybe-incompatible package than to refuse a valid one because
-    of a string format quirk).
-    """
     import re as _re
 
     m = _re.match(r"^\s*(>=|<=|>|<|==|!=|~=)?\s*([\w.+-]+)$", requirement)

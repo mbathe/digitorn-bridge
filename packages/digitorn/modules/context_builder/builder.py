@@ -1,8 +1,4 @@
-"""Index builder - modules + security profile → ToolIndex.
-
-Scans all live modules, applies security filtering, and builds
-the pre-computed inverted index.  Called once at bootstrap.
-"""
+"""Index builder - modules + security profile → ToolIndex."""
 
 from __future__ import annotations
 
@@ -27,17 +23,13 @@ if TYPE_CHECKING:
     from digitorn.core.security import SecurityProfile
     from digitorn.modules.base import BaseModule
 
-
 _HIDDEN_MODULES = frozenset({"context_builder", "mcp", "llm_provider", "index"})
 
-# CB15: cache the most recently built index keyed on a structural fingerprint.
-# Keeps a small LRU (max 8 entries) to support multi-agent daemons where
-# different agents/profiles call build_index in parallel.
-# CB18: protected by _BUILD_CACHE_LOCK to prevent multi-thread races.
+# Small LRU cache of recently built indices, keyed on a structural
+# fingerprint. Protected by _BUILD_CACHE_LOCK against multi-thread races.
 _BUILD_CACHE: dict[tuple, Any] = {}
 _BUILD_CACHE_MAX = 8
 _BUILD_CACHE_LOCK = threading.RLock()
-
 
 def _index_cache_key(
     modules: dict[str, BaseModule],
@@ -48,15 +40,11 @@ def _index_cache_key(
         # MCP servers can come/go - never cache.
         return None
     try:
-        # Use id() of each module instance, not just keys - ensures different
-        # module instances (different bootstrap) get different cache entries
-        # even if they share the same module_id.
         sp_id = id(security_profile) if security_profile is not None else 0
         mod_fingerprint = tuple(sorted((mid, id(m)) for mid, m in modules.items()))
         return (len(modules), mod_fingerprint, sp_id, bool(skip_embeddings))
     except Exception:
         return None
-
 
 def build_index(
     modules: dict[str, BaseModule],
@@ -64,18 +52,7 @@ def build_index(
     skip_embeddings: bool = False,
     action_filter: dict[str, list[str]] | None = None,
 ) -> ToolIndex:
-    """Build a ToolIndex from live module instances.
-
-    Args:
-        modules: Mapping of module_id → live BaseModule instance.
-        security_profile: Optional security profile for policy filtering.
-        skip_embeddings: If True, skip the semantic index (saves ~900MB).
-            Used by sandbox workers that only execute tools by name.
-        action_filter: Optional per-module action whitelist. Keys are module IDs,
-            values are lists of allowed action names. Modules not in the filter
-            get all their actions indexed. Used by agent specialists to restrict
-            which tools they can access within a module.
-    """
+    """Build a ToolIndex from live module instances."""
     cache_key = _index_cache_key(modules, security_profile, skip_embeddings) if not action_filter else None
     if cache_key is not None:
         with _BUILD_CACHE_LOCK:
@@ -85,25 +62,21 @@ def build_index(
 
     index = ToolIndex()
 
-    # Collect explicitly granted actions for hidden modules.
-    # If an app grants e.g. context_builder.ask_user, we must index that
-    # action even though context_builder is normally hidden.
+    # Explicit grants for hidden modules (e.g. context_builder.ask_user)
+    # must still be indexed.
     _explicitly_granted_hidden: dict[str, set[str]] = {}
     if security_profile:
         for mid in _HIDDEN_MODULES:
             grant = security_profile.module_grants.get(mid)
             if grant is not None and grant.visibility != "hidden":
-                # Module was explicitly made visible - index all actions
                 _explicitly_granted_hidden[mid] = set()  # empty = all actions
             elif grant is not None and hasattr(grant, "action_overrides") and grant.action_overrides:
-                # Specific actions were granted - index only those
                 _explicitly_granted_hidden[mid] = set(grant.action_overrides.keys())
 
     for module_id, module in modules.items():
         if module_id in _HIDDEN_MODULES:
             if module_id not in _explicitly_granted_hidden:
                 continue
-            # Index only explicitly granted actions from this hidden module
             _index_module(
                 index, module_id, module, security_profile,
                 only_actions=_explicitly_granted_hidden.get(module_id) or None,
@@ -113,7 +86,6 @@ def build_index(
         if security_profile and not security_profile.is_module_visible(module_id):
             continue
 
-        # Apply per-module action filter (from specialist YAML config)
         _only = None
         if action_filter and module_id in action_filter:
             _only = set(action_filter[module_id])
@@ -125,12 +97,8 @@ def build_index(
         _index_mcp_servers(index, mcp_module, security_profile)
 
     if not skip_embeddings:
-        # Fault-tolerant: if the ONNX model fails to load or build
-        # (RAM pressure on Windows is the most common cause - fastembed
-        # raises ``onnxruntime ... bad allocation``), log and fall back
-        # to keyword search instead of bringing the daemon down. The
-        # search routes already handle ``semantic_index is None`` by
-        # using the keyword scorer in scoring.py.
+        # fault-tolerant -- ONNX model build can fail under RAM
+        # pressure; fall back to keyword search rather than crash.
         try:
             from digitorn.modules.context_builder.embeddings import SemanticIndex
             index.semantic_index = SemanticIndex.build(index)
@@ -138,7 +106,7 @@ def build_index(
             import logging as _log
             _log.getLogger(__name__).warning(
                 "semantic_index_build_failed: %s - falling back to keyword "
-                "search. Set ``discovery.skip_embeddings: true`` in "
+                "search. Set `discovery.skip_embeddings: true` in "
                 "~/.digitorn/config.yaml to silence this warning.",
                 exc,
             )
@@ -147,40 +115,23 @@ def build_index(
     if cache_key is not None:
         with _BUILD_CACHE_LOCK:
             _BUILD_CACHE[cache_key] = index
-            # LRU eviction - drop oldest when over limit
             while len(_BUILD_CACHE) > _BUILD_CACHE_MAX:
-                # popitem(last=False) on an OrderedDict pops oldest;
-                # plain dict in Python 3.7+ also preserves insertion order
                 first_key = next(iter(_BUILD_CACHE))
                 _BUILD_CACHE.pop(first_key, None)
 
     return index
 
-
 from digitorn.core.runtime.tool_names import to_short, to_fqn
 
-# Re-export for backward compatibility
 resolve_short_name = to_fqn
 
-
 def _short_tool_name(fqn: str, tool: IndexedTool) -> str:
-    """Get a short API-friendly name for a tool."""
     return to_short(fqn)
 
-
 def _schema_has_open_dict(schema: Any) -> bool:
-    """True when the schema contains an ``additionalProperties: <schema>``
-    pattern anywhere (the JSON-schema form Pydantic emits for
-    ``dict[str, X]``). OpenAI strict mode rejects that pattern.
-
-    Walks the same sub-schema locations as ``normalize_strict_schema``.
-    """
     if not isinstance(schema, dict):
         return False
     ap = schema.get("additionalProperties")
-    # ``additionalProperties: <schema>`` (dict[str, X]) AND
-    # ``additionalProperties: true`` (dict[str, Any]) both break
-    # OpenAI strict mode. Both Pydantic emissions count as "open".
     if isinstance(ap, dict):
         return True
     if ap is True:
@@ -210,30 +161,12 @@ def _schema_has_open_dict(schema: Any) -> bool:
                 return True
     return False
 
-
 def build_direct_tools(
     index: ToolIndex,
     *,
     inject_intent: bool = False,
 ) -> list[dict[str, Any]]:
-    """Build OpenAI-format tool schemas for ALL visible tools.
-
-    Used in "direct" injection mode - when the total tool count is below
-    the threshold, all tools are passed directly to the LLM instead of
-    going through the meta-tool discovery layer.
-
-    Each tool's FQN is sanitized for the API (dots → double underscores)
-    since OpenAI requires ``^[a-zA-Z0-9_-]+$`` for function names.
-    The agent loop converts back when dispatching.
-
-    When ``inject_intent=True`` (set by apps that opt in via
-    ``ui.tool_calls.inject_intent: true`` in their YAML), every tool's
-    schema gains a required ``intent`` string field at the FIRST key
-    position. The LLM fills it with a present-continuous verb phrase
-    used by the frontend to render a live progress indicator. The
-    field is stripped by ``runtime/tool_exec.py`` before the handler
-    runs, so no tool code is touched.
-    """
+    """Build OpenAI-format tool schemas for all visible tools."""
     from digitorn.modules.context_builder.tool_schema import (
         inject_intent_field,
     )
@@ -246,25 +179,13 @@ def build_direct_tools(
         if inject_intent:
             schema = inject_intent_field(schema)
 
-        # Detect open-dict patterns (``additionalProperties: true`` or
-        # ``additionalProperties: {schema}``, both emitted by Pydantic for
-        # ``dict[str, X]`` fields) BEFORE normalize_strict_schema mutates
-        # them. The post-normalize schema has all open-dict markers wiped
-        # to ``additionalProperties: false`` so checking after returns a
-        # false negative.
+        # detect open-dict BEFORE normalize wipes it to false;
+        # OpenAI strict 400s on open-dict patterns.
         has_open_dict = _schema_has_open_dict(schema)
 
-        # Enforce strict schema - no extra properties allowed (like Claude Code)
         schema["additionalProperties"] = False
-        # OpenAI strict mode requires EVERY property to appear in ``required``,
-        # recursively. We normalise here so the LLM sees a clean shape; the
-        # OpenAI-compat provider applies the same pass defensively right
-        # before tools go on the wire (see digitorn.core.runtime.strict_schema).
         normalize_strict_schema(schema)
 
-        # Use short tool names (like Claude Code: "Write" not "filesystem__write")
-        # The model performs MUCH better with short, recognizable names.
-        # We keep the FQN mapping for dispatch.
         api_name = _short_tool_name(fqn, tool)
 
         func_def: dict[str, Any] = {
@@ -273,14 +194,7 @@ def build_direct_tools(
             "parameters": schema,
         }
 
-        # Mark tool as strict for providers that support it (Anthropic).
-        # OpenAI strict mode rejects ``additionalProperties: <schema>``
-        # (the ``dict[str, X]`` Pydantic translation, e.g. MCP's
-        # ``arguments: dict[str, Any]``), with a confusing
-        # ``Extra required key 'X' supplied`` 400. Detect that pattern
-        # in the raw schema (see ``has_open_dict`` above) and drop strict
-        # for the offending tool only; other tools keep the stricter
-        # contract.
+        # drop strict only when open-dict was detected (OpenAI 400s on it).
         func_def["strict"] = not has_open_dict
 
         tools.append({
@@ -288,13 +202,7 @@ def build_direct_tools(
             "function": func_def,
         })
 
-    # Boot-time self-check: scan the freshly built list and surface any
-    # strict-mode violation we couldn't fix. Non-blocking -- we don't
-    # raise, we don't drop the tool, we just log so the operator sees
-    # the path BEFORE the first user message hits the gateway.
-    #
-    # Cost: one O(n) walk per app deploy. Deploys are rare; the per-turn
-    # hot path is already cached via id() in normalize_strict_tools().
+    # Boot-time self-check: log any strict-mode violation we missed.
     from digitorn.core.runtime.strict_schema import assert_strict_tools
     violations = assert_strict_tools(tools)
     if violations:
@@ -313,7 +221,6 @@ def build_direct_tools(
 
     return tools
 
-
 def _index_module(
     index: ToolIndex,
     module_id: str,
@@ -321,12 +228,6 @@ def _index_module(
     security_profile: SecurityProfile | None,
     only_actions: set[str] | None = None,
 ) -> None:
-    """Index all visible actions from a single module.
-
-    Args:
-        only_actions: If set, only index these specific action names.
-            Used when exposing select actions from a hidden module.
-    """
     action_registry: dict[str, Any] = getattr(module, "_action_registry", {})
     if not action_registry:
         return
@@ -344,13 +245,12 @@ def _index_module(
     category_tools: list[str] = []
 
     for action_name, entry in action_registry.items():
-        # Skip actions not in the explicit list (for hidden modules)
         if only_actions is not None and action_name not in only_actions:
             continue
         spec = entry.spec
 
-        # Skip actions explicitly marked as internal - they remain callable
-        # via bus.call() but are hidden from the LLM discovery surface.
+        # internal actions stay callable via bus.call() but are
+        # hidden from the LLM discovery surface.
         if getattr(spec, "internal", False):
             continue
 
@@ -410,9 +310,7 @@ def _index_module(
             tool_names=category_tools,
         )
 
-
 def _index_keywords(index: ToolIndex, fqn: str, tool: IndexedTool) -> None:
-    """Add a tool's keywords to the inverted index."""
     text_parts = [
         tool.description,
         tool.action_name,
@@ -430,7 +328,6 @@ def _index_keywords(index: ToolIndex, fqn: str, tool: IndexedTool) -> None:
             prefix = token[:3]
             index.keyword_prefixes.setdefault(prefix, set()).add(token)
 
-
 def _resolve_decision(
     security_profile: SecurityProfile | None,
     module_id: str,
@@ -439,12 +336,6 @@ def _resolve_decision(
     *,
     require_approval: bool = False,
 ) -> Decision:
-    """Resolve the policy decision for an action.
-
-    Maps the security system's string policies to our Decision enum.
-    If the action declares ``require_approval=True`` (via ``@action``),
-    the decision is forced to APPROVE regardless of the security profile.
-    """
     if require_approval:
         return Decision.APPROVE
 
@@ -464,22 +355,11 @@ def _resolve_decision(
         return Decision.APPROVE
     return Decision.AUTO
 
-
 def _index_mcp_servers(
     index: ToolIndex,
     mcp_module: BaseModule,
     security_profile: SecurityProfile | None,
 ) -> None:
-    """Index all tools from all connected MCP servers.
-
-    Each MCP server becomes a virtual module in the index with ID
-    ``mcp_{server_id}``. MCP tools are indexed identically to native
-    tools - keyword search, semantic search, tag index, all work.
-
-    The ``module`` field of each IndexedTool points to the MCPModule
-    instance, which routes execute() calls to the correct MCP server
-    via its _execute_mcp_tool() method.
-    """
     pool = getattr(mcp_module, "_pool", None)
     if pool is None:
         return
@@ -567,10 +447,8 @@ def _index_mcp_servers(
                 tool_names=category_tools,
             )
 
-
 _HIGH_RISK_PATTERNS = re.compile(
-    # CB11: only truly destructive verbs are high-risk + irreversible.
-    # send/post/create are medium (handled by the default fallback below).
+    # Only truly destructive verbs are high-risk + irreversible.
     r"(?:^|_)(?:delete|drop|destroy|remove|kill|"
     r"batch_delete|batch_remove)(?:_|$)",
     re.IGNORECASE,
@@ -581,20 +459,12 @@ _LOW_RISK_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-
 def _infer_mcp_tool_risk(tool_name: str) -> str:
-    """Infer risk level from an MCP tool name.
-
-    - "high" for destructive/write operations (delete, send, charge, ...)
-    - "low" for read-only operations (get, list, search, read, ...)
-    - "medium" for everything else (update, modify, create, ...)
-    """
     if _HIGH_RISK_PATTERNS.search(tool_name):
         return "high"
     if _LOW_RISK_PATTERNS.search(tool_name):
         return "low"
     return "medium"
-
 
 _MCP_VERB_ALIASES: dict[str, list[str]] = {
     "create": ["créer", "ajouter", "nouveau", "add", "new"],
@@ -625,15 +495,7 @@ _MCP_VERB_ALIASES: dict[str, list[str]] = {
     "close": ["fermer", "clore", "terminer", "end"],
 }
 
-
 def _generate_mcp_aliases(tool_name: str) -> list[str]:
-    """Generate FR/EN aliases from an MCP tool name.
-
-    Examples:
-        "create_issue" → ["créer_issue", "ajouter_issue", "new_issue", ...]
-        "search_notion" → ["chercher_notion", "rechercher_notion", "find_notion", ...]
-        "git_log" → ["historique", "journal", "git_history", ...]
-    """
     aliases: list[str] = []
     parts = tool_name.lower().split("_")
 
@@ -664,7 +526,6 @@ def _generate_mcp_aliases(tool_name: str) -> list[str]:
             unique.append(a)
     return unique
 
-
 _EXAMPLE_VALUES: dict[str, Any] = {
     "string": "example",
     "integer": 1,
@@ -674,25 +535,10 @@ _EXAMPLE_VALUES: dict[str, Any] = {
     "object": {},
 }
 
-
 def _extract_mcp_examples(
     mcp_tool: Any,
     params_schema: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Extract usage examples from an MCP tool definition.
-
-    Checks three sources in priority order:
-
-    1. **Root-level ``examples``** in the ``inputSchema`` (JSON Schema standard).
-       These are complete parameter objects - the most authoritative source.
-    2. **``_meta.examples``** on the MCP tool definition (MCP extension).
-       Some servers attach examples here as a list of ``{name, value}`` dicts.
-    3. **Per-property ``examples``/``default``/``enum``** in ``inputSchema``
-       (JSON Schema standard).  Used as a fallback to synthesise a minimal
-       example from individual property hints.
-
-    Returns a list of ``{"name": str, "value": dict}`` dicts.
-    """
     results: list[dict[str, Any]] = []
 
     schema_examples = params_schema.get("examples", [])
@@ -726,16 +572,9 @@ def _extract_mcp_examples(
 
     return _auto_examples_from_schema(params_schema)
 
-
 def _auto_examples_from_schema(
     schema: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Synthesize a minimal example from per-property JSON Schema hints.
-
-    Produces a ``{"param": value}`` dict for every **required** parameter,
-    using property-level ``examples``, ``default``, ``enum``, or a
-    type-based placeholder.
-    """
     props = schema.get("properties", {})
     required = set(schema.get("required", []))
     if not props:
@@ -758,9 +597,7 @@ def _auto_examples_from_schema(
         return []
     return [{"name": "basic", "value": example}]
 
-
 def _smart_placeholder(name: str, prop: dict[str, Any]) -> Any:
-    """Generate a context-aware placeholder value from param name + schema."""
     ptype = prop.get("type", "string")
     if "anyOf" in prop:
         for option in prop["anyOf"]:

@@ -1,8 +1,4 @@
-"""Output parsers for linters, compilers, and language servers.
-
-Each parser takes (stdout, stderr) and returns a list of Diagnostic objects.
-Used by all 3 feedback protocols (LSP, compiler, linter).
-"""
+"""Output parsers for linters, compilers, and language servers."""
 
 from __future__ import annotations
 
@@ -10,7 +6,6 @@ import json
 import re
 from dataclasses import dataclass
 from typing import Any
-
 
 @dataclass
 class Diagnostic:
@@ -25,8 +20,7 @@ class Diagnostic:
     source: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        """Flat shape kept for backwards compatibility with existing
-        consumers (inline `lint` field on write/edit responses)."""
+        """Flat shape kept for backwards compatibility with existing."""
         d: dict[str, Any] = {
             "file": self.file, "line": self.line, "column": self.column,
             "severity": self.severity, "message": self.message,
@@ -38,13 +32,7 @@ class Diagnostic:
         return d
 
     def to_lsp_dict(self) -> dict[str, Any]:
-        """LSP-standard shape - consumed by Monaco ``setModelMarkers()``
-        and the `diagnostics` preview channel.
-
-        `line`/`column` are 1-based (our convention) and get converted
-        to 0-based for LSP. ``end`` defaults to the same position +1 col
-        when the source parser doesn't provide an end - enough for a
-        visible marker (1-char underline)."""
+        """LSP-standard shape - consumed by Monaco `setModelMarkers()`."""
         line0 = max(0, (self.line or 1) - 1)
         col0 = max(0, (self.column or 1) - 1)
         d: dict[str, Any] = {
@@ -60,10 +48,6 @@ class Diagnostic:
         if self.source:
             d["source"] = self.source
         return d
-
-
-# ── Specific parsers ─────────────────────────────────────────────
-
 
 def parse_ruff(stdout: str, stderr: str) -> list[Diagnostic]:
     """Parse ruff JSON output."""
@@ -84,7 +68,6 @@ def parse_ruff(stdout: str, stderr: str) -> list[Diagnostic]:
         for item in items
     ]
 
-
 def parse_eslint(stdout: str, stderr: str) -> list[Diagnostic]:
     """Parse eslint --format=json output."""
     try:
@@ -103,7 +86,6 @@ def parse_eslint(stdout: str, stderr: str) -> list[Diagnostic]:
             ))
     return diags
 
-
 def parse_tsc(stdout: str, stderr: str) -> list[Diagnostic]:
     """Parse tsc stderr (file(line,col): error TSxxxx: message)."""
     diags: list[Diagnostic] = []
@@ -116,26 +98,8 @@ def parse_tsc(stdout: str, stderr: str) -> list[Diagnostic]:
             ))
     return diags
 
-
 def parse_tectonic(stdout: str, stderr: str) -> list[Diagnostic]:
-    """Parse tectonic compiler output.
-
-    Tectonic writes status to stdout AND errors to stdout (mixed with
-    pdflatex transcript). The canonical error shape is::
-
-        error: <path>:<line>: <message>
-        ! <TeX-level error message>
-        l.<line> <offending source>
-
-    Warnings come in two shapes depending on the underlying engine
-    (pdflatex / XeTeX)::
-
-        Underfull \\hbox (badness 10000) in paragraph at lines 12--13
-        LaTeX Warning: Reference `fig:plot' on page 1 undefined ...
-
-    We extract the structured ``error:`` lines first (most precise),
-    then sweep for the unstructured LaTeX warnings.
-    """
+    """Parse tectonic compiler output."""
     diags: list[Diagnostic] = []
     text = (stdout or "") + "\n" + (stderr or "")
 
@@ -155,12 +119,12 @@ def parse_tectonic(stdout: str, stderr: str) -> list[Diagnostic]:
         ))
 
     # Pattern 2: LaTeX-level warnings (file context inferred from
-    # the most recent ``(file.tex`` token tectonic emits in its
+    # the most recent `(file.tex` token tectonic emits in its
     # transcript).
     current_file = ""
     for raw in text.splitlines():
         line = raw.rstrip()
-        # Track current file via ``(filename`` markers tectonic prints
+        # Track current file via `(filename` markers tectonic prints
         # when opening a .tex file in the transcript stream.
         for f in re.findall(r"\(([^()\s]+\.tex)", line):
             current_file = f
@@ -181,7 +145,6 @@ def parse_tectonic(stdout: str, stderr: str) -> list[Diagnostic]:
             ))
 
     return diags
-
 
 def parse_cargo(stdout: str, stderr: str) -> list[Diagnostic]:
     """Parse cargo check --message-format=json output."""
@@ -207,7 +170,6 @@ def parse_cargo(stdout: str, stderr: str) -> list[Diagnostic]:
         ))
     return diags
 
-
 def parse_govet(stdout: str, stderr: str) -> list[Diagnostic]:
     """Parse go vet -json output."""
     diags: list[Diagnostic] = []
@@ -225,7 +187,6 @@ def parse_govet(stdout: str, stderr: str) -> list[Diagnostic]:
                 severity="warning", message=item.get("Message", ""), source="go vet",
             ))
     return diags
-
 
 def parse_generic_json(stdout: str, stderr: str) -> list[Diagnostic]:
     """Parse generic JSON array output: [{file, line, column?, severity?, message, code?}]."""
@@ -252,22 +213,12 @@ def parse_generic_json(stdout: str, stderr: str) -> list[Diagnostic]:
         ))
     return diags
 
-
 def parse_generic_lines(stdout: str, stderr: str) -> list[Diagnostic]:
     """Parse generic line-based output: file:line:col: severity: message."""
     return parse_fallback(stderr or stdout)
 
-
 def parse_fallback(stdout: str, stderr: str = "") -> list[Diagnostic]:
-    """Best-effort parse of unstructured output (file:line:col: message).
-
-    Accepts both stdout AND stderr because the linter / compiler protocol
-    invokers always pass both — some tools emit diagnostics on stdout
-    (chktex, ruff), others on stderr (cargo, gcc, older latexmk). The
-    registry called us with a single-arg signature historically (4
-    internal callsites in this module); the second arg defaults to ""
-    so legacy callers keep working without a sweep.
-    """
+    """Best-effort parse of unstructured output (file:line:col: message)."""
     diags: list[Diagnostic] = []
     for text in (stdout, stderr):
         if not text:
@@ -283,36 +234,15 @@ def parse_fallback(stdout: str, stderr: str = "") -> list[Diagnostic]:
                 ))
     return diags
 
-
 _CHKTEX_RE = re.compile(
     r"^(?P<sev>Warning|Error|Message)\s+(?P<code>\d+)\s+in\s+"
     r"(?P<file>.+?)\s+line\s+(?P<line>\d+):\s*(?P<msg>.+)$"
 )
 
-
 def parse_chktex(stdout: str, stderr: str = "") -> list[Diagnostic]:
-    """Parse chktex's native multi-line output.
-
-    Format (default, no -f):
-        Warning N in PATH line L: MESSAGE
-        <context line>
-        ^
-
-    The MiKTeX build of chktex does NOT translate ``\\n`` in -f format
-    strings to real newlines, so using -f with our standard regex
-    silently produces a single Diagnostic with all hits concatenated.
-    Letting chktex emit its native format and parsing it here side-steps
-    that platform quirk.
-
-    Column comes from the caret line that follows the message. We
-    advance past the ``Warning ... line L:`` line, then peek at the
-    next-but-one line for the ``^`` position. If absent we default to 1.
-    """
+    """Parse chktex's native multi-line output."""
     diags: list[Diagnostic] = []
-    # chktex emits diagnostics to STDOUT and warns about update checks
-    # on stderr ("chktex: major issue: So far, you have not checked
-    # for MiKTeX updates"). Scan stdout first; fall back to stderr if
-    # stdout is empty (some legacy builds invert the streams).
+    # chktex prints diagnostics to stdout; legacy builds swap streams.
     for src in (stdout, stderr):
         if not src or not src.strip():
             continue
@@ -324,7 +254,6 @@ def parse_chktex(stdout: str, stderr: str = "") -> list[Diagnostic]:
                 i += 1
                 continue
             col = 1
-            # Caret is typically 2 lines after the diagnostic header
             if i + 2 < len(lines):
                 caret_line = lines[i + 2]
                 caret_pos = caret_line.find("^")
@@ -346,7 +275,6 @@ def parse_chktex(stdout: str, stderr: str = "") -> list[Diagnostic]:
             return diags  # stop scanning subsequent streams once we have hits
     return diags
 
-
 def parse_lsp_diagnostics(raw_diags: list[dict[str, Any]], path: str = "") -> list[Diagnostic]:
     """Convert LSP publishDiagnostics format to our Diagnostic objects."""
     severity_map = {1: "error", 2: "warning", 3: "info", 4: "hint"}
@@ -364,22 +292,6 @@ def parse_lsp_diagnostics(raw_diags: list[dict[str, Any]], path: str = "") -> li
         ))
     return diags
 
-
-# ── Built-in validators (no external tools needed) ──────────────
-
-
-# ── Parser registry ──────────────────────────────────────────────
-#
-# Heads-up: there used to be a ``BUILTIN_VALIDATORS`` map here mapping
-# extensions to in-memory validators (``validate_json_file``,
-# ``validate_yaml_file``, ``validate_toml_file``,
-# ``validate_python_syntax``). It was never imported by any consumer:
-# the canonical content validators live in
-# ``digitorn.modules.workspace.module._BUILTIN_CONTENT_VALIDATORS``
-# (with a LaTeX validator on top), wired by both the workspace and
-# filesystem modules. The lsp-side copy was pure dead code drift and
-# was removed in the May 2026 audit pass.
-
 PARSERS: dict[str, Any] = {
     "ruff": parse_ruff,
     "mypy": parse_ruff,  # Similar JSON format
@@ -393,7 +305,6 @@ PARSERS: dict[str, Any] = {
     "generic_lines": parse_generic_lines,
     "fallback": parse_fallback,
 }
-
 
 def get_parser(name: str) -> Any:
     """Get a parser by name, with fallback."""

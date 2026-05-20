@@ -1,23 +1,4 @@
-"""PackageRegistry - CRUD over the ``installed_packages`` table.
-
-Mirrors the pattern of ``BackgroundSessionStore`` and
-``BuildDraftStore``: async, takes a session_factory, exposes
-high-level methods for the install/uninstall flows + the HTTP
-listing routes.
-
-Public surface::
-
-    create     - register a fresh install
-    get        - fetch one by package_id
-    list_all   - listing for the marketplace
-    update_status / update_hash / update_version - lifecycle bumps
-    delete     - DB row removal (the install dir is wiped by the flow)
-
-Hash drift checks live in this class because the registry is the
-single source of truth for "what hash should be on disk for this
-package_id". The check is read-only - drift detection just returns
-a flag, the orchestrator decides what to do with it.
-"""
+"""PackageRegistry - CRUD over the `installed_packages` table."""
 
 from __future__ import annotations
 
@@ -29,7 +10,6 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm.attributes import flag_modified
 
 logger = logging.getLogger(__name__)
-
 
 class Status:
     """Lifecycle states for InstalledPackage rows."""
@@ -45,7 +25,6 @@ class Status:
         INSTALLING, INSTALLED, BROKEN, UPGRADING, DEGRADED, UNINSTALLING,
     )
 
-
 class SourceType:
     """How a package was installed."""
 
@@ -56,32 +35,21 @@ class SourceType:
 
     ALL = (BUILTIN, LOCAL, HUB, GIT)
 
-
 class PackageNotFound(Exception):
     """Raised when a registry lookup misses."""
 
-
 class Scope:
-    """Package install scope.
-
-    - ``SYSTEM``: installed by admin, visible to every user. Lives
-      under ``~/.digitorn/packages/<id>/``.
-    - ``USER``: installed for one user only, invisible to others.
-      Lives under ``~/.digitorn/users/<owner_user_id>/packages/<id>/``.
-    """
+    """Package install scope."""
 
     SYSTEM = "system"
     USER = "user"
     ALL = (SYSTEM, USER)
-
 
 class PackageRegistry:
     """Async CRUD store for installed_packages."""
 
     def __init__(self, session_factory: Any) -> None:
         self._session_factory = session_factory
-
-    # ── Create / install bookkeeping ─────────────────────────────
 
     async def create(
         self,
@@ -97,14 +65,7 @@ class PackageRegistry:
         scope: str = Scope.SYSTEM,
         owner_user_id: str | None = None,
     ) -> dict[str, Any]:
-        """Register a fresh installation.
-
-        The uniqueness key is ``(package_id, scope, owner_user_id)``.
-        Two users can both have a 'my-app' install at scope=user at
-        the same time because their owner_user_id differs. A user
-        can even shadow a system install with their own copy - the
-        resolver prefers user over system at lookup.
-        """
+        """Register a fresh installation."""
         from digitorn.core.models import InstalledPackage
 
         if source_type not in SourceType.ALL:
@@ -170,8 +131,6 @@ class PackageRegistry:
             await db.refresh(row)
             return self._row_to_dict(row)
 
-    # ── Read ─────────────────────────────────────────────────────
-
     async def get(
         self,
         package_id: str,
@@ -179,23 +138,7 @@ class PackageRegistry:
         scope: str | None = None,
         owner_user_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Get one installed package row.
-
-        With ``scope`` + ``owner_user_id`` → returns that exact
-        row (or None). Used by install/uninstall/upgrade flows
-        to target a specific install.
-
-        Without scope/owner filters → returns the FIRST match
-        deterministically: system install wins over user install
-        so bootstrap paths and legacy callers that don't care
-        about scope keep working. When multiple user installs
-        exist for the same package_id, the most recently updated
-        one is returned.
-
-        For callers that need the shadow semantics (user over
-        system for a specific caller), use ``resolve_for_caller``
-        instead.
-        """
+        """Get one installed package row."""
         from digitorn.core.models import InstalledPackage
 
         async with self._session_factory() as db:
@@ -211,10 +154,7 @@ class PackageRegistry:
             elif scope == Scope.SYSTEM:
                 stmt = stmt.where(InstalledPackage.owner_user_id.is_(None))
 
-            # Deterministic ordering when there's no filter: system
-            # first (NULL owner_user_id sorts first in SQLite via
-            # ORDER BY owner_user_id ASC - NULL is treated as lowest).
-            # Scope column also asc → 'system' < 'user'.
+            # Deterministic ordering: system first, then by recency.
             stmt = stmt.order_by(
                 InstalledPackage.scope.asc(),
                 InstalledPackage.updated_at.desc(),
@@ -229,13 +169,7 @@ class PackageRegistry:
         *,
         user_id: str,
     ) -> dict[str, Any] | None:
-        """Return the install the caller sees for a given package_id.
-
-        Resolution order (most specific wins):
-          1. User's own install (scope='user', owner=user_id)
-          2. System install (scope='system')
-          3. None
-        """
+        """Return the install the caller sees for a given package_id."""
         user_row = await self.get(
             package_id, scope=Scope.USER, owner_user_id=user_id,
         )
@@ -278,12 +212,7 @@ class PackageRegistry:
         source_type: str | None = None,
         status: str | None = None,
     ) -> list[dict[str, Any]]:
-        """List packages visible to one user: their own + system.
-
-        The caller's user-scoped installs are listed first, then
-        system installs that AREN'T shadowed by a user-scoped
-        install of the same package_id.
-        """
+        """List packages visible to one user: their own + system."""
         from digitorn.core.models import InstalledPackage
         from sqlalchemy import or_
 
@@ -330,16 +259,12 @@ class PackageRegistry:
             )
         ) is not None
 
-    # ── Update ───────────────────────────────────────────────────
-
     def _scope_filter(
         self,
         stmt: Any,
         scope: str | None,
         owner_user_id: str | None,
     ) -> Any:
-        """Apply scope + owner filter to a select stmt. Kept as a
-        helper so the 5 update/delete methods stay DRY."""
         from digitorn.core.models import InstalledPackage
         if scope is not None:
             stmt = stmt.where(InstalledPackage.scope == scope)
@@ -440,8 +365,6 @@ class PackageRegistry:
             await db.commit()
             return True
 
-    # ── Delete ───────────────────────────────────────────────────
-
     async def delete(
         self,
         package_id: str,
@@ -449,8 +372,7 @@ class PackageRegistry:
         scope: str | None = None,
         owner_user_id: str | None = None,
     ) -> bool:
-        """Hard-delete the row. Wiping files on disk is the
-        orchestrator's job."""
+        """Hard-delete the row. Wiping files on disk is."""
         from digitorn.core.models import InstalledPackage
 
         async with self._session_factory() as db:
@@ -469,14 +391,8 @@ class PackageRegistry:
             await db.commit()
             return (result.rowcount or 0) > 0
 
-    # ── Drift detection (delegates to hash module) ───────────────
-
     async def check_drift(self, package_id: str) -> dict[str, Any]:
-        """Compare on-disk content hash with the registered hash.
-
-        Returns ``{drifted, current_hash, stored_hash, install_dir}``.
-        Used by the marketplace UI to flag tampered installs.
-        """
+        """Compare on-disk content hash with the registered hash."""
         import asyncio as _asyncio
         from digitorn.core.packages.hash import compute_package_hash
         from digitorn.core.packages.resolver import _app_dir
@@ -514,8 +430,6 @@ class PackageRegistry:
             "stored_hash": row["hash"],
             "install_dir": str(install_dir),
         }
-
-    # ── Internals ────────────────────────────────────────────────
 
     @staticmethod
     def _row_to_dict(row: Any) -> dict[str, Any]:

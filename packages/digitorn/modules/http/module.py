@@ -1,23 +1,4 @@
-"""HTTP module - agent-optimized HTTP client with background downloads.
-
-Provides full HTTP capabilities to AI agents: API calls, web scraping,
-file downloads with progress tracking, and form submissions.
-
-Security layers:
-  - SSRF protection: blocks private/reserved IPs before every request.
-  - URL allowlist/blocklist: configurable per-app in YAML constraints.
-  - Sensitive header masking: Authorization, Cookie, API keys never returned raw.
-  - Response size cap: prevents memory exhaustion from huge responses.
-  - TLS verification: enabled by default, configurable override requires allow_insecure_tls.
-  - Timeout enforcement on every request.
-  - Full audit log: every request recorded with URL, method, status, timestamp.
-
-Background downloads:
-  - download:          start a streaming download, get a download_id back.
-  - download_status:   check progress (bytes, speed, ETA, percentage).
-  - download_cancel:   cancel and clean up partial file.
-  - download_list:     list all downloads with status.
-"""
+"""HTTP module - agent-optimized HTTP client with background downloads."""
 
 from __future__ import annotations
 
@@ -59,7 +40,6 @@ from .params import (
 from .security import format_bytes, mask_headers, validate_url
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class DownloadTask:
@@ -140,7 +120,6 @@ class DownloadTask:
             data["hint"] = "Download was cancelled."
         return data
 
-
 def _audit(
     action_name: str,
     method: str,
@@ -153,7 +132,6 @@ def _audit(
         action_name, method, url, status_code, error,
         datetime.now(timezone.utc).isoformat(),
     )
-
 
 _STATUS_HINTS: dict[int, str] = {
     200: "Success.",
@@ -180,7 +158,6 @@ _STATUS_HINTS: dict[int, str] = {
     504: "Gateway timeout. The upstream server is slow.",
 }
 
-
 def _status_hint(code: int) -> str:
     if code in _STATUS_HINTS:
         return _STATUS_HINTS[code]
@@ -193,7 +170,6 @@ def _status_hint(code: int) -> str:
     if 500 <= code < 600:
         return "Server error."
     return f"Unexpected status code {code}."
-
 
 _STRIP_TAGS_RE = re.compile(
     r"<(script|style|nav|header|footer|noscript|iframe)[^>]*>.*?</\1>",
@@ -216,9 +192,7 @@ _LINK_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 
-
 def _extract_text(html: str, max_length: int = 50_000) -> str:
-    """Extract readable text from HTML."""
     text = _STRIP_TAGS_RE.sub("", html)
     text = _BLOCK_TAGS.sub(r"\n", text)
     text = _TAG_RE.sub("", text)
@@ -232,11 +206,9 @@ def _extract_text(html: str, max_length: int = 50_000) -> str:
         text = text[:max_length] + f"\n\n[Truncated at {max_length} characters]"
     return text
 
-
 def _extract_title(html: str) -> str | None:
     m = _TITLE_RE.search(html)
     return _TAG_RE.sub("", m.group(1)).strip() if m else None
-
 
 def _extract_links(html: str) -> list[dict[str, str]]:
     links: list[dict[str, str]] = []
@@ -245,7 +217,6 @@ def _extract_links(html: str) -> list[dict[str, str]]:
         if href and not href.startswith(("#", "javascript:")):
             links.append({"href": href, "text": clean_text or href})
     return links[:100]
-
 
 class HttpConfig(BaseModel):
     """Pydantic config for the HTTP module (validated at compile time)."""
@@ -276,7 +247,6 @@ class HttpConfig(BaseModel):
         ),
     )
 
-
 class HttpModule(BaseModule):
     MODULE_ID = "http"
     VERSION = "1.0.0"
@@ -288,10 +258,6 @@ class HttpModule(BaseModule):
         ConstraintSpec(name="blocked_hosts", type="string_list", description="Blocked HTTP hosts for all requests.", scope="universal"),
     ]
 
-    # Declarative credential slot. The credential's resolved fields
-    # land under config.default_auth.{token,api_key,...}. Every action
-    # call merges these into the outgoing request headers
-    # automatically, so the agent never has to know the secret.
     @classmethod
     def _build_credential_slots(cls) -> list[Any]:
         from digitorn.core.credentials.slot import CredentialSlot
@@ -369,11 +335,6 @@ class HttpModule(BaseModule):
     def get_prompt_sections(self) -> list[dict[str, Any]]:
         return []  # Actions are self-descriptive via schema
 
-
-    # Allow the session-time credential injector to call
-    # on_config_update at session start to refresh the default auth
-    # when a per_user credential is bound (so a new user's session
-    # gets THEIR Bearer token, not the previous session's).
     _supports_session_credential_reload = True
 
     def __init__(self) -> None:
@@ -395,9 +356,7 @@ class HttpModule(BaseModule):
         self._allow_insecure_tls = constraints.get("allow_insecure_tls", False)
 
     async def on_config_update(self, config: dict[str, Any]) -> None:
-        """Capture the default_auth that the credential injector wrote
-        so subsequent action calls can stamp the right Authorization
-        header automatically."""
+        """Capture the default_auth that the credential injector wrote."""
         await super().on_config_update(config)
         auth = (config or {}).get("default_auth") or {}
         if isinstance(auth, dict):
@@ -409,17 +368,6 @@ class HttpModule(BaseModule):
             self._default_auth = {}
 
     def _build_default_auth_header(self) -> dict[str, str]:
-        """Return headers to merge into outgoing requests, computed
-        from the resolved credential. Caller's per-call `headers`
-        param wins (we lay defaults down first, then update).
-
-        Supports the common schemes: Bearer / Basic / X-API-Key /
-        AWS access key / GCP service-account JWT / signed-payload
-        HMAC. Beyond these, the credential's resolved fields are
-        also exposed as ``X-Vault-<field>`` headers so the agent
-        (or downstream callable) can build a custom scheme by
-        forwarding them to a deeper-protocol client.
-        """
         a = self._default_auth or {}
         if not a:
             return {}
@@ -527,14 +475,7 @@ class HttpModule(BaseModule):
             parts.append(f"Active downloads: {active}")
         return "\n".join(parts)
 
-
     def _validate_url(self, url: str) -> tuple[str | None, str]:
-        """Validate URL. Returns (error, pinned_url).
-
-        The pinned_url replaces the hostname with the resolved IP
-        to prevent DNS rebinding attacks (TOCTOU between validation
-        and actual connection).
-        """
         from .security import ValidatedURL
         error, _, validated = validate_url(
             url,
@@ -547,7 +488,6 @@ class HttpModule(BaseModule):
         return None, pinned
 
     def _check_tls(self, verify_tls: bool) -> tuple[bool, str | None]:
-        """Check TLS setting against policy. Returns (effective_verify, error)."""
         if not verify_tls and not self._allow_insecure_tls:
             return True, None
         return verify_tls, None
@@ -569,7 +509,6 @@ class HttpModule(BaseModule):
         max_response_bytes: int = 5_000_000,
         form_data: dict[str, str] | None = None,
     ) -> ActionResult:
-        """Shared request logic for all HTTP actions."""
         url_error, pinned_url = self._validate_url(url)
         if url_error:
             _audit(action_name, method, url, None, url_error)
@@ -716,7 +655,6 @@ class HttpModule(BaseModule):
             data=result_data,
             error=None if status < 400 else f"HTTP {status}: {_status_hint(status)}",
         )
-
 
     @action(
         description=(
@@ -924,7 +862,6 @@ class HttpModule(BaseModule):
             max_response_bytes=0,
         )
 
-
     @action(
         description=(
             "Call a JSON API endpoint. Auto-sends Accept: application/json, "
@@ -1058,7 +995,6 @@ class HttpModule(BaseModule):
             error=None if status < 400 else f"Upload failed: HTTP {status}",
         )
 
-
     @action(
         description=(
             "Fetch a web page and extract readable text from HTML. "
@@ -1118,11 +1054,9 @@ class HttpModule(BaseModule):
             },
         )
 
-
     async def _download_worker(
         self, task: DownloadTask, params: DownloadParams
     ) -> None:
-        """Streaming download worker - runs as asyncio.Task."""
         effective_tls, _ = self._check_tls(params.verify_tls)
 
         try:
@@ -1402,7 +1336,6 @@ class HttpModule(BaseModule):
 
         return ActionResult(success=True, data=data)
 
-
     async def estimate_cost(self, action_name: str, params: dict[str, Any]) -> ResourceEstimate:
         return ResourceEstimate(
             estimated_duration_seconds=5.0,
@@ -1411,7 +1344,6 @@ class HttpModule(BaseModule):
             estimated_io_operations=2,
             confidence=0.3,
         )
-
 
     async def health_check(self) -> dict[str, Any]:
         active_downloads = sum(1 for d in self._downloads.values() if d.status == "downloading")

@@ -1,10 +1,4 @@
-"""OpenAI-compatible provider.
-
-Covers all providers that expose an OpenAI-compatible API:
-OpenAI, DeepSeek, Groq, Mistral, Together, Ollama, vLLM, LM Studio, etc.
-
-Uses the ``openai`` async client which works with any compatible endpoint.
-"""
+"""OpenAI-compatible provider."""
 
 from __future__ import annotations
 
@@ -27,21 +21,7 @@ from digitorn.modules.llm_provider.providers.base import (
 
 logger = logging.getLogger(__name__)
 
-
 def _wrapper_is_zombie(client: Any) -> bool:
-    """Detect a closed-out-of-band openai.AsyncOpenAI wrapper.
-
-    The wrapper itself has no ``is_closed`` flag, but its internal
-    httpx.AsyncClient does. When a CancelledError unwinds a streaming
-    request mid-flight, the httpx layer can transition to CLOSED while
-    our cached wrapper reference stays non-None. The next call would
-    then hit ``RuntimeError: Cannot send a request, as the client has
-    been closed.`` from openai/_base_client.py.
-
-    Returns True iff the underlying httpx client is closed (so the
-    caller must rebuild). False on any inspection failure (fail-open
-    so we don't churn clients on harmless SDK shape changes).
-    """
     try:
         inner = getattr(client, "_client", None)
         if inner is None:
@@ -49,7 +29,6 @@ def _wrapper_is_zombie(client: Any) -> bool:
         return bool(getattr(inner, "is_closed", False))
     except Exception:
         return False
-
 
 _KNOWN_PROVIDERS: dict[str, dict[str, Any]] = {
     "openai": {
@@ -86,7 +65,6 @@ _KNOWN_PROVIDERS: dict[str, dict[str, Any]] = {
     },
 }
 
-
 _MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     "deepseek-chat": 131_072,
     "deepseek-coder": 131_072,
@@ -110,13 +88,8 @@ _MODEL_CONTEXT_WINDOWS: dict[str, int] = {
     "gemma2-9b-it": 8_192,
 }
 
-
-# Maximum ``max_tokens`` value each model will accept. The provider
-# API returns 400 when the caller exceeds this - apps typically set a
-# generous ``max_tokens: 16384`` that works on Anthropic but breaks on
-# e.g. DeepSeek (hard cap 8192). We clamp rather than error so the
-# same app yaml runs across backends. Only known-capped models need
-# an entry; unknown models pass through unchanged.
+# Maximum `max_tokens` value each model will accept. We clamp rather
+# than error so the same app yaml runs across backends.
 _MODEL_MAX_OUTPUT_TOKENS: dict[str, int] = {
     "deepseek-chat": 8_192,
     "deepseek-coder": 8_192,
@@ -130,9 +103,7 @@ _MODEL_MAX_OUTPUT_TOKENS: dict[str, int] = {
     "mixtral-8x7b-32768": 8_192,
 }
 
-
 def _lookup_context_window(model: str) -> int:
-    """Look up context window for a model. Returns 0 if unknown."""
     if model in _MODEL_CONTEXT_WINDOWS:
         return _MODEL_CONTEXT_WINDOWS[model]
     for known, size in _MODEL_CONTEXT_WINDOWS.items():
@@ -140,10 +111,7 @@ def _lookup_context_window(model: str) -> int:
             return size
     return 0
 
-
 def _lookup_max_output_tokens(model: str) -> int | None:
-    """Return the hard cap on ``max_tokens`` for this model, or None if
-    unknown (pass through unchanged)."""
     if model in _MODEL_MAX_OUTPUT_TOKENS:
         return _MODEL_MAX_OUTPUT_TOKENS[model]
     for known, cap in _MODEL_MAX_OUTPUT_TOKENS.items():
@@ -151,10 +119,7 @@ def _lookup_max_output_tokens(model: str) -> int | None:
             return cap
     return None
 
-
 def _clamp_max_tokens(model: str, requested: int) -> int:
-    """Clamp ``requested`` to what ``model`` accepts. Logs once per
-    (model, requested) pair when it actually clamps."""
     cap = _lookup_max_output_tokens(model)
     if cap is None or requested <= cap:
         return requested
@@ -168,9 +133,7 @@ def _clamp_max_tokens(model: str, requested: int) -> int:
         )
     return cap
 
-
 _MAX_TOKENS_CLAMP_LOG: set[tuple[str, int]] = set()
-
 
 _TOOL_USE_PROVIDERS = {
     "openai", "deepseek", "groq", "mistral", "together",
@@ -189,9 +152,7 @@ _NO_TOOL_USE_PROVIDERS = {
     "lm_studio", "vllm", "ollama",
 }
 
-
 def _uses_openai_responses_api(provider_hint: str | None, base_url: str | None, model: str) -> bool:
-    """Return True when this model must be called via OpenAI Responses API."""
     hint = (provider_hint or "").lower()
     url = (base_url or "").lower()
     model_lower = model.lower()
@@ -205,9 +166,7 @@ def _uses_openai_responses_api(provider_hint: str | None, base_url: str | None, 
         or "codex" in model_lower
     )
 
-
 def _has_tool_use(provider_hint: str | None, model: str) -> bool:
-    """Determine if a provider+model combo supports native tool calling."""
     if model in _NO_TOOL_USE_MODELS:
         return False
     if model in _TOOL_USE_MODELS:
@@ -218,7 +177,6 @@ def _has_tool_use(provider_hint: str | None, model: str) -> bool:
         return False
     return True
 
-
 def resolve_base_url(provider_hint: str | None, base_url: str | None) -> str:
     """Resolve the base URL from explicit value or provider hint."""
     if base_url:
@@ -227,32 +185,17 @@ def resolve_base_url(provider_hint: str | None, base_url: str | None) -> str:
         return _KNOWN_PROVIDERS[provider_hint]["base_url"]
     return "https://api.openai.com/v1"
 
-
 def _is_local_provider(provider_hint: str | None) -> bool:
-    """Return True for providers running locally (Ollama, LM Studio, vLLM)."""
     return provider_hint in {"ollama", "lm_studio", "vllm"}
 
-
-# Sentinel api_key value: when the brain is routed through the digitorn
-# gateway, the inject_session_time hot-swap puts this string in
-# ``brain.config.api_key``. The provider sees it, knows the bearer
-# isn't a real provider key, and pulls the user's JWT from the
-# RequestContext at call time instead.
+# Sentinel api_key value: when the brain is routed through the gateway,
+# the session-time injector puts this string in `brain.config.api_key`;
+# the provider then pulls the user's JWT from the RequestContext.
 USER_JWT_PLACEHOLDER = "{{user.jwt}}"
-
 
 def _inject_digitorn_request_headers(
     self_api_key: str | None, params: dict[str, Any],
 ) -> None:
-    """Mutates ``params['extra_headers']`` in place with the per-request
-    Digitorn identity headers (X-Digitorn-{User,App,Session,Run,Agent}-Id)
-    and, when the brain is routed through the gateway, an ``Authorization``
-    bearer carrying the user's JWT (overrides the SDK's default header
-    derived from ``self.api_key``).
-
-    Best-effort: any error here is swallowed so a missing context
-    doesn't break the call.
-    """
     try:
         from digitorn.core.runtime.request_context import get_request_context
         rc = get_request_context()
@@ -262,11 +205,6 @@ def _inject_digitorn_request_headers(
         if digitorn_headers:
             existing = params.get("extra_headers") or {}
             params["extra_headers"] = {**existing, **digitorn_headers}
-        # Gateway-routed brain: api_key holds the placeholder, the real
-        # bearer is the user's JWT from the inbound HTTP request. The
-        # SDK has already injected ``Authorization: Bearer {{user.jwt}}``
-        # in its own headers from self.api_key; ``extra_headers`` wins
-        # at the httpx layer so we override here.
         if rc.user_jwt and self_api_key == USER_JWT_PLACEHOLDER:
             existing = params.get("extra_headers") or {}
             params["extra_headers"] = {
@@ -276,26 +214,14 @@ def _inject_digitorn_request_headers(
     except Exception:  # noqa: BLE001
         pass
 
-
 def _is_connection_error(exc: Exception) -> bool:
-    """Check if an exception is a connection/timeout error."""
     cls_name = type(exc).__name__
     if "Connect" in cls_name or "Timeout" in cls_name:
         return True
     msg = str(exc).lower()
     return "connection" in msg or "timeout" in msg or "timed out" in msg
 
-
 def _is_retriable(exc: Exception) -> bool:
-    """Check if an LLM error is retriable (transient).
-
-    Special-case: a 429 with body ``code == "quota_exceeded"`` (the
-    digitorn-gateway's structured shape) is NOT retriable - the user
-    is over budget, not throttled. Returning False here lets the
-    caller raise immediately, and a separate post-classification step
-    converts the exception into ``QuotaExceededError`` for the
-    runtime to react properly.
-    """
     if _is_connection_error(exc):
         return True
     cls_name = type(exc).__name__
@@ -310,20 +236,7 @@ def _is_retriable(exc: Exception) -> bool:
         return True
     return False
 
-
 def _looks_like_quota_exceeded(exc: Exception) -> bool:
-    """True if the exception advertises quota_exceeded.
-
-    First inspects ``exc.body`` / ``exc.response`` (the typed path the
-    openai-python SDK exposes when it parsed the 429 body itself).
-    Falls back to scanning ``str(exc)`` for the gateway's structured
-    body — LiteLLM wraps the upstream 429 as
-    ``"Error code: 429 - {'detail': {'code': 'quota_exceeded', ...}}"``
-    and discards the typed body in the process. Without the string
-    fallback the agent loop sees a "generic 429" and burns 155 s on
-    exponential-backoff retries before the user-facing error event
-    fires, well past the 30 s spinner watchdog.
-    """
     body = getattr(exc, "body", None) or getattr(exc, "response", None)
     if body is not None:
         if hasattr(body, "json"):
@@ -335,7 +248,6 @@ def _looks_like_quota_exceeded(exc: Exception) -> bool:
             detail = body.get("detail", body)
             if isinstance(detail, dict) and detail.get("code") == "quota_exceeded":
                 return True
-    # String fallback — no typed body, parse the literal dict tail.
     msg = str(exc)
     if "quota_exceeded" not in msg:
         return False
@@ -353,19 +265,10 @@ def _looks_like_quota_exceeded(exc: Exception) -> bool:
     detail = parsed.get("detail", parsed)
     return isinstance(detail, dict) and detail.get("code") == "quota_exceeded"
 
-
 def _enrich_error(exc: Exception, base_url: str | None, provider_hint: str | None) -> Exception:
-    """Enrich LLM errors with actionable context."""
     msg = str(exc)
     cls = type(exc).__name__
 
-    # Gateway quota_exceeded (HTTP 429 with structured body). Surface
-    # as a typed ``QuotaExceededError`` so the runtime can render the
-    # right user-facing message + thread ``retry_after`` to the UI.
-    # Body is recovered from the typed `exc.body` first, then falls
-    # back to parsing the literal dict tail of ``str(exc)`` — LiteLLM
-    # wraps openai-sdk 429s with the body baked into the message but
-    # no typed attribute.
     if _looks_like_quota_exceeded(exc):
         from digitorn.modules.llm_provider.errors import parse_quota_exceeded
         body = getattr(exc, "body", None) or getattr(exc, "response", None)
@@ -375,7 +278,6 @@ def _enrich_error(exc: Exception, base_url: str | None, provider_hint: str | Non
             except Exception:
                 body = None
         if not isinstance(body, dict):
-            # String fallback — same parser used in `_looks_like_quota_exceeded`.
             import ast as _ast
             start = msg.find("{")
             end = msg.rfind("}")
@@ -399,12 +301,10 @@ def _enrich_error(exc: Exception, base_url: str | None, provider_hint: str | Non
             f"(Original: {cls}: {msg})"
         )
 
-    # Auth errors - add hints
     status = getattr(exc, "status_code", None)
     if status == 401 or "401" in msg or "unauthorized" in msg.lower() or "api key" in msg.lower():
         provider = provider_hint or "provider"
         url = base_url or ""
-        # Check if it might actually be a network/DNS issue
         if "connect" in msg.lower() or "network" in msg.lower():
             return RuntimeError(
                 f"Cannot reach {url} - this looks like a network issue, not an API key problem. "
@@ -422,13 +322,7 @@ def _enrich_error(exc: Exception, base_url: str | None, provider_hint: str | Non
 
     return exc
 
-
 _LOCAL_PROVIDER_TIMEOUT = 300.0
-
-
-#
-#
-#
 
 _LLAMA_FUNC_RE = re.compile(
     r"<function=(\w+)(\{[^}]*\})?\s*>?\s*</function>",
@@ -459,20 +353,10 @@ _ALL_TAGS_RE = re.compile(
     re.DOTALL,
 )
 
-
 def _parse_tool_calls_from_text(
     text: str,
     known_tools: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Extract tool calls from raw text, trying all known LLM formats.
-
-    Args:
-        text: Raw text that may contain tool calls.
-        known_tools: Optional list of valid tool names for JSON validation.
-
-    Returns:
-        List of parsed tool call dicts (OpenAI format), or empty list.
-    """
     calls: list[dict[str, Any]] = []
 
     text = _normalize_quotes(text)
@@ -533,9 +417,7 @@ def _parse_tool_calls_from_text(
 
     return calls
 
-
 def _make_tool_call(name: str, args: dict, index: int) -> dict[str, Any]:
-    """Build an OpenAI-format tool call dict."""
     if not isinstance(args, dict):
         args = {}
     return {
@@ -547,12 +429,10 @@ def _make_tool_call(name: str, args: dict, index: int) -> dict[str, Any]:
         },
     }
 
-
 def _looks_like_tool_call(
     obj: dict,
     known_tools: list[str] | None = None,
 ) -> bool:
-    """Check if a dict looks like a tool call (has name + args-like field)."""
     if not isinstance(obj, dict):
         return False
     name = obj.get("name") or obj.get("function")
@@ -564,13 +444,7 @@ def _looks_like_tool_call(
     is_known = known_tools and name in known_tools
     return has_args or bool(is_known)
 
-
 def _normalize_quotes(s: str) -> str:
-    """Replace smart/curly quotes with straight ASCII quotes.
-
-    Many LLMs (especially smaller ones) output Unicode quotes like
-    \u201c \u201d \u2018 \u2019 instead of standard ASCII " and '.
-    """
     return (
         s.replace("\u201c", '"')   # "
          .replace("\u201d", '"')   # "
@@ -580,12 +454,7 @@ def _normalize_quotes(s: str) -> str:
          .replace("\u00bb", '"')   # »
     )
 
-
 def _safe_json_parse(s: str) -> dict | None:
-    """Parse JSON string, return dict or None.
-
-    Normalizes smart quotes before parsing - handles LLM output quirks.
-    """
     if not s:
         return None
     s = _normalize_quotes(s)
@@ -595,9 +464,7 @@ def _safe_json_parse(s: str) -> dict | None:
     except (json.JSONDecodeError, ValueError):
         return None
 
-
 def _extract_json_objects(text: str) -> list[dict]:
-    """Extract top-level JSON objects from text using brace matching."""
     objects: list[dict] = []
     i = 0
     while i < len(text):
@@ -636,20 +503,7 @@ def _extract_json_objects(text: str) -> list[dict]:
             i += 1
     return objects
 
-
 def _extract_prose_from_mixed_content(text: str) -> str:
-    """Extract the reasoning/prose text from mixed content+tool_calls.
-
-    LLMs often emit responses like:
-        content: "I'll analyze the file now."
-        tool_calls: [{...}]
-
-    Or:
-        I'll analyze the file now.
-        <tool_call>{"name": "filesystem.read", ...}</tool_call>
-
-    This function extracts the prose part before any tool-call patterns.
-    """
     m = re.match(
         r'^\s*(?:content\s*:\s*)?["\'](.+?)["\']'
         r'\s*(?:tool_calls?\s*:|<tool_call>|\{)',
@@ -683,21 +537,12 @@ def _extract_prose_from_mixed_content(text: str) -> str:
 
     return ""
 
-
 def _strip_tool_call_tags(text: str) -> str:
-    """Remove all tool call tags/patterns from text, leaving only prose."""
     result = _ALL_TAGS_RE.sub("", text)
     result = _MARKDOWN_JSON_RE.sub("", result)
     return result.strip()
 
-
 def _extract_tool_names(tools: list[dict[str, Any]] | None) -> list[str] | None:
-    """Extract tool names from OpenAI-format tool schemas.
-
-    Returns a list of function names, or None if no tools provided.
-    This replaces the old hardcoded _META_TOOLS list - the known tool
-    names are now derived dynamically from whatever tools the agent has.
-    """
     if not tools:
         return None
     names: list[str] = []
@@ -708,9 +553,7 @@ def _extract_tool_names(tools: list[dict[str, Any]] | None) -> list[str] | None:
             names.append(name)
     return names or None
 
-
 def _stringify_content(content: Any) -> str:
-    """Convert response or tool content to a plain string."""
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -725,9 +568,7 @@ def _stringify_content(content: Any) -> str:
         return ""
     return str(content)
 
-
 def _response_item_to_dict(item: Any) -> dict[str, Any]:
-    """Normalize an SDK response item to a dict."""
     if isinstance(item, dict):
         return item
     if hasattr(item, "model_dump"):
@@ -735,14 +576,12 @@ def _response_item_to_dict(item: Any) -> dict[str, Any]:
             dumped = item.model_dump()
             if isinstance(dumped, dict):
                 return dumped
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("openai_compat best-effort block failed: %s", exc)
     data = getattr(item, "__dict__", None)
     return data if isinstance(data, dict) else {}
 
-
 def _event_to_dict(event: Any) -> dict[str, Any]:
-    """Normalize a streaming event object to a dict."""
     if isinstance(event, dict):
         return event
     if hasattr(event, "model_dump"):
@@ -750,11 +589,10 @@ def _event_to_dict(event: Any) -> dict[str, Any]:
             dumped = event.model_dump()
             if isinstance(dumped, dict):
                 return dumped
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("openai_compat best-effort block failed: %s", exc)
     data = getattr(event, "__dict__", None)
     return data if isinstance(data, dict) else {}
-
 
 def _responses_input_message(role: str, content: str) -> dict[str, Any]:
     return {
@@ -762,11 +600,9 @@ def _responses_input_message(role: str, content: str) -> dict[str, Any]:
         "content": [{"type": "input_text", "text": content}],
     }
 
-
 def _convert_messages_to_responses_input(
     messages: list[ChatMessage],
 ) -> tuple[str | None, list[dict[str, Any]]]:
-    """Convert runtime chat messages into Responses API input items."""
     instructions_parts: list[str] = []
     input_items: list[dict[str, Any]] = []
 
@@ -808,9 +644,7 @@ def _convert_messages_to_responses_input(
     instructions = "\n\n".join(part for part in instructions_parts if part) or None
     return instructions, input_items
 
-
 def _extract_responses_text(output: list[Any]) -> str:
-    """Extract plain text from Responses API output items."""
     text_parts: list[str] = []
     for item in output:
         data = _response_item_to_dict(item)
@@ -820,9 +654,7 @@ def _extract_responses_text(output: list[Any]) -> str:
                     text_parts.append(part.get("text", ""))
     return "".join(text_parts)
 
-
 def _extract_responses_tool_calls(output: list[Any]) -> list[dict[str, Any]] | None:
-    """Extract function calls from Responses API output items."""
     tool_calls: list[dict[str, Any]] = []
     for item in output:
         data = _response_item_to_dict(item)
@@ -838,7 +670,6 @@ def _extract_responses_tool_calls(output: list[Any]) -> list[dict[str, Any]] | N
             },
         })
     return tool_calls or None
-
 
 def _parse_responses_usage(response: Any) -> TokenUsage:
     usage = getattr(response, "usage", None)
@@ -856,9 +687,7 @@ def _parse_responses_usage(response: Any) -> TokenUsage:
         total_tokens=total_tokens,
     )
 
-
 def _extract_usage_from_event_dict(data: dict[str, Any]) -> TokenUsage | None:
-    """Extract token usage from a streaming event dict if present."""
     usage = data.get("usage")
     if not isinstance(usage, dict):
         return None
@@ -871,9 +700,7 @@ def _extract_usage_from_event_dict(data: dict[str, Any]) -> TokenUsage | None:
         total_tokens=total_tokens,
     )
 
-
 def _normalize_responses_tools(tools: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
-    """Convert chat.completions-style tools to Responses API tool definitions."""
     if not tools:
         return None
 
@@ -895,9 +722,8 @@ def _normalize_responses_tools(tools: list[dict[str, Any]] | None) -> list[dict[
                 "name": fn.get("name", ""),
                 "description": fn.get("description", ""),
                 "parameters": schema,
-                # Responses API strict mode requires every property to be listed in
-                # `required`, which does not match our tool schemas with optional
-                # params. Keep schemas explicit but disable strict enforcement.
+                # Responses API strict mode requires every property to be
+                # in `required`; our schemas have optional params.
                 "strict": False,
             })
         else:
@@ -905,9 +731,7 @@ def _normalize_responses_tools(tools: list[dict[str, Any]] | None) -> list[dict[
 
     return normalized or None
 
-
 def _normalize_openai_function_schema(schema: Any) -> dict[str, Any]:
-    """Make a function JSON schema acceptable to OpenAI Responses API."""
     if not isinstance(schema, dict):
         return {
             "type": "object",
@@ -928,22 +752,15 @@ def _normalize_openai_function_schema(schema: Any) -> dict[str, Any]:
     normalized["additionalProperties"] = False
     return normalized
 
-
-# JSON Schema ``format`` keywords OpenAI's structured-outputs /
-# function-calling API accepts. Anything else (``uri``, ``url``,
-# ``regex``, ``relative-uri``, …) is dropped from the schema before
-# the request goes out — OpenAI returns a 400 ``Invalid schema for
-# function`` otherwise. This is the source of bugs like the MCP
-# ``fetch`` tool which declares ``properties.url.format = "uri"``.
+# JSON Schema `format` keywords OpenAI's structured-outputs accepts.
+# Anything else is dropped before request to avoid a 400.
 _OPENAI_ALLOWED_STRING_FORMATS = frozenset({
     "date", "date-time", "time", "duration",
     "email", "hostname",
     "ipv4", "ipv6", "uuid",
 })
 
-
 def _normalize_openai_schema_node(node: Any) -> Any:
-    """Recursively harden a JSON Schema node for OpenAI strict validation."""
     if isinstance(node, list):
         return [_normalize_openai_schema_node(item) for item in node]
     if not isinstance(node, dict):
@@ -955,10 +772,6 @@ def _normalize_openai_schema_node(node: Any) -> Any:
         if key not in {"title", "$schema", "examples", "default"}
     }
 
-    # Strip unsupported ``format`` values on string nodes — OpenAI
-    # rejects the whole schema otherwise (BadRequestError ``Invalid
-    # schema for function 'X': In context=('properties', 'Y'), 'Z'
-    # is not a valid format``).
     fmt = normalized.get("format")
     if isinstance(fmt, str) and fmt not in _OPENAI_ALLOWED_STRING_FORMATS:
         normalized.pop("format", None)
@@ -977,9 +790,7 @@ def _normalize_openai_schema_node(node: Any) -> Any:
 
     return normalized
 
-
 def _normalize_responses_tool_choice(tool_choice: str | dict | None) -> str | dict | None:
-    """Convert chat.completions tool_choice to Responses API format."""
     if not isinstance(tool_choice, dict):
         return tool_choice
 
@@ -997,15 +808,10 @@ def _normalize_responses_tool_choice(tool_choice: str | dict | None) -> str | di
             }
     return tool_choice
 
-
 def _recover_from_error(
     exc: Exception,
     known_tools: list[str] | None = None,
 ) -> ChatResponse | None:
-    """Recover tool calls from a provider API error (e.g. Groq tool_use_failed).
-
-    Returns a synthetic ChatResponse or None if not recoverable.
-    """
     error_body = _extract_error_body(exc)
     if not error_body:
         return None
@@ -1038,20 +844,10 @@ def _recover_from_error(
         raw={"recovered_from": "tool_use_failed", "original": failed},
     )
 
-
 def _recover_from_content(
     response: "ChatResponse",
     known_tools: list[str] | None = None,
 ) -> "ChatResponse":
-    """Check if a successful response has tool calls hidden in text content.
-
-    Some LLMs write tool calls as text instead of using the tool_calls
-    field.  If the response has no tool_calls but the content contains
-    parseable tool calls, we extract them.
-
-    Returns the response as-is if no recovery is needed, or a new
-    ChatResponse with extracted tool_calls.
-    """
     if response.tool_calls:
         logger.debug(
             "recover_skip: already has %d tool_calls", len(response.tool_calls),
@@ -1090,9 +886,7 @@ def _recover_from_content(
         raw=response.raw,
     )
 
-
 def _extract_error_body(exc: Exception) -> dict | None:
-    """Extract the JSON error body from an openai API error."""
     if hasattr(exc, "body") and isinstance(exc.body, dict):
         return exc.body
 
@@ -1106,13 +900,8 @@ def _extract_error_body(exc: Exception) -> dict | None:
 
     return None
 
-
 class OpenAICompatProvider(BaseLLMProvider):
-    """OpenAI-compatible provider for any endpoint following the OpenAI API spec.
-
-    Works out-of-the-box with: OpenAI, DeepSeek, Groq, Mistral, Together,
-    Ollama, vLLM, LM Studio, and any other OpenAI-compatible endpoint.
-    """
+    """OpenAI-compatible provider for any endpoint following the OpenAI API spec."""
 
     BACKEND = "openai_compat"
 
@@ -1143,12 +932,7 @@ class OpenAICompatProvider(BaseLLMProvider):
         self.provider_hint = provider_hint
 
     def clone(self, *, provider_id_suffix: str = "") -> "OpenAICompatProvider":
-        """Override to forward ``provider_hint``.
-
-        Each clone gets its own ``AsyncOpenAI`` client (initialised
-        lazily on first use), so sub-agents don't share the parent's
-        httpx connection pool.
-        """
+        """Override to forward `provider_hint`."""
         new_id = (
             f"{self.provider_id}:{provider_id_suffix}"
             if provider_id_suffix else self.provider_id
@@ -1167,13 +951,8 @@ class OpenAICompatProvider(BaseLLMProvider):
         return clone
 
     async def initialize(self) -> None:
-        # The openai SDK defers a huge import tree (resources.beta.realtime
-        # + chat.completions + responses) behind ``@cached_property`` on
-        # the client. The FIRST access to ``client.chat`` or
-        # ``client.responses`` triggers 1–3 s of sync imports that freeze
-        # the asyncio loop - the watchdog catches this as a 2.3 s stall
-        # on the first HTML turn. Warm the client off-loop now so all
-        # subsequent requests hit already-loaded modules.
+        # openai SDK lazy-imports chat/responses on first access; warming
+        # off-loop avoids a 1-3s sync-import stall on the asyncio loop.
         import asyncio as _asyncio
 
         def _build_and_warm() -> Any:
@@ -1184,13 +963,11 @@ class OpenAICompatProvider(BaseLLMProvider):
                 timeout=self.timeout,
                 max_retries=self.max_retries,
             )
-            # Touching the cached_property forces the underlying import
-            # + ctor to run now - on this worker thread, not on the loop.
             _ = client.chat
             _ = client.chat.completions
             try:
                 _ = client.responses
-            except Exception:
+            except AttributeError:
                 pass
             return client
 
@@ -1202,24 +979,8 @@ class OpenAICompatProvider(BaseLLMProvider):
             ) from exc
 
     def _ensure_client(self):
-        """Return the warm client; rebuild if somehow None (crash recovery).
-
-        Sync fallback - kept for legacy callers. Building an
-        ``openai.AsyncOpenAI`` synchronously instantiates an
-        ``httpx.AsyncClient`` whose ``__init__`` calls
-        ``ssl.create_default_context()``. On Windows that loads the
-        OS CA store and routinely takes 100-500ms - long enough to
-        stall the loop and drop Socket.IO. Prefer
-        :meth:`_ensure_client_async` from any async context.
-        """
         if self._client is not None and not _wrapper_is_zombie(self._client):
             return self._client
-        # Zombie wrapper: the openai AsyncOpenAI was cached but its
-        # underlying httpx.AsyncClient transitioned to CLOSED out-of-band
-        # (typical cause: a CancelledError unwinding a cancelled stream
-        # propagates aclose() to the httpx layer without going through
-        # provider.close(), so self._client stays non-None but is dead).
-        # Drop the reference + rebuild.
         self._client = None
         import openai
         self._client = openai.AsyncOpenAI(
@@ -1231,12 +992,6 @@ class OpenAICompatProvider(BaseLLMProvider):
         return self._client
 
     async def _ensure_client_async(self):
-        """Async-safe variant: off-loads the client build.
-
-        Fast path is a single attribute check so the per-call cost is
-        the same as the sync version once warm. Cold path runs the
-        full SSL/httpx init in a worker thread.
-        """
         if self._client is not None and not _wrapper_is_zombie(self._client):
             return self._client
         self._client = None
@@ -1284,10 +1039,6 @@ class OpenAICompatProvider(BaseLLMProvider):
 
         known_tools = _extract_tool_names(tools) or getattr(self, "_known_tool_names", None)
 
-        # Inject the per-request identity headers (run_id, agent_id, …)
-        # if the agent loop set a RequestContext. The SDK forwards
-        # ``extra_headers`` to the underlying httpx call. No-op when
-        # the call is issued outside an ``agent_turn`` scope.
         _inject_digitorn_request_headers(self.api_key, params)
 
         max_retries = 3
@@ -1299,10 +1050,8 @@ class OpenAICompatProvider(BaseLLMProvider):
                 parsed = self._parse_response(response)
                 return _recover_from_content(parsed, known_tools)
             except RuntimeError as exc:
-                # Race: another coroutine aclose'd the shared httpx
-                # client between ``_ensure_client_async`` returning and
-                # ``create()`` issuing the send. Drop + rebuild on the
-                # NEXT iteration; don't count it against retries.
+                # race between aclose() and create(); drop+rebuild without
+                # counting against retries.
                 if "client has been closed" in str(exc).lower():
                     self._client = None
                     last_exc = exc
@@ -1325,8 +1074,6 @@ class OpenAICompatProvider(BaseLLMProvider):
                     await asyncio.sleep(delay)
                     continue
                 raise _enrich_error(exc, self.base_url, self.provider_hint)
-        # LP6: if all retries exhausted without a single successful try OR
-        # raise, surface the last exception instead of generic "Unreachable".
         if last_exc is not None:
             raise _enrich_error(last_exc, self.base_url, self.provider_hint)
         raise RuntimeError(
@@ -1371,13 +1118,8 @@ class OpenAICompatProvider(BaseLLMProvider):
             stream=True,
         )
 
-        # Inject the per-request identity headers (see chat() above).
         _inject_digitorn_request_headers(self.api_key, params)
 
-        # DIAG: write the exact params sent to the provider to disk once
-        # per call so tests can verify the daemon's reported token counts
-        # against the real on-the-wire payload. Gated by env var so it's
-        # zero-cost in production.
         if os.environ.get("DIGITORN_DIAG_WIRE_PAYLOAD"):
             try:
                 import json as _json
@@ -1391,18 +1133,12 @@ class OpenAICompatProvider(BaseLLMProvider):
                     "messages": params.get("messages"),
                     "tools": params.get("tools"),
                 }, ensure_ascii=False, default=str), encoding="utf-8")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("openai_compat best-effort block failed: %s", exc)
 
-        # Streaming: pass an explicit ``httpx.Timeout`` per-request
-        # with a generous ``read`` so the stream survives extended
-        # thinking pauses (Anthropic adaptive thinking can pause
-        # 60-180 s between tokens). Default client-level scalar
-        # ``timeout=self.timeout`` (120 s) was applied to read AND
-        # connect, so the stream died mid-response under long
-        # reasoning. Connect stays short (fail fast on dead
-        # gateway). The bigger read also covers slow upstream
-        # providers (Copilot first-token, gateway queue).
+        # per-request httpx.Timeout with a generous read so the stream
+        # survives long thinking pauses (Anthropic adaptive thinking can
+        # pause 60-180s between tokens).
         import httpx as _httpx
         _stream_timeout = _httpx.Timeout(
             connect=30.0,
@@ -1410,13 +1146,6 @@ class OpenAICompatProvider(BaseLLMProvider):
             write=30.0,
             pool=30.0,
         )
-        # Two attempts: the zombie check at ``_ensure_client_async`` is
-        # not race-free. A concurrent stream cancellation can aclose()
-        # the httpx layer AFTER we get the client back but BEFORE
-        # ``create()`` issues its first send. Result: ``RuntimeError:
-        # Cannot send a request, as the client has been closed.``.
-        # Drop + rebuild + retry ONCE before bubbling up; the parent
-        # retry loop in agent_loop handles further connection errors.
         stream = None
         for attempt in (1, 2):
             try:
@@ -1431,8 +1160,6 @@ class OpenAICompatProvider(BaseLLMProvider):
                     attempt == 1
                     and "client has been closed" in msg
                 ):
-                    # Force-drop the dead reference and let the next
-                    # ``_ensure_client_async`` rebuild a fresh one.
                     self._client = None
                     continue
                 raise _enrich_error(exc, self.base_url, self.provider_hint) from exc
@@ -1440,13 +1167,8 @@ class OpenAICompatProvider(BaseLLMProvider):
                 raise _enrich_error(exc, self.base_url, self.provider_hint) from exc
 
         async for chunk in stream:
-            # IMPORTANT: the provider emits a FINAL usage-only chunk with
-            # choices=[] when stream_options.include_usage=True (OpenAI,
-            # Ollama, DeepSeek all behave this way). Skipping chunks with
-            # empty choices dropped that usage entirely and forced the
-            # fallback estimator to run even when the provider had given
-            # us the exact billed numbers. Emit a synthetic chunk carrying
-            # just the usage so downstream receives it.
+            # providers emit a final usage-only chunk with choices=[]
+            # when stream_options.include_usage=True. Forward the usage.
             if not chunk.choices:
                 if hasattr(chunk, "usage") and chunk.usage:
                     usage = TokenUsage(
@@ -1468,8 +1190,8 @@ class OpenAICompatProvider(BaseLLMProvider):
                                 "completion_tokens": usage.completion_tokens,
                                 "total_tokens": usage.total_tokens,
                             }), encoding="utf-8")
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("openai_compat best-effort block failed: %s", exc)
                     yield StreamChunk(delta="", finish_reason=None, usage=usage)
                 continue
             delta = chunk.choices[0].delta
@@ -1484,12 +1206,8 @@ class OpenAICompatProvider(BaseLLMProvider):
                     total_tokens=chunk.usage.total_tokens or 0,
                 )
 
-            # DeepSeek reasoning models emit reasoning_content in the
-            # delta. Preserve empty strings - V4 thinking mode requires
-            # the field to be replayed on every subsequent API call,
-            # even when reasoning is empty for trivial turns. `or None`
-            # would have collapsed `""` to None and the streaming
-            # aggregator would lose the "saw thinking" signal.
+            # DeepSeek V4 thinking mode requires reasoning_content
+            # to be replayed on every subsequent call, even empty string.
             thinking = getattr(delta, "reasoning_content", None)
 
             sc = StreamChunk(delta=text, finish_reason=finish, usage=usage, thinking=thinking)
@@ -1517,11 +1235,6 @@ class OpenAICompatProvider(BaseLLMProvider):
     def get_info(self) -> ProviderInfo:
         ctx_window = _lookup_context_window(self.model)
         tool_use = _has_tool_use(self.provider_hint, self.model)
-        # Vision capability is model-specific. Previously this was hard-
-        # coded to True which caused the runtime to keep image_ref
-        # content blocks in the payload for DeepSeek-chat (text-only);
-        # DeepSeek rejected the turn silently, `message_done` fired with
-        # zero assistant content, the user saw a ghost reply (BUG-046).
         model_low = (self.model or "").lower()
         vision = any(k in model_low for k in (
             "gpt-4o", "gpt-4-vision", "gpt-4-turbo", "gpt-4.1",
@@ -1580,7 +1293,6 @@ class OpenAICompatProvider(BaseLLMProvider):
             extra=extra,
         )
 
-        # Inject the per-request identity headers (see chat() above).
         _inject_digitorn_request_headers(self.api_key, params)
 
         max_retries = 3
@@ -1601,7 +1313,6 @@ class OpenAICompatProvider(BaseLLMProvider):
                     await asyncio.sleep(delay)
                     continue
                 raise _enrich_error(exc, self.base_url, self.provider_hint)
-        # LP6: surface the actual last exception, not "Unreachable"
         if last_exc is not None:
             raise _enrich_error(last_exc, self.base_url, self.provider_hint)
         raise RuntimeError(
@@ -1636,7 +1347,6 @@ class OpenAICompatProvider(BaseLLMProvider):
         )
         params["stream"] = True
 
-        # Inject the per-request identity headers (see chat() above).
         _inject_digitorn_request_headers(self.api_key, params)
 
         try:
@@ -1648,8 +1358,8 @@ class OpenAICompatProvider(BaseLLMProvider):
         tool_indexes: dict[str, int] = {}
         pending_tools: dict[str, dict[str, Any]] = {}
         last_usage: TokenUsage | None = None
-        # LP5: track tool call IDs already emitted to avoid duplication
-        # at response.completed (which re-emits all tool calls).
+        # response.completed re-emits all tool calls; dedup against
+        # those already streamed.
         emitted_tool_call_ids: set[str] = set()
 
         async for event in stream:
@@ -1750,8 +1460,6 @@ class OpenAICompatProvider(BaseLLMProvider):
                 if response_obj is not None:
                     parsed = self._parse_responses_response(response_obj)
                     if parsed.tool_calls:
-                        # LP5: skip tool_calls already emitted during the stream
-                        # to avoid duplicate execution downstream.
                         new_calls = [
                             (idx, tc) for idx, tc in enumerate(parsed.tool_calls)
                             if tc.get("id") not in emitted_tool_call_ids
@@ -1787,7 +1495,6 @@ class OpenAICompatProvider(BaseLLMProvider):
                     yield StreamChunk(delta="", finish_reason="stop", usage=last_usage)
                 continue
 
-
     def _build_params(
         self,
         messages: list[ChatMessage],
@@ -1795,16 +1502,11 @@ class OpenAICompatProvider(BaseLLMProvider):
         stream: bool = False,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Build OpenAI API params."""
         merged = self._merge_params(**kwargs)
         extra = merged.pop("extra", None) or {}
 
         api_messages: list[dict[str, Any]] = []
         for msg in messages:
-            # Tolerate raw dicts mixed in (callers occasionally prepend a
-            # plain ``{"role": "system", "content": ...}`` to a list of
-            # ChatMessage dataclasses). Normalise to the dataclass shape
-            # so the attribute access below works uniformly.
             if isinstance(msg, dict):
                 msg = ChatMessage(
                     role=msg.get("role", ""),
@@ -1815,7 +1517,6 @@ class OpenAICompatProvider(BaseLLMProvider):
                     reasoning_content=msg.get("reasoning_content"),
                 )
             content = msg.content
-            # Convert multimodal blocks to OpenAI format
             if isinstance(content, list):
                 blocks = []
                 for block in content:
@@ -1824,9 +1525,8 @@ class OpenAICompatProvider(BaseLLMProvider):
                     elif block.get("type") == "text":
                         blocks.append(block)
                     elif block.get("type") == "image_url":
-                        blocks.append(block)  # Already OpenAI format
+                        blocks.append(block)
                     elif block.get("type") == "image":
-                        # Anthropic format → convert to OpenAI
                         source = block.get("source", {})
                         if source.get("type") == "base64":
                             mime = source.get("media_type", "image/png")
@@ -1850,20 +1550,10 @@ class OpenAICompatProvider(BaseLLMProvider):
             m: dict[str, Any] = {"role": msg.role, "content": content}
             if msg.name:
                 m["name"] = msg.name
-            # LP4: tool_call_id is ONLY valid on role="tool" messages.
-            # OpenAI rejects it on assistant/user/system messages.
+            # OpenAI rejects tool_call_id on non-tool messages.
             if msg.tool_call_id and msg.role == "tool":
                 m["tool_call_id"] = msg.tool_call_id
             if msg.tool_calls:
-                # OpenAI strictly requires ``type`` on every tool_call entry
-                # (one of "function", "all_tools", "custom"). Stored history,
-                # streaming-reconstructed calls from edge providers, and
-                # cross-provider replay (e.g. Anthropic format converted to
-                # OpenAI) can produce entries without a ``type`` field; the
-                # API then 400s with "Invalid type for messages[N].tool_calls
-                # [0].type: expected ..., got null instead." Normalise at the
-                # serialisation boundary so we never ship a non-conforming
-                # entry, regardless of where it came from.
                 normalised: list[dict[str, Any]] = []
                 for tc in msg.tool_calls:
                     if not isinstance(tc, dict):
@@ -1873,21 +1563,8 @@ class OpenAICompatProvider(BaseLLMProvider):
                         tc = {**tc, "type": "function"}
                     normalised.append(tc)
                 m["tool_calls"] = normalised
-            # DeepSeek V4 thinking mode requires reasoning_content on
-            # EVERY assistant message replay. Include it for any
-            # assistant message targeting a DeepSeek model. Empty
-            # string is the safe default - V4 accepts it as "no
-            # reasoning for this turn", whereas a missing field
-            # raises 400 "The reasoning_content in the thinking mode
-            # must be passed back to the API."
-            #
-            # Why default to "" instead of conditional: the streaming
-            # path or DB reload may drop the field for older messages
-            # in the conversation history (model didn't emit reasoning
-            # on that turn, or the field was created before the V4
-            # rollout). Without a default, replaying that history
-            # 400's the API. Empty string is forwards-compat with
-            # V3 (the field is silently ignored) and required by V4.
+            # DeepSeek V4 thinking mode 400s without reasoning_content
+            # on assistant replay; empty string is accepted by V4 and ignored by V3.
             if msg.role == "assistant":
                 stored = getattr(msg, "reasoning_content", None)
                 model_lower = (self.model or "").lower()
@@ -1917,27 +1594,14 @@ class OpenAICompatProvider(BaseLLMProvider):
         if merged.get("stop"):
             params["stop"] = merged["stop"]
         if merged.get("tools"):
-            # Defense in depth: normalise the tool schemas to OpenAI strict
-            # shape right before they go on the wire. The proactive pass in
-            # context_builder.build_direct_tools covers the standard path,
-            # but any custom builder (MCP late-binding, sub-agent override,
-            # external caller) that hands us tools is normalised here too.
-            #
-            # Hot path: ``normalize_strict_tools`` returns False when the
-            # list was already seen (id()-keyed cache) -- one set lookup,
-            # ~100 ns, no recursion. We only run the heavier validator on
-            # the first call for each list, so a session of 50 turns pays
-            # the validation cost ONCE.
+            # defense-in-depth strict normalisation right before wire;
+            # id()-keyed cache makes the hot path one set lookup.
             from digitorn.core.runtime.strict_schema import (
                 assert_strict_tools,
                 normalize_strict_tools,
             )
             tools_for_api = merged["tools"]
             if normalize_strict_tools(tools_for_api):
-                # Fresh list - validate after normalisation. If anything
-                # remains it means the walker missed a JSON-Schema shape
-                # and the next 400 from the gateway will mention the same
-                # path. Log loud so we can extend the walker.
                 remaining = assert_strict_tools(tools_for_api)
                 if remaining:
                     for tool_name, path, reason in remaining[:5]:
@@ -1998,18 +1662,13 @@ class OpenAICompatProvider(BaseLLMProvider):
         return params
 
     def _parse_response(self, response: Any) -> ChatResponse:
-        """Parse OpenAI API response into ChatResponse."""
         choice = response.choices[0] if response.choices else None
 
         content = choice.message.content or "" if choice else ""
         finish_reason = choice.finish_reason if choice else None
 
-        # DeepSeek V4 thinking mode emits `reasoning_content` on message.
-        # Must be preserved and replayed on next turn (API enforces it).
-        # Use the raw value - empty string is meaningful (V4 emitted an
-        # empty reasoning block but the field is still required on the
-        # next API call). `or None` would have collapsed it to None and
-        # downstream would have dropped the field entirely.
+        # V4 thinking requires reasoning_content replayed verbatim,
+        # empty string included.
         reasoning_content = None
         if choice and hasattr(choice.message, "reasoning_content"):
             reasoning_content = getattr(choice.message, "reasoning_content", None)

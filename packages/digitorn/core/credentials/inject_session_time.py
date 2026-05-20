@@ -1,32 +1,4 @@
-"""Session-time credential injection.
-
-Counterpart to `inject_deploy_time` for **user-scoped** credentials
-(`per_user`, `per_app_per_user`). Runs at the start of every chat
-session for the activating user, resolves their refs from the vault,
-and **mutates the live module/provider instances** so the agent turn
-that follows uses the user's keys.
-
-Why we mutate live instances instead of the compiled config:
-  - Deploy-time injection already wrote system_wide + per_app_shared
-    fields into `compiled.modules[mid].config`. Modules called
-    `on_config_update(...)` once at deploy with that dict, then built
-    their internal state (LLM clients, DB pools, etc.).
-  - Re-calling `on_config_update` per session would tear down those
-    pools and is racy against in-flight turns.
-  - Instead, we hot-swap the credential fields on the live instances.
-    The legacy `{{secret.X}}` path does the same trick via
-    `_override_provider_fields`.
-
-For LLM providers we delegate to the existing
-`_override_provider_fields` helper in `session_resolver.py` so a
-single mutation strategy is shared with the legacy path.
-
-For other modules with declared slots (MCP servers, DB, channels,
-http clients), we currently only update the compiled config dict and
-log a warning - the in-place mutation hooks aren't defined yet.
-That is fine for the milestone: those modules carry their own runtime
-resolver paths.
-"""
+"""Session-time credential injection for user-scoped credentials (per_user, per_app_per_user)."""
 
 from __future__ import annotations
 
@@ -63,28 +35,7 @@ async def inject_session_time_credentials(
     audit: Any = None,
     byok_overrides: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, list[str]]:
-    """Resolve every per-user `credential:` ref for the current
-    session and apply the values to the live runtime objects.
-
-    ``byok_overrides`` (LOCAL mode only) is a per-turn map
-    ``{agent_id: ref_dict}`` produced by
-    ``build_byok_overrides_for_app``. For each agent whose brain has
-    no YAML-declared ``credential:``, the entry is treated as a
-    synthetic ref - the rest of the pipeline (parse, resolve, inject
-    or raise ``CredentialAuthRequired``) is identical to the YAML
-    path. The compiled object is never mutated, so a concurrent
-    session for a different user is unaffected.
-
-    Returns a diagnostic dict:
-        {"providers": [...resolved provider_ids...],
-         "modules":   [...resolved module_ids...]}
-
-    Raises:
-        CredentialInjectError when a required user-scoped slot can
-            not be resolved.
-        CredentialAuthRequired when a grant flow is needed
-            (propagated from the underlying store).
-    """
+    """Resolve every per-user `credential:` ref for the current session and apply to live runtime objects."""
     overrides = byok_overrides or {}
     resolved_providers: list[str] = []
     resolved_modules: list[str] = []
@@ -96,34 +47,21 @@ async def inject_session_time_credentials(
     if credential_store is None:
         return {"providers": resolved_providers, "modules": resolved_modules}
 
-    # Cloud mode: same policy as ensure_user_credentials_for_app -
-    # skip every per_user / per_app_per_user override. The meta
-    # credential (system_wide, baked at deploy time) is what every
-    # app uses in hosted. Users cannot bring their own keys.
     try:
         from digitorn.core.config import get_settings as _get_settings
         if _get_settings().mode == "cloud":
             return {"providers": resolved_providers, "modules": resolved_modules}
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("inject_session_time best-effort block failed: %s", exc)
 
     if not user_id:
         return {"providers": resolved_providers, "modules": resolved_modules}
 
-    # Walk the behavior brain (separate from agents - it's the
-    # classifier that runs once per user turn). The behavior brain
-    # is registered as an inline provider with a dynamic id, so we
-    # override every live provider whose `provider_hint` matches the
-    # canonical provider name (deepseek/openai/...).
     behavior = getattr(compiled, "behavior", None)
     if behavior is not None:
         bbrain = getattr(behavior, "brain", None)
         if bbrain is not None:
             cred_raw = getattr(bbrain, "credential", None)
-            # BYOK fallback: if the YAML didn't bind a credential,
-            # honour the per-turn override produced upstream from
-            # ``user_app_byok``. The compiled block itself is never
-            # mutated.
             if cred_raw is None:
                 cred_raw = overrides.get("behavior")
             if cred_raw is not None:
@@ -152,17 +90,7 @@ async def inject_session_time_credentials(
                             "session_time_behavior_unexpected exc=%r", exc,
                         )
 
-    # Decide ONCE whether the brain credentials are needed at all.
-    # When the user is going to route every LLM call via the gateway
-    # (the option-C default for authenticated users), the YAML brain
-    # credentials are moot - the gateway handles auth with the user's
-    # JWT and its own catalogued credentials. Resolving brain creds
-    # here would only ever surface a CredentialAuthRequired picker
-    # for credentials the user doesn't even need.
-    #
-    # Module credentials (web search keys, channel webhooks, ...) are
-    # NOT skipped: those fire from local modules running in the daemon
-    # and the gateway can't proxy them.
+    # skip brain credential resolution when gateway routing will handle auth via JWT; module credentials still resolve.
     gateway_will_route = _gateway_will_route_for_brains(
         user_id=user_id,
         app_id=getattr(compiled, "app_id", ""),
@@ -175,9 +103,6 @@ async def inject_session_time_credentials(
         brain = getattr(agent, "brain", None)
         if brain is None:
             continue
-        # Skip brain credential resolution when the runtime resolver
-        # will route this agent via the gateway. We still process
-        # the agent's BYOK override (the user explicitly opted in).
         if (
             gateway_will_route
             and agent_id not in overrides
@@ -185,8 +110,7 @@ async def inject_session_time_credentials(
         ):
             continue
         cred_raw = getattr(brain, "credential", None)
-        # BYOK fallback: same reasoning as the behavior brain. The
-        # YAML-declared credential always wins over the toggle.
+        # BYOK is only a fallback - YAML-declared credential always wins.
         is_byok_synthetic = False
         if cred_raw is None and agent_id in overrides:
             cred_raw = overrides[agent_id]
@@ -215,13 +139,7 @@ async def inject_session_time_credentials(
             if applied:
                 resolved_providers.append(applied)
             elif is_byok_synthetic:
-                # BYOK is on, the user has no stored credential matching
-                # the synthetic ref - the picker dialog must open. The
-                # injector swallows missing-credential as "optional" for
-                # llm_provider (no slot manifest), so we explicitly
-                # raise CredentialAuthRequired here. The frontend's
-                # credential_auth_required event handler picks up the
-                # ``field_spec`` and ``provider`` to render the form.
+                # BYOK on with no stored credential -> open the picker by raising CredentialAuthRequired.
                 from digitorn.core.credentials.store import (
                     CredentialAuthRequired,
                 )
@@ -250,8 +168,7 @@ async def inject_session_time_credentials(
         except CredentialInjectError:
             raise
         except Exception as exc:
-            # CredentialAuthRequired must propagate so the route handler
-            # can transform it into the structured picker event.
+            # re-raise CredentialAuthRequired so the route handler can transform it into the structured picker event.
             from digitorn.core.credentials.store import (
                 CredentialAuthRequired,
             )
@@ -293,40 +210,14 @@ async def inject_session_time_credentials(
     return {"providers": resolved_providers, "modules": resolved_modules}
 
 
-# ── Internals ──────────────────────────────────────────────────────
-
-
 def _gateway_will_route_for_brains(
     *, user_id: str, app_id: str, byok_overrides: dict[str, Any],
 ) -> bool:
-    """Mirror of ``gateway_resolver.resolve_session_provider`` for the
-    "would brain credentials be needed?" pre-flight check. Returns True
-    when the runtime is going to swap every brain provider for the
-    gateway-routed one anyway; in that case the YAML credential block
-    on each brain is moot and we skip resolving it (which would only
-    ever fire CredentialAuthRequired for credentials the user does
-    NOT need).
-
-    Returns False (= "do resolve creds") when:
-      * The user is anonymous / system / local pseudo-user.
-      * The operator killed the gateway (settings.runtime.gateway_enabled = False).
-      * BYOK overrides exist (the user opted out per agent; the user's
-        saved credential should be injected). Per-agent decision is
-        made later in the loop, but the presence of ANY override means
-        we keep the resolution machinery armed.
-
-    NOTE: this is intentionally light-weight. We do NOT call
-    ``resolve_session_provider`` here -- that would build a real
-    provider instance and invert the dependency direction (the
-    resolver expects the deployed provider to ALREADY be created).
-    """
+    """Mirror of `gateway_resolver.resolve_session_provider` for the"""
     from digitorn.core.credentials.gateway_resolver import NON_USER_IDS
     if (user_id or "").strip().lower() in NON_USER_IDS:
         return False
     if byok_overrides:
-        # At least one agent has a BYOK override - keep the resolver
-        # armed so the per-agent loop can apply it. Other agents will
-        # be filtered out individually in the loop.
         return False
     try:
         from digitorn.core.config import get_settings as _get_settings
@@ -340,10 +231,7 @@ def _gateway_will_route_for_brains(
 
 
 def _brain_is_local(brain: Any) -> bool:
-    """True when the brain's provider is local-only (ollama, lm_studio,
-    vllm, ...). We always resolve brain credentials for local providers
-    because the gateway can't proxy a model running on the user's
-    machine."""
+    """True when the brain's provider is local-only (ollama, lm_studio,"""
     from digitorn.core.credentials.gateway_resolver import LOCAL_PROVIDERS
     name = ""
     direct = getattr(brain, "provider", None)
@@ -367,14 +255,7 @@ async def _apply_inline_provider_credential(
     app_id: str,
     audit: Any = None,
 ) -> int:
-    """Resolve the credential and override every live LLM provider
-    whose `provider_hint` matches the brain's canonical provider name.
-
-    Used for inline-registered providers (behavior brain, fallback
-    brains, summary brain) where the provider_id is dynamic
-    (`_inline_<hex>`, `behavior_classifier_<hex>`) and not derivable
-    from the compiled config.
-    """
+    """Resolve the credential and override every live LLM provider"""
     llm_module = modules.get("llm_provider")
     if llm_module is None:
         return 0
@@ -411,9 +292,6 @@ async def _apply_inline_provider_credential(
         store=credential_store, user_id=user_id,
         app_id=app_id, audit=audit,
     )
-    # Build a synthetic `agents.behavior.brain` block path that the
-    # injector's `_collect_refs` will pick up. We reuse `_SingleBrainView`
-    # for that and remap the resulting block_path.
     view = _SingleBrainView(
         agent_id="behavior", brain=brain, ref_raw=ref_raw,
     )
@@ -428,9 +306,6 @@ async def _apply_inline_provider_credential(
     if not target_dict:
         return 0
 
-    # Override every live provider whose hint matches the canonical
-    # provider name. This catches dynamic-id providers (behavior,
-    # fallback, summary) that share the same upstream LLM service.
     overridden = 0
     providers = getattr(llm_module, "_providers", {}) or {}
     from digitorn.core.credentials.session_resolver import (
@@ -439,9 +314,6 @@ async def _apply_inline_provider_credential(
     for pid, prov in list(providers.items()):
         hint = getattr(prov, "provider_hint", "") or getattr(prov, "provider_id", "")
         if hint == canonical or pid.startswith("_inline_") or pid.endswith("_brain"):
-            # Best-effort override: the canonical provider name match
-            # AND any inline / agent_brain id covers behavior +
-            # classifier + fallbacks of the same provider family.
             try:
                 _override_provider_fields(
                     prov, target_dict,
@@ -450,8 +322,8 @@ async def _apply_inline_provider_credential(
                     provider_id=pid,
                 )
                 overridden += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("inject_session_time best-effort block failed: %s", exc)
     logger.info(
         "session_time_inline_credential_applied canonical=%s overridden=%d",
         canonical, overridden,
@@ -470,9 +342,7 @@ async def _apply_brain_credential(
     app_id: str,
     audit: Any = None,
 ) -> str | None:
-    """Resolve the brain's credential ref and override the live LLM
-    provider instance. Returns the provider_id when successful, else None.
-    """
+    """Resolve the brain's credential ref and override the live LLM"""
     llm_module = modules.get("llm_provider")
     if llm_module is None:
         return None
@@ -481,11 +351,6 @@ async def _apply_brain_credential(
     if not provider_id:
         return None
 
-    # Build a synthetic 1-block view for the injector. We run the
-    # injector against an isolated wrapper, then push the resolved
-    # fields onto the live provider instance. The wrapper shape
-    # `{"config": target_dict}` matches the injector's
-    # `{block}.config.<field>` default templates.
     target_dict: dict[str, Any] = {}
     compiled_blocks = {f"agents.{agent_id}.brain": {"config": target_dict}}
 
@@ -563,19 +428,10 @@ async def _apply_module_credential(
     app_id: str,
     audit: Any = None,
 ) -> bool:
-    """Resolve a non-brain module's credential ref. Currently we
-    write the resolved fields into the compiled config dict and
-    re-call `on_config_update` IF the module advertises support for
-    hot reconfiguration via the `_supports_session_credential_reload`
-    flag. Otherwise we log and skip - the legacy resolver paths or
-    the module's own runtime lookup will pick up the credential.
-    """
+    """Resolve a non-brain module's credential ref. Currently we"""
     if module_instance is None:
         return False
 
-    # Synthetic 1-block view. Same wrapping pattern as for brains so
-    # the injector's `{block}.config.<field>` templates land inside
-    # `target_dict`.
     target_dict: dict[str, Any] = dict(compiled_module_cfg.config or {})
     compiled_blocks = {f"modules.{module_id}": {"config": target_dict}}
     app_view = _SingleModuleView(module_id=module_id, ref_raw=ref_raw)
@@ -621,9 +477,6 @@ async def _apply_module_credential(
         module_id,
     )
     return False
-
-
-# ── Tiny duck-typed views the injector consumes ────────────────────
 
 
 class _SingleBrainView:

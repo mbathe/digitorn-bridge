@@ -1,16 +1,4 @@
-"""Per-session real-time metrics - isolated, detailed, streamable.
-
-Each session gets its own SessionMetrics instance that tracks everything:
-tokens, latencies, tool calls, context usage, memory state, errors.
-
-Metrics are:
-- Updated in-place (cheap, no DB writes on hot path)
-- Snapshotable at any time (JSON dict for API/SSE/Socket.IO)
-- Publishable to MetricsCollector for Prometheus aggregation
-- Isolated per session (no cross-session interference)
-
-Integration: created in agent_loop, updated via callbacks, exposed via API.
-"""
+"""Per-session real-time metrics - isolated, detailed, streamable."""
 
 from __future__ import annotations
 
@@ -21,10 +9,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# ── Shared tokenizer - accurate when tiktoken is installed, char-based
-# fallback otherwise. Never raises. The encoding cl100k_base matches
-# GPT-4/3.5 and is close enough for Claude/Anthropic and most open models
-# (Ollama, DeepSeek) - better than `len(s) // 4` for code, JSON, and CJK.
 _TIKTOKEN_ENC: Any | None = None
 _TIKTOKEN_TRIED = False
 
@@ -44,15 +28,14 @@ def _get_tiktoken_enc() -> Any | None:
 
 
 def _count_tokens(text: str) -> int:
-    """Count tokens with tiktoken cl100k_base, or char/4 fallback."""
     if not text:
         return 0
     enc = _get_tiktoken_enc()
     if enc is not None:
         try:
             return len(enc.encode(text, disallowed_special=()))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("session_metrics best-effort block failed: %s", exc)
     return len(text) // 4
 
 
@@ -167,7 +150,6 @@ class SessionMetrics:
     last_error: str = ""
     retries: int = 0
 
-    # ── Update methods (called from agent_loop callbacks) ────────
 
     def record_llm_call(self, duration_ms: float, prompt_tokens: int, completion_tokens: int) -> None:
         self.llm_calls += 1
@@ -235,31 +217,14 @@ class SessionMetrics:
         # System prompt tokens - prefer tiktoken (cl100k_base) when available
         ctx.system_prompt_tokens = _count_tokens(system_prompt) if system_prompt else 0
 
-        # Tools schema tokens - count the actual JSON payload, not a flat
-        # per-tool estimate. A realistic tool schema (name + description +
-        # params) is 150-500 tokens; 90 was grossly low for anything
-        # beyond a trivial tool.
-        #
-        # When native_tool_use is False (provider doesn't support OpenAI
-        # tool calling - e.g. Ollama qwen2.5-7b), the context_builder
-        # renders the tool descriptions INTO the system prompt text. The
-        # provider then receives NO `tools` field on the wire. In that
-        # case, counting tools_schema_tokens separately would double-count:
-        # the cost is already in system_prompt_tokens. So we zero it out.
         import json as _json
         if tools and native_tool_use:
             tools_payload = _json.dumps(tools, ensure_ascii=False, default=str)
-            # Add ~4 token overhead per tool for the wrapper fields the provider
-            # injects (type: "function", strict flag, etc.) - a small constant
-            # bounded by the tool count.
             ctx.tools_schema_tokens = _count_tokens(tools_payload) + 4 * len(tools)
         else:
             ctx.tools_schema_tokens = 0
 
-        # Message history tokens - SKIP role=="system" messages: the system
-        # prompt is already accounted for separately above, including it again
-        # from session.messages would double-count and inflate the breakdown
-        # (observed empirically: a 7k system prompt appeared as 14k in UI).
+        # skip role==system messages - the system prompt is already counted above; including it twice double-counts.
         msg_text_total = ""
         tool_call_payload = ""
         tool_result_count = 0
@@ -303,7 +268,6 @@ class SessionMetrics:
             self.memory_todos_count = len(todos)
             self.memory_todos_done = sum(1 for t in todos if getattr(t, "done", False))
 
-    # ── Snapshot (JSON-safe dict for API/SSE) ────────────────────
 
     def snapshot(self) -> dict[str, Any]:
         """Complete metrics snapshot - suitable for JSON serialization."""
@@ -363,7 +327,6 @@ class SessionMetrics:
             },
         }
 
-    # ── Prometheus metrics emission ──────────────────────────────
 
     def emit_to_collector(self) -> None:
         """Push metrics to the global MetricsCollector for Prometheus."""
@@ -385,11 +348,8 @@ class SessionMetrics:
             for name, tm in self.tool_metrics.items():
                 if tm.last_duration_ms > 0:
                     m.observe("tool_execution_seconds", tm.last_duration_ms / 1000, tool=name, **labels)
-        except Exception:
-            pass
-
-
-# ── Registry: one SessionMetrics per active session ─────────────────
+        except Exception as exc:
+            logger.debug("session_metrics best-effort block failed: %s", exc)
 
 
 _sessions: dict[str, SessionMetrics] = {}
@@ -409,18 +369,7 @@ def remove_session_metrics(app_id: str, session_id: str, agent_id: str = "main")
 
 
 def session_total(app_id: str, session_id: str) -> dict[str, Any]:
-    """Aggregate metrics across the main agent + every sub-agent for one session.
-
-    Returns the cumulative tokens / tool calls / turns / latency / errors
-    seen across the main coordinator AND every Agent()-spawned worker,
-    so a single ``GET /api/metrics/sessions/{sid}`` reflects real activity
-    even when most of the work happened inside sub-agents.
-
-    Without this rollup, sub-agents counted in their own private metrics
-    rows (keyed by ``app_id:session_id:agent_id``) and the session view
-    showed only the main agent's stats - making 50-agent fleets look
-    idle even when burning tokens.
-    """
+    """Aggregate metrics across the main agent + every sub-agent for one session."""
     prefix = f"{app_id}:{session_id}:"
     matched = [sm for k, sm in _sessions.items() if k.startswith(prefix)]
     if not matched:

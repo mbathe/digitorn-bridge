@@ -1,15 +1,10 @@
-"""Pydantic parameter models for all llm_provider actions.
-
-Each action has a dedicated model so that LLM agents see the full
-JSON schema with types, descriptions, and constraints.
-"""
+"""Pydantic parameter models for all llm_provider actions."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from pydantic import BaseModel, Field
-
 
 class ConfigureParams(BaseModel):
     """Register a named LLM provider instance."""
@@ -80,7 +75,6 @@ class ConfigureParams(BaseModel):
         ),
     )
 
-
 class MessageParam(BaseModel):
     """A single message in a conversation."""
 
@@ -89,9 +83,6 @@ class MessageParam(BaseModel):
         description="Message role: 'system', 'user', 'assistant', or 'tool'.",
         pattern="^(system|user|assistant|tool)$",
     )
-    # LP9: accept Union[str, list] to support multimodal content blocks
-    # (image_url, image, text). The runtime preserves lists when images
-    # are present and flattens to string otherwise.
     content: Any = Field(
         ...,
         description="Message content (string or list of content blocks for multimodal).",
@@ -108,7 +99,6 @@ class MessageParam(BaseModel):
         None,
         description="Tool calls made by the assistant.",
     )
-
 
 class ChatParams(BaseModel):
     """Send a chat completion request to a configured provider."""
@@ -165,7 +155,6 @@ class ChatParams(BaseModel):
         description="Provider-specific extra parameters passed through to the API.",
     )
 
-
 class RemoveParams(BaseModel):
     """Remove a configured provider instance."""
 
@@ -174,10 +163,8 @@ class RemoveParams(BaseModel):
         description="Name of the provider instance to remove.",
     )
 
-
 class ListProvidersParams(BaseModel):
     """List all configured provider instances. No required parameters."""
-
 
 class GetProviderInfoParams(BaseModel):
     """Get metadata about a configured provider instance."""
@@ -186,7 +173,6 @@ class GetProviderInfoParams(BaseModel):
         ...,
         description="Name of the provider instance.",
     )
-
 
 class UpdateDefaultsParams(BaseModel):
     """Update default generation parameters for a provider instance."""

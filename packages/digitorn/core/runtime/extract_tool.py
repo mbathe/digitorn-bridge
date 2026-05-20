@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 
 def _fix_win_backslashes(s: str) -> str:
-    """Fix unescaped Windows backslashes in JSON strings from LLMs."""
     try:
         json.loads(s)
         return s
@@ -19,11 +18,6 @@ def _fix_win_backslashes(s: str) -> str:
 
 
 def _parse_yaml_params(raw: str) -> dict[str, Any]:
-    """Parse simple YAML-like params that LLMs produce instead of JSON.
-
-    Handles: ``key: "value"`` and ``key: value`` (single or multi-key).
-    Returns empty dict if parsing fails completely.
-    """
     result: dict[str, Any] = {}
     for m in re.finditer(
         r'([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*(?:"([^"]*)"'
@@ -63,22 +57,13 @@ _INLINE_TOOL_PATTERNS = [
         r'(?:,\s*"params"\s*:\s*(\{.*?\}))?\s*\}',
         re.DOTALL,
     ),
-    # Same YAML-ish ``content: ...\ntool_calls: [NAME]`` format. The
-    # body between the two anchors is bounded to <= 64 lines to prevent
-    # catastrophic backtracking on adversarial content that has many
-    # ``content:`` lines without a matching ``tool_calls:`` (measured
-    # at 12s+ on 250 KB before the bound). The previous unbounded
-    # ``.*?`` with MULTILINE+DOTALL made ``^`` match every line start
-    # and made the engine retry every pair.
+    # 64-line bound blocks regex backtracking on adversarial content
     re.compile(
         r'^content\s*:(?:[^\n]*\n){0,64}?[^\n]*?'
         r'^tool_calls?\s*:\s*\[([a-zA-Z0-9_.]+(?:__[a-zA-Z0-9_]+)?)'
         r'(?:\((\{[^{}]{0,4096}\})\))?\]',
         re.MULTILINE | re.IGNORECASE,
     ),
-    # Bulletised ``tool_calls:\n  name: X\n  params: {...}``. The
-    # param body is bounded so pathological nested braces can't force
-    # exponential scanning.
     re.compile(
         r'tool_calls?\s*:\s*(?:\n\s*)?(?:[•\-\*]\s*)?name\s*:\s*'
         r'([a-zA-Z0-9_.]+(?:__[a-zA-Z0-9_]+)*)\s*'
@@ -95,36 +80,22 @@ _INLINE_TOOL_PATTERNS = [
 
 
 _JSON_TOOL_CALL_RE = re.compile(
-    # Tolerate missing closing </tool_call> tag - some models (qwen2.5)
-    # emit the opening tag + JSON then stop at max_tokens before the
-    # closing tag, or just omit it entirely.
     r'<tool_call>\s*(\{.*?\})\s*(?:</tool_call>|\Z|(?=<tool_call>))',
     re.DOTALL,
 )
 
 
-# qwen2.5 patterns:
-#   `tool_calls: [ {"name": "...", "arguments": {...}} ]`
-#   `tool_calls: [<tool_call>{"name": "...", "arguments": {...}}</tool_call>]`
-#   `tool_calls: [<tool_call>{...}` (unterminated - model hit max_tokens)
-#
-# We match everything from `tool_calls: [` up to end-of-content (or a
-# closing `]` if present). The inside is scanned for call objects - we
-# strip any `<tool_call>` / `</tool_call>` tags since they're noise.
 _TOOL_CALLS_ARRAY_RE = re.compile(
     r'tool_calls?\s*:\s*\[(.*?)(?:\]|\Z)',
     re.DOTALL | re.IGNORECASE,
 )
-# qwen sometimes wraps calls in a Python-style function call:
-#   run_parallel(actions=[{"name":"X","params":{...}}, ...])
-# or variants like parallel_tool_use(...). We capture the array payload.
 _RUN_PARALLEL_RE = re.compile(
     r'\b(?:run_parallel|parallel_tool_use|parallel_tools|batch_tools)\s*\(\s*'
     r'(?:actions|tools|calls)?\s*=?\s*(\[.*?\])\s*\)?',
     re.DOTALL | re.IGNORECASE,
 )
 _SINGLE_CALL_IN_ARRAY_RE = re.compile(
-    # Accept "arguments", "params", or "args" - qwen alternates.
+    # accept arguments|params|args (qwen alternates)
     r'\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*'
     r'"(?:arguments|params|args)"\s*:\s*(\{.*?\})\s*\}',
     re.DOTALL,
@@ -134,12 +105,7 @@ _SINGLE_CALL_IN_ARRAY_RE = re.compile(
 def _extract_inline_tool_calls(
     content: str,
 ) -> tuple[str, list[dict]] | None:
-    """Detect tool calls embedded in text content by the LLM.
-
-    Returns (clean_text_before_tool_call, synthetic_tool_calls) or None.
-    """
-    # ── NEW: unified call detector (handles all known formats via
-    # balanced-bracket parsing + registered format extractors). ──
+    """Detect tool calls embedded in text content by the LLM."""
     try:
         from digitorn.core.runtime.call_detector import extract_all_calls
         from digitorn.core.runtime.tool_names import to_fqn
@@ -166,7 +132,6 @@ def _extract_inline_tool_calls(
     except Exception as exc:
         logger.debug("call_detector failed, falling back to legacy regex: %s", exc)
 
-    # ── Legacy regex fallbacks (kept in case detector misses something) ──
     rp_match = _RUN_PARALLEL_RE.search(content)
     if rp_match:
         body = rp_match.group(1)
@@ -200,16 +165,8 @@ def _extract_inline_tool_calls(
             )
             return text_before, calls
 
-    # qwen2.5 patterns:
-    #   `tool_calls: [{"name":..., "arguments":...}]`
-    #   `tool_calls: [<tool_call>{...}</tool_call>]`  (hybrid)
-    #   `tool_calls: [<tool_call>{...}` (unterminated)
-    # Checked BEFORE the <tool_call> pattern since qwen often wraps
-    # the call array with inner tags.
     arr_match = _TOOL_CALLS_ARRAY_RE.search(content)
     if arr_match:
-        # Strip <tool_call>/</tool_call> noise from the captured body
-        # before scanning for call objects.
         body = arr_match.group(1)
         body = re.sub(r'</?tool_call>', '', body, flags=re.IGNORECASE)
         calls = []
@@ -232,7 +189,6 @@ def _extract_inline_tool_calls(
                 })
         if calls:
             text_before = content[:arr_match.start()].strip()
-            # Strip leading `content: "..."` noise qwen emits
             if text_before.lower().startswith("content:"):
                 nl = text_before.find("\n")
                 text_before = text_before[nl + 1:] if nl >= 0 else ""
@@ -255,8 +211,6 @@ def _extract_inline_tool_calls(
                 if name:
                     from digitorn.core.runtime.tool_names import to_fqn
                     resolved = to_fqn(name)
-                    # RT17: warn when extraction produces an unresolvable name -
-                    # the runtime will fail later but here we surface it.
                     if resolved == name and "." not in name:
                         logger.warning(
                             "extract_tool: inline call name '%s' did not resolve to FQN",

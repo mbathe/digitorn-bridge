@@ -1,19 +1,4 @@
-"""Sandboxed tool executor subprocess.
-
-The daemon runs agent_turn, decides which tool to call, and sends
-an "exec" request to this worker. The worker loads modules, applies
-OS-level sandbox (Landlock/Seatbelt/JobObject), executes the action,
-and returns the result. No LLM, no sessions, no agent loop.
-
-Lifecycle:
-    1. Receive module list + sandbox config from daemon via stdin
-    2. Load requested modules (lightweight - no LLM, no embeddings)
-    3. Apply OS sandbox (irreversible)
-    4. Signal ready
-    5. Execute tool requests in a loop until shutdown
-
-Run with: python -m digitorn.core.sandbox.worker_main
-"""
+"""Sandboxed tool executor subprocess."""
 
 from __future__ import annotations
 
@@ -67,7 +52,6 @@ async def _main() -> None:
     private_tmp = ""
 
     if warm_pool:
-        # Warm mode: skip sandbox, signal warm-ready, wait for sandbox IPC
         _write({"id": 0, "success": True, "data": {
             "app_id": app_id,
             "warm": True,
@@ -75,7 +59,6 @@ async def _main() -> None:
 
         logger.info("worker_warm app=%s modules=%s", app_id, list(modules.keys()))
     else:
-        # Immediate sandbox mode: existing behavior unchanged
         guard, private_tmp = _apply_sandbox(
             app_id=app_id,
             workspace=workspace,
@@ -100,8 +83,8 @@ async def _main() -> None:
         for mod in modules.values():
             try:
                 await mod.on_stop()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("worker_main best-effort block failed: %s", exc)
         if private_tmp:
             _cleanup_tmpdir(private_tmp)
 
@@ -176,8 +159,8 @@ def _cleanup_tmpdir(tmpdir: str) -> None:
     import shutil
     try:
         shutil.rmtree(tmpdir, ignore_errors=True)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("worker_main best-effort block failed: %s", exc)
 
 
 async def _request_loop(modules: dict[str, Any], workspace: str) -> None:
@@ -202,7 +185,6 @@ async def _request_loop(modules: dict[str, Any], workspace: str) -> None:
             break
 
         if req.method == "sandbox":
-            # Deferred sandbox application (warm pool mode)
             try:
                 sb_workspace = req.payload.get("workspace", "")
                 sb_session = req.payload.get("session_id", "")
@@ -220,15 +202,14 @@ async def _request_loop(modules: dict[str, Any], workspace: str) -> None:
 
                 current_workspace = sb_workspace
 
-                # Update module configs with the new workspace
                 for mid, mod in modules.items():
                     config: dict[str, Any] = {}
                     if sb_workspace:
                         config["workspace"] = sb_workspace
                     try:
                         await mod.on_config_update(config)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("worker_main best-effort block failed: %s", exc)
 
                 resp = IPCResponse(id=req.id, success=True, data={
                     "sandbox_ready": True,
@@ -336,15 +317,7 @@ def _apply_deferred_sandbox(
     hardening: dict[str, Any],
     audit: bool = False,
 ) -> tuple[Any, str]:
-    """Apply sandbox in deferred mode (warm pool).
-
-    Order (each layer independent - partial failure doesn't block rest):
-        1. Process hardening (PR_SET_MDWE, drop caps, no_dumpable)
-        2. Namespaces (user, pid, net - if configured)
-        3. Landlock (filesystem restrictions)
-        4. seccomp-notify (real-time audit - if audit=True, before static filter)
-        5. seccomp (static syscall filter - last, locks syscall surface)
-    """
+    """Apply sandbox in deferred mode (warm pool)."""
     from digitorn.core.sandbox.profile import SandboxProfile
     from digitorn.core.sandbox.guard import SandboxGuard
 
@@ -358,7 +331,6 @@ def _apply_deferred_sandbox(
 
     guard = SandboxGuard(app_id=profile.app_id)
 
-    # Step 1: Process hardening
     do_hardening = hardening.get("enabled", True) if hardening else True
     if do_hardening:
         try:
@@ -374,7 +346,6 @@ def _apply_deferred_sandbox(
             guard.warnings.append(f"hardening: {exc}")
             logger.warning("deferred_hardening_skipped: %s", exc)
 
-    # Step 2: Namespaces (if configured)
     if namespaces:
         try:
             from digitorn.core.sandbox.namespaces import unshare_namespaces
@@ -384,17 +355,13 @@ def _apply_deferred_sandbox(
             guard.warnings.append(f"namespaces: {exc}")
             logger.warning("deferred_namespaces_skipped: %s", exc)
 
-    # Step 3: Landlock (filesystem restrictions)
     from digitorn.core.sandbox import apply_sandbox
     fs_guard = apply_sandbox(profile)
     guard.active = fs_guard.active
     guard.unavailable = fs_guard.unavailable
     guard.warnings.extend(fs_guard.warnings)
 
-    # Step 4: seccomp-notify (real-time syscall audit)
-    # Must be installed BEFORE the static seccomp filter (Step 5) because
-    # seccomp filters stack - first match wins. The notify filter intercepts
-    # audited syscalls and forwards them to the daemon for real-time logging.
+    # seccomp-notify must be installed BEFORE the static seccomp filter (first match wins)
     notify_fd = None
     if audit:
         try:
@@ -410,7 +377,6 @@ def _apply_deferred_sandbox(
             guard.warnings.append(f"seccomp_notify: {exc}")
             logger.warning("seccomp_notify_failed session=%s: %s", session_id, exc)
 
-    # Step 5: seccomp static filter (last - locks syscall surface)
     try:
         from digitorn.core.sandbox.seccomp import apply_seccomp
         ok, warns = apply_seccomp(
@@ -434,13 +400,11 @@ def _apply_deferred_sandbox(
 
 
 def _monotonic() -> float:
-    """Monotonic clock for uptime tracking."""
     import time
     return time.monotonic()
 
 
 def _get_memory_rss() -> int:
-    """Get current process RSS in bytes."""
     try:
         import os
         with open(f"/proc/{os.getpid()}/statm") as f:

@@ -1,15 +1,4 @@
-"""Per-session audit trail - immutable security log.
-
-Records security-relevant events for each sandboxed session:
-    - Worker lifecycle transitions (warm → sandboxed → tainted)
-    - Namespace creation / failures
-    - Landlock / seccomp application
-    - Intercepted syscalls (from seccomp-notify)
-    - File access patterns
-    - Session start / end
-
-Stored as append-only JSONL files in the session state directory.
-"""
+"""Per-session audit trail: append-only JSONL security log."""
 
 from __future__ import annotations
 
@@ -32,7 +21,7 @@ class AuditEntry:
     app_id: str
     session_id: str
     data: dict[str, Any] = field(default_factory=dict)
-    severity: str = "info"  # info | warning | alert
+    severity: str = "info"
 
 
 class SessionAuditLog:
@@ -62,7 +51,7 @@ class SessionAuditLog:
         self._fd = os.open(
             str(self._path),
             os.O_WRONLY | os.O_CREAT | os.O_APPEND,
-            0o600,  # owner-only
+            0o600,
         )
 
     def record(
@@ -87,7 +76,6 @@ class SessionAuditLog:
             os.write(self._fd, line.encode("utf-8"))
             os.fsync(self._fd)
         else:
-            # Fallback: append via pathlib
             with self._path.open("a") as f:
                 f.write(line)
 

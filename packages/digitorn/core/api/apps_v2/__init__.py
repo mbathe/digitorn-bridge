@@ -1,12 +1,4 @@
-"""Drop-in replacement for ``digitorn.core.api.apps``.
-
-Composes a single ``router`` from every sub-module's APIRouter so the
-daemon can swap ``from digitorn.core.api.apps import router`` for
-``from digitorn.core.api.apps_v2 import router`` without further changes.
-
-The legacy ``apps.py`` remains untouched - readers can keep using it as
-a fallback while we validate the split.
-"""
+"""Drop-in replacement for `digitorn.core.api.apps`."""
 
 from __future__ import annotations
 
@@ -34,7 +26,7 @@ from . import (
 )
 
 # Re-export shared helpers + models for callers that used to do
-# ``from digitorn.core.api.apps import AppResponse, _classify_error, ...``
+# `from digitorn.core.api.apps import AppResponse, _classify_error, ...`
 from ._shared import (  # noqa: F401
     AppResponse,
     AppSummary,
@@ -109,9 +101,6 @@ from ._shared import (  # noqa: F401
 
 router = APIRouter(prefix="/api/apps", tags=["apps"])
 
-# ``list_apps`` registers at the master prefix with no extra path
-# segment. Sub-routers can't carry an empty path (FastAPI rejects
-# ``prefix='' + path=''``), so we mount it directly on the master.
 router.add_api_route(
     "",
     lifecycle.list_apps,
@@ -120,9 +109,6 @@ router.add_api_route(
     tags=["apps"],
 )
 
-# Order is intentional only insofar as a few modules expose more
-# specific paths than others (e.g. ``/sessions/search`` before
-# ``/sessions/{session_id}``); FastAPI matches in registration order.
 router.include_router(lifecycle.router)
 router.include_router(sessions.router)
 router.include_router(messages.router)

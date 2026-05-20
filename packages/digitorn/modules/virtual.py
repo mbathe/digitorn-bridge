@@ -1,29 +1,4 @@
-"""Module Spec v3 - Virtual Module Factory.
-
-Provides ``VirtualModuleFactory`` which creates BaseModule subclasses
-dynamically at runtime.  This enables:
-  - AI-driven dynamic module generation (from LLM tool descriptions)
-  - Adapter modules wrapping external APIs as Digitorn modules
-  - Thin wrappers around functions/callables
-  - Runtime module composition without static class definitions
-
-Usage::
-
-    factory = VirtualModuleFactory()
-    module = factory.create(
-        module_id="greeting",
-        version="1.0.0",
-        description="Dynamic greeting module",
-        actions={
-            "hello": VirtualAction(
-                handler=async_hello_handler,
-                description="Say hello",
-                params=[ParamSpec("name", "string", "Name to greet")],
-            ),
-        },
-    )
-    registry.register_instance(module)
-"""
+"""Module Spec v3 - Virtual Module Factory."""
 
 from __future__ import annotations
 
@@ -37,7 +12,6 @@ from digitorn.modules.manifest import (
     ModuleManifest,
     ParamSpec,
 )
-
 
 @dataclass
 class VirtualAction:
@@ -54,13 +28,8 @@ class VirtualAction:
     output_schema: dict[str, Any] | None = None
     capabilities: list[Capability] = field(default_factory=list)
 
-
 class VirtualModule(BaseModule):
-    """A module created dynamically by VirtualModuleFactory.
-
-    All actions are registered via ``register_action()`` in __init__.
-    No static ``_action_*`` methods are needed.
-    """
+    """A module created dynamically by VirtualModuleFactory."""
 
     def __init__(
         self,
@@ -113,34 +82,8 @@ class VirtualModule(BaseModule):
             declared_capabilities=self._declared_capabilities,
         )
 
-
 class VirtualModuleFactory:
-    """Factory for creating VirtualModule instances at runtime.
-
-    Examples::
-
-        factory = VirtualModuleFactory()
-
-        module = factory.create(
-            module_id="dynamic_tools",
-            version="1.0.0",
-            description="Dynamically generated tools",
-            actions={
-                "greet": VirtualAction(
-                    handler=my_async_handler,
-                    description="Greet someone",
-                    params=[ParamSpec("name", "string", "Name to greet")],
-                ),
-            },
-        )
-
-        module = factory.from_callable(
-            module_id="calculator",
-            handler=async_calculate,
-            action_name="calculate",
-            description="Perform a calculation",
-        )
-    """
+    """Factory for creating VirtualModule instances at runtime."""
 
     def create(
         self,
@@ -200,10 +143,7 @@ class VirtualModuleFactory:
         version: str = "1.0.0",
         description: str = "",
     ) -> VirtualModule:
-        """Create a VirtualModule from LangChain-style tool schemas.
-
-        Useful for wrapping LLM-generated tool descriptions as Digitorn modules.
-        """
+        """Create a VirtualModule from LangChain-style tool schemas."""
         actions: dict[str, VirtualAction] = {}
         for schema in tool_schemas:
             name = schema["name"]

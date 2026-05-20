@@ -1,47 +1,4 @@
-"""Pydantic models for the YAML `credential:` block.
-
-This is the new declarative way for an app.yaml to bind a credential
-to a consumer block. Replaces the old pattern of inlining
-`{{secret.X}}` / `{{env.X}}` template strings.
-
-Two forms accepted:
-
-  1. **Compact** (the YAML is a string):
-
-         brain:
-           credential: openai_main
-           # implicit scope = "per_user"
-
-     Tolerated for ergonomic single-user dev, but the compiler emits
-     a warning recommending the explicit form.
-
-  2. **Explicit** (the YAML is a mapping with `ref` + `scope`):
-
-         brain:
-           credential:
-             ref: openai_main
-             scope: per_user
-
-     RECOMMENDED. The scope is declared, no ambiguity. The compiler
-     checks that:
-       - the named credential exists in the vault at this exact scope
-         for the user activating the app,
-       - the handler_type of that credential is in the slot's
-         `handler_types` allow-list,
-       - the scope is in the handler's `allowed_scopes`,
-       - the scope matches what the slot accepts via `scopes_allowed`
-         (when set).
-
-A reference can also carry `provider:` to assert which provider
-template the credential SHOULD match - useful as a sanity check at
-compile time:
-
-    brain:
-      credential:
-        ref: openai_main
-        scope: per_user
-        provider: openai      # compile fails if vault entry isn't openai
-"""
+"""Pydantic models for the YAML `credential:` block."""
 
 from __future__ import annotations
 
@@ -58,17 +15,11 @@ _SCOPE_LITERAL = Literal[
     "system_wide", "per_app_shared", "per_user", "per_app_per_user",
 ]
 
-# Credential ref must be a slug-like identifier - lowercase, digits,
-# underscores, dashes. No spaces, no slashes (used as path segment in
-# audit logs and as a stable name for the vault).
 _REF_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
 
 
 class CredentialReference(BaseModel):
-    """One `credential:` reference inline in an app.yaml block.
-
-    See module docstring for the two accepted YAML shapes.
-    """
+    """One `credential:` reference inline in an app.yaml block."""
 
     model_config = {"extra": "forbid"}
 
@@ -109,16 +60,7 @@ class CredentialReference(BaseModel):
 
 
 def parse_credential_ref(raw: Any) -> CredentialReference | None:
-    """Coerce a YAML value into a CredentialReference, or None.
-
-    Accepts:
-      - None / "" → None (no credential bound)
-      - dict → validated as CredentialReference
-      - str → compact form, scope defaults to per_user, provider unset
-
-    Returns None when input is empty so the compiler can keep the
-    block fields untouched. Raises ValueError on malformed input.
-    """
+    """Coerce a YAML value into a CredentialReference, or None."""
     if raw is None or raw == "":
         return None
     if isinstance(raw, dict):
@@ -134,13 +76,7 @@ def parse_credential_ref(raw: Any) -> CredentialReference | None:
 
 
 class CredentialsManifestEntry(BaseModel):
-    """One entry in the per-app credentials manifest.
-
-    Returned by `GET /api/apps/{id}/credentials/manifest`. Built by the
-    compiler by walking every consumer block (brain, modules, agents)
-    + matching declared `credential:` references against the module's
-    `CredentialSlot`.
-    """
+    """One entry in the per-app credentials manifest."""
 
     block: str = Field(..., description="Dotted YAML path of the consumer block.")
     slot_id: str = Field(..., description="The CredentialSlot.id within that module.")

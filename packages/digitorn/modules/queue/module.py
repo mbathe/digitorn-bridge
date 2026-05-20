@@ -1,8 +1,4 @@
-"""Queue module - event-driven message queue with InMemory and Redis backends.
-
-Agents publish and consume messages with priorities, dead-letter queues,
-delayed delivery, and consumer group semantics.
-"""
+"""Queue module - event-driven message queue with InMemory and Redis backends."""
 
 from __future__ import annotations
 
@@ -38,7 +34,6 @@ from .params import (
 
 logger = logging.getLogger(__name__)
 
-
 class QueueConfig(BaseModel):
     """Pydantic config for the queue module (validated at compile time)."""
 
@@ -54,7 +49,6 @@ class QueueConfig(BaseModel):
     )
     backend_url: str | None = PydanticField(None, description="Queue backend URL (None=in-memory, redis://...=Redis Streams)")
     default_max_retries: int = PydanticField(3, ge=0, le=100, description="Default max retries before dead-letter")
-
 
 class QueueModule(BaseModule):
     MODULE_ID = "queue"
@@ -117,10 +111,6 @@ class QueueModule(BaseModule):
         if self._backend is None:
             self._backend = InMemoryQueueBackend()
         return self._backend
-
-    # ------------------------------------------------------------------
-    # Actions
-    # ------------------------------------------------------------------
 
     @action(
         description="Create or ensure a named message queue exists.",
@@ -341,10 +331,6 @@ class QueueModule(BaseModule):
             "messages": [m.to_dict() for m in messages],
             "count": len(messages),
         })
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
 
     def state_snapshot(self) -> dict[str, Any]:
         return {

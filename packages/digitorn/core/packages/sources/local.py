@@ -1,19 +1,4 @@
-"""LocalSource - install a package from a directory on disk.
-
-The user points the daemon at any directory containing a
-``package.toml`` and the daemon installs it. Two modes:
-
-- **copy** (default): the daemon copies the entire directory into
-  ``~/.digitorn/packages/<id>/``. The original is no longer
-  consulted - edits to the user's source tree don't affect the
-  installed copy.
-- **symlink**: the install dir becomes a symlink to the user's
-  directory. Edits to the source are immediately visible to the
-  daemon. **Not recommended for production**, but excellent for
-  iterating on a package being developed in place.
-
-Source URI format: ``file://<absolute-path>``.
-"""
+"""LocalSource - install a package from a directory on disk."""
 
 from __future__ import annotations
 
@@ -29,15 +14,7 @@ from digitorn.core.packages.source import (
     PackageSource,
 )
 
-
 def _parse_local_uri(source_uri: str) -> Path:
-    """Normalise every reasonable file URI / raw path into a Path.
-
-    Handles the four common forms (POSIX RFC-8089, Windows
-    forward-slash file://, Windows backslash file://, raw paths)
-    so the user can type whatever's natural on their OS without
-    having to remember the exact RFC.
-    """
     if not source_uri.startswith("file://"):
         return Path(source_uri)
 
@@ -54,14 +31,11 @@ def _parse_local_uri(source_uri: str) -> Path:
 
 logger = logging.getLogger(__name__)
 
-
 class LocalSource(PackageSource):
     source_type = "local"
 
     def __init__(self, *, link_mode: str = "copy") -> None:
-        """Args:
-            link_mode: "copy" (default) or "symlink".
-        """
+        """"""
         if link_mode not in ("copy", "symlink"):
             raise ValueError(f"link_mode must be copy or symlink, got {link_mode!r}")
         self._link_mode = link_mode
@@ -71,17 +45,7 @@ class LocalSource(PackageSource):
         return []
 
     async def fetch(self, source_uri: str, dest: Path) -> Path:
-        """Copy or symlink the local package into ``dest``.
-
-        ``source_uri`` accepts every reasonable form a user might
-        type:
-
-        - ``file:///abs/path/to/package``     (proper RFC-8089)
-        - ``file://C:/path/to/package``       (common Windows)
-        - ``file://C:\\path\\to\\package``    (also common Windows)
-        - ``/abs/path/to/package``            (raw POSIX path)
-        - ``C:\\abs\\path\\to\\package``      (raw Windows path)
-        """
+        """Copy or symlink the local package into `dest`."""
         source_path = _parse_local_uri(source_uri)
 
         if not source_path.is_dir():

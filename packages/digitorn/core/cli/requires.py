@@ -1,9 +1,4 @@
-"""CLI commands for module requirements.
-
-    digitorn requires list        - List all requirements with status
-    digitorn requires install     - Install a specific requirement
-    digitorn requires install-all - Install all missing requirements
-"""
+"""CLI commands for module requirements."""
 
 from __future__ import annotations
 

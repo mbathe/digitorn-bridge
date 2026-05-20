@@ -1,17 +1,4 @@
-"""Durable session persistence - survives daemon restarts.
-
-Every message, tool call result, and checkpoint is persisted to the database.
-On restart, sessions are reloaded exactly where they left off.
-
-Usage in agent_loop:
-    persister = SessionPersister(app_id, session_id, agent_id)
-    await persister.save_messages(messages)
-    await persister.save_checkpoint(turn, status, usage)
-
-Usage on restart:
-    messages = await persister.load_messages()
-    checkpoint = await persister.load_checkpoint()
-"""
+"""Durable session persistence - survives daemon restarts."""
 
 from __future__ import annotations
 
@@ -24,21 +11,7 @@ from sqlalchemy import delete, select, update
 
 def _dialect_safe_insert_ignore(table: Any, rows: list[dict[str, Any]],
                                  conflict_cols: list[str]) -> Any:
-    """Plain INSERT - we DON'T use ON CONFLICT because the existing
-    ``session_messages`` index on (session_pk, seq) is NOT UNIQUE
-    and SQLite refuses ``ON CONFLICT`` on non-unique constraints.
-
-    We get idempotency from the caller's pre-check (only rows with
-    seq > existing_max are passed in), so duplicates can only arise
-    under tight concurrent-write races on the same session - which
-    don't happen in practice because ``_persist_turn`` is awaited
-    serially per turn within a session.
-
-    When we eventually migrate to Postgres AND promote the index to
-    UNIQUE, this helper can be extended to re-enable ON CONFLICT DO
-    NOTHING. Both Postgres and SQLite expose the same API shape via
-    their respective ``insert`` constructors (``index_elements=``).
-    """
+    """Plain INSERT - we DON'T use ON CONFLICT because the existing"""
     from sqlalchemy import insert as core_insert
     return core_insert(table).values(rows)
 
@@ -57,31 +30,13 @@ class SessionPersister:
         self.app_id = app_id
         self.session_id = session_id
         self.agent_id = agent_id
-        # BANK-GRADE: the user_id is part of the audit contract - a
-        # history row whose owner is NULL is unattributable and breaks
-        # "who did this". Store it on the persister so _ensure_session
-        # can stamp the row at creation time.
         self.user_id = (user_id or "").strip() or None
-        # Daemon-private workspace + agent-facing workdir. Persisted on
-        # the UserSession row so a daemon restart can rebuild the session
-        # without losing the per-session dir (otherwise the agent loses
-        # access to files it just wrote).
         self._workspace = workspace or ""
         self._workdir = workdir or ""
         self._session_pk: str | None = None
 
     async def _ensure_session(self, *, create_if_missing: bool = True) -> str | None:
-        """Get or create the UserSession row, return its PK (or None).
-
-        ``create_if_missing=True`` (default): create the row if it
-        doesn't exist. Used at the end of a successful turn
-        (``status="completed"``) to commit the session to DB.
-
-        ``create_if_missing=False``: only return the PK if the row
-        already exists; return None otherwise. Used by intermediate
-        per-tool-call persistence during a turn so a FAILED first
-        turn leaves no UserSession row in DB.
-        """
+        """Get or create the UserSession row, return its PK (or None)."""
         if self._session_pk:
             return self._session_pk
 
@@ -135,42 +90,12 @@ class SessionPersister:
         *,
         create_if_missing: bool = True,
     ) -> None:
-        """Persist all messages for this session as ``history_log``
-        rows with ``kind='message'``.
-
-        With ``create_if_missing=False``, persistence is a no-op unless
-        the UserSession row already exists - use this flag on
-        intermediate per-tool-call saves so a failing first turn
-        doesn't leak a half-written session into DB.
-        """
-        # ``HistoryLog`` / ``get_session_factory`` / ``func`` imports
-        # that used to live here served the legacy
-        # ``streaming_rows_finalize`` block (which scanned Postgres
-        # ``history_log`` to flip streaming rows to complete). That
-        # block was deleted alongside the per-chunk Postgres write
-        # in ``upsert_streaming_assistant`` -- ``save_messages`` is
-        # now SessionStore-only via ``history.record`` (which routes
-        # to the bridge). The only Postgres hop left in this function
-        # is ``_ensure_session`` (analytics ``user_sessions`` row),
-        # and that runs on the persist_worker thread off the main
-        # loop, so it cannot stall Socket.IO heartbeats.
-
+        """Persist all messages for this session as `history_log`"""
         session_pk = await self._ensure_session(create_if_missing=create_if_missing)
         if session_pk is None:
-            # First turn not yet committed - skip silently. The final
-            # "completed" persist will flush the full message history.
             return
 
-        # BANK-GRADE: APPEND-ONLY. History is immutable. We pre-check
-        # which roles are already projected in the SessionStore (the
-        # post-Phase-4c source of truth) so a re-entry never duplicates
-        # a row. Counting per role (instead of a single ``existing_max``
-        # seq) is required because user_message is emitted by the
-        # SocketIO bus on POST, while assistant_message is emitted here
-        # at turn-end -- they share no list-index seq space and the old
-        # ``MAX(HistoryLog.seq)`` gate (which read partial streaming
-        # rows from ``upsert_streaming_assistant``) silently skipped
-        # every assistant turn.
+        # count per role (not a single max seq) - user_message lands via SocketIO bus, assistant_message lands here; they share no list-index seq space.
         projected_by_role: dict[str, int] = {}
         try:
             from digitorn.core.runtime.session_store.bridge import (
@@ -193,28 +118,15 @@ class SessionPersister:
             logger.debug("history.record import failed: %s", exc)
             return
 
-        # The legacy ``streaming_rows_finalize`` block that used to
-        # live here walked Postgres ``history_log`` to flip
-        # ``streaming_status='streaming'`` rows to ``'complete'``.
-        # That whole code path is dead now: ``upsert_streaming_assistant``
-        # no longer writes to Postgres, so there are no streaming rows
-        # to finalize. Removed entirely to drop the per-turn DB roundtrip.
-
         appended = 0
         role_seen: dict[str, int] = {}
         for seq, msg in enumerate(messages):
             _role_for_gate = msg.get("role") or "unknown"
             role_seen[_role_for_gate] = role_seen.get(_role_for_gate, 0) + 1
-            # Skip the message if the SessionStore already has at least
-            # this many messages of that role projected -- it was either
-            # emitted by another path (user via SocketIO bus) or by a
-            # previous save_messages call on this same session.
             if role_seen[_role_for_gate] <= projected_by_role.get(_role_for_gate, 0):
                 continue
             raw_content = msg.get("content")
-            # Flatten: scalar ``content`` column takes the text excerpt
-            # only. Full structured content (multimodal blocks) goes
-            # into ``payload`` so images/attachments survive replay.
+            # scalar `content` column gets text only; multimodal blocks go in `payload` so attachments survive replay.
             content_for_col: str | None
             if raw_content is None:
                 content_for_col = None
@@ -271,38 +183,16 @@ class SessionPersister:
                     if atts:
                         payload["attachments"] = atts
 
-            # DeepSeek V4 thinking: stash reasoning_content in payload
-            # (HistoryLog has no dedicated column). It's required on the
-            # NEXT API call to pass back the full assistant message shape.
-            # Use ``in`` so empty string is preserved - V4 emits empty
-            # reasoning for trivial turns and still requires it on replay.
+            # DeepSeek V4 requires reasoning_content on replay (HistoryLog has no dedicated column); use `in` to preserve empty strings.
             if "reasoning_content" in msg:
                 payload["reasoning_content"] = msg["reasoning_content"]
 
-            # Stamp the agent-loop slot seq so the projection can pop
-            # the matching ``streaming_partials`` entry when the final
-            # assistant_message lands. Without this, partial buffers
-            # accumulate forever in memory after every turn.
-            # NOTE: ``agent_seq`` is the index in ``messages`` (0..N-1),
-            # NOT the event-stream seq. It is metadata for the streaming
-            # projection only -- the canonical seq for ordering /
-            # dedup is the one the SessionStore allocator assigns
-            # below via ``seq=0``.
+            # agent_seq is the messages-list index (metadata for the streaming projection); canonical seq is allocated below.
             payload["agent_seq"] = seq
 
             role = msg.get("role", "")
             try:
-                # ``seq=0`` tells ``bridge.record`` / ``store.append_event``
-                # to allocate a fresh monotonic seq from the SessionStore's
-                # SeqAllocator. Critical: previously we passed ``seq=seq``
-                # which is the ENUMERATE INDEX in the messages list
-                # (0, 1, 2, ...). Once the session had any real events
-                # on disk (last_seq >> N), the flusher rejected every
-                # ``save_messages`` write as ``seq_regression`` and the
-                # messages were SILENTLY LOST from the on-disk journal.
-                # By letting the allocator decide, the seq is guaranteed
-                # to be > current ``meta.last_seq`` -- no regression
-                # possible by construction.
+                # seq=0 tells the bridge to allocate a fresh monotonic seq - passing the enumerate index regresses last_seq and drops events.
                 await _record(
                     kind="message",
                     type=f"{role or 'unknown'}_message",
@@ -340,25 +230,7 @@ class SessionPersister:
         message_id: str | None = None,
         create_if_missing: bool = False,
     ) -> None:
-        """Progressive per-chunk persistence of the in-flight assistant
-        message. SessionStore-only: emits an ``assistant_message_partial``
-        event via the bridge so the projection buffers the latest text
-        in ``state.streaming_partials``. Crash recovery reads the
-        buffer; the live UI already sees the tokens on the wire.
-
-        The legacy ``history_log`` Postgres write that used to live
-        here was retired: Phase 4c removed every reader of those rows
-        (``/history`` reads the SessionStore, ``/events`` reads the
-        SessionStore, ``save_messages`` at turn-end emits the
-        canonical ``assistant_message``). Writing them per chunk was
-        pure overhead -- worse, it ran asyncpg on the main loop
-        every 500ms which on Windows IOCP could block in
-        ``ssl.write`` for 20+ seconds.
-
-        ``status='streaming'`` marks the snapshot as partial;
-        ``status='complete'`` is the abort-finalize variant. Both
-        paths only touch the bridge.
-        """
+        """Progressive per-chunk persistence of the in-flight assistant"""
         try:
             from digitorn.core.runtime.session_store.bridge import (
                 get_default_bridge,
@@ -366,10 +238,6 @@ class SessionPersister:
             _br = get_default_bridge()
             if _br is None:
                 return
-            # Bypass ``digitorn.core.history.record`` (its strict
-            # contract refuses ``seq=0`` on kind='event'); call
-            # ``bridge.record`` directly -- the bridge allocates the
-            # real event seq itself from the SessionStore allocator.
             await _br.record(
                 kind="event",
                 type="assistant_message_partial",
@@ -400,23 +268,7 @@ class SessionPersister:
         *,
         create_if_missing: bool = True,
     ) -> None:
-        """Append new messages (incremental save).
-
-        Writes to the SessionStore journal with ``kind='message'``.
-        Used by code paths that already know the next seq -- but the
-        seq is now ignored: the SessionStore's SeqAllocator owns the
-        numbering, and we let it allocate fresh seqs that are
-        guaranteed to be > the current ``meta.last_seq``.
-
-        NOTE: ``start_seq`` is preserved in the signature for
-        backwards compat but is no longer used. Previously we passed
-        ``seq=start_seq + i`` which produced regressions on any
-        session with prior on-disk events: ``start_seq`` was always
-        a low integer (computed from the in-memory ``messages`` list
-        length, NOT the event-stream high-water mark), so the flusher
-        rejected every write as ``seq_regression``. Now ``seq=0``
-        defers to the allocator -- no regression possible.
-        """
+        """Append new messages (incremental save)."""
         _ = start_seq  # intentionally unused -- see docstring
         session_pk = await self._ensure_session(create_if_missing=create_if_missing)
         if session_pk is None:
@@ -450,9 +302,6 @@ class SessionPersister:
             # preserved for DeepSeek V4 thinking-mode replay.
             if "reasoning_content" in msg:
                 _payload["reasoning_content"] = msg["reasoning_content"]
-            # In-list position survives as ``agent_seq`` for the
-            # streaming-partials projection; the persistence-stream
-            # seq is allocated by the store (seq=0 trigger).
             _payload["agent_seq"] = i
             await _record(
                 kind="message",
@@ -470,8 +319,7 @@ class SessionPersister:
             )
 
     async def load_messages(self) -> list[dict[str, Any]]:
-        """Load all messages for this session, ordered by seq, from
-        the unified ``history_log`` table (kind='message')."""
+        """Load all messages for this session, ordered by seq, from"""
         from digitorn.core.database import get_session_factory
         from digitorn.core.models import HistoryLog, UserSession
 
@@ -500,9 +348,6 @@ class SessionPersister:
         messages = []
         for row in rows:
             msg: dict[str, Any] = {"role": row.role or ""}
-            # Prefer the raw multimodal structure when available so
-            # images/attachments replay intact. Fall back to the
-            # flattened text column otherwise.
             raw = None
             if isinstance(row.payload, dict):
                 raw = row.payload.get("raw_content")
@@ -517,9 +362,6 @@ class SessionPersister:
             if row.name:
                 msg["name"] = row.name
             if isinstance(row.payload, dict) and "reasoning_content" in row.payload:
-                # Preserve empty string - DeepSeek V4 thinking mode
-                # rejects assistant turns missing reasoning_content
-                # even when the original turn emitted an empty block.
                 msg["reasoning_content"] = row.payload["reasoning_content"]
             messages.append(msg)
 
@@ -543,12 +385,7 @@ class SessionPersister:
         *,
         create_if_missing: bool = True,
     ) -> None:
-        """Save or update the checkpoint for this session.
-
-        Skipped if ``create_if_missing=False`` and no UserSession row
-        exists yet - avoids writing a checkpoint for a session that
-        the commit-on-first-success gate chose not to persist.
-        """
+        """Save or update the checkpoint for this session."""
         if not create_if_missing:
             pk = await self._ensure_session(create_if_missing=False)
             if pk is None:
@@ -651,14 +488,7 @@ class SessionPersister:
         )
 
     async def delete_session_data(self) -> None:
-        """Delete all persisted data for this session.
-
-        Wipes checkpoints + history_log rows (messages / events /
-        audit entries scoped to this session). UserSession row is
-        preserved - history_log rows live past session lifetime
-        for audit traceability, but ``delete_session_data`` is only
-        called on explicit user-driven "forget this session" flows.
-        """
+        """Delete all persisted data for this session."""
         from digitorn.core.database import get_session_factory
         from digitorn.core.models import SessionCheckpoint, HistoryLog
 

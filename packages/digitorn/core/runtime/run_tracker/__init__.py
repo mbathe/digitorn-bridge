@@ -1,31 +1,4 @@
-"""Public API for agent-run tracking.
-
-Every function here is **synchronous** and **non-blocking**: it
-captures the args, enqueues an event for the background worker, and
-returns. The runtime hot path (``agent_turn``, ``_loop``,
-sub-agent spawn) calls these functions WITHOUT ``await`` because
-there is no I/O happening.
-
-The actual persistence (Postgres / SQLite / JSON file / KV / nothing)
-is selected by the daemon at boot via ``install_and_start(backend)``.
-The runtime never knows which backend is in play.
-
-Usage from the runtime::
-
-    from digitorn.core.runtime import run_tracker
-
-    run_id = run_tracker.start_run(ctx, max_turns=10)
-    ctx.current_run_id = run_id
-    ...
-    run_tracker.emit_event(run_id, "turn", {"turn": 1})
-    run_tracker.increment_turns(run_id)
-    ...
-    run_tracker.complete_run(run_id, status="completed", turn_result=res)
-
-If the worker has not been started, every call is a no-op (and
-``start_run`` still returns a valid client-side UUID so callers don't
-have to special-case "tracking off").
-"""
+"""Public API for agent-run tracking."""
 
 from __future__ import annotations
 
@@ -66,9 +39,6 @@ def new_run_id() -> str:
     return uuid.uuid4().hex
 
 
-# ── Public producer API (sync, non-blocking) ──────────────────────
-
-
 def start_run(
     ctx: Any,
     max_turns: int | None,
@@ -76,23 +46,13 @@ def start_run(
     parent_run_id: Optional[str] = None,
     task_summary: Optional[str] = None,
 ) -> str:
-    """Open a new run. Returns the (client-side generated) run id
-    immediately; the actual INSERT happens asynchronously in the
-    worker. The id is valid for use as ``parent_run_id`` of nested
-    runs even before the row hits the backend.
-
-    Returns the run id even when tracking is disabled, so the runtime
-    can keep using ``ctx.current_run_id`` consistently.
-    """
+    """Open a new run"""
     run_id = new_run_id()
 
     user_id = (getattr(ctx, "user_id", None) or "").strip()
     app_id = getattr(ctx, "app_id", None) or ""
     session_id = getattr(ctx, "session_id", None) or ""
     if not user_id or not app_id or not session_id:
-        # Missing identity: still hand back a run id so the caller
-        # writes events under it, but skip the enqueue so the backend
-        # doesn't see orphan rows.
         return run_id
 
     provider_obj = getattr(ctx, "provider", None)
@@ -130,9 +90,7 @@ def complete_run(
     turn_result: Any | None = None,
     status_reason: Optional[str] = None,
 ) -> None:
-    """Close a run. Tokens / turns are pulled from ``turn_result`` if
-    provided (TurnResult dataclass-shape: prompt_tokens,
-    completion_tokens, turns_used)."""
+    """Close a run. Tokens / turns are pulled from `turn_result` if"""
     if not run_id:
         return
 
@@ -160,9 +118,7 @@ def emit_event(
     event_type: str,
     data: dict[str, Any] | None = None,
 ) -> None:
-    """Append one row to agent_run_events. Sequence is allocated
-    here (in the producer thread) so the backend writes it directly
-    without a SELECT MAX query."""
+    """Append one row to agent_run_events. Sequence is allocated"""
     if not run_id:
         return
     sequence = allocate_sequence(run_id)

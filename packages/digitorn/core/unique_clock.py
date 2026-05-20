@@ -1,6 +1,6 @@
 """Monotonic-unique UTC clock - guarantees strictly increasing timestamps.
 
-Used as the ``default=`` callable on every history/audit table so
+Used as the `default=` callable on every history/audit table so
 each row carries a timestamp that is:
 
 1. **Unique across the process.** Two concurrent writers never get the
@@ -8,9 +8,9 @@ each row carries a timestamp that is:
 2. **Monotonic.** Each call returns a strictly greater value than the
    previous one, even when the system clock ticks backward (NTP
    adjustment, virtualisation quirks).
-3. **Timezone-aware UTC.** Stored as ``DateTime(timezone=True)``.
+3. **Timezone-aware UTC.** Stored as `DateTime(timezone=True)`.
 
-Why not ``datetime.now(utc)``:
+Why not `datetime.now(utc)`:
   - Windows/Python often has only ~1ms resolution → two calls within
     the same millisecond get the SAME timestamp. A UNIQUE constraint
     on the ts column would then start failing IntegrityErrors.
@@ -21,17 +21,17 @@ Why not ``datetime.now(utc)``:
 Design:
   - Internal state: the last-issued µs-since-epoch (int).
   - Each call takes a threading Lock, reads wall-clock µs, takes
-    ``max(wall_now_us, last_issued + 1)``, updates last_issued, and
-    returns the corresponding ``datetime``.
+    `max(wall_now_us, last_issued + 1)`, updates last_issued, and
+    returns the corresponding `datetime`.
   - 16 ns per call on a modern CPU, lock contention is negligible
     for the writer rate we see (<10k events/s/sid).
 
 Cross-process guarantee:
   - Same DB written by two daemons / workers: each process has its
     own clock. They *can* collide in wall-clock µs. The DB
-    ``UNIQUE`` constraint catches it as an IntegrityError; callers
+    `UNIQUE` constraint catches it as an IntegrityError; callers
     that need the strongest guarantee wrap the INSERT in a
-    ``unique_ts_retry`` helper (see below) that bumps and retries
+    `unique_ts_retry` helper (see below) that bumps and retries
     until the row lands.
 """
 from __future__ import annotations
@@ -74,11 +74,11 @@ async def unique_ts_retry(
     """Try to insert a row with a unique ts. On IntegrityError retry
     with the clock bumped forward.
 
-    ``build_fn(ts)`` must return a row (not yet added to the session).
-    ``commit_fn(row)`` must add it to the session AND commit; raising
+    `build_fn(ts)` must return a row (not yet added to the session).
+    `commit_fn(row)` must add it to the session AND commit; raising
     IntegrityError on duplicate ts triggers the retry with a fresh ts.
 
-    After ``max_retries`` failures we re-raise. In practice 1 retry
+    After `max_retries` failures we re-raise. In practice 1 retry
     is already overkill unless two processes write the exact same µs
     simultaneously against a single DB.
     """

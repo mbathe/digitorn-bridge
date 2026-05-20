@@ -1,22 +1,4 @@
-"""CLI commands for the unified credential system.
-
-    digitorn credentials list [--provider X]
-    digitorn credentials show <id>
-    digitorn credentials create --provider X [--label Y] [--type api_key] -f key=value [-f ...]
-    digitorn credentials delete <id>
-
-    digitorn credentials grants [--app X]
-    digitorn credentials grant-add <cred_id> <app_id>
-    digitorn credentials grant-revoke <cred_id> <app_id>
-
-    digitorn credentials admin-list
-    digitorn credentials admin-create --provider X [--app Y] -f key=value
-    digitorn credentials admin-delete <id>
-
-All commands talk to the running daemon via HTTP - they do not touch
-the credential store directly, so auth + permission enforcement run
-through the same path as the Flutter client.
-"""
+"""CLI commands for the unified credential system."""
 
 from __future__ import annotations
 
@@ -73,9 +55,6 @@ def _print_cred_table(creds: list[dict]) -> None:
             c.get("status", ""),
         )
     console.print(table)
-
-
-# ── User credentials ─────────────────────────────────────────────────
 
 
 @credentials_cli.command(name="list")
@@ -170,9 +149,6 @@ def delete_credential(
     console.print("[green]Deleted.[/green]")
 
 
-# ── Grants ───────────────────────────────────────────────────────────
-
-
 @credentials_cli.command(name="grants")
 def list_grants(
     app_id: str = typer.Option("", "--app", "-a"),
@@ -243,9 +219,6 @@ def grant_revoke(
         console.print(f"[red]{data.get('error')}[/red]")
         raise typer.Exit(1)
     console.print(f"[green]Revoked {credential_id[:12]} from {app_id}[/green]")
-
-
-# ── Admin: system credentials ────────────────────────────────────────
 
 
 @credentials_cli.command(name="admin-list")

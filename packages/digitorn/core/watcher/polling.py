@@ -4,7 +4,7 @@ Fallback backend for sources that don't support OS-native notifications:
 databases, remote APIs, S3 buckets, etc.
 
 Works by periodically computing content hashes and comparing with the
-previous snapshot.  The hash function is pluggable via ``metadata.hash_fn``.
+previous snapshot.  The hash function is pluggable via `metadata.hash_fn`.
 """
 
 from __future__ import annotations
@@ -69,8 +69,8 @@ class PollingWatcher:
     """Watch a source by periodically hashing its contents.
 
     Suitable for any source type - filesystem, database rows, API endpoints.
-    For non-filesystem sources, provide a custom ``list_fn`` and ``hash_fn``
-    in ``config.metadata``.
+    For non-filesystem sources, provide a custom `list_fn` and `hash_fn`
+    in `config.metadata`.
     """
 
     def __init__(

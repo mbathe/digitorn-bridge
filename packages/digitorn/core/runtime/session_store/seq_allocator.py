@@ -1,19 +1,4 @@
-"""Monotonic sequence number allocator.
-
-Drop-in replacement for ``EventBuffer.next_seq`` with the same
-invariants:
-
-  * threading.Lock (not asyncio) so threadpool callers (subprocess,
-    DB, hooks) get serialised correctly with asyncio callers
-  * per-session scope key (``session::<sid>``) since session UUIDs
-    are globally unique
-  * cold-start seed via injected ``seed_loader`` so a daemon restart
-    OR a session-cache cold reload picks up exactly where the previous
-    run stopped, never recycling a seq already on disk
-  * ``next()`` returns the freshly-incremented value; multiple
-    publishers cannot race to the same number because the increment
-    happens under the lock
-"""
+"""Monotonic sequence number allocator."""
 
 from __future__ import annotations
 
@@ -28,7 +13,7 @@ SeedLoader = Callable[[str], int]
 
 
 class SeqAllocator:
-    """Process-wide allocator. One instance per ``SessionStore``."""
+    """Process-wide allocator. One instance per `SessionStore`."""
 
     def __init__(self, seed_loader: SeedLoader) -> None:
         self._seq: dict[str, int] = {}
@@ -42,11 +27,7 @@ class SeqAllocator:
         return f"user::{user_id}"
 
     def next(self, *, user_id: str = "", session_id: Optional[str] = None) -> int:
-        """Allocate the next monotonic seq for the given scope.
-
-        Thread-safe. The read-increment-write is one critical section
-        so two callers cannot observe the same intermediate value.
-        """
+        """Allocate the next monotonic seq for the given scope."""
         scope_key = self._scope_key(user_id=user_id, session_id=session_id)
         with self._lock:
             if scope_key not in self._seq:
@@ -64,21 +45,17 @@ class SeqAllocator:
             return self._seq[scope_key]
 
     def latest(self, *, user_id: str = "", session_id: Optional[str] = None) -> int:
-        """Read the current high-water mark for a scope WITHOUT
-        incrementing. Returns 0 if the allocator has never been
-        primed for this scope."""
+        """Read the current high-water mark for a scope WITHOUT"""
         scope_key = self._scope_key(user_id=user_id, session_id=session_id)
         with self._lock:
             return self._seq.get(scope_key, 0)
 
     def reset_for_tests(self) -> None:
-        """Wipe internal state. Test-only helper: production code must
-        never call this."""
+        """Wipe internal state. Test-only helper: production code must"""
         with self._lock:
             self._seq.clear()
 
     def force_seed(self, scope_key: str, value: int) -> None:
-        """Force the counter to a specific value. Used by recovery
-        paths to inject a known-good high-water mark from disk."""
+        """Force the counter to a specific value. Used by recovery"""
         with self._lock:
             self._seq[scope_key] = int(value)

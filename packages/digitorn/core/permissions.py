@@ -2,7 +2,7 @@
 
 Every system-level capability that a module action can use MUST be declared
 as a permission from this catalog.  This is the Digitorn equivalent of
-Android's ``<uses-permission>`` manifest declarations.
+Android's `<uses-permission>` manifest declarations.
 
 Permissions are organised by domain::
 
@@ -26,13 +26,13 @@ Permissions are organised by domain::
     notify.*      Notifications
 
 Enforcement layers:
-    1. Declaration - module TOML ``permissions = [...]`` + ``@action(permissions=[...])``
+    1. Declaration - module TOML `permissions = [...]` + `@action(permissions=[...])`
     2. Install-time - action permissions ⊆ module permissions (future installer)
-    3. Runtime - ``security_gate()`` checks app's ``granted_permissions``
+    3. Runtime - `security_gate()` checks app's `granted_permissions`
 
 Custom permissions:
     Third-party modules may declare custom permissions prefixed with their
-    module_id, e.g. ``"mymodule:cloud_sync"``.  These are NOT in this catalog
+    module_id, e.g. `"mymodule:cloud_sync"`.  These are NOT in this catalog
     and are NOT validated against it - only system permissions are enforced.
 """
 
@@ -45,8 +45,8 @@ class Permission(StrEnum):
     """System-level permission catalog.
 
     Each value is a dot-separated domain.capability string.
-    Modules declare these in their ``@action(permissions=[...])`` and in
-    their TOML manifest ``permissions = [...]``.
+    Modules declare these in their `@action(permissions=[...])` and in
+    their TOML manifest `permissions = [...]`.
     """
 
     FS_READ       = "fs.read"
@@ -133,8 +133,8 @@ def is_system_permission(perm: str) -> bool:
 def is_custom_permission(perm: str) -> bool:
     """Return True if *perm* looks like a custom (non-system) permission.
 
-    Custom permissions use ``:`` as separator (e.g. ``mymodule:cloud_sync``).
-    System permissions use ``.`` (e.g. ``fs.read``).
+    Custom permissions use `:` as separator (e.g. `mymodule:cloud_sync`).
+    System permissions use `.` (e.g. `fs.read`).
     """
     return ":" in perm
 
@@ -144,7 +144,7 @@ def validate_permissions(permissions: list[str]) -> list[str]:
 
     Returns a list of invalid permissions (empty = all valid).
     System permissions must exist in the catalog.
-    Custom permissions (containing ``:``) are always accepted.
+    Custom permissions (containing `:`) are always accepted.
     """
     invalid: list[str] = []
     for perm in permissions:

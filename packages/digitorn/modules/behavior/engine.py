@@ -1,10 +1,4 @@
-"""BehaviorEngine - the runtime enforcement core.
-
-Fully YAML-driven: rule definitions, state tracking, and conditions
-all come from the config. No hardcoded tool names or logic.
-
-Maintains per-session state and evaluates rules on every tool call.
-"""
+"""BehaviorEngine - the runtime enforcement core."""
 
 from __future__ import annotations
 
@@ -42,12 +36,8 @@ _BOOL_TO_RULE_ID = {
     "max_sequential_same_tool": "max_sequential_same_tool",
 }
 
-
 class BehaviorEngine:
-    """Stateful behavioral enforcement engine.
-
-    One engine per app. Maintains per-session state via ``_sessions``.
-    """
+    """Stateful behavioral enforcement engine."""
 
     def __init__(self, config: dict[str, Any]) -> None:
         profile = config.get("profile")
@@ -63,8 +53,8 @@ class BehaviorEngine:
                 _f.write(f"rule_overrides: {rule_overrides}\n")
                 _f.write(f"custom in config: {len(config.get('custom') or [])}\n")
                 _f.write(f"rule_definitions in config: {len(config.get('rule_definitions') or [])}\n")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("engine best-effort block failed: %s", exc)
 
         # Merge profile defaults with explicit overrides (backward compat)
         self._rules = resolve_profile(profile, rule_overrides)
@@ -73,8 +63,8 @@ class BehaviorEngine:
             with open(_trace_path, "a", encoding="utf-8") as _f:
                 _f.write(f"merged rules keys: {list(self._rules.keys())[:25]}\n")
                 _f.write(f"merged rules.custom count: {len(self._rules.get('custom') or [])}\n")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("engine best-effort block failed: %s", exc)
 
         # Build the active rule definitions
         self._rule_defs = self._build_rule_definitions(config)
@@ -95,7 +85,6 @@ class BehaviorEngine:
         )
 
     def _build_rule_definitions(self, config: dict[str, Any]) -> list[dict[str, Any]]:
-        """Build the final list of rule definitions from all sources."""
         defs: list[dict[str, Any]] = []
 
         # 1. Explicit rule_definitions from YAML (highest priority)
@@ -134,7 +123,6 @@ class BehaviorEngine:
         return defs
 
     def _apply_thresholds(self, rule: dict, merged_rules: dict) -> None:
-        """Apply threshold overrides from the merged rules to a default rule."""
         condition = rule.get("condition", {})
 
         # search_before_read uses max_blind_reads
@@ -158,7 +146,6 @@ class BehaviorEngine:
                 condition["consecutive_gte"] = threshold
 
     def _convert_legacy_custom(self, custom: dict) -> dict[str, Any]:
-        """Convert a legacy BehaviorCustomRule dict to the new format."""
         trigger = custom.get("trigger", "*")
         condition: dict[str, Any] = {}
 
@@ -183,7 +170,6 @@ class BehaviorEngine:
         }
 
     def _build_tracking_config(self, config: dict[str, Any]) -> dict[str, Any]:
-        """Build the state tracking config from YAML or defaults."""
         explicit = config.get("state_tracking")
         if explicit:
             if hasattr(explicit, "model_dump"):
@@ -287,7 +273,6 @@ class BehaviorEngine:
         if not self._rule_defs:
             return ""
         return build_prompt_section(self._rule_defs)
-
 
 # Backward-compat alias
 BhvEngine = BehaviorEngine

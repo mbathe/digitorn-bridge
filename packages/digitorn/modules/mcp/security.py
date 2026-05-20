@@ -1,9 +1,4 @@
-"""MCP security - environment variable sanitization and subprocess sandboxing.
-
-Ensures that MCP server subprocesses only receive explicitly declared
-environment variables (from the YAML config), plus a minimal safe set
-needed for basic operation (PATH, HOME, etc.).
-"""
+"""MCP security - environment variable sanitization and subprocess sandboxing."""
 
 from __future__ import annotations
 
@@ -30,19 +25,8 @@ _BLOCKED_ENV_KEYS = frozenset({
     "PRIVATE_KEY", "SSL_KEY",
 })
 
-
 def build_safe_env(explicit_env: dict[str, str]) -> dict[str, str]:
-    """Build a safe environment for an MCP subprocess.
-
-    Args:
-        explicit_env: Environment variables explicitly declared in the YAML
-            config for this MCP server.
-
-    Returns:
-        A sanitized environment dict containing:
-        1. Safe inherited vars (PATH, HOME, etc.)
-        2. Explicit vars from YAML (minus blocked vars)
-    """
+    """Build a safe environment for an MCP subprocess."""
     env = {k: v for k, v in os.environ.items() if k in _SAFE_ENV_KEYS}
 
     for key, value in explicit_env.items():
@@ -53,12 +37,8 @@ def build_safe_env(explicit_env: dict[str, str]) -> dict[str, str]:
 
     return env
 
-
 def validate_server_config(server_config: dict[str, Any]) -> list[str]:
-    """Validate an MCP server configuration.
-
-    Returns a list of error messages (empty = valid).
-    """
+    """Validate an MCP server configuration."""
     errors: list[str] = []
 
     transport = server_config.get("transport", "stdio")

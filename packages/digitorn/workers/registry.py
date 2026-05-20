@@ -1,15 +1,4 @@
-"""Module-to-worker routing table.
-
-The registry is the only piece of glue the daemon needs to consult
-when deciding "where does this module live?". The dispatcher asks
-``registry.route("shell")`` -- if it gets an endpoint, it routes via
-HTTP; otherwise it falls back to the legacy in-process path.
-
-Routing strategy: a module may be hosted by multiple workers (a
-load-balanced pool). The registry picks one per call. The default
-strategy is round-robin; future strategies (least-busy, sticky-by-
-session) plug in via ``WorkerRegistry.select_strategy``.
-"""
+"""Module-to-worker routing table."""
 from __future__ import annotations
 
 import itertools
@@ -21,7 +10,6 @@ from .config import WorkerConfig, WorkersConfig
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass(frozen=True)
 class WorkerEndpoint:
     """One concrete worker the dispatcher can reach."""
@@ -30,16 +18,8 @@ class WorkerEndpoint:
     base_url: str    # http://host:port (no trailing slash)
     secret: str      # shared secret for the Authorization header
 
-
 class WorkerRegistry:
-    """Maps ``module_name -> [WorkerEndpoint, ...]`` and picks one
-    per call. Thread-safe (the dispatcher may live on the main loop
-    but background pools or registration hooks may mutate it).
-
-    Empty registry = no routing = legacy in-process behaviour. The
-    dispatcher integration MUST check ``route()`` first and fall back
-    on ``None`` so the in-process path stays the default.
-    """
+    """Maps `module_name -> [WorkerEndpoint, ...]` and picks one."""
 
     def __init__(self) -> None:
         self._by_module: dict[str, list[WorkerEndpoint]] = {}
@@ -50,12 +30,7 @@ class WorkerRegistry:
     def from_config(
         cls, cfg: WorkersConfig, *, default_secret: str,
     ) -> "WorkerRegistry":
-        """Build a registry from the parsed ``workers:`` block.
-
-        ``default_secret`` is used when a worker entry doesn't carry
-        its own (loaded from ``~/.digitorn/.workers-secret``).
-        Returns an empty registry when ``cfg.enabled`` is False.
-        """
+        """Build a registry from the parsed `workers:` block."""
         reg = cls()
         if not cfg.enabled or not cfg.workers:
             return reg
@@ -79,9 +54,7 @@ class WorkerRegistry:
             )
 
     def remove(self, module_name: str, worker_id: str) -> None:
-        """Drop one endpoint -- used when the supervisor reports a
-        worker has crashed and needs to be evicted from the pool.
-        """
+        """Drop one endpoint -- used when the supervisor reports."""
         with self._lock:
             eps = self._by_module.get(module_name)
             if not eps:
@@ -98,10 +71,7 @@ class WorkerRegistry:
                 self._rr_iters.pop(module_name, None)
 
     def route(self, module_name: str) -> WorkerEndpoint | None:
-        """Pick one endpoint hosting ``module_name``. Returns ``None``
-        when no worker hosts it -- the caller MUST fall back to the
-        in-process path on ``None``.
-        """
+        """Pick one endpoint hosting `module_name`. Returns `None`."""
         with self._lock:
             it = self._rr_iters.get(module_name)
             if it is None:
@@ -112,14 +82,7 @@ class WorkerRegistry:
                 return None
 
     def endpoints_for(self, module_name: str) -> list[WorkerEndpoint]:
-        """Return every endpoint hosting ``module_name``.
-
-        Distinct from ``route()``: that picks ONE (round-robin) for
-        load-balancing a single request. ``endpoints_for`` returns
-        ALL so admin operations (config push, hot-config-reload,
-        broadcast events) can hit every replica. Empty list when no
-        worker hosts the module -- caller falls back to in-process.
-        """
+        """Return every endpoint hosting `module_name`."""
         with self._lock:
             return list(self._by_module.get(module_name, []))
 
@@ -135,51 +98,25 @@ class WorkerRegistry:
         with self._lock:
             return not self._by_module
 
-
 # Module-level singleton (lazy-initialised by the daemon at boot).
 # Stays empty when workers are disabled; the dispatcher integration
 # is a no-op in that case.
 _DEFAULT_REGISTRY: WorkerRegistry | None = None
 
-
 def get_default_registry() -> WorkerRegistry:
-    """Return the daemon-wide registry, creating an empty one on
-    first call. Threadsafe by virtue of GIL+ordering -- worst case
-    two callers race to install their own empty registry, which is
-    benign because empty registries are interchangeable.
-    """
+    """Return the daemon-wide registry, creating an empty one."""
     global _DEFAULT_REGISTRY
     if _DEFAULT_REGISTRY is None:
         _DEFAULT_REGISTRY = WorkerRegistry()
     return _DEFAULT_REGISTRY
 
-
 def install_default_registry(reg: WorkerRegistry) -> None:
-    """Replace the global registry. Called once at daemon startup
-    after parsing the ``workers:`` config. Idempotent."""
+    """Replace the global registry. Called once at daemon startup."""
     global _DEFAULT_REGISTRY
     _DEFAULT_REGISTRY = reg
 
-
 def ensure_default_registry_from_settings() -> WorkerRegistry:
-    """Lazily populate the default registry from current ``Settings``.
-
-    Returns the (possibly empty) default registry. Safe to call from
-    anywhere on the hot path: subsequent calls after the first
-    successful populate are O(1) early returns. When workers are
-    disabled or settings can't be loaded, returns the empty registry
-    (i.e. all ``route()`` calls return None, dispatcher falls through
-    to in-process execution).
-
-    Designed to be the single call site bootstrap needs:
-
-        from digitorn.workers.registry import (
-            ensure_default_registry_from_settings,
-        )
-        reg = ensure_default_registry_from_settings()
-        if endpoint := reg.route(module_id):
-            wrap_module_for_worker(module, endpoint)
-    """
+    """Lazily populate the default registry from current `Settings`."""
     reg = get_default_registry()
     if not reg.is_empty():
         return reg

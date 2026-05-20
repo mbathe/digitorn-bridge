@@ -1,15 +1,4 @@
-"""Digitorn - Security profile CRUD routes.
-
-    POST   /api/security/profiles              Create a security profile for an app
-    GET    /api/security/profiles/{app_id}      Get a profile
-    PATCH  /api/security/profiles/{app_id}      Update a profile
-    DELETE /api/security/profiles/{app_id}      Delete a profile
-
-    POST   /api/security/profiles/{app_id}/grants              Add a module grant
-    GET    /api/security/profiles/{app_id}/grants               List module grants
-    PUT    /api/security/profiles/{app_id}/grants/{module_id}  Upsert a module grant
-    DELETE /api/security/profiles/{app_id}/grants/{module_id}  Remove a module grant
-"""
+"""Digitorn - Security profile CRUD routes."""
 
 from __future__ import annotations
 
@@ -79,7 +68,6 @@ def _validate_risk(value: str) -> None:
 
 
 async def _get_profile(app_id: str):
-    """Fetch AppProfile or raise 404."""
     from sqlalchemy import select
 
     from digitorn.core.database import _session_factory
@@ -103,10 +91,7 @@ async def _get_profile(app_id: str):
 
 @router.post("/profiles", status_code=201)
 async def create_profile(body: ProfileCreateRequest) -> dict[str, Any]:
-    """Create a security profile for an application.
-
-    The application must already exist in the ``applications`` table.
-    """
+    """Create a security profile for an application."""
     from sqlalchemy import select
 
     from digitorn.core.database import _session_factory

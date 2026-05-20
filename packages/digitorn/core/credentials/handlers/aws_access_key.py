@@ -1,16 +1,4 @@
-"""AwsAccessKeyHandler - AWS access key + secret key + region.
-
-The most common AWS auth shape: an access_key_id + secret_access_key
-pair, optionally plus a session_token (for temporary STS-issued
-creds). The handler validates and can run STS GetCallerIdentity to
-verify the key works.
-
-For role-based auth (assume-role with external_id), use
-`aws_assume_role` (separate handler, future).
-
-Region is required because most AWS services are regional. The
-catalog can constrain available regions per provider.
-"""
+"""AwsAccessKeyHandler - AWS access key + secret key + region."""
 
 from __future__ import annotations
 
@@ -103,9 +91,7 @@ class AwsAccessKeyHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Run `sts:GetCallerIdentity` - cheap, doesn't require any
-        permissions beyond identity verification, fails fast on bad
-        keys or expired session tokens."""
+        """Run `sts:GetCallerIdentity` - cheap, doesn't require any"""
         akid = (fields or {}).get("access_key_id", "")
         secret = (fields or {}).get("secret_access_key", "")
         region = (fields or {}).get("region", "us-east-1")

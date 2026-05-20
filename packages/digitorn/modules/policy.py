@@ -1,18 +1,4 @@
-"""Module policy enforcement.
-
-Checks runtime constraints (max_parallel_calls, cooldowns) before action
-dispatch.  Wired into the PlanExecutor between permission check and
-module.execute().
-
-Usage::
-
-    enforcer = PolicyEnforcer(registry)
-    await enforcer.check_and_acquire(module_id, action)
-    try:
-        result = await module.execute(action, params)
-    finally:
-        enforcer.release(module_id)
-"""
+"""Module policy enforcement."""
 
 from __future__ import annotations
 
@@ -30,7 +16,6 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-
 @dataclass
 class PolicyState:
     """Per-module runtime policy tracking."""
@@ -39,15 +24,8 @@ class PolicyState:
     last_call_time: float = 0.0
     semaphore: asyncio.Semaphore | None = None
 
-
 class PolicyEnforcer:
-    """Enforces ModulePolicy constraints at runtime.
-
-    For each module, it tracks:
-    - Number of active concurrent calls
-    - Last call timestamp (for cooldown enforcement)
-    - An asyncio.Semaphore (for max_parallel_calls enforcement)
-    """
+    """Enforces ModulePolicy constraints at runtime."""
 
     def __init__(self, registry: ModuleRegistry) -> None:
         self._registry = registry
@@ -62,7 +40,6 @@ class PolicyEnforcer:
         return self._policies[module_id]
 
     def _get_state(self, module_id: str) -> PolicyState:
-        """Get or create the runtime state for a module."""
         if module_id not in self._states:
             policy = self.load_policy(module_id)
             sem = None
@@ -72,11 +49,7 @@ class PolicyEnforcer:
         return self._states[module_id]
 
     async def check_and_acquire(self, module_id: str, action: str) -> None:
-        """Check policy constraints and acquire an execution slot.
-
-        Raises :class:`PolicyViolationError` if the cooldown has not elapsed.
-        Blocks (up to timeout) if max_parallel_calls is reached.
-        """
+        """Check policy constraints and acquire an execution slot."""
         policy = self.load_policy(module_id)
         state = self._get_state(module_id)
 

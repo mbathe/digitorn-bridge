@@ -1,12 +1,4 @@
-"""System prompt assembly for agents.
-
-Enriches the user-defined system prompt with tool discovery
-instructions and context metadata.
-
-The context builder is the SINGLE SOURCE OF TRUTH for tool awareness.
-The user's YAML system_prompt should focus on personality and behavior -
-never on listing tools or explaining how to call them.
-"""
+"""System prompt assembly for agents."""
 
 from __future__ import annotations
 
@@ -19,12 +11,7 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from digitorn.modules.context_builder.types import ToolIndex
 
-
 def _params_signature(schema: dict[str, Any]) -> str:
-    """Build a compact params signature from a JSON Schema.
-
-    Example output: ``"command, cwd?, timeout?"``
-    """
     props = schema.get("properties", {})
     required = set(schema.get("required", []))
     if not props:
@@ -38,15 +25,7 @@ def _params_signature(schema: dict[str, Any]) -> str:
         parts.append(f"{name}{suffix}")
     return ", ".join(parts)
 
-
 def _is_json_string_param(name: str, prop: dict[str, Any]) -> bool:
-    """Detect if a parameter expects a JSON-encoded string value.
-
-    Works with any MCP server naming convention:
-    - Explicit ``_json`` suffix (e.g. ``properties_json``, ``children_json``)
-    - Description keywords (e.g. "JSON string", "serialized JSON", "JSON-encoded")
-    - Schema hints: type=string + description mentions JSON
-    """
     if name.endswith("_json"):
         return True
     desc = (prop.get("description") or "").lower()
@@ -67,12 +46,7 @@ def _is_json_string_param(name: str, prop: dict[str, Any]) -> bool:
     )
     return any(kw in desc for kw in json_keywords)
 
-
 def _parse_args_section(description: str) -> dict[str, str]:
-    """Parse ``Args:`` section from a docstring-style description.
-
-    Returns ``{param_name: description_text}``.
-    """
     import re
 
     result: dict[str, str] = {}
@@ -94,16 +68,10 @@ def _parse_args_section(description: str) -> dict[str, str]:
                 result[m.group(1)] = m.group(2).strip()
     return result
 
-
 def _build_param_details(
     params: dict[str, Any],
     description: str = "",
 ) -> list[str]:
-    """Build compact parameter detail lines for MCP tools.
-
-    Only emits details when there are 2+ non-internal parameters.
-    Detects ``_json`` suffix to warn about JSON string vs object confusion.
-    """
     props = params.get("properties", {})
     required = set(params.get("required", []))
 
@@ -145,11 +113,9 @@ def _build_param_details(
 
     return lines
 
-
 def _group_tools_by_module(
     tools: list[dict[str, Any]],
 ) -> dict[str, list[dict[str, Any]]]:
-    """Group OpenAI-format tool schemas by module prefix."""
     by_module: dict[str, list[dict[str, Any]]] = {}
     for t in tools:
         fn = t.get("function", {})
@@ -161,7 +127,6 @@ def _group_tools_by_module(
         by_module.setdefault(mod, []).append(t)
     return by_module
 
-
 def _build_direct_instructions(
     total_tools: int,
     *,
@@ -169,22 +134,10 @@ def _build_direct_instructions(
     tools: list[dict[str, Any]] | None,
     index: "ToolIndex | None" = None,
 ) -> str:
-    """Build rich, grouped tool instructions for direct injection mode.
-
-    Generates everything the LLM needs to know about available tools:
-    - Tools grouped by module with descriptions
-    - Key parameters shown inline (required + optional)
-    - One-line description per tool
-
-    The user's YAML system_prompt never needs to list tools.
-    """
     if not tools:
         return f"You have {total_tools} tools available. Call them directly by name."
 
-    # Prefer the actual count of tools being listed over `index.total_tools`
-    # - the latter counts only indexed module actions while `tools` also
-    # includes primitive meta-tools (run_parallel, background, etc).
-    # System prompt said "9 tools" then listed 11 because of this mismatch.
+    # `tools` includes primitive meta-tools that index.total_tools omits.
     actual_total = len(tools) or total_tools
 
     if not native_tool_use:
@@ -231,7 +184,6 @@ def _build_direct_instructions(
             sig = _params_signature(params)
             sig_str = f"({sig})" if sig else "()"
 
-            # Add safety badges from index metadata
             badges = ""
             if index:
                 sep_pos = fn_name.rfind("__")
@@ -286,19 +238,12 @@ def _build_direct_instructions(
 
     return "\n".join(parts)
 
-
 def _build_compact_direct_instructions(
     total_tools: int,
     *,
     tools: list[dict[str, Any]] | None,
     index: "ToolIndex | None" = None,
 ) -> str:
-    """Build compact tool instructions - names + one-liners, no full schemas.
-
-    Used when full tool schemas don't fit in context but tools can still be
-    called directly by name (no meta-tools needed). The LLM gets enough info
-    to pick the right tool, then calls it with its best guess at parameters.
-    """
     if not tools:
         return f"You have {total_tools} tools available. Call them directly by name."
 
@@ -324,20 +269,11 @@ def _build_compact_direct_instructions(
 
     return "\n".join(parts)
 
-
 def _build_mcp_workflow_hints(
     mod: str,
     mod_tools: list[dict[str, Any]],
     index: "ToolIndex",
 ) -> list[str]:
-    """Auto-detect workflow patterns for MCP tools.
-
-    Detects:
-    - "getter before setter" - when a write tool has *_id params and a
-      corresponding get_* tool exists, suggest calling the getter first.
-    - JSON-string params that reference structured data (properties, blocks)
-      where inspecting an existing resource reveals the expected format.
-    """
     if not mod.startswith("mcp_"):
         return []
 
@@ -405,23 +341,10 @@ def _build_mcp_workflow_hints(
 
     return hints
 
-
 def _build_structural_hints(
     mod: str,
     index: "ToolIndex",
 ) -> list[str]:
-    """Inject copy-paste-ready templates for writer tool JSON params.
-
-    100% dynamic - no hardcoded API-specific mappings.  Works with any
-    MCP server (Notion, Google, GitHub, Slack, etc.).
-
-    Strategy:
-    1. Collect all writer tools (tools with JSON string params) for this module
-    2. For each probed getter response, detect what kind of structure it is
-       (array of typed objects = content/blocks, dict with typed values = properties)
-    3. Match getter structures to writer params by structural shape analysis
-    4. Present as copy-paste-ready templates labeled by param name
-    """
     hints_map = getattr(index, "mcp_structural_hints", {})
     server_hints = hints_map.get(mod)
     if not server_hints:
@@ -519,12 +442,10 @@ def _build_structural_hints(
 
     return parts
 
-
 def _build_raw_structural_hints(
     mod: str,
     server_hints: dict[str, str],
 ) -> list[str]:
-    """Fallback: show raw getter responses when no writer tools are found."""
     parts: list[str] = [
         "",
         f"### {mod} - API Response Formats (auto-discovered)",
@@ -538,29 +459,10 @@ def _build_raw_structural_hints(
         parts.append("")
     return parts
 
-
 def _match_templates_to_params(
     server_hints: dict[str, str],
     json_params: set[str],
 ) -> dict[str, str]:
-    """Match getter response templates to writer param names.
-
-    100% dynamic - no hardcoded API-specific mappings.
-
-    Uses three strategies in priority order:
-
-    1. **Entity name overlap**: getter ``get_blocks`` → param ``blocks_json``
-       (strips get_/list_ prefix and _json suffix, checks substring match)
-
-    2. **Structural shape**: array of typed objects → params with
-       "content"/"children"/"blocks" in name; dict with typed values →
-       params with "properties"/"config"/"schema" in name
-
-    3. **Single param fallback**: if there's only one JSON param and one
-       template, match them regardless of names
-
-    Returns ``{param_name: template_json_string}``.
-    """
     if not json_params or not server_hints:
         return {}
 
@@ -630,15 +532,7 @@ def _match_templates_to_params(
 
     return result
 
-
 def _detect_template_shape(template: str) -> str:
-    """Detect the structural shape of a JSON template.
-
-    Returns:
-        "array" - top-level is a JSON array (list of items/blocks)
-        "dict"  - top-level is a JSON object (properties/config)
-        "unknown" - could not determine
-    """
     stripped = template.strip()
     if stripped.startswith("["):
         return "array"
@@ -646,24 +540,12 @@ def _detect_template_shape(template: str) -> str:
         return "dict"
     return "unknown"
 
-
 def _build_discovery_instructions(
     total_tools: int,
     n_categories: int,
     tools: list[dict[str, Any]] | None = None,
     index: "ToolIndex | None" = None,
 ) -> str:
-    """Build discovery instructions for large toolsets.
-
-    Adapts to scale with a 3-tier strategy:
-
-    - **Small** (≤ 20 categories): full detail - tools + examples inline
-    - **Medium** (21–100 categories): compact - tools listed, no examples
-    - **Large** (> 100 categories): minimal - one-line per category, no tools
-
-    Examples are always available via ``get_tool()`` regardless of tier.
-    This keeps the prompt under ~2K tokens even with 1000+ servers.
-    """
     direct_names = []
     if tools:
         for t in tools:
@@ -807,10 +689,8 @@ def _build_discovery_instructions(
 
     return "\n".join(parts)
 
-
 _TEXT_TOOL_USE_HEADER = """\
 You have access to {total_tools} tools across {n_categories} domains.
-
 
 You have the following tools. To call a tool, output EXACTLY this XML format:
 
@@ -846,9 +726,7 @@ _TEXT_TOOL_USE_FOOTER = """
 
 Never guess tool names - always search first."""
 
-
 def _render_tools_as_text(tools: list[dict[str, Any]]) -> str:
-    """Render OpenAI-format tool schemas as text for the system prompt."""
     parts: list[str] = []
     for tool in tools:
         fn = tool.get("function", {})
@@ -863,29 +741,10 @@ def _render_tools_as_text(tools: list[dict[str, Any]]) -> str:
         ))
     return "".join(parts)
 
-
-
-# _build_primitive_section and its constants (_BASE_PRIMITIVE_NAMES,
-# _WATCHER_PRIMITIVE_NAMES, _SCHEDULER_PRIMITIVE_NAMES) have been moved to
-# each action mixin's _prompt_sections_*() method. The instructions are now
-# injected via get_prompt_sections() on the ContextBuilderModule.
-
-
 def _build_channels_section(
     channels_info: list[dict[str, Any]] | None,
     default_channel: str = "llm_notification",
 ) -> str:
-    """Build dynamic instructions about available output channels.
-
-    Fully data-driven - works with any channel type (email, SMS, Slack,
-    Telegram, webhook, etc.) without hardcoded examples. Instructions and
-    examples are generated from each channel's ``per_delivery_config_schema``.
-
-    Args:
-        channels_info: List of dicts with keys: name, type, per_delivery_config,
-            has_user_resolver.
-        default_channel: The default channel from execution.default_channel.
-    """
     if not channels_info:
         return ""
 
@@ -987,7 +846,6 @@ def _build_channels_section(
 
     return "\n".join(parts)
 
-
 def build_system_prompt(
     agent_id: str,
     role: str,
@@ -1004,32 +862,13 @@ def build_system_prompt(
     skills: list[dict[str, str]] | None = None,
     modules: dict[str, Any] | None = None,
 ) -> str:
-    """Build the full system prompt for an agent.
-
-    The context builder generates ALL tool-related instructions dynamically.
-    The user's YAML system_prompt should only define personality and behavior.
-
-    Combines:
-    1. Agent identity header
-    2. Tool instructions (auto-generated, varies by injection mode)
-    3. Behavioral guidelines
-    4. Pre-configured resources
-    5. User-defined system prompt (personality only)
-    """
+    """Build the full system prompt for an agent."""
     parts: list[str] = []
 
-    # Supervisor authority preamble — FIRST thing the LLM reads. Sets
-    # the contract that every system message with a ``## SECTION``
-    # header is a non-negotiable runtime directive. Without this, the
-    # LLM treats runtime directives as polite suggestions and
-    # paraphrases them away, defeating loop guards / resume protocol /
-    # turn budget enforcement. See
-    # ``digitorn.core.runtime.system_directives.SYS_AUTHORITY_PREAMBLE``.
+    # authority preamble first so the LLM treats following sections
+    # as non-negotiable runtime directives, not polite suggestions.
     from digitorn.core.runtime.system_directives import SYS_AUTHORITY_PREAMBLE
     parts.append(SYS_AUTHORITY_PREAMBLE)
-
-    # Module prompt sections (memory, spawn, etc.) are now
-    # injected via get_prompt_sections() on each module - see collector below.
 
     parts.append(f'You are agent "{agent_id}" (role: {role}).')
 
@@ -1061,11 +900,6 @@ def build_system_prompt(
         tool_text = _render_tools_as_text(tools or [])
         parts.append(header + tool_text + _TEXT_TOOL_USE_FOOTER)
 
-    # Primitive sections (parallel, background, watchers, scheduler)
-    # are now provided by each mixin's _prompt_sections_*() method, collected
-    # via get_prompt_sections() on each module - see module sections collector below.
-
-    # Core behavioral rules - same as fine-tuning system prompts
     parts.append(
         "# How to think\n"
         "\n"
@@ -1195,9 +1029,8 @@ def build_system_prompt(
             skill_lines.append(f"  - {cmd}: {desc}")
         parts.append("\n".join(skill_lines))
 
-    # Collect prompt sections from active modules
     if modules:
-        end_sections: list[tuple[int, str]] = []  # (priority, content)
+        end_sections: list[tuple[int, str]] = []
         for _mod_id, _mod in modules.items():
             _sections_fn = getattr(_mod, "get_prompt_sections", None)
             if _sections_fn is None:
@@ -1216,14 +1049,9 @@ def build_system_prompt(
         for _, block in sorted(end_sections):
             parts.append(block)
 
-    # Inject tool_prompt instructions from indexed tools
-    # These are detailed usage guides for each tool - injected in the system prompt
-    # so the LLM knows how to use tools correctly (like Claude Code's prompt() method)
     if index is not None:
-        # Collect dynamic tool prompts from modules that override them at runtime.
-        # Any module can implement get_dynamic_tool_prompts() -> dict[fqn, prompt]
-        # to inject app-specific instructions (e.g. workspace module injects
-        # "you write LaTeX" or "you write React" based on app.yaml config).
+        # modules may inject app-specific tool prompts via
+        # get_dynamic_tool_prompts() -> dict[fqn, prompt].
         dynamic_prompts: dict[str, str] = {}
         for _mod in (modules or {}).values():
             getter = getattr(_mod, "get_dynamic_tool_prompts", None)
@@ -1232,7 +1060,6 @@ def build_system_prompt(
 
         tool_prompts: list[str] = []
         for _fqn, _tool in index.tools.items():
-            # Dynamic prompt overrides static tool_prompt
             tp = dynamic_prompts.get(_fqn) or getattr(_tool, "tool_prompt", "")
             if tp:
                 tool_prompts.append(f"## {_tool.action_name}\n{tp}")

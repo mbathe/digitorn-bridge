@@ -1,24 +1,4 @@
-"""Index module - unified knowledge index for all Digitorn modules.
-
-The index is a **brain without hands**: it stores, searches, and links
-knowledge about all data sources, but it never reads content directly.
-Instead, it delegates to the owning module (filesystem, database, storage)
-via the service bus.
-
-Actions:
-  - register_source: Register a new data source to index.
-  - register_extractor: Register a custom extractor from another module.
-  - scan: Scan a source and update the index (incremental by default).
-  - query: Full-text search across all indexed entries.
-  - relations: Explore the relation graph from an entry.
-  - context: Get optimal LLM context for a target (the killer feature).
-  - invalidate: Remove stale entries.
-
-Daemon integration:
-  - Subscribes to ``digitorn.module.*.action_completed`` events.
-  - Auto-invalidates entries when filesystem writes/edits/deletes occur.
-  - Persists index to disk via ``state_snapshot`` / ``restore_state``.
-"""
+"""Index module - unified knowledge index for all Digitorn modules."""
 
 from __future__ import annotations
 
@@ -40,39 +20,30 @@ from digitorn.modules.manifest import ConstraintSpec, ModuleManifest
 
 from .extractor import ExtractorRegistry
 
-
-# ── CPU-bound extract offload pool ──────────────────────────────────
 #
-# ``Extractor.extract`` runs pure-Python CPU work: ``content.encode()``
+# `Extractor.extract` runs pure-Python CPU work: `content.encode()`
 # on huge strings (UTF-8 conversion holds the GIL fully on big inputs),
-# ``hashlib.sha256(bytes)`` (releases the GIL only inside the C
+# `hashlib.sha256(bytes)` (releases the GIL only inside the C
 # digest call, not during the encode), and for PythonExtractor an
-# ``ast.parse`` + ``ast.walk`` which is ALL pure Python and holds the
+# `ast.parse` + `ast.walk` which is ALL pure Python and holds the
 # GIL for the entire duration.
 #
-# ``asyncio.to_thread`` does NOT help here: a thread doing pure-Python
+# `asyncio.to_thread` does NOT help here: a thread doing pure-Python
 # work holds the GIL, which means the daemon's main asyncio loop
 # cannot run Python callbacks in parallel -- visible as a 5-40s main
 # loop stall every time a large source file lands in the indexer.
 #
-# A ``ProcessPoolExecutor`` does help: each subprocess has its own
+# A `ProcessPoolExecutor` does help: each subprocess has its own
 # Python interpreter with its own GIL, completely independent from
 # the daemon's main loop. We pay an IPC cost (pickle args + result)
 # but the main loop stays responsive throughout.
 #
-# Lazy init -- on Windows ``spawn`` mode costs ~1s per worker, so
+# Lazy init -- on Windows `spawn` mode costs ~1s per worker, so
 # defer until the first index scan instead of taxing daemon startup.
 _EXTRACT_POOL: ProcessPoolExecutor | None = None
 _EXTRACT_POOL_LOCK = asyncio.Lock()
 
-
 def _get_extract_pool() -> ProcessPoolExecutor:
-    """Lazily build a process pool sized for CPU-bound extract work.
-
-    Reserves 2 cores for the daemon's main loop + persist_worker so
-    indexing never crowds them out. Minimum 1 worker. Reused across
-    every call -- pool stays alive for the daemon's lifetime.
-    """
     global _EXTRACT_POOL
     if _EXTRACT_POOL is None:
         max_workers = max(1, (os.cpu_count() or 4) - 2)
@@ -82,14 +53,11 @@ def _get_extract_pool() -> ProcessPoolExecutor:
         )
     return _EXTRACT_POOL
 
-
 def _shutdown_extract_pool() -> None:
-    """Close the pool. Called from daemon shutdown."""
     global _EXTRACT_POOL
     if _EXTRACT_POOL is not None:
         _EXTRACT_POOL.shutdown(wait=False, cancel_futures=True)
         _EXTRACT_POOL = None
-
 
 def _extract_in_subprocess(
     extractor_module: str,
@@ -99,23 +67,11 @@ def _extract_in_subprocess(
     content: str,
     metadata: dict,
 ) -> tuple[list, list]:
-    """Subprocess entry point. Re-imports the extractor class fresh in
-    the worker (extractors are stateless by design -- TextExtractor,
-    PythonExtractor only carry a ``name`` class attribute), runs
-    ``extract`` there, and returns the pickled entries + relations.
-
-    Must be module-level (not a closure / lambda / method) so
-    ``ProcessPoolExecutor`` can pickle it for IPC.
-    """
     import importlib
     mod = importlib.import_module(extractor_module)
     cls = getattr(mod, extractor_class)
     inst = cls()
     return inst.extract(source_id, file_path, content, metadata)
-
-
-# ── Config model (compile-time validation via CONFIG_MODEL) ──────
-
 
 class IndexConfig(BaseModel):
     """Pydantic config for the index module (validated at compile time)."""
@@ -137,7 +93,6 @@ from .types import Source
 
 _CHARS_PER_TOKEN = 3.5
 
-
 class IndexModule(BaseModule):
     MODULE_ID = "index"
     VERSION = "1.0.0"
@@ -152,24 +107,11 @@ class IndexModule(BaseModule):
         import asyncio as _asyncio
         self._write_lock: _asyncio.Lock = _asyncio.Lock()
 
-
     async def on_start(self) -> None:
         pass
 
     async def on_event(self, topic: str, event: dict[str, Any]) -> None:
-        """React to events from other modules and the watcher system.
-
-        Two event sources:
-
-        1. **Module action_completed** (``digitorn.module.*.action_completed``):
-           Fires when a module mutates data via the daemon API.
-
-        2. **Watcher events** (``digitorn.watcher.*.file_*``):
-           Fires when the OS-level watcher detects external changes
-           (IDE edits, git operations, other processes).
-
-        Both paths funnel into the same invalidate + re-index logic.
-        """
+        """React to events from other modules and the watcher system."""
         data = event.get("data", {})
 
         if topic.startswith("digitorn.watcher."):
@@ -217,12 +159,6 @@ class IndexModule(BaseModule):
                     self.store.invalidate_by_path(dest)
 
     async def _auto_reindex_path(self, path: str) -> None:
-        """Re-index a single path across all sources that contain it.
-
-        Works for both filesystem paths (``/home/user/project/main.py``) and
-        non-filesystem identifiers (``public.users`` for database tables).
-        Filesystem sources read directly; others delegate via the service bus.
-        """
         for source in self.store.list_sources():
             if not path.startswith(source.root):
                 continue
@@ -233,7 +169,6 @@ class IndexModule(BaseModule):
                 self.store.invalidate_by_path(path)
 
     async def _reindex_filesystem_path(self, source: "Source", path: str) -> None:
-        """Re-index a single filesystem file."""
         file_path = Path(path)
         if not file_path.exists() or not file_path.is_file():
             return
@@ -263,7 +198,6 @@ class IndexModule(BaseModule):
         )
 
     def _get_watcher_service(self) -> Any | None:
-        """Get the watcher service from execution context or instance."""
         ctx = getattr(self, "_context", None)
         if ctx:
             ws = getattr(ctx, "watcher_service", None)
@@ -272,7 +206,6 @@ class IndexModule(BaseModule):
         return getattr(self, "_watcher_service", None)
 
     async def _start_watch(self, source: "Source") -> str:
-        """Start watching a source. Returns status string."""
         from digitorn.core.watcher.types import WatchConfig, WatchMode
 
         watcher = self._get_watcher_service()
@@ -311,7 +244,6 @@ class IndexModule(BaseModule):
             return "error"
 
     async def _stop_watch(self, source_id: str) -> None:
-        """Stop watching a source."""
         watcher = self._get_watcher_service()
         if watcher:
             await watcher.unwatch(source_id)
@@ -343,7 +275,6 @@ class IndexModule(BaseModule):
             source = self.store.get_source(watch_info["source_id"])
             if source and source.watch:
                 await self._start_watch(source)
-
 
     @action(
         description=(
@@ -387,7 +318,6 @@ class IndexModule(BaseModule):
             },
         )
 
-
     @action(
         description=(
             "Register a custom extractor provided by another module. "
@@ -413,7 +343,6 @@ class IndexModule(BaseModule):
                 "extractors_available": self.extractors.list_extractors(),
             },
         )
-
 
     @action(
         description=(
@@ -442,7 +371,6 @@ class IndexModule(BaseModule):
         return await self._scan_local(source, params.force)
 
     async def _scan_local(self, source: Source, force: bool) -> ActionResult:
-        """Scan using a local (builtin) extractor + filesystem module."""
         extractor = self.extractors.resolve(source.extractor, source.root, source.metadata)
         if not extractor:
             return ActionResult(
@@ -495,10 +423,8 @@ class IndexModule(BaseModule):
                     content = data.get("content", "") if isinstance(data, dict) else str(data)
                     content = _strip_line_numbers(content)
                 else:
-                    # Off-load to a thread - read_text is sync and would
-                    # block the asyncio event loop. With thousands of
-                    # files at daemon startup, in-loop reads block cron
-                    # triggers and HTTP handlers for minutes.
+                    # Off-load `read_text` so thousands of files at
+                    # daemon startup don't stall the loop.
                     content = await asyncio.to_thread(
                         Path(file_path).read_text,
                         encoding="utf-8",
@@ -511,15 +437,7 @@ class IndexModule(BaseModule):
                 if not file_extractor:
                     file_extractor = extractor
 
-                # CPU-bound parsing (AST for Python, tree-sitter for other
-                # languages, UTF-8 encode + sha256 for the content hash).
-                # Pure-Python work that holds the GIL for the whole call.
-                # Routed to a ProcessPoolExecutor (separate Python
-                # interpreters, separate GIL each) so even a multi-MB
-                # ast.parse never blocks the daemon's main event loop.
-                # The extractor is re-instantiated inside the subprocess
-                # by ``_extract_in_subprocess`` because bound methods
-                # cannot be pickled across the IPC boundary.
+                # Route CPU-bound parsing to a ProcessPoolExecutor.
                 loop = asyncio.get_running_loop()
                 _ex_mod = type(file_extractor).__module__
                 _ex_cls = type(file_extractor).__name__
@@ -568,7 +486,6 @@ class IndexModule(BaseModule):
     async def _scan_remote(
         self, source: Source, remote: dict[str, str], force: bool,
     ) -> ActionResult:
-        """Scan using a remote extractor from another module."""
         ctx = getattr(self, "_context", None)
         service_bus = getattr(ctx, "service_bus", None) if ctx else None
         if not service_bus:
@@ -613,7 +530,6 @@ class IndexModule(BaseModule):
     async def _list_files_via_bus(
         self, service_bus: Any, source: Source,
     ) -> list[str]:
-        """List files via the filesystem module's find action."""
         result = await service_bus.call(
             "filesystem", "find",
             {"path": source.root, "pattern": source.scan_pattern, "max_results": 5000},
@@ -624,7 +540,6 @@ class IndexModule(BaseModule):
         return []
 
     def _list_files_direct(self, source: Source) -> list[str]:
-        """Direct filesystem access (fallback when service_bus unavailable)."""
         root = Path(source.root)
         if not root.exists():
             return []
@@ -637,7 +552,6 @@ class IndexModule(BaseModule):
                 if len(files) >= 5000:
                     break
         return files
-
 
     @action(
         description=(
@@ -668,7 +582,6 @@ class IndexModule(BaseModule):
                 "query": params.q,
             },
         )
-
 
     @action(
         description=(
@@ -704,7 +617,6 @@ class IndexModule(BaseModule):
                 "count": len(entries),
             },
         )
-
 
     @action(
         description=(
@@ -791,7 +703,6 @@ class IndexModule(BaseModule):
         return ActionResult(success=True, data=result)
 
     def _resolve_target(self, target: str) -> Any | None:
-        """Resolve a target string to an IndexEntry."""
         entry = self.store.get(target)
         if entry:
             return entry
@@ -817,7 +728,6 @@ class IndexModule(BaseModule):
         return None
 
     async def _fetch_content(self, entry: Any) -> str | None:
-        """Fetch the actual content of an entry via the service bus."""
         ctx = getattr(self, "_context", None)
         service_bus = getattr(ctx, "service_bus", None) if ctx else None
         source = self.store.get_source(entry.source_id)
@@ -833,8 +743,8 @@ class IndexModule(BaseModule):
                             lines[entry.line_start - 1: entry.line_end]
                         )
                     return content
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
             return None
 
         if source.module_id == "filesystem":
@@ -847,11 +757,10 @@ class IndexModule(BaseModule):
                 data = result.data if hasattr(result, "data") else result
                 if isinstance(data, dict):
                     return data.get("content", "")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
 
         return None
-
 
     @action(
         description=(
@@ -880,7 +789,6 @@ class IndexModule(BaseModule):
             success=True,
             data={"entries_removed": removed},
         )
-
 
     CONSTRAINTS = [
         ConstraintSpec(
@@ -933,17 +841,10 @@ class IndexModule(BaseModule):
     def metrics(self) -> dict[str, Any]:
         return self.store.stats()
 
-
 def _estimate_tokens(text: str) -> int:
-    """Rough token estimate for context budgeting."""
     return max(1, int(len(text) / _CHARS_PER_TOKEN))
 
-
 def _strip_line_numbers(content: str) -> str:
-    """Strip line number prefixes from filesystem.read output.
-
-    Converts ``'  1│def foo():...'`` back to ``'def foo():...'``.
-    """
     import re
     lines = content.split("\n")
     stripped = []

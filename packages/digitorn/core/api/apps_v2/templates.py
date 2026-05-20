@@ -1,20 +1,4 @@
-"""Template routes — gallery list + preview static-asset serve.
-
-The chat client fetches `GET /api/apps/{app_id}/templates` to render a
-native gallery (cards under the composer). Clicking a card opens a
-modal whose iframe loads
-`GET /api/apps/{app_id}/template-assets/<preview_path>` — a stock
-static-file server scoped to the app's install dir.
-
-Two routes, both auth-required (handled by the global middleware) but
-**no extra permission gate**: template metadata + previews are inert
-public-facing assets, akin to the app's icon. Mutation is impossible
-through this layer — there's nothing to mutate.
-
-The third piece of the template system (applying a template to a
-session: copy seeds into the workspace + inject the system addendum)
-rides on the existing message-send pipeline; see ``messages.py``.
-"""
+"""Template routes - gallery list + preview static-asset serve."""
 
 from __future__ import annotations
 
@@ -41,12 +25,7 @@ router = APIRouter(tags=["apps"])
 async def _resolve_install_dir(
     request: Request, app_id: str, deployed: Any,
 ) -> Path | None:
-    """Find the on-disk install dir for the deployed app.
-
-    Mirrors ``web_static`` in ``preview.py``: prefer the compiled
-    ``source_path`` parent when known, fall back to the package
-    registry resolver.
-    """
+    """Find the on-disk install dir for the deployed app."""
     from digitorn.core.packages.resolver import resolve_app_install_dir
 
     source_path = (
@@ -72,20 +51,7 @@ async def _resolve_install_dir(
 
 @router.get("/{app_id}/templates", response_model=AppResponse)
 async def list_templates(request: Request, app_id: str) -> AppResponse:
-    """List the starter templates declared by the app.
-
-    Returns one entry per template with the minimal info the chat
-    client needs to render a gallery card: ``id``, ``name``,
-    ``description``, and ``preview_url`` (absolute URL the iframe can
-    load directly). The ``system_prompt`` and ``seed_dir`` are kept
-    private — they're applied server-side when the user sends a
-    message with this template attached, and there is no UX reason to
-    expose them to the client.
-
-    Empty list when the app declares no ``templates`` block; not 404.
-    The chat client shows the gallery slot only when the list is
-    non-empty, so an empty response collapses the slot gracefully.
-    """
+    """List the starter templates declared by the app."""
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     if not deployed:
@@ -119,27 +85,7 @@ _CACHEABLE_EXTENSIONS = {
     methods=["GET", "HEAD"],
 )
 async def template_assets(request: Request, app_id: str, path: str):
-    """Serve a static file from the app's install directory.
-
-    Path is interpreted relative to ``install_dir``. The expected
-    layout is::
-
-        install_dir/
-          templates/<id>/dist/index.html   ← preview entry (Vite build)
-          templates/<id>/dist/assets/*.js  ← bundled chunks
-          templates/<id>/files/...         ← seed files (NOT served here;
-                                              copied into the workspace
-                                              at template-apply time)
-
-    Sandbox: any path that resolves outside ``install_dir`` is
-    rejected with 403. The schema's ``preview_path`` validator already
-    blocks ``..`` segments at deploy time; this is the second line of
-    defense for arbitrary URL paths.
-
-    Cache: hashed build artefacts (.js / .css / images / fonts) get a
-    long-lived cache header. ``index.html`` and other HTML never cache
-    so iframe reloads always see fresh content.
-    """
+    """Serve a static file from the app's install directory."""
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     if not deployed:
@@ -172,18 +118,6 @@ async def template_assets(request: Request, app_id: str, path: str):
         headers["Cache-Control"] = (
             "no-store, no-cache, must-revalidate, max-age=0"
         )
-        # Inject a premium scrollbar stylesheet so every template's
-        # iframe gets the same thin, themed scrollbar inset from the
-        # content edge — without touching the templates' source files.
-        # GET only: HEAD requests must not carry a body.
-        #
-        # Off-loaded to a worker thread: ``read_text`` + the CSS
-        # injection's ``html.lower()`` + ``find('</head>')`` both
-        # walk the whole HTML buffer, and for large index.html files
-        # (Lovable / builder bundles can be 100+ KB pre-hydration)
-        # the lower/find pass blocks the main loop. Threadpool I/O
-        # releases the GIL for the disk read; the lower/find is small
-        # enough to be acceptable inline post-read.
         if request.method == "GET":
             def _read_and_patch() -> str | None:
                 try:
@@ -206,10 +140,6 @@ async def template_assets(request: Request, app_id: str, path: str):
     return FileResponse(str(target), headers=headers)
 
 
-# Premium scrollbar styles for template-asset HTML responses. Injected
-# at serve time so every template iframe inherits the same thin
-# floating scrollbar with a transparent gutter — no template source
-# edit, no per-template CSS asset to ship.
 _SCROLLBAR_STYLE: str = """\
 <style data-injected="digitorn-template-scrollbar">
   html {
@@ -241,13 +171,7 @@ _SCROLLBAR_STYLE: str = """\
 
 
 def _inject_scrollbar_css(html: str) -> str:
-    """Insert the premium scrollbar stylesheet just before ``</head>``.
-
-    Falls back to the original HTML when there is no head tag (partial
-    fragment, malformed template) so the response stays usable. The
-    injection is idempotent — if the marker attribute is already
-    present the original HTML is returned unchanged.
-    """
+    """Insert the premium scrollbar stylesheet just before `</head>`."""
     if 'data-injected="digitorn-template-scrollbar"' in html:
         return html
     idx = html.lower().find("</head>")

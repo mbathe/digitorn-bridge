@@ -1,19 +1,4 @@
-"""Daemon-side Hub install endpoint.
-
-Browse / search / detail / reviews / reports / stats / categories now
-go directly from the client to ``hub.digitorn.ai/api/v1/*``: the Hub
-validates the central RS256 JWT natively (see
-``digitorn_hub.auth.central``), so there's no value in proxying.
-
-The ONE call that still belongs on the daemon is install: fetching the
-package archive and atomically deploying it is intrinsically a
-daemon-local operation. The handler reads the caller's central Bearer
-token from the Authorization header, hands it to ``HubSource`` so the
-download is authenticated as the calling user, and runs ``InstallFlow``.
-
-Routes:
-    POST /api/hub/install      install ``hub://{publisher}/{package_id}[@v]``
-"""
+"""Daemon-side Hub install endpoint."""
 
 from __future__ import annotations
 
@@ -44,23 +29,12 @@ class HubInstallRequest(BaseModel):
     publisher: str = Field(..., min_length=1, max_length=80)
     package_id: str = Field(..., min_length=1, max_length=80)
     version: str | None = None
-    # Accept ``bool`` (web client - "user clicked Accept") OR ``list[str]``
-    # (Flutter, CLI - explicit list of accepted scopes) OR ``None`` (first
-    # call, daemon returns 409 with the permissions block). Coerced to a
-    # truthy value before flow.install which only checks bool-ness.
     accept_permissions: bool | list[str] | None = None
     scope: str = Field(default="user", pattern="^(user|system)$")
 
 
 def _bearer_from(request: Request) -> str | None:
-    """Lift the caller's central JWT out of the Authorization header so
-    HubSource can forward it to the Hub when downloading the archive.
-
-    Returns None when the header is missing - the Hub allows anonymous
-    reads on most catalogue endpoints, but private packages (publisher
-    drafts, premium content) will fail with 401 from HubSource itself.
-    That's the correct surface for the user.
-    """
+    """Lift the caller's central JWT out of the Authorization header so"""
     h = request.headers.get("authorization", "")
     if h.lower().startswith("bearer "):
         return h.split(" ", 1)[1].strip()
@@ -72,12 +46,7 @@ async def hub_install(
     payload: HubInstallRequest,
     request: Request,
 ) -> dict[str, Any]:
-    """Install a package from the configured Hub.
-
-    Authentication: the user's central JWT (from the Authorization
-    header) is required. ``daemon_user_id`` comes from the same JWT
-    via ``request.state.user_id`` populated by the auth middleware.
-    """
+    """Install a package from the configured Hub."""
     daemon_user_id = _caller_user_id(request)
     if not daemon_user_id or daemon_user_id == "local":
         raise HTTPException(
@@ -85,10 +54,6 @@ async def hub_install(
             "you must be logged in to install hub apps",
         )
 
-    # Stash the central token on request.state so HubSource (built by
-    # _build_install_flow below) can pick it up via getattr. Keeping
-    # the attribute name `hub_token` so the existing source code in
-    # core.api.packages._build_install_flow doesn't need to change.
     request.state.hub_token = _bearer_from(request)
 
     if payload.scope == "system":

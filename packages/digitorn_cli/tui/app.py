@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
@@ -14,11 +17,7 @@ from rich.text import Text
 
 
 class PromptInput(TextArea):
-    """Multiline input: Enter=submit, Shift+Enter=newline.
-
-    Overrides TextArea's ctrl+c (copy) to let it bubble to app (quit).
-    Set `menu_open = True` to let Enter pass through to the app.
-    """
+    """Multiline input: Enter=submit, Shift+Enter=newline."""
 
     # Override TextArea bindings - remove ctrl+c=copy so it bubbles to app=quit
     BINDINGS = [
@@ -71,8 +70,6 @@ from digitorn_cli.tui.widgets.spinner_bar import SpinnerBar
 from digitorn_cli.tui.widgets.status_footer import StatusFooter
 from digitorn_cli.tui.widgets.sidebar import Sidebar
 
-
-# ── Slash command autocomplete menu ──────────────────────────
 
 SLASH_COMMANDS = [
     ("/help", "Show keyboard shortcuts and slash commands"),
@@ -137,7 +134,7 @@ class SlashMenuItem(Static):
 
 
 class SlashMenu(Static):
-    """Autocomplete menu for slash commands. Arrow keys to navigate, Enter to select."""
+    """Autocomplete menu for slash commands."""
 
     DEFAULT_CSS = """
     SlashMenu {
@@ -197,8 +194,8 @@ class SlashMenu(Static):
         for item in self._items:
             try:
                 item.remove()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("widget remove during rebuild failed: %s", exc)
         self._items.clear()
 
         for i, (cmd, desc) in enumerate(self._filtered[:10]):
@@ -239,8 +236,8 @@ class SlashMenu(Static):
         for item in self._items:
             try:
                 item.remove()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("widget remove during hide failed: %s", exc)
         self._items.clear()
         self._filtered = []
         self._selected = 0
@@ -275,8 +272,7 @@ class DigitornTUI(App):
     ]
 
     def _handle_exception(self, error: Exception) -> None:
-        """Catch non-fatal Textual errors (widget removal, selection, timer)
-        instead of crashing the entire TUI."""
+        """Catch non-fatal Textual errors (widget removal, selection, timer)"""
         import logging as _log
         _non_fatal = (
             "NoWidget", "DOMError", "QueryError", "NoMatches",
@@ -364,9 +360,6 @@ class DigitornTUI(App):
     def _make_poster(self):
         app = self
         acc = self._token_acc
-        # Direct references to chat_log's thread-safe accumulators.
-        # Bypasses call_from_thread batching so text/thinking appear
-        # progressively via the chat_log's 10fps timers.
         chat_text_acc: list[str] | None = None
         think_text_acc: list[str] | None = None
         def _get_chat_accs() -> None:
@@ -379,9 +372,6 @@ class DigitornTUI(App):
                 except Exception:
                     pass  # Widget not mounted yet - will retry on next call
         def _post(msg: Any) -> None:
-            # Real token counts from provider → write to accumulator (spinner reads at 8fps)
-            # out_tokens: cumulative per turn (each LLM call generates new tokens)
-            # in_tokens: latest value (= current context size, replaces previous)
             if isinstance(msg, OutTokenCount):
                 acc[0] += msg.count
                 return
@@ -404,14 +394,9 @@ class DigitornTUI(App):
                 app.post_message(msg)
         return _post
 
-    # ── Helpers ─────────────────────────────────────────────────────
 
     def _ensure_spinner(self) -> None:
-        """Safety net: if agent is busy but spinner is off, restart it.
-
-        Only when nothing visible is happening - not during text streaming
-        or thinking streaming. Runs every 0.5s.
-        """
+        """Safety net: if agent is busy but spinner is off, restart it."""
         if self._busy and not self._spinner._active:
             chat = self.query_one("#chat-log", ChatLog)
             if not chat._streaming_active and not chat._thinking_active:
@@ -425,7 +410,6 @@ class DigitornTUI(App):
             return result.data
         return None
 
-    # ── Tool name resolution ──────────────────────────────────────
 
     @staticmethod
     def _resolve_tool(name: str, params: dict) -> tuple[str, dict]:
@@ -457,7 +441,6 @@ class DigitornTUI(App):
             return f"{parts[0]}.{parts[1]}"
         return name
 
-    # ── Message Handlers ──────────────────────────────────────────
 
     def on_backend_ready(self, msg: BackendReady) -> None:
         self._spinner.stop()
@@ -487,7 +470,6 @@ class DigitornTUI(App):
             for line in msg.greeting.strip().split("\n"):
                 chat._append(Text(line, style="#94a3b8"))
 
-        # Check for updates (non-blocking, best-effort)
         self._check_for_updates()
 
         # Restore session costs if resuming
@@ -508,12 +490,7 @@ class DigitornTUI(App):
             self._run_agent_turn(text, self._generation)
 
     def on_history_loaded(self, msg: HistoryLoaded) -> None:
-        """Restore EVERYTHING from session history.
-
-        Rebuilds the chat UI by replaying events in chronological order.
-        This is the full restore - messages, tools, thinking, memory,
-        token counts, everything.
-        """
+        """Restore the full chat UI by replaying events from session history."""
         chat = self.query_one("#chat-log", ChatLog)
         sidebar = self.query_one("#sidebar", Sidebar)
         footer = self.query_one("#status-footer", StatusFooter)
@@ -528,10 +505,6 @@ class DigitornTUI(App):
             t.append(f" - {info['title'][:40]}", style="dim")
         chat._append(t)
 
-        # ── 1. Replay events in chronological order ─────────────────
-        # Events are the ground truth - they contain everything that happened.
-        # Messages are already in the events (turn_start has user msg, turn_end has content).
-        # But we also use the messages array for user/assistant display.
 
         # First: display messages (user questions + assistant responses)
         for message in msg.messages:
@@ -578,7 +551,6 @@ class DigitornTUI(App):
                 # Each turn_end has the final content + tool counts
                 pass  # Already displayed via messages
 
-        # ── 2. Restore memory (goal, todos, facts) in sidebar ───────
         if msg.memory:
             # Working memory has nested structure
             working = msg.memory.get("working", msg.memory)
@@ -598,12 +570,10 @@ class DigitornTUI(App):
                 if sidebar.has_class("hidden"):
                     sidebar.remove_class("hidden")
 
-        # ── 3. Update footer with session totals ────────────────────
         footer.turns = info.get("turn_count", 0)
         footer.cost_usd = self._session_cost_usd
         footer.refresh_bar()
 
-        # ── 4. Update tab title ─────────────────────────────────────
         if info.get("title"):
             try:
                 from digitorn_cli.tui.widgets.tab_bar import TabBar
@@ -612,10 +582,9 @@ class DigitornTUI(App):
                     getattr(self._backend, '_session_id', ''),
                     info["title"][:20],
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("tab_bar update_title failed: %s", exc)
 
-        # ── 5. Final status ─────────────────────────────────────────
         chat.add_separator()
         t2 = Text()
         msg_count = info.get("message_count", len(msg.messages))
@@ -1010,7 +979,6 @@ class DigitornTUI(App):
         if self._exit_on_complete:
             self.set_timer(0.3, lambda: self.exit())
 
-    # ── Input ─────────────────────────────────────────────────────
 
     @on(TextArea.Changed, "#prompt-input")
     def on_input_changed(self, event: TextArea.Changed) -> None:
@@ -1035,8 +1003,8 @@ class DigitornTUI(App):
             panel = self.query_one("#info-panel", InfoPanel)
             if panel.is_visible:
                 panel.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("info_panel close failed: %s", exc)
 
     def on_prompt_input_submitted(self, event: PromptInput.Submitted) -> None:
         """Handle Enter key from PromptInput."""
@@ -1446,7 +1414,6 @@ class DigitornTUI(App):
                 )
             )
 
-    # ── /compact - trigger context compaction ──────────────
 
     @work(thread=True)
     def _do_compact(self) -> None:
@@ -1478,7 +1445,6 @@ class DigitornTUI(App):
                 lambda: chat._append(Text(f"Compact error: {exc}", style="#ef4444"))
             )
 
-    # ── /theme - toggle dark/light ──────────────────────
 
     _current_theme = "dark"
 
@@ -1499,10 +1465,9 @@ class DigitornTUI(App):
         chat = self.query_one("#chat-log", ChatLog)
         chat._append(Text(f"  Theme: {self._current_theme}", style="dim"))
 
-    # ── /image - send an image file ─────────────────────
 
     def _send_image(self, path_str: str) -> None:
-        """Send an image to the agent. Usage: /image <path>"""
+        """Send an image to the agent."""
         from pathlib import Path as _P
         chat = self.query_one("#chat-log", ChatLog)
         if not path_str.strip():
@@ -1524,7 +1489,6 @@ class DigitornTUI(App):
         # The message text tells the agent about the image
         self._submit_input(f"[Attached image: {path}]")
 
-    # ── /vim - toggle vim mode ──────────────────────────
 
     _vim_mode = False
 
@@ -1537,7 +1501,6 @@ class DigitornTUI(App):
         else:
             chat._append(Text("  Vim mode OFF", style="dim"))
 
-    # ── /cost - show token usage ─────────────────────────
 
     def _show_cost(self) -> None:
         """Show token usage and estimated cost - all data from daemon."""
@@ -1565,7 +1528,6 @@ class DigitornTUI(App):
         if sidebar.has_class("hidden"):
             sidebar.remove_class("hidden")
 
-    # ── /diff - show git diff ────────────────────────────
 
     @work(thread=True)
     def _show_diff(self) -> None:
@@ -1617,7 +1579,6 @@ class DigitornTUI(App):
                 lambda: chat._append(Text(f"Diff error: {exc}", style="#ef4444"))
             )
 
-    # ── Update check ────────────────────────────────────────
 
     @work(thread=True)
     def _check_for_updates(self) -> None:
@@ -1647,11 +1608,9 @@ class DigitornTUI(App):
         except Exception:
             pass  # Network error, no PyPI, etc. - silently ignore
 
-    # ── Cost persistence ────────────────────────────────────
 
     # Session costs are now tracked by the daemon - no local persistence needed.
 
-    # ── /commit - send commit instruction to agent ─────────
 
     def _do_commit(self, args: str = "") -> None:
         """Send a commit instruction to the agent."""
@@ -1684,7 +1643,6 @@ class DigitornTUI(App):
         self.query_one("#status-footer", StatusFooter).set_busy(True)
         self._run_agent_turn(prompt, self._generation)
 
-    # ── /model - show or change model ────────────────────
 
     @work(thread=True)
     def _show_model(self, args: str = "") -> None:
@@ -1722,7 +1680,6 @@ class DigitornTUI(App):
                 sidebar.remove_class("hidden")
         self.call_from_thread(_render)
 
-    # ── /context - show context window breakdown ─────────
 
     def _show_context(self) -> None:
         """Show context window breakdown in info panel."""
@@ -1757,7 +1714,6 @@ class DigitornTUI(App):
 
         panel.show("Context Window", rows, bars=bars)
 
-    # ── /doctor - system diagnostics ───────────────────────
 
     @work(thread=True)
     def _show_doctor(self) -> None:
@@ -1808,7 +1764,6 @@ class DigitornTUI(App):
             chat.scroll_end(animate=False)
         self.call_from_thread(_render)
 
-    # ── Session management commands ─────────────────────────
 
     @work(thread=True)
     def _resume_session(self, session_id: str) -> None:
@@ -1844,14 +1799,12 @@ class DigitornTUI(App):
             def _render():
                 chat.clear_all()
 
-                # ── Header ──
                 t = Text()
                 t.append("\u21ba ", style="bold #3b82f6")
                 t.append(f"Resumed session {session_id[:12]}", style="#3b82f6")
                 t.append(f"  ({len(msgs)} messages, {turn_count} turns)", style="#64748b")
                 chat._append(t)
 
-                # ── Restore sidebar from memory snapshot ──
                 if mem_snap:
                     goal = mem_snap.get("goal", "")
                     if goal:
@@ -1864,7 +1817,6 @@ class DigitornTUI(App):
                         content = fact.get("content", str(fact)) if isinstance(fact, dict) else str(fact)
                         sidebar.update_memory("remember", {"content": content})
 
-                # ── Replay events to reconstruct chat + agent status ──
                 _replayed_tools = 0
                 _replayed_agents = set()
                 for ev in events:
@@ -1902,7 +1854,6 @@ class DigitornTUI(App):
                             chat.add_response(preview)
                         chat.add_separator()
 
-                # ── If no events, fall back to message-based display ──
                 if not events:
                     for m in msgs[-10:]:
                         role = m.get("role", "")
@@ -1918,7 +1869,6 @@ class DigitornTUI(App):
                             chat.add_response(preview)
                     chat.add_separator()
 
-                # ── Summary ──
                 st = Text()
                 st.append(f"  {_replayed_tools} tool calls replayed", style="#64748b")
                 if mem_snap.get("goal"):
@@ -2047,7 +1997,6 @@ class DigitornTUI(App):
                 lambda: chat._append(Text(f"Fork error: {exc}", style="#ef4444"))
             )
 
-    # ── MCP management commands ──────────────────────────────
 
     @work(thread=True)
     def _show_mcp(self, subcommand: str = "") -> None:
@@ -2285,7 +2234,6 @@ class DigitornTUI(App):
         chat = self.query_one("#chat-log", ChatLog)
         chat.add_help_panel()
 
-    # ── Approval ──────────────────────────────────────────────────
 
     def on_approval_requested(self, msg: ApprovalRequested) -> None:
         self._spinner.stop()
@@ -2293,7 +2241,6 @@ class DigitornTUI(App):
         chat = self.query_one("#chat-log", ChatLog)
         chat.add_approval_request(msg.tool_name, msg.tool_params, msg.risk_level)
 
-        # ── ask_user with content: show plan in sidebar ──────────
         if msg.tool_name == "ask_user" and msg.tool_params.get("content"):
             sidebar = self.query_one("#sidebar", Sidebar)
             # Make sidebar visible if hidden
@@ -2319,7 +2266,6 @@ class DigitornTUI(App):
             inp.focus()
             return
 
-        # ── Standard approval request ────────────────────────────
         self.query_one("#prompt-icon", Static).update(
             Text(" \u26a0 ", style="bold #f59e0b")
         )
@@ -2350,7 +2296,6 @@ class DigitornTUI(App):
             self._spinner.start(mode="tool_use", label="Executing approved action")
         self._backend.resolve_approval(msg.request_id, approved, deny_msg)
 
-    # ── Undo ──────────────────────────────────────────────────────
 
     def action_undo(self) -> None:
         chat = self.query_one("#chat-log", ChatLog)
@@ -2378,7 +2323,6 @@ class DigitornTUI(App):
         except Exception as exc:
             chat._append(Text(f"Undo error: {exc}", style="#ef4444"))
 
-    # ── Git status polling ────────────────────────────────────────
 
     # Git status is now provided by the daemon in the result event's workspace_status.
     # No more local subprocess polling.

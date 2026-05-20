@@ -92,11 +92,6 @@ def upgrade() -> None:
     $$;
     """)
 
-    # The existing FK on action_executions.agent_pk still points at
-    # `agents` even after the rename (Postgres updates it
-    # transparently because FKs reference object OIDs, not names).
-    # No action needed there.
-
     # ── 2. agent_runs ─────────────────────────────────────────────
     op.create_table(
         "agent_runs",
@@ -265,10 +260,8 @@ def upgrade() -> None:
         END
     ) STORED;
     """)
-    # total_cost_usd extracted from cost_breakdown JSONB sum-of-leaves.
-    # Implemented as a regular column populated by trigger because a
-    # GENERATED column can't reference jsonb_path_query results in a
-    # single expression cleanly.
+    # `total_cost_usd` is trigger-populated (a GENERATED column
+    # can't reference `jsonb_path_query` cleanly).
     op.execute("""
     ALTER TABLE agent_runs
     ADD COLUMN total_cost_usd NUMERIC(14, 6) NOT NULL DEFAULT 0;

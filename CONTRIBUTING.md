@@ -66,6 +66,28 @@ docs/             # Documentation
 
 If you find a security vulnerability, please report it privately via GitHub Security Advisories instead of opening a public issue.
 
+## Publishing
+
+Releases are triggered by pushing a `vX.Y.Z` git tag. The
+`.github/workflows/release.yml` workflow builds the wheel,
+verifies it contains no private code, and publishes to PyPI.
+
+Before tagging, run the same check locally:
+
+```bash
+poetry build
+python scripts/check-wheel-contents.py dist/digitorn-*-py3-none-any.whl
+```
+
+The script rejects any wheel that contains files from private
+sibling packages (`packages/auth`, `packages/gateway`,
+`packages/hub`, `packages/digitorn-preview-sdk`,
+`packages/digitorn_cli`), build artifacts, internal docs, or
+secret-shaped filenames (`.pem`, `.key`, `credentials.json`,
+...). If a future addition requires a new top-level entry, edit
+the `FORBIDDEN_TOPLEVEL` list in the script (and the matching
+`exclude` block in `pyproject.toml`).
+
 ## License
 
 By contributing, you agree that your contributions will be licensed under the Apache-2.0 license.

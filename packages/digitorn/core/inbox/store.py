@@ -1,10 +1,4 @@
-"""InboxStore - async CRUD over the inbox tables.
-
-One canonical write path so the producer, API routes, and CLI all
-go through the same code. Stays consistent with the rest of the
-codebase: async session factory injected, returns dicts (never
-SQLAlchemy rows) so the API layer can serialize directly.
-"""
+"""InboxStore - async CRUD over the inbox tables."""
 
 from __future__ import annotations
 
@@ -21,22 +15,14 @@ logger = logging.getLogger(__name__)
 class InboxStore:
     def __init__(self, session_factory: Any, sio: Any | None = None) -> None:
         self._session_factory = session_factory
-        # Optional Socket.IO server reference - injected by the daemon
-        # lifespan after both the store and the SocketIO server are
-        # constructed. When set, every mutating helper fans out an
-        # ``inbox.*`` event to ``user:<uid>`` so the client's bell
-        # badge / list updates live without polling. When None
-        # (tests / CLI / sandbox), the helpers behave as before.
         self._sio = sio
 
     def attach_sio(self, sio: Any) -> None:
-        """Late-bind the Socket.IO server. Used by the lifespan to
-        wire the dependency after both objects exist."""
+        """Late-bind the Socket.IO server."""
         self._sio = sio
 
     async def _emit_user(self, user_id: str, event: str, payload: Any) -> None:
-        """Best-effort live emit to ``user:<uid>``. Silent on every
-        failure - the DB row is already the source of truth."""
+        """Best-effort live emit to `user:<uid>`."""
         if self._sio is None or not user_id:
             return
         try:
@@ -50,7 +36,6 @@ class InboxStore:
                 event, user_id, exc,
             )
 
-    # ── Items ───────────────────────────────────────────────────────
 
     async def create_item(
         self,
@@ -67,10 +52,10 @@ class InboxStore:
     ) -> dict[str, Any]:
         """Persist a new inbox item. Returns the stored row as a dict.
 
-        Fans out ``inbox.created`` to ``user:<uid>`` after commit so
+        Fans out `inbox.created` to `user:<uid>` after commit so
         the client's bell badge updates live (only delivered when the
         user is NOT currently joined to a session room - matches the
-        strict isolation contract in ``socketio_bus.on_join_session``).
+        strict isolation contract in `socketio_bus.on_join_session`).
         """
         from digitorn.core.models import InboxItem
 
@@ -211,12 +196,6 @@ class InboxStore:
             await db.commit()
             return int(result.rowcount or 0)
 
-    # ── Devices ─────────────────────────────────────────────────────
-    # v2: ``user_devices`` replaces ``inbox_devices`` + ``inbox_notification_prefs``.
-    # One row per (user_id, fcm_token) carries both registration and per-device
-    # prefs. The legacy tables remain in place but are not written by this
-    # store; they will be dropped in a follow-up sprint after one full
-    # release cycle of zero writes.
 
     async def register_device(
         self,
@@ -259,10 +238,7 @@ class InboxStore:
     async def unregister_device(
         self, *, user_id: str, device_id: str,
     ) -> bool:
-        """Soft-delete: flip ``active=False`` instead of removing the row.
-
-        Keeps the row for analytics + 410 retry suppression.
-        """
+        """Soft-delete: flip `active=False` instead of removing the row."""
         from digitorn.core.models import UserDevice
         async with self._session_factory() as db:
             row = (
@@ -295,14 +271,6 @@ class InboxStore:
             rows = (await db.execute(stmt)).scalars().all()
             return [_device_to_dict(r) for r in rows]
 
-    # ── Notification prefs ──────────────────────────────────────────
-    # Prefs are now per-device (stored on UserDevice.prefs). For
-    # backwards compatibility with the existing /api/users/me/notification-prefs
-    # endpoints, ``get_notification_prefs`` returns the prefs of the most
-    # recent device, and ``save_notification_prefs`` writes them to every
-    # active device the user has. Per-device tuning is exposed via the
-    # device endpoints (``PATCH /api/users/me/devices/{id}/prefs``) when
-    # the client gets there.
 
     async def get_notification_prefs(
         self, *, user_id: str,
@@ -327,13 +295,7 @@ class InboxStore:
     async def save_notification_prefs(
         self, *, user_id: str, prefs: dict[str, Any],
     ) -> dict[str, Any]:
-        """Write prefs to every active device the user has.
-
-        Returns the prefs payload (the same dict the caller sent). If the
-        user has no registered device yet the prefs are saved on a stub
-        device (platform=``unknown``, fcm_token=``""``) that the next
-        ``register_device`` call will overwrite.
-        """
+        """Write prefs to every active device the user has."""
         from digitorn.core.models import UserDevice
         async with self._session_factory() as db:
             rows = (
@@ -378,8 +340,8 @@ def _item_to_dict(row: Any) -> dict[str, Any]:
 
 
 def _device_to_dict(row: Any) -> dict[str, Any]:
-    # ``registered_at`` is the v2 field; legacy callers expect
-    # ``created_at`` so we expose both pointing at the same value.
+    # `registered_at` is the v2 field; legacy callers expect
+    # `created_at` so we expose both pointing at the same value.
     registered_at = getattr(row, "registered_at", None) or getattr(row, "created_at", None)
     return {
         "id": row.id,

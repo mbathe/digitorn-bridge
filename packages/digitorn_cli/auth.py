@@ -1,15 +1,4 @@
-"""CLI authentication helpers - token storage, auto-refresh, authenticated HTTP.
-
-Stores credentials in ``~/.digitorn/credentials.json`` with:
-- access_token, refresh_token, expires_at, daemon_url, user info
-
-All CLI commands that call the daemon should use :func:`daemon_request` instead
-of raw ``httpx`` calls. It handles:
-1. Loading stored tokens
-2. Adding the Authorization header
-3. Auto-refreshing expired tokens (via /auth/refresh)
-4. Prompting login when no credentials exist
-"""
+"""CLI authentication helpers - token storage, auto-refresh, authenticated HTTP."""
 
 from __future__ import annotations
 
@@ -65,7 +54,7 @@ def _is_token_expired(creds: dict[str, Any]) -> bool:
 
 
 def _refresh_token(daemon: str, creds: dict[str, Any]) -> dict[str, Any] | None:
-    """Try to refresh the access token. Returns updated creds or None."""
+    """Try to refresh the access token."""
     refresh = creds.get("refresh_token")
     if not refresh:
         return None
@@ -89,7 +78,7 @@ def _refresh_token(daemon: str, creds: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _prompt_login(daemon: str) -> dict[str, Any]:
-    """Prompt user for credentials and login. Returns creds dict or exits."""
+    """Prompt user for credentials and login."""
     # Check daemon is reachable BEFORE asking for credentials
     try:
         _check = httpx.get(f"{daemon}/health", timeout=5.0)
@@ -198,10 +187,7 @@ def _prompt_register(daemon: str, username: str, password: str) -> dict[str, Any
 
 
 def get_auth_headers(daemon: str) -> dict[str, str]:
-    """Get Authorization headers for daemon requests.
-
-    Loads stored credentials, refreshes if expired, prompts login if needed.
-    """
+    """Get Authorization headers for daemon requests."""
     creds = _load_credentials()
 
     if creds is None:

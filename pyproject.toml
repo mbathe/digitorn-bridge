@@ -1,24 +1,65 @@
-# test
 [tool.poetry]
 name = "digitorn"
 version = "1.0.0"
-description = "Declarative AI agent framework — build agent applications with YAML"
-authors = ["Paul"]
+description = "Declarative AI agent framework - build agent applications in YAML"
+authors = ["Paul Mbathe <mbathepaul@gmail.com>"]
 readme = "README.md"
 license = "Apache-2.0"
-homepage = "https://digitorn.dev"
-repository = "https://github.com/digitorn/digitorn-bridge"
-documentation = "https://docs.digitorn.dev"
-keywords = ["ai", "agent", "llm", "framework", "yaml", "multi-agent"]
+homepage = "https://digitorn.ai"
+repository = "https://github.com/mbathe/digitorn-bridge"
+documentation = "https://docs.digitorn.ai"
+keywords = ["ai", "agent", "llm", "framework", "yaml", "multi-agent", "mcp"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Framework :: FastAPI",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 packages = [{include = "digitorn", from = "packages"}]
+
+# Files that must never appear in the wheel/sdist. Anything matched
+# here is excluded by Poetry at build time. The release workflow runs
+# `scripts/check-wheel-contents.py` AFTER the build to verify nothing
+# slipped through, so this list and the script's FORBIDDEN list must
+# stay in sync. See CONTRIBUTING.md for the threat model.
+exclude = [
+    # Private sibling packages (separate servers / SDKs / CLIs that
+    # must stay closed-source). The build root is `packages/`, so
+    # Poetry would happily slurp anything starting with "digitorn-*"
+    # if we didn't say no.
+    "packages/auth/**",
+    "packages/gateway/**",
+    "packages/hub/**",
+    "packages/digitorn-preview-sdk/**",
+    "packages/digitorn_cli/**",
+
+    # Inside the digitorn package: bundled web frontends ship their
+    # source + compiled assets, NEVER node_modules / build caches.
+    "packages/digitorn/builtins/*/web/node_modules",
+    "packages/digitorn/builtins/*/web/.next",
+    "packages/digitorn/builtins/*/web/dist",
+
+    # Python build artifacts.
+    "packages/digitorn/**/__pycache__",
+    "packages/digitorn/**/*.pyc",
+
+    # Repo-level dirs that have no business in a Python wheel.
+    "tests/**",
+    "tools/**",
+    "scripts/**",
+    "docs-site/**",
+    "olds_doc/**",
+    "**/node_modules/**",
+    "**/.git/**",
+    "**/.venv/**",
+    "**/.env",
+    "**/.env.*",
+]
 
 [tool.poetry.dependencies]
 python = "^3.12"
@@ -145,8 +186,9 @@ pyarrow = {version = ">=15.0,<22.0", optional = true}
 pyautogui = {version = "^0.9", optional = true}
 mss = {version = "^9.0", optional = true}
 
-# Optional: Windows services
-pywin32 = {version = ">=306", optional = true, markers = "sys_platform == 'win32'"}
+# Windows service registration (sc.exe + Event Viewer). Required on
+# Windows so `digitorn service install` works out of the box.
+pywin32 = {version = ">=306", markers = "sys_platform == 'win32'"}
 
 [tool.poetry.extras]
 browser = ["playwright"]
@@ -164,7 +206,6 @@ pinecone = ["pinecone-client"]
 elasticsearch = ["elasticsearch"]
 datascience = ["matplotlib", "numpy", "pyarrow"]
 desktop = ["pyautogui", "mss"]
-windows = ["pywin32"]
 all = [
     "playwright", "edge-tts", "feedparser",
     "faster-whisper",

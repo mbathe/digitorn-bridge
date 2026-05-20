@@ -1,18 +1,5 @@
 #!/usr/bin/env python3
-"""MCP server wrapper that fixes the pre_parse_json bug in the MCP SDK.
-
-Bug: The SDK's ``pre_parse_json`` converts JSON string arguments to dicts
-when the field annotation is ``Optional[str]`` (because ``Optional[str] is
-not str``).  This breaks MCP servers (like mcp-notion) that declare
-``Optional[str]`` parameters for JSON string inputs.
-
-Fix: Patch ``pre_parse_json`` to check if ``str`` is one of the annotation's
-accepted types before attempting to parse.  If the field accepts ``str``,
-leave the value as-is.
-
-Usage:
-    python3 -m digitorn.modules.mcp.sdk_fix_wrapper <original_command> [args...]
-"""
+"""MCP server wrapper that fixes the pre_parse_json bug in the MCP SDK."""
 
 from __future__ import annotations
 
@@ -21,14 +8,7 @@ import sys
 import typing
 from typing import Annotated, Any, Union
 
-
 def _annotation_accepts_str(annotation: Any) -> bool:
-    """Check if a type annotation accepts str values.
-
-    Handles: str, Optional[str], str | None, Union[str, ...],
-    Annotated[str, ...], Annotated[Optional[str], ...], and nested
-    combinations thereof.
-    """
     if annotation is str:
         return True
 
@@ -45,12 +25,7 @@ def _annotation_accepts_str(annotation: Any) -> bool:
 
     return False
 
-
 def _patched_pre_parse_json(self: Any, data: dict[str, Any]) -> dict[str, Any]:
-    """Fixed version of FuncMetadata.pre_parse_json.
-
-    Same logic as original, but skips fields whose annotation accepts str.
-    """
     new_data = data.copy()
 
     key_to_field_info: dict[str, Any] = {}
@@ -80,13 +55,10 @@ def _patched_pre_parse_json(self: Any, data: dict[str, Any]) -> dict[str, Any]:
     assert new_data.keys() == data.keys()
     return new_data
 
-
 def _apply_patch() -> None:
-    """Monkey-patch FuncMetadata.pre_parse_json."""
     from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata
 
     FuncMetadata.pre_parse_json = _patched_pre_parse_json
-
 
 def main() -> None:
     if len(sys.argv) < 2:
@@ -117,7 +89,6 @@ def main() -> None:
 
     sys.argv[0] = script_path
     runpy.run_path(script_path, run_name="__main__")
-
 
 if __name__ == "__main__":
     main()

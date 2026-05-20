@@ -1,24 +1,4 @@
-"""Build Draft Store - persists App Builder drafts in DB + on disk.
-
-A *draft* is an in-progress conversation between a user and the App
-Builder agent. The user describes what they want, the builder asks
-clarifying questions, generates a YAML, compiles it, fixes errors,
-and eventually arrives at a deploy-ready app definition.
-
-Each draft is persisted in two places that stay in sync :
-
-- **DB** (``BuildDraft`` row): the chat history, builder state-machine
-  bookkeeping, current YAML, status. Used by every API call that
-  returns or updates the draft.
-- **Disk** (``~/.digitorn/drafts/<user_id>/<draft_id>/app.yaml``): just
-  the current YAML bytes. Lets the user ``cat`` / download / scp the
-  draft without going through the API. The store rewrites this file
-  on every ``update_yaml()`` call so it never goes stale.
-
-Each user is capped at ``MAX_DRAFTS_PER_USER`` drafts (50). When the
-limit is hit, ``create()`` raises ``DraftLimitExceeded`` so the API
-layer can return a clean 409 instead of growing the table forever.
-"""
+"""Build Draft Store - persists App Builder drafts in DB + on disk."""
 
 from __future__ import annotations
 
@@ -43,16 +23,7 @@ class DraftLimitExceeded(Exception):
 
 
 def _drafts_dir(user_id: str, draft_id: str) -> Path:
-    """Return the on-disk directory holding one draft's YAML.
-
-    Layout::
-
-        ~/.digitorn/drafts/<user_id>/<draft_id>/app.yaml
-
-    Both id segments are validated to reject path traversal - the
-    daemon stores user-controlled values in them so we can't trust
-    them blindly.
-    """
+    """Return the on-disk directory holding one draft's YAML."""
     for name in (user_id, draft_id):
         if not name or "/" in name or "\\" in name or ".." in name:
             raise ValueError(f"unsafe id segment: {name!r}")
@@ -65,7 +36,6 @@ class BuildDraftStore:
     def __init__(self, session_factory: Any) -> None:
         self._session_factory = session_factory
 
-    # ── CRUD ─────────────────────────────────────────────────────
 
     async def create(
         self,
@@ -75,13 +45,7 @@ class BuildDraftStore:
         initial_yaml: str = "",
         builder_state: dict | None = None,
     ) -> dict[str, Any]:
-        """Create a new draft for ``user_id``.
-
-        Raises ``DraftLimitExceeded`` if the user already has
-        ``MAX_DRAFTS_PER_USER`` drafts (any status). The cap intentionally
-        counts every status - abandoned drafts still take a slot, the
-        user must explicitly delete them to free up space.
-        """
+        """Create a new draft for `user_id`."""
         from digitorn.core.models import BuildDraft
 
         async with self._session_factory() as db:
@@ -118,8 +82,7 @@ class BuildDraftStore:
             return self._row_to_dict(draft)
 
     async def get(self, draft_id: str, user_id: str | None = None) -> dict[str, Any] | None:
-        """Fetch one draft. If ``user_id`` is provided, returns ``None`` when
-        the draft belongs to someone else (cross-user isolation)."""
+        """Fetch one draft. If `user_id` is provided, returns `None` when"""
         from digitorn.core.models import BuildDraft
 
         async with self._session_factory() as db:
@@ -175,12 +138,7 @@ class BuildDraftStore:
         builder_state: dict | None = None,
         deployed_app_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Update one or more fields on a draft.
-
-        Any non-``None`` argument overwrites that field. ``current_yaml``
-        also rewrites the on-disk file. ``chat_history`` is capped at
-        ``MAX_CHAT_MESSAGES`` to keep the row size bounded.
-        """
+        """Update one or more fields on a draft."""
         from digitorn.core.models import BuildDraft
 
         async with self._session_factory() as db:
@@ -231,12 +189,7 @@ class BuildDraftStore:
         *,
         user_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """Append messages to ``chat_history`` without sending the full list.
-
-        Cheaper than ``update(chat_history=...)`` when the builder agent
-        wants to add a single user/assistant exchange - we read the
-        existing list, append, cap, and write back.
-        """
+        """Append messages to `chat_history` without sending the full list."""
         from digitorn.core.models import BuildDraft
 
         async with self._session_factory() as db:
@@ -285,21 +238,15 @@ class BuildDraftStore:
                 logger.debug("draft disk cleanup failed: %s", exc)
         return deleted
 
-    # ── Disk mirror ──────────────────────────────────────────────
 
     def _write_yaml_to_disk(self, user_id: str, draft_id: str, yaml_text: str) -> Path:
-        """Write the current YAML to the draft's on-disk app.yaml.
-
-        Idempotent - the file is overwritten on every call. Parent
-        directories are created lazily on first write.
-        """
+        """Write the current YAML to the draft's on-disk app.yaml."""
         directory = _drafts_dir(user_id, draft_id)
         directory.mkdir(parents=True, exist_ok=True)
         target = directory / "app.yaml"
         target.write_text(yaml_text, encoding="utf-8")
         return target
 
-    # ── Row → dict ───────────────────────────────────────────────
 
     @staticmethod
     def _row_to_dict(row: Any) -> dict[str, Any]:

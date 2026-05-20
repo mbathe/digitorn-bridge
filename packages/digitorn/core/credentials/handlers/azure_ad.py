@@ -1,15 +1,4 @@
-"""AzureAdHandler - Azure Active Directory app registration credential.
-
-Three fields: tenant_id + client_id + client_secret. The most common
-auth shape for Azure services (Azure OpenAI, Azure Storage with
-app-based auth, Microsoft Graph). A managed identity flow exists
-but is implicit (no credential to store) - this handler covers
-explicit app registration creds only.
-
-Validation: tenant_id and client_id are GUIDs; the handler checks
-the format and runs an OAuth2 client_credentials grant against AAD
-to verify the secret if `test_live_connection` is requested.
-"""
+"""AzureAdHandler - Azure Active Directory app registration credential."""
 
 from __future__ import annotations
 

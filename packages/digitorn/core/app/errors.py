@@ -7,11 +7,7 @@ from typing import Any
 
 
 class AppCompilationError(Exception):
-    """Base error raised when app YAML compilation fails.
-
-    Collects all validation errors so the user sees every problem at once
-    rather than fixing them one by one.
-    """
+    """Base error raised when app YAML compilation fails."""
 
     def __init__(self, errors: list[str], *, source: str = "") -> None:
         self.errors = errors
@@ -23,7 +19,7 @@ class AppCompilationError(Exception):
 
 
 class VariableResolutionError(AppCompilationError):
-    """One or more ``{{variable}}`` references could not be resolved."""
+    """One or more `{{variable}}` references could not be resolved."""
 
 
 class ModuleNotFoundError(AppCompilationError):
@@ -31,7 +27,7 @@ class ModuleNotFoundError(AppCompilationError):
 
 
 class ActionNotFoundError(AppCompilationError):
-    """An action referenced in ``setup`` does not exist on the target module."""
+    """An action referenced in `setup` does not exist on the target module."""
 
 
 class ParamsValidationError(AppCompilationError):
@@ -39,7 +35,7 @@ class ParamsValidationError(AppCompilationError):
 
 
 class ConstraintValidationError(AppCompilationError):
-    """A constraint key is not declared in the module's ``supported_constraints``."""
+    """A constraint key is not declared in the module's `supported_constraints`."""
 
 
 class AppBootstrapError(Exception):

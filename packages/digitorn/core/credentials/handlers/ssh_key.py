@@ -1,15 +1,4 @@
-"""SshKeyHandler - SSH private key + optional passphrase.
-
-For modules that need to git over SSH, scp, sftp, or any SSH-based
-protocol. The private key is stored encrypted in the credential
-store; at runtime the resolver writes it to a temp file with mode
-0600 and passes the path to the consumer module (the temp file is
-deleted at session end).
-
-Algorithm support: ed25519, rsa, ecdsa. The handler validates the
-key parses correctly via `paramiko` (lazy import; only loaded when
-the handler actually does a test or a runtime expansion).
-"""
+"""SshKeyHandler - SSH private key + optional passphrase."""
 
 from __future__ import annotations
 
@@ -104,9 +93,7 @@ class SshKeyHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Try to load the key with paramiko - validates format +
-        passphrase. Doesn't connect to any remote host (that needs
-        a target, which the schema doesn't carry)."""
+        """Try to load the key with paramiko - validates format +"""
         priv = (fields or {}).get("private_key", "")
         passphrase = (fields or {}).get("passphrase") or None
         if not priv:

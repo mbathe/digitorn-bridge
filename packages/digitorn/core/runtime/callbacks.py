@@ -1,9 +1,4 @@
-"""Typed callback protocols for the agent loop.
-
-Every callback the runtime accepts is defined here as a Protocol.
-AgentTurnCallbacks bundles them into a single object, replacing
-the 10+ keyword arguments previously threaded through agent_turn → _loop.
-"""
+"""Typed callback protocols for the agent loop."""
 
 from __future__ import annotations
 
@@ -45,22 +40,7 @@ class OnToolCall(Protocol):
 
 @runtime_checkable
 class OnToolCallStreaming(Protocol):
-    """Fired while the LLM is still composing a tool call's args JSON
-    - BEFORE execution. Lets the UI show a live placeholder ("Write
-    · 47 tokens") so the user knows the agent is working even on a
-    long write where args take seconds to generate.
-
-    Fires once when the tool name first appears (count=0), then every
-    ~250ms with the litellm-tokenized count of accumulated args.
-    Stops when the tool call is finalized - execution then takes over
-    via the existing ``OnToolStart`` / ``OnToolCall`` callbacks.
-
-    ``intent`` is the verb phrase extracted from the partial args buffer
-    as soon as the schema's first property (the injected ``intent``
-    field) closes its string literal. Empty until then; sticky once
-    captured so subsequent ticks don't overwrite it. Only populated
-    when the app has ``ui.tool_calls.inject_intent: true``.
-    """
+    """Fired while the LLM is still composing a tool call's args JSON"""
     def __call__(self, call_id: str, name: str, count: int, intent: str = "") -> None: ...
 
 
@@ -81,21 +61,13 @@ class OnThinkingDelta(Protocol):
 
 @runtime_checkable
 class OnStatus(Protocol):
-    """Lifecycle status callback - emitted at every phase transition.
-
-    Phases: turn_start, requesting, generating, tool_executing,
-    turn_end, error, waiting, heartbeat.
-    """
+    """Lifecycle status callback - emitted at every phase transition."""
     def __call__(self, phase: str, details: dict[str, Any] | None = None) -> None: ...
 
 
 @dataclass
 class AgentTurnCallbacks:
-    """All optional callbacks for a single agent turn.
-
-    Pass one instance to agent_turn() instead of 10 keyword arguments.
-    Every field defaults to None (disabled).
-    """
+    """All optional callbacks for a single agent turn."""
 
     on_token: OnToken | None = None
     on_stream_done: OnStreamDone | None = None

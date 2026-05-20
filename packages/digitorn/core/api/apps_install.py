@@ -1,34 +1,4 @@
-"""Installation lifecycle routes - formerly under ``/api/packages/*``.
-
-Consolidated under ``/api/apps/*`` on 2026-04-21 so the Flutter client
-has a single mental model (``app``) instead of juggling both
-``package`` and ``app`` entities.
-
-Four routes covering the full lifecycle of an installed app:
-
-    POST   /api/apps/install                   - install (with permissions probe)
-    POST   /api/apps/{app_id}/upgrade          - upgrade
-    POST   /api/apps/{app_id}/uninstall        - uninstall
-    GET    /api/apps/{app_id}/check-update     - content drift report
-
-Listing + single-app detail are handled by the pre-existing
-``GET /api/apps`` + ``GET /api/apps/{app_id}`` routes in ``apps.py``,
-which now include install-status + runtime-status fields.
-Assets and icon are also served by ``apps.py`` routes
-(``GET /{app_id}/assets/{path}``, ``GET /{app_id}/icon``) - those
-handle both the deployed-bundle path and the package-install-dir
-fallback, which is richer than what we'd duplicate here.
-
-Locked design references:
-
-- D5  - permissions consent flow (409 with payload, then re-call)
-- D9  - built-in uninstall protection (admin + force)
-- D11 - install permission gating
-- D12 - id collision is a strict refusal (409)
-
-Hub and git source paths return 501 - their concrete implementations
-are deferred to v2 (per §14 of the design doc).
-"""
+"""Installation lifecycle routes - formerly under `/api/packages/*`."""
 
 from __future__ import annotations
 
@@ -37,10 +7,6 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 
 from digitorn.core.api.apps_v2 import AppResponse, _get_manager
-# Helpers + request models are kept in ``api/packages.py`` as a shared
-# library layer (restored 2026-04-21 after the HTTP routes moved here).
-# Importing from there - instead of re-declaring - keeps a single
-# source of truth and prevents drift on the InstallRequest contract.
 from digitorn.core.api.packages import (
     InstallRequest,
     UninstallRequest,
@@ -66,21 +32,14 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/apps", tags=["apps"])
 
 
-# ────────────────────────────────────────────────────────────────────
 # Routes - installation lifecycle
-# ────────────────────────────────────────────────────────────────────
 
 
 @router.get("/{app_id}/check-update", response_model=AppResponse)
 async def check_update(
     request: Request, app_id: str,
 ) -> AppResponse:
-    """Report whether an updated version of the installed app is available.
-
-    Only built-in apps currently support this - the wheel ships a
-    possibly-newer version of each builtin and the registry tracks the
-    installed hash. Hub and git sources will support this in v2.
-    """
+    """Report whether an updated version of the installed app is available."""
     registry = _get_registry(request)
     pkg = await registry.get(app_id)
     if pkg is None:
@@ -141,15 +100,7 @@ async def check_update(
 async def install_app(
     request: Request, body: InstallRequest,
 ) -> AppResponse:
-    """Install a new app from one of the 4 supported sources.
-
-    First call (without ``accept_permissions``) returns ``409`` with
-    the permissions payload so the client can show a consent dialog.
-    Second call (with ``accept_permissions=true``) actually installs.
-
-    Hub and git sources return 501 in v1 - their fetch implementations
-    are stubs.
-    """
+    """Install a new app from one of the 4 supported sources."""
     if body.source_type in (SourceType.HUB, SourceType.GIT):
         raise HTTPException(
             status_code=501,
@@ -222,10 +173,6 @@ async def install_app(
     except InstallError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except FetchError as exc:
-        # FetchError covers source-side problems: missing path, no
-        # package.toml, malformed manifest, network failure on a
-        # remote source. All caller-fixable, so 400 is the right code -
-        # 500 implies a server fault.
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.exception("install_app failed for %s", body.source_uri)
@@ -251,16 +198,7 @@ async def install_app(
 async def upgrade_app(
     request: Request, app_id: str, body: UpgradeRequest,
 ) -> AppResponse:
-    """Upgrade an installed app to a new version.
-
-    Same permissions consent flow as install. On compile/deploy
-    failure the InstallFlow rolls back to the previous version
-    automatically (locked design D8).
-
-    Supports every source type the matching ``flow.install()`` does
-    (local / git / hub) - the underlying ``InstallFlow.upgrade()``
-    pipeline is source-agnostic.
-    """
+    """Upgrade an installed app to a new version."""
     registry = _get_registry(request)
     caller_id = _caller_user_id(request)
     existing = await registry.resolve_for_caller(
@@ -287,9 +225,6 @@ async def upgrade_app(
     flow = _build_install_flow(request)
     on_deploy = _resolve_deploy_callback(request)
 
-    # When the client doesn't override the source, reuse what the registry
-    # recorded at install time. Lets a UI "Upgrade" click work for any
-    # source kind (hub / git / local) without the client having to know.
     src_type = body.source_type or existing.get("source_type")
     src_uri = body.source_uri or existing.get("source_uri")
     if not src_type or not src_uri:
@@ -339,27 +274,13 @@ async def upgrade_app(
     )
 
 
-# NOTE: ``GET /{app_id}/assets/{asset_path:path}`` and
-# ``GET /{app_id}/icon`` live in ``apps.py`` (they pre-date this
-# module and handle both the deployed-bundle path and the
-# package-install-dir fallback - richer than what we'd write here).
-# Do NOT re-declare them here; ``apps_router`` is registered before
-# ``apps_install_router`` in ``server.py`` so any duplicate would be
-# dead code anyway.
-
-
 @router.post("/{app_id}/uninstall", response_model=AppResponse)
 async def uninstall_app(
     request: Request,
     app_id: str,
     body: UninstallRequest | None = None,
 ) -> AppResponse:
-    """Uninstall an app - wipes disk + DB row + undeploys.
-
-    Built-in apps refuse without ``force=true`` AND admin permission
-    (locked design D9). User data (workspaces, credentials, drafts) is
-    preserved.
-    """
+    """Uninstall an app - wipes disk + DB row + undeploys."""
     force = body.force if body else False
 
     registry = _get_registry(request)
@@ -389,8 +310,8 @@ async def uninstall_app(
     manager = None
     try:
         manager = _get_manager(request)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("apps_install best-effort block failed: %s", exc)
 
     async def _on_undeploy(
         pkg_id: str,

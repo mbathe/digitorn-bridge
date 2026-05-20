@@ -1,13 +1,4 @@
-"""Feedback protocols - 3 modes of real-time communication.
-
-Each protocol knows how to talk to its type of external tool:
-  - LspProtocol: JSON-RPC persistent (pyright, gopls, texlab)
-  - CompilerProtocol: Persistent process, re-triggered per edit (cargo, tsc --watch)
-  - LinterProtocol: Shell-out on-demand, no persistent process (ruff, eslint)
-
-All protocols expose the same interface via FeedbackProtocol,
-so the module doesn't care which mode is active.
-"""
+"""Feedback protocols - 3 modes of real-time communication."""
 
 from __future__ import annotations
 
@@ -21,7 +12,6 @@ from typing import Any
 from .parsers import Diagnostic, get_parser, parse_fallback, parse_lsp_diagnostics
 
 logger = logging.getLogger(__name__)
-
 
 class FeedbackProtocol(ABC):
     """Base class for all feedback protocols."""
@@ -40,12 +30,7 @@ class FeedbackProtocol(ABC):
         cwd: str | None,
         **kwargs: Any,
     ) -> bool:
-        """Start the protocol. Returns True if successful.
-
-        Extra kwargs (``initialization_options``, ``settings``,
-        ``roots``) are honoured by the LSP-mode subclass; compiler /
-        linter subclasses accept and ignore them.
-        """
+        """Start the protocol. Returns True if successful."""
         ...
 
     @abstractmethod
@@ -66,33 +51,15 @@ class FeedbackProtocol(ABC):
     async def request(
         self, method: str, params: dict[str, Any], *, timeout: float = 10.0,
     ) -> dict[str, Any] | None:
-        """Generic LSP-method dispatch for hover / goto / references /
-        completion / rename / etc.
-
-        Default implementation returns ``None`` (the feature is only
-        meaningful for real LSP protocols - compilers and linters
-        don't speak JSON-RPC). Subclasses that have a live LSP channel
-        override to forward the call.
-        """
+        """Generic LSP-method dispatch for hover / goto / references /."""
         return None
 
     @property
     def is_connected(self) -> bool:
         return False
 
-
-# ── LSP Protocol ─────────────────────────────────────────────────
-
-
 class LspProtocol(FeedbackProtocol):
-    """JSON-RPC LSP - persistent sidecar with push diagnostics.
-
-    Communication flow:
-      1. start() → spawn process, initialize handshake
-      2. notify_file_changed() → didOpen/didChange
-      3. Server pushes publishDiagnostics → cached
-      4. get_diagnostics() → read cache (instant)
-    """
+    """JSON-RPC LSP - persistent sidecar with push diagnostics."""
 
     mode = "lsp"
 
@@ -113,23 +80,7 @@ class LspProtocol(FeedbackProtocol):
         settings: dict[str, Any] | None = None,
         roots: list[str] | None = None,
     ) -> bool:
-        """Spawn the LSP server subprocess and handshake.
-
-        ``initialization_options`` (JSON-RPC ``initialize.params.initializationOptions``)
-            Server-specific bootstrap config. Examples:
-            - pyright: ``{"settings": {"python": {"venvPath": "..."}}}``
-            - rust-analyzer: ``{"checkOnSave": {"command": "clippy"}}``
-            - texlab: ``{"latex": {"build": {"executable": "tectonic"}}}``
-
-        ``settings`` (sent via ``workspace/didChangeConfiguration`` after
-        ``initialized``)
-            Runtime workspace settings most LSP servers accept.
-
-        ``roots`` (workspaceFolders)
-            Multi-root projects. Each entry is an absolute path; the
-            server sees them as workspace folders and indexes them.
-            Falls back to ``cwd`` when empty.
-        """
+        """Spawn the LSP server subprocess and handshake."""
         self._pool = pool
         self._name = name
         self._app_id = app_id
@@ -145,10 +96,6 @@ class LspProtocol(FeedbackProtocol):
                 on_notification=self._on_notification,
             )
 
-            # Build the workspaceFolders list. ``roots`` (if provided)
-            # takes precedence over ``cwd`` -- it's the explicit
-            # multi-root contract. Otherwise fall back to the legacy
-            # single-folder shape (cwd).
             folders: list[dict[str, str]] = []
             if roots:
                 for r in roots:
@@ -173,16 +120,9 @@ class LspProtocol(FeedbackProtocol):
                 })
             primary_uri = folders[0]["uri"] if folders else "file:///tmp"
 
-            # Keep the capabilities block MINIMAL: only declare what
-            # the channel actually implements. Declaring
-            # ``workspace.configuration: true`` here would make servers
-            # (pyright, typescript-language-server) issue
-            # ``workspace/configuration`` requests back to us, expecting
-            # a reply -- our sidecar channel doesn't currently handle
-            # server-initiated REQUESTS (only notifications), so the
-            # server would block forever on the first didOpen. The
-            # legacy minimal set is good enough for hover / goto /
-            # references / completion.
+            # Minimal capabilities only: the sidecar channel does not
+            # handle server-initiated requests, so declaring more would
+            # deadlock on `workspace/configuration` round-trips.
             init_params: dict[str, Any] = {
                 "processId": None,
                 "capabilities": {
@@ -195,11 +135,6 @@ class LspProtocol(FeedbackProtocol):
                         },
                     },
                 },
-                # ``rootUri`` kept for old LSP servers that ignore
-                # workspaceFolders. Spec says rootUri is deprecated in
-                # favor of workspaceFolders, but several real-world
-                # servers (older rust-analyzer, some embedded LSPs)
-                # still consult it. Set it to the primary folder.
                 "rootUri": primary_uri,
                 "workspaceFolders": folders or None,
             }
@@ -213,7 +148,7 @@ class LspProtocol(FeedbackProtocol):
 
             # Post-initialized: push runtime settings if provided.
             # Pyright / typescript-language-server / others read these
-            # via ``workspace/didChangeConfiguration``.
+            # via `workspace/didChangeConfiguration`.
             if settings:
                 try:
                     await self._channel.notify(
@@ -246,19 +181,14 @@ class LspProtocol(FeedbackProtocol):
         if not self._channel or self._channel.status != "connected":
             return
 
-        # ``Path.as_uri()`` builds a *valid* file:// URI for the host
-        # OS. The legacy ``f"file://{Path(path).resolve()}"`` shape
-        # produced ``file://C:\Users\...`` on Windows (backslashes,
-        # two slashes), which pyright / tsserver accept silently on
-        # didOpen but then can't match against hover / goto requests
-        # using normalised slashes. ``as_uri`` returns
-        # ``file:///C:/Users/...`` (three slashes, forward slashes) --
-        # the canonical RFC 8089 shape both servers expect.
+        # `Path.as_uri()` is RFC 8089-compliant; `f"file://{path}"`
+        # would yield backslashes on Windows that pyright / tsserver
+        # can't match across didOpen / hover / goto.
         resolved_path = Path(path).resolve()
         uri = resolved_path.as_uri()
 
         if content is None:
-            # Off-loop: ``Path.read_text`` is sync. Called for every
+            # Off-loop: `Path.read_text` is sync. Called for every
             # post-write LSP notification - on a 2 MB file under load
             # this would stall the loop and drop Socket.IO pings.
             try:
@@ -310,12 +240,7 @@ class LspProtocol(FeedbackProtocol):
     async def request(
         self, method: str, params: dict[str, Any], *, timeout: float = 10.0,
     ) -> dict[str, Any] | None:
-        """Forward a JSON-RPC LSP request to the backing language server.
-
-        Used by the ``/lsp/request`` REST endpoint for hover, goto,
-        references, completion, rename, etc. The caller passes raw LSP
-        params - we don't reshape (the LSP spec itself is the contract).
-        """
+        """Forward a JSON-RPC LSP request to the backing language server."""
         if not self._channel or self._channel.status != "connected":
             return None
         try:
@@ -332,13 +257,13 @@ class LspProtocol(FeedbackProtocol):
             try:
                 await self._channel.request("shutdown", {}, timeout=5)
                 await self._channel.notify("exit", {})
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("protocols best-effort block failed: %s", exc)
             if self._pool:
                 try:
                     await self._pool.release(f"lsp-{self._name}", self._app_id)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("protocols best-effort block failed: %s", exc)
         self._cached.clear()
         self._opened.clear()
 
@@ -346,21 +271,8 @@ class LspProtocol(FeedbackProtocol):
     def is_connected(self) -> bool:
         return self._channel is not None and self._channel.status == "connected"
 
-
-# ── Compiler Protocol ────────────────────────────────────────────
-
-
 class CompilerProtocol(FeedbackProtocol):
-    """Compiler - re-run after each edit, parse structured output.
-
-    For tools like: cargo check, tsc --noEmit, gcc, javac
-    These don't speak LSP but produce structured error output.
-
-    Communication flow:
-      1. start() → nothing (no persistent process needed)
-      2. notify_file_changed() → run compiler, parse output, cache
-      3. get_diagnostics() → read cache (instant after first run)
-    """
+    """Compiler - re-run after each edit, parse structured output."""
 
     mode = "compiler"
 
@@ -392,31 +304,21 @@ class CompilerProtocol(FeedbackProtocol):
 
         cwd = self._cwd or str(Path(path).parent)
 
-        # Compose the argv. Project-wide compilers (``cargo check``,
-        # ``go vet``) walk the whole crate / module from their cwd and
-        # would choke on a bare file path. Single-file compilers
-        # (``tsc --noEmit``, ``javac``, ``gcc -fsyntax-only``) need the
-        # file appended explicitly -- without it, tsc returns no
-        # inputs and the audit reports zero diagnostics for an
-        # obviously broken .ts. We detect the project-wide tools by
-        # name and skip the append for them.
+        # Project-wide compilers (cargo, go) take no file argument;
+        # single-file compilers (tsc, javac, gcc) need it appended.
         _PROJECT_WIDE = {"cargo", "go"}
         first = (self._command[0] if self._command else "").lower()
         first_base = first.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-        # Strip a ``.exe`` suffix on Windows so the check fires for
-        # both ``cargo`` and ``cargo.exe``.
+        # Strip a `.exe` suffix on Windows so the check fires for
+        # both `cargo` and `cargo.exe`.
         if first_base.endswith(".exe"):
             first_base = first_base[:-4]
         argv = list(self._command)
         if first_base not in _PROJECT_WIDE:
             argv.append(path)
 
-        # Windows: asyncio.create_subprocess_exec uses CreateProcessW
-        # which does NOT honour PATHEXT for ``.cmd`` / ``.bat`` wrappers
-        # (``tsc``, ``npm``, ``yarn`` ship as .cmd shims). shutil.which
-        # does honour PATHEXT, so we pre-resolve the full path here and
-        # let CreateProcessW load it directly. POSIX: shutil.which is a
-        # no-op when the binary is already absolute or on PATH.
+        # Resolve via `shutil.which` so CreateProcessW on Windows
+        # picks up `.cmd` / `.bat` shims (tsc, npm, yarn).
         _resolved_exe = shutil.which(argv[0])
         if _resolved_exe:
             argv[0] = _resolved_exe
@@ -472,21 +374,8 @@ class CompilerProtocol(FeedbackProtocol):
     def is_connected(self) -> bool:
         return bool(self._command)
 
-
-# ── Linter Protocol ──────────────────────────────────────────────
-
-
 class LinterProtocol(FeedbackProtocol):
-    """Linter - shell-out on-demand, no persistent process.
-
-    For tools like: ruff, eslint, stylelint, jsonlint
-    Fast enough to run per-file without a sidecar.
-
-    Communication flow:
-      1. start() → just save config (no process)
-      2. notify_file_changed() → run linter on file, cache result
-      3. get_diagnostics() → read cache
-    """
+    """Linter - shell-out on-demand, no persistent process."""
 
     mode = "linter"
 
@@ -528,11 +417,6 @@ class LinterProtocol(FeedbackProtocol):
 
         cwd = self._cwd or str(Path(path).parent)
 
-        # Resolve the binary via shutil.which (honours PATHEXT for
-        # ``.cmd`` / ``.bat`` shims that asyncio.create_subprocess_exec
-        # would otherwise miss on Windows). Matches CompilerProtocol's
-        # behaviour; no-op when ``parts[0]`` is already an absolute
-        # path or on POSIX.
         _resolved = shutil.which(parts[0])
         if _resolved:
             parts[0] = _resolved
@@ -568,10 +452,6 @@ class LinterProtocol(FeedbackProtocol):
     @property
     def is_connected(self) -> bool:
         return bool(self._command)
-
-
-# ── Factory ──────────────────────────────────────────────────────
-
 
 def create_protocol(mode: str, parser_name: str = "fallback") -> FeedbackProtocol:
     """Create a protocol instance by mode name."""

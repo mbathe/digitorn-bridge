@@ -1,8 +1,4 @@
-"""Sidebar - workspace panel showing goal, todos, progress, facts.
-
-Workspace panel rendered with Textual/Rich.
-Updated via MemoryUpdate messages from the backend.
-"""
+"""Sidebar - workspace panel showing goal, todos, progress, facts."""
 
 from __future__ import annotations
 
@@ -36,15 +32,7 @@ class ExpandableItem(Static):
 class Sidebar(VerticalScroll):
     """Right sidebar showing workspace state."""
 
-    DEFAULT_CSS = """
-    Sidebar {
-        width: 34;
-        background: #0f1320;
-        border-left: tall #1e293b;
-        padding: 1 1;
-        scrollbar-size: 1 1;
-    }
-    """
+    DEFAULT_CSS = """Sidebar {"""
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
@@ -65,11 +53,7 @@ class Sidebar(VerticalScroll):
         self._command_panel: tuple[str, list[tuple[str, str]]] | None = None
 
     def show_command_panel(self, title: str, items: list[tuple[str, str]]) -> None:
-        """Show a temporary info panel at the top of the sidebar.
-
-        Used by slash commands (/status, /tools, /mcp, /sessions, /tasks, /watchers).
-        Cleared automatically when the agent updates memory (next _rebuild from agent).
-        """
+        """Show a temporary info panel at the top of the sidebar."""
         self._command_panel = (title, items)
         self._rebuild()
 
@@ -91,10 +75,7 @@ class Sidebar(VerticalScroll):
         self._rebuild()
 
     def update_memory(self, action: str, result: dict) -> None:
-        """Process a memory_update event and refresh display.
-
-        Accepts both FQN actions (memory.set_goal) and short names (SetGoal, TodoAdd).
-        """
+        """Process a memory_update event and refresh display."""
         # Normalize action: strip module prefix, map short names to snake_case
         _SHORT_TO_ACTION = {
             "SetGoal": "set_goal", "Remember": "remember",
@@ -237,12 +218,10 @@ class Sidebar(VerticalScroll):
             except Exception:
                 pass  # Widget already removed or app shutting down
 
-        # ── Title ──
         title = Text()
         title.append("Workspace", style="bold #94a3b8")
         self.mount(Static(title, classes="sidebar-section"))
 
-        # ── Command Panel (temporary, shown at top) ──
         if self._command_panel is not None:
             panel_title, panel_items = self._command_panel
             self.mount(Static(Text(""), classes="sidebar-spacer"))
@@ -262,7 +241,6 @@ class Sidebar(VerticalScroll):
             close_t.append("  esc to close", style="#475569")
             self.mount(Static(close_t, classes="sidebar-item"))
 
-        # ── Git ──
         if self._git_branch:
             self.mount(Static(Text(""), classes="sidebar-spacer"))
             gt = Text()
@@ -309,7 +287,6 @@ class Sidebar(VerticalScroll):
                         full_t.append("\n")
                 self.mount(ExpandableItem(short_t, full_t, classes="sidebar-item"))
 
-        # ── Workspace Files ──
         if self._workspace_files:
             self.mount(Static(Text(""), classes="sidebar-spacer"))
             hdr = Text()
@@ -329,7 +306,6 @@ class Sidebar(VerticalScroll):
                 ft.append(self._trunc(short_name, extra=4), style=color)
                 self._mount_item(ft, path, style=color)
 
-        # ── Goal ──
         if self._goal:
             self.mount(Static(Text(""), classes="sidebar-spacer"))
             goal_t = Text()
@@ -337,7 +313,6 @@ class Sidebar(VerticalScroll):
             goal_t.append(self._trunc(self._goal, extra=2), style="#f59e0b")
             self._mount_item(goal_t, self._goal, style="#f59e0b")
 
-        # ── Tasks (unified: plan + todos) ──
         if self._todos:
             done = sum(1 for t in self._todos if t.get("status") == "done")
             total = len(self._todos)
@@ -389,7 +364,6 @@ class Sidebar(VerticalScroll):
                 extra_t.append(f"  +{len(self._todos) - 10} more", style="#475569")
                 self.mount(Static(extra_t, classes="sidebar-item"))
 
-        # ── Facts ──
         if self._facts:
             self.mount(Static(Text(""), classes="sidebar-spacer"))
             hdr = Text()
@@ -404,7 +378,6 @@ class Sidebar(VerticalScroll):
                 f.append(f"\u2022 {content}", style="#94a3b8")
                 self._mount_item(f, full_content, style="#94a3b8")
 
-        # ── Notes ──
         if self._notes:
             self.mount(Static(Text(""), classes="sidebar-spacer"))
             hdr = Text()
@@ -417,7 +390,6 @@ class Sidebar(VerticalScroll):
                 n.append(f"\u2022 {content}", style="#f59e0b")
                 self.mount(Static(n, classes="sidebar-item"))
 
-        # ── Agents ──
         if self._agents:
             active = [a for a in self._agents if a["status"] in ("spawned", "running")]
             done = [a for a in self._agents if a["status"] not in ("spawned", "running")]

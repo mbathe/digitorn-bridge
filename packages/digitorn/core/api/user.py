@@ -1,26 +1,4 @@
-"""User-level routes: global event stream, inbox, approvals, devices.
-
-This module carries everything that is **cross-session / cross-app**
-for the authenticated user:
-
-- ``GET  /api/users/me/events``         global SSE stream (fan-in)
-- ``GET  /api/users/me/inbox``          persisted notification inbox
-- ``GET  /api/users/me/inbox/unread_count``
-- ``POST /api/users/me/inbox/{id}/read``
-- ``POST /api/users/me/inbox/read_all``
-- ``DELETE /api/users/me/inbox/{id}``   archive
-- ``GET  /api/users/me/approvals``      cross-app pending approvals
-- ``POST /api/users/me/devices``        push-notification device registration (stub)
-- ``DELETE /api/users/me/devices/{id}`` unregister device (stub)
-- ``GET  /api/users/me/notification-prefs``  server-side prefs (stub)
-- ``PUT  /api/users/me/notification-prefs``  server-side prefs (stub)
-- ``GET  /api/users/me/apps/{app_id}/byok``  read BYOK toggle for an app
-- ``PUT  /api/users/me/apps/{app_id}/byok``  set BYOK toggle (local only)
-- ``GET  /api/users/me/apps/byok``           list every BYOK toggle
-
-The apps router (``/api/apps``) stays focused on per-app operations;
-anything that spans apps lives here.
-"""
+"""User-level routes: global event stream, inbox, approvals, devices."""
 
 from __future__ import annotations
 
@@ -37,9 +15,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/users/me", tags=["user"])
 
 
-# ────────────────────────────────────────────────────────────────────
 # Helpers
-# ────────────────────────────────────────────────────────────────────
 
 
 def _user_id(request: Request) -> str:
@@ -64,22 +40,10 @@ def _require_admin(request: Request) -> None:
     )
 
 
-# ════════════════════════════════════════════════════════════════════
 # A. Global user SSE stream
-# ════════════════════════════════════════════════════════════════════
 
 
-# NOTE: The global user SSE stream (GET /api/users/me/events) has
-# been removed. Clients now receive every user-scoped event via
-# Socket.IO on the `/events` namespace - connecting auto-joins the
-# `user:{user_id}` room, and the `connected` handshake carries the
-# current `latest_seq` for replay via the `replay` Socket.IO event.
-# See core/events/socketio_bus.py.
-
-
-# ════════════════════════════════════════════════════════════════════
 # B. Persistent inbox
-# ════════════════════════════════════════════════════════════════════
 
 
 @router.get("/inbox", response_model=AppResponse)
@@ -89,13 +53,7 @@ async def list_inbox(
     since: str = "",
     include_archived: bool = False,
 ) -> AppResponse:
-    """Return the caller's inbox items, newest first.
-
-    Pagination via ``since=<item_id>`` (cursor). Default page size
-    100, max 500. Each item is enriched with the app's visual
-    metadata (``app_name``, ``app_icon``, ``app_color``) so the
-    client renders without an extra /api/apps/{id} fetch per row.
-    """
+    """Return the caller's inbox items, newest first."""
     store = _get_inbox_store(request)
     user_id = _user_id(request)
     items = await store.list_for_user(
@@ -184,24 +142,14 @@ async def inbox_archive(
     return AppResponse(success=True, data={"item_id": item_id, "archived": True})
 
 
-# ════════════════════════════════════════════════════════════════════
 # C. Cross-app approvals
-# ════════════════════════════════════════════════════════════════════
 
 
 @router.get("/sessions", response_model=AppResponse)
 async def list_user_sessions_cross_app(
     request: Request, limit: int = 50, offset: int = 0,
 ) -> AppResponse:
-    """Return the caller's recent sessions **across every app** sorted
-    by ``last_active`` descending.
-
-    This is the backing route for the "Recent conversations" view in
-    the Flutter client - the one that aggregates work in progress
-    independently of which app is currently open. Each row carries
-    the app's visual metadata (icon, color, name) so the list
-    renders without an extra /api/apps/{id} fetch per row.
-    """
+    """Return the caller's recent sessions **across every app** sorted"""
     manager = _get_manager(request)
     user_id = _user_id(request)
     limit = max(1, min(limit, 200))
@@ -250,13 +198,7 @@ async def list_user_sessions_cross_app(
 
 @router.get("/approvals", response_model=AppResponse)
 async def list_user_approvals(request: Request) -> AppResponse:
-    """Return every pending approval request belonging to the caller,
-    across all deployed apps.
-
-    Powers the "pending approvals" section of the inbox and lets
-    the Flutter client resync after a reload without iterating
-    ``/api/apps/{id}/approvals`` per app.
-    """
+    """Return every pending approval request belonging to the caller,"""
     manager = _get_manager(request)
     user_id = _user_id(request)
 
@@ -274,9 +216,6 @@ async def list_user_approvals(request: Request) -> AppResponse:
         if queue is None:
             continue
         try:
-            # Prefer list_pending_for_user so the filter runs inside
-            # the queue (avoids leaking other users' metadata through
-            # to_dict even briefly).
             if hasattr(queue, "list_pending_for_user"):
                 items = queue.list_pending_for_user(user_id)
             else:
@@ -303,16 +242,6 @@ async def list_user_approvals(request: Request) -> AppResponse:
     )
 
 
-# ════════════════════════════════════════════════════════════════════
-# D. Devices (push notifications - stub)
-# ════════════════════════════════════════════════════════════════════
-#
-# Real FCM/APNS delivery is P2 - these routes persist registrations
-# but don't actually push anything yet. The Flutter client can wire
-# register/unregister now so we don't block the push integration on
-# a separate PR.
-
-
 class DeviceRegisterRequest(BaseModel):
     platform: str = Field(..., description="ios | android | web")
     fcm_token: str
@@ -324,12 +253,7 @@ class DeviceRegisterRequest(BaseModel):
 async def register_device(
     request: Request, body: DeviceRegisterRequest,
 ) -> AppResponse:
-    """Register a device for future push-notification delivery.
-
-    **Stub**: the row is persisted so we keep the token, but the
-    daemon doesn't actually push anything yet. Return shape is
-    stable so the client can wire `unregister` without changes.
-    """
+    """Register a device for future push-notification delivery."""
     store = _get_inbox_store(request)
     user_id = _user_id(request)
     device = await store.register_device(
@@ -366,9 +290,7 @@ async def list_devices(request: Request) -> AppResponse:
     )
 
 
-# ════════════════════════════════════════════════════════════════════
 # E. Notification preferences (stub - server-side mirror of local prefs)
-# ════════════════════════════════════════════════════════════════════
 
 
 class NotificationPrefs(BaseModel):
@@ -408,26 +330,6 @@ async def put_notification_prefs(
     return AppResponse(success=True, data=saved)
 
 
-# ════════════════════════════════════════════════════════════════════
-# F. Bring-Your-Own-Key (BYOK) toggle - LOCAL mode only
-# ════════════════════════════════════════════════════════════════════
-#
-# A per-(user, app) switch the Flutter desktop UI flips when the user
-# wants this app to call its real LLM provider with their own
-# credentials, bypassing the Digitorn gateway. The toggle is meaningful
-# only in self-hosted / desktop mode; in cloud mode the daemon always
-# routes through the gateway and these endpoints return 409 to make
-# the client surface a clear error.
-#
-# When the toggle is ON and the user hasn't yet stored a credential
-# for the app's brain provider, the next chat turn raises
-# ``CredentialAuthRequired`` - the existing client picker handles the
-# rest. The credential, once saved with scope ``per_app_per_user``,
-# is automatically picked up by ``inject_session_time_credentials``.
-#
-# See: digitorn.core.credentials.byok_store.
-
-
 class ByokToggleRequest(BaseModel):
     enabled: bool = Field(
         ...,
@@ -439,7 +341,6 @@ class ByokToggleRequest(BaseModel):
 
 
 def _reject_byok_in_cloud_mode() -> None:
-    """Cloud daemons always route via the gateway - no per-user BYOK."""
     try:
         from digitorn.core.config import get_settings
         if get_settings().mode == "cloud":
@@ -456,21 +357,13 @@ def _reject_byok_in_cloud_mode() -> None:
             )
     except HTTPException:
         raise
-    except Exception:
-        # If settings aren't loaded yet, default to allowing the call -
-        # the underlying store still works and the toggle will be a
-        # no-op in cloud mode (build_byok_overrides_for_app early-returns).
-        pass
+    except Exception as exc:
+        logger.debug("user best-effort block failed: %s", exc)
 
 
 @router.get("/apps/{app_id}/byok", response_model=AppResponse)
 async def get_app_byok(request: Request, app_id: str) -> AppResponse:
-    """Return the BYOK state for one app.
-
-    Always succeeds with a stable shape - when no row exists the
-    server returns ``enabled=False`` so the client renders the toggle
-    in its default position without a 404 round-trip.
-    """
+    """Return the BYOK state for one app."""
     user_id = _user_id(request)
     from digitorn.core.credentials.byok_store import get_byok
     row = await get_byok(user_id, app_id)
@@ -522,23 +415,7 @@ async def list_app_byok(request: Request) -> AppResponse:
     )
 
 
-# ════════════════════════════════════════════════════════════════════
-# Admin user management was removed when identity moved to the
-# central digitorn-auth service. Admin user CRUD - list, search,
-# inspect, update, soft/hard-delete - now lives on the auth service
-# (or its dashboard). The role-catalog and audit-log endpoints below
-# stay daemon-side because roles + audit are daemon-scoped concerns.
-#
-# Quota and usage routes were removed when quota enforcement moved
-# to the digitorn LLM gateway (`packages/gateway/`). The gateway
-# exposes /v1/quota/me and /admin/quota/* with the same contract.
-# ════════════════════════════════════════════════════════════════════
-
-
 admin_router = APIRouter(prefix="/api/admin", tags=["admin"])
-
-
-# ── Roles catalog (read-only for now) ───────────────────────────────
 
 
 @admin_router.get("/audit-log", response_model=AppResponse)
@@ -554,16 +431,7 @@ async def admin_list_audit_log(
     limit: int = 100,
     offset: int = 0,
 ) -> AppResponse:
-    """Read the append-only audit trail.
-
-    All filters compose (AND). ``event_type`` supports trailing
-    wildcard: ``quota.*`` returns every quota.* row. Timestamps are
-    ISO8601; pass either UTC (``2026-04-21T00:00:00Z``) or tz-aware
-    offsets. Paginated via limit+offset.
-
-    Admin-only. Needs ``*`` or ``admin`` perm. The trail itself is
-    immutable - there is deliberately no PATCH / DELETE route.
-    """
+    """Read the append-only audit trail."""
     _require_admin(request)
     from sqlalchemy import and_, select, func
     # Unified ledger: query history_log WHERE kind='audit'.
@@ -650,9 +518,7 @@ async def admin_list_audit_log(
 
 @admin_router.get("/roles", response_model=AppResponse)
 async def admin_list_roles(request: Request) -> AppResponse:
-    """List all roles defined in the daemon. Used by the admin UI to
-    populate the role-picker when editing a user.
-    """
+    """List all roles defined in the daemon. Used by the admin UI to"""
     _require_admin(request)
     from sqlalchemy import select
     from digitorn.core.models import Role
@@ -676,28 +542,13 @@ async def admin_list_roles(request: Request) -> AppResponse:
         })
 
 
-# ── Daemon-wide counters for the Overview dashboard ─────────────────
-# Cached in-process for 30s so the admin panel can hit this on every
-# focus / poll without burning DB round-trips. Fail-soft: each counter
-# has its own try/except returning 0 - one missing component (e.g. MCP
-# pool not initialised) must not break the whole dashboard.
-
 _admin_stats_cache: dict[str, Any] = {"ts": 0.0, "data": None}
 _ADMIN_STATS_TTL_S = 30.0
 
 
 @admin_router.get("/stats", response_model=AppResponse)
 async def admin_get_stats(request: Request) -> AppResponse:
-    """Daemon-wide counters for the admin Overview dashboard.
-
-    Returns counts scoped to the whole daemon - users, deployed apps,
-    installed packages (split by user/system scope), credentials (split
-    by owner_type), MCP servers in the connected pool, recently-active
-    user sessions, and current-month LLM spend in USD. Admin-only.
-
-    Cached in-process for 30 s to protect the DB from the admin panel's
-    focus/poll cadence.
-    """
+    """Daemon-wide counters for the admin Overview dashboard."""
     _require_admin(request)
 
     import time as _time
@@ -714,9 +565,6 @@ async def admin_get_stats(request: Request) -> AppResponse:
     )
 
     stats: dict[str, Any] = {
-        # User count is owned by the central auth service - the admin
-        # dashboard should fetch it from there. Kept here as 0 for
-        # legacy clients that read the field unconditionally.
         "users": 0,
         "apps": 0,
         "packages": 0,
@@ -725,9 +573,6 @@ async def admin_get_stats(request: Request) -> AppResponse:
         "system_credentials": 0,
         "mcp_servers": 0,
         "active_sessions": 0,
-        # Monthly cost is owned by the digitorn LLM gateway -
-        # admin dashboard reads it from /admin/quota/users on the
-        # gateway. Kept here as 0 for legacy clients.
         "monthly_cost_usd": 0.0,
     }
 
@@ -773,9 +618,6 @@ async def admin_get_stats(request: Request) -> AppResponse:
             # monthly_cost_usd intentionally left at 0.0 - cost is
             # tracked by the gateway, not the daemon.
 
-    # MCP pool lives on app.state and is optional - if the pool never
-    # started (no MCP dependency installed / creds missing) we just
-    # report 0 without failing the whole dashboard.
     try:
         pool = getattr(request.app.state, "mcp_pool", None)
         if pool is not None and hasattr(pool, "list_connected"):
@@ -789,20 +631,11 @@ async def admin_get_stats(request: Request) -> AppResponse:
     return AppResponse(success=True, data={"stats": stats})
 
 
-# ════════════════════════════════════════════════════════════════════
 # G. Profile management (display_name, email, password, avatar)
-# ════════════════════════════════════════════════════════════════════
 
 
 class ProfileUpdateRequest(BaseModel):
-    """Self-service profile update body.
-
-    Forwarded as-is to ``PATCH /auth/me`` on the central auth service,
-    which owns identity. All fields optional - only set ones get applied.
-    Email is locked there (re-verification flow). Reserved attribute
-    keys (password_hash, mfa_*, lockout counters) are filtered by the
-    auth service.
-    """
+    """Self-service profile update body."""
     display_name: str | None = None
     email: str | None = None
     phone: str | None = None
@@ -810,12 +643,7 @@ class ProfileUpdateRequest(BaseModel):
 
 
 def _auth_service_url(request: Request) -> str:
-    """Return the central auth-service base URL or raise 503.
-
-    Identity is owned by digitorn-auth (https://auth.digitorn.ai by
-    default). The daemon never reads identity from its local DB - it
-    proxies to this URL.
-    """
+    """Return the central auth-service base URL or raise 503."""
     url = getattr(request.app.state, "auth_service_url", None)
     if not url:
         raise HTTPException(
@@ -826,7 +654,6 @@ def _auth_service_url(request: Request) -> str:
 
 
 def _bearer(request: Request) -> str:
-    """Extract the caller's bearer token to forward to the auth service."""
     h = request.headers.get("authorization", "")
     if not h.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
@@ -835,12 +662,7 @@ def _bearer(request: Request) -> str:
 
 @router.get("/profile", response_model=AppResponse)
 async def get_my_profile(request: Request) -> AppResponse:
-    """Return the caller's full profile from the central auth service.
-
-    The daemon does not store identity - this is a thin proxy to
-    ``GET /auth/me`` on digitorn-auth so the frontend has a single
-    consistent shape regardless of which daemon it's talking to.
-    """
+    """Return the caller's full profile from the central auth service."""
     import httpx
     base = _auth_service_url(request)
     token = _bearer(request)
@@ -864,13 +686,7 @@ async def get_my_profile(request: Request) -> AppResponse:
 async def update_my_profile(
     request: Request, body: ProfileUpdateRequest,
 ) -> AppResponse:
-    """Update the caller's profile.
-
-    Thin proxy to ``PATCH /auth/me`` on digitorn-auth. Email is locked
-    (re-verification flow lives on the central). Reserved attributes
-    (password_hash, mfa_*, lockout counters, ...) are filtered server-side
-    by the auth service.
-    """
+    """Update the caller's profile."""
     import httpx
     base = _auth_service_url(request)
     token = _bearer(request)
@@ -910,13 +726,7 @@ async def update_my_profile(
 
 @router.post("/avatar", response_model=AppResponse)
 async def upload_my_avatar(request: Request) -> AppResponse:
-    """Forward a multipart avatar upload to the central auth service.
-
-    The auth service stores the bytes on its own persistent volume and
-    owns ``avatar_url``. The URL it returns is relative to the auth
-    service host (``/auth/avatars/<file>``) - the frontend prepends
-    ``DIGITORN_AUTH_SERVICE_URL`` when rendering.
-    """
+    """Forward a multipart avatar upload to the central auth service."""
     import httpx
     base = _auth_service_url(request)
     token = _bearer(request)
@@ -966,13 +776,7 @@ async def delete_my_avatar(request: Request) -> AppResponse:
 
 @router.get("/avatar/{filename}")
 async def serve_my_avatar(request: Request, filename: str):
-    """Redirect avatar requests to the central auth service.
-
-    Old avatars (uploaded before the central-auth migration) lived on
-    the daemon's local disk under ~/.digitorn/avatars/. Going forward,
-    the canonical URL is ``<auth-service>/auth/avatars/<filename>``;
-    we 308 here so legacy clients keep working without a code change.
-    """
+    """Redirect avatar requests to the central auth service."""
     from fastapi.responses import RedirectResponse
     from pathlib import Path
 

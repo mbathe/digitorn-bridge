@@ -1,14 +1,4 @@
-"""Dataclasses for the session store.
-
-``Event`` mirrors the 25 columns of ``history_log`` so disk persistence
-is byte-identical to what an INSERT into Postgres would have produced.
-Every other dataclass is a pure data carrier used by the in-memory
-projections layer.
-
-Serialization contract: every dataclass round-trips through
-``to_dict()`` / ``from_dict()`` with stable JSON output. Datetimes are
-stored as ISO 8601 with ``+00:00`` suffix, lists/dicts as JSON-native.
-"""
+"""Dataclasses for the session store."""
 
 from __future__ import annotations
 
@@ -27,9 +17,7 @@ def utc_iso() -> str:
 
 
 def _bytes_estimate(value: Any) -> int:
-    """Rough sizeof for cache-pressure tracking. Not exact (Python
-    object overhead varies by version) but stable enough for an
-    LRU eviction signal."""
+    """Rough sizeof for cache-pressure tracking. Not exact (Python"""
     if value is None:
         return 0
     if isinstance(value, str):
@@ -50,19 +38,7 @@ def _bytes_estimate(value: Any) -> int:
 
 @dataclass
 class Event:
-    """One row in the durable session journal.
-
-    Mirrors ``history_log`` columns: ts, seq, kind, type, app_id,
-    session_id, user_id, actor_user_id, actor_roles, role, content,
-    tool_call_id, tool_calls, name, payload, before, after,
-    target_user_id, target_app_id, target_resource, ip_address,
-    user_agent, correlation_id, success, message.
-
-    The ``seq`` is per-session monotonic, allocated by ``SeqAllocator``.
-    The ``ts`` is per-event UTC timestamp; uniqueness is guaranteed by
-    ``unique_utc_now`` semantics in the allocator (sub-microsecond
-    resolution + per-allocator atomic).
-    """
+    """One row in the durable session journal."""
 
     type: str
     seq: int = 0
@@ -109,9 +85,7 @@ class Event:
 
 @dataclass
 class BlobRef:
-    """Reference to a content-addressed blob (image, audio, video,
-    arbitrary file). The hash is sha256-hex; mime + size carried for
-    UI hints without re-reading the file."""
+    """Reference to a content-addressed blob (image, audio, video,"""
 
     hash: str
     mime: str
@@ -127,8 +101,7 @@ class BlobRef:
 
 @dataclass
 class ParentLink:
-    """Backlink from a sub-agent session to its parent. Lets the UI
-    drill from a child agent's view back to the spawning context."""
+    """Backlink from a sub-agent session to its parent. Lets the UI"""
 
     parent_session_id: str
     parent_seq_at_spawn: int
@@ -144,9 +117,7 @@ class ParentLink:
 
 @dataclass
 class ChildAgentRef:
-    """Reference to a sub-agent spawned by this session. Carries the
-    minimum needed for the UI to render a thumbnail and link to the
-    sub-agent's own session view."""
+    """Reference to a sub-agent spawned by this session. Carries the"""
 
     run_id: str
     kind: str
@@ -165,9 +136,7 @@ class ChildAgentRef:
 
 @dataclass
 class Message:
-    """One assistant or user turn, post-streaming-assembly. The
-    ``content`` is the FULL final text (token chunks are not stored
-    here; they live in the events journal)."""
+    """One assistant or user turn, post-streaming-assembly. The"""
 
     role: str
     content: str

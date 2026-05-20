@@ -15,8 +15,8 @@ Usage from any route handler::
 
 The helper:
 
-- Captures the actor's ``user_id`` + ``roles`` from ``request.state``
-- Pulls the real client IP (handles proxies via ``X-Forwarded-For``)
+- Captures the actor's `user_id` + `roles` from `request.state`
+- Pulls the real client IP (handles proxies via `X-Forwarded-For`)
 - Writes synchronously via SQLAlchemy so the audit row is durable
   BEFORE the handler returns its 200 to the client. Audit that can
   be lost on crash is not audit.
@@ -25,7 +25,7 @@ The helper:
 - Silent no-op when the DB isn't ready (bootstrap / standalone /
   tests) so the caller never has to guard.
 
-Every sensitive mutation should be followed by an ``audit_log``
+Every sensitive mutation should be followed by an `audit_log`
 call. If adding a new admin route, adding an audit line is part of
 the PR checklist.
 """
@@ -51,9 +51,9 @@ async def audit_log(
 ) -> None:
     """Write one append-only audit row.
 
-    Caller MUST pass an ``event_type`` in the dotted lowercase
-    namespace (``quota.set_app``, ``user.delete``, ``app.deploy``, …).
-    Bulk listing queries filter on ``event_type LIKE 'quota.%'``.
+    Caller MUST pass an `event_type` in the dotted lowercase
+    namespace (`quota.set_app`, `user.delete`, `app.deploy`, …).
+    Bulk listing queries filter on `event_type LIKE 'quota.%'`.
     """
     try:
         from digitorn.core.database import _engine
@@ -66,10 +66,6 @@ async def audit_log(
         logger.debug("audit_log: setup import failed: %s", exc)
         return
 
-    # Extract actor context from the request state (set by the auth
-    # middleware on every authenticated call). ``user_id`` is "system"
-    # on the loopback bypass path - useful to distinguish daemon-
-    # internal actions from user-initiated ones.
     actor_user_id = _safe_str(getattr(request.state, "user_id", None))
     actor_roles = list(getattr(request.state, "roles", None) or [])
 
@@ -81,7 +77,7 @@ async def audit_log(
 
     try:
         from digitorn.core.history import record as _record
-        # ``sync=True``: audit rows MUST be durable before the HTTP
+        # `sync=True`: audit rows MUST be durable before the HTTP
         # response ships - a 200 that the caller reads before the row
         # hits disk breaks the "audit is truth" contract.
         await _record(
@@ -101,10 +97,8 @@ async def audit_log(
             sync=True,
         )
     except Exception as exc:
-        # Audit write failure is itself an incident - surface loud
-        # so ops sees it. We still don't raise: the originating
-        # action should succeed from the user's perspective; a
-        # broken audit ≠ a broken service.
+        # Audit write failure is an incident; log loud but don't raise
+        # so the originating action still succeeds for the caller.
         logger.error(
             "audit_log_write_failed event=%s actor=%s target_app=%s "
             "target_user=%s: %s",

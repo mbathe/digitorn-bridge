@@ -1,8 +1,4 @@
-"""One-shot mode - message → agent loop → result → exit.
-
-Input arrives from CLI (argument, --file, --image, --json, --stdin).
-Output goes to stdout. Process exits after.
-"""
+"""One-shot mode - message → agent loop → result → exit."""
 
 from __future__ import annotations
 
@@ -34,20 +30,7 @@ async def run_one_shot(
     on_token: Any | None = None,
     on_stream_done: Any | None = None,
 ) -> TurnResult:
-    """Run the agent in one-shot mode.
-
-    Args:
-        ctx: Agent context with provider, tools, system prompt.
-        user_input: The raw input (text, file path, JSON string, etc.).
-        input_type: How to interpret the input (text, image, file, json, any).
-        output_type: Expected output format (text, json, file).
-        max_turns: Max agent loop iterations.
-        timeout: Total timeout in seconds.
-        on_tool_call: Optional callback for tool call notifications.
-
-    Returns:
-        TurnResult with the final response.
-    """
+    """Run the agent in one-shot mode."""
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": ctx.system_prompt},
     ]
@@ -74,7 +57,6 @@ async def run_one_shot(
 
 
 def _build_user_message(raw_input: str, input_type: str) -> dict[str, Any]:
-    """Build the user message from raw input based on type."""
     if input_type == "text" or input_type == "any":
         return {"role": "user", "content": raw_input}
 
@@ -91,7 +73,6 @@ def _build_user_message(raw_input: str, input_type: str) -> dict[str, Any]:
 
 
 def _build_image_message(image_input: str) -> dict[str, Any]:
-    """Build a multimodal message with an image."""
     path = Path(image_input)
     if path.exists():
         mime_type = mimetypes.guess_type(str(path))[0] or "image/png"
@@ -116,7 +97,6 @@ def _build_image_message(image_input: str) -> dict[str, Any]:
 
 
 def _build_file_message(file_input: str) -> dict[str, Any]:
-    """Build a message from a file's content."""
     path = Path(file_input)
     if path.exists():
         try:
@@ -135,7 +115,6 @@ def _build_file_message(file_input: str) -> dict[str, Any]:
 
 
 def _build_json_message(json_input: str) -> dict[str, Any]:
-    """Build a message from JSON input."""
     path = Path(json_input)
     if path.exists():
         try:
@@ -161,7 +140,6 @@ def _build_json_message(json_input: str) -> dict[str, Any]:
 
 
 def _extract_json_output(result: TurnResult) -> TurnResult:
-    """Try to extract JSON from the agent's response."""
     content = result.content
 
     if "```json" in content:

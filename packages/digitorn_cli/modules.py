@@ -1,8 +1,4 @@
-"""CLI commands for module management (pure HTTP client).
-
-    digitorn modules list          List all loaded modules (via daemon API)
-    digitorn modules info <id>     Show details of a specific module
-"""
+"""CLI commands for module management (pure HTTP client)."""
 
 from __future__ import annotations
 

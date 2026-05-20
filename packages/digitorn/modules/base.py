@@ -1,20 +1,4 @@
-"""Module layer - BaseModule interface.
-
-Every module - built-in or community - must subclass ``BaseModule``.
-
-Architectural principles enforced here:
-  - **DRY**: ``@action`` decorator is the single declaration point for
-    handler, spec, and params - no parallel re-declarations.
-  - **Typed**: ``ActionResult[T]`` is generic; ``ExecutionContext`` is a
-    frozen, typed dataclass - plain ``dict`` is never acceptable.
-  - **Platform-safe**: ``Platform`` uses ``StrEnum`` so values serialize
-    without custom encoders and compare directly with strings.
-  - **Fail-fast**: ``_check_dependencies()`` runs in ``__init__``, so a
-    module with missing dependencies never enters the registry.
-  - **Stateless by default**: modules track no mutable state between calls
-    unless they explicitly manage sessions or caches.
-  - All errors are raised as ``ActionExecutionError`` or a subclass.
-"""
+"""Module layer - BaseModule interface."""
 
 from __future__ import annotations
 
@@ -28,15 +12,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-
-# ── Optional L2 cache backend ────────────────────────────────────────
-# ``digitorn.cache`` is a deferred / optional package - when it's not
-# installed, every cacheable action would otherwise pay the cost of a
-# failed ``import`` on every call PLUS a DEBUG log line. We resolve the
-# imports once here; ``_cache_unavailable=True`` short-circuits all the
-# call-site try/imports below. The ``modules/__init__.py`` decorator
-# fallback already keeps ``@cacheable`` / ``@invalidates_cache`` valid
-# (no-op) at module load.
+# `digitorn.cache` is optional; resolve imports once and short-circuit
+# call-sites via `_cache_unavailable` when it isn't installed.
 _cache_get_client: Any = None
 _cache_make_key: Any = None
 _cache_make_invalidation_patterns: Any = None
@@ -51,7 +28,6 @@ try:
     )
 except ImportError:
     _cache_unavailable = True
-
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -75,36 +51,12 @@ from digitorn.modules.exceptions import (
 from digitorn.modules.manifest import ActionSpec, ModuleManifest
 from digitorn.modules.protocol import IModule
 
-
 async def _invoke_handler_async(handler: Any, params: Any) -> Any:
-    """Universal action dispatch entry point - the no-block contract.
-
-    Every action handler routes through here: native ``@action`` methods,
-    dynamically registered tools, MCP tool wrappers, community plugins,
-    anything in the future. The contract: the call NEVER blocks the loop.
-
-    - **Async handler** (``async def`` or anything ``iscoroutinefunction``
-      reports True for): awaited directly. Any sync I/O inside the
-      coroutine is the author's responsibility - it will be flagged by
-      the loop-block watchdog in ``tool_exec.execute_tool`` and surface
-      as a WARNING with the tool name (look for
-      ``tool_blocked_event_loop``).
-    - **Sync handler** (plain ``def``): dispatched via
-      ``asyncio.to_thread`` automatically. This is what makes the future
-      MCP marketplace safe - a community module can declare a plain
-      ``def my_tool(params)`` and we still won't stall the loop.
-
-    The decorator-bound ``_bound_async`` / ``_bound_sync`` closures
-    produced by ``BaseModule._get_handler`` preserve their async/sync
-    nature, so ``iscoroutinefunction`` correctly distinguishes them.
-    """
     if inspect.iscoroutinefunction(handler):
         return await handler(params)
     return await asyncio.to_thread(handler, params)
 
-
 def _collect_handler_cache_meta(handler: Any) -> dict[str, Any]:
-    """Extract ``_cache_meta`` from a handler method, traversing wrappers."""
     fn = handler
     for _ in range(10):
         meta = getattr(fn, "_cache_meta", None)
@@ -115,16 +67,7 @@ def _collect_handler_cache_meta(handler: Any) -> dict[str, Any]:
             break
     return {}
 
-
 def _auto_coerce_params(params: dict, params_model: Any) -> dict:
-    """Auto-coerce common LLM parameter mistakes before Pydantic validation.
-
-    Fixes:
-    - String integers → int ("40" → 40)
-    - String booleans → bool ("true" → True, "false" → False)
-    - String floats → float ("1.5" → 1.5)
-    - Wrong parameter names → closest match (e.g. "text" → "content")
-    """
     if not isinstance(params, dict) or params_model is None:
         return params
 
@@ -196,13 +139,7 @@ def _auto_coerce_params(params: dict, params_model: Any) -> dict:
 
     return coerced
 
-
 def _format_validation_error(ve: Any, action_name: str, params_model: Any = None) -> str:
-    """Format a Pydantic ValidationError into a clear, agent-friendly message.
-
-    Shows the exact JSON the model should send, not just parameter names.
-    This is critical for weaker models that struggle with tool-use correction.
-    """
     lines = [f"ERROR: Invalid parameters for '{action_name}'."]
     for err in ve.errors():
         loc = ".".join(str(part) for part in err["loc"])
@@ -241,13 +178,8 @@ def _format_validation_error(ve: Any, action_name: str, params_model: Any = None
 
     return "\n".join(lines)
 
-
 class Platform(StrEnum):
-    """Supported operating system platforms.
-
-    Uses ``StrEnum`` so ``Platform.LINUX == "linux"`` is ``True``,
-    enabling direct comparison against config strings without custom encoders.
-    """
+    """Supported operating system platforms."""
 
     ALL          = "all"
     LINUX        = "linux"
@@ -255,27 +187,11 @@ class Platform(StrEnum):
     MACOS        = "macos"
     RASPBERRY_PI = "raspberry_pi"
 
-
 _T = TypeVar("_T")
-
 
 @dataclass(frozen=True)
 class ExecutionContext:
-    """Immutable, typed gateway of runtime services passed to every action.
-
-    Context concerns (service bus, stream, user profile) are *separated* from
-    business parameters.  Actions that need system services declare ``ctx:
-    ExecutionContext`` as an explicit parameter - never via ``params``.
-
-    Attributes:
-        plan_id:      The IML plan being executed.
-        action_id:    The specific action step within the plan.
-        service_bus:  Inter-module call gateway (optional - None in unit tests).
-        stream:       Live progress stream (None if action does not stream).
-        session_id:   Optional session token for stateful modules.
-        watcher_service: Source watcher service (optional - None in unit tests).
-        metadata:     Arbitrary key-value bag for tracing / middleware.
-    """
+    """Immutable, typed gateway of runtime services passed to every action."""
 
     plan_id: str
     action_id: str
@@ -292,29 +208,12 @@ class ExecutionContext:
     constraints: dict[str, Any] = field(default_factory=dict, compare=False)
     metadata: dict[str, Any] = field(default_factory=dict, compare=False)
     approval_queue: Any | None = field(default=None, compare=False)
-    # Workdir-scoped sandbox shared by every agent-facing module
-    # that resolves a path input. Built once per session by
-    # ``apply_workspace_override`` and carried here so modules can
-    # enforce confinement without re-deriving the policy. ``None``
-    # in non-agent paths (CLI helpers, unit tests) — modules then
-    # fall back to their pre-sandbox behaviour.
+    # Workdir-scoped sandbox shared by every agent-facing module; None in CLI / tests.
     path_policy: Any | None = field(default=None, compare=False)
-
 
 @dataclass
 class ActionResult(Generic[_T]):
-    """Generic, structured result envelope returned by every module action.
-
-    Using ``ActionResult[T]`` instead of a bare ``dict`` ensures callers know
-    the exact shape of the data they are consuming.  The generic ``data``
-    field should be a Pydantic model for full type safety.
-
-    Attributes:
-        success:     ``True`` when the action completed without error.
-        data:        The typed action output (set on success).
-        error:       Human-readable error message (set on failure).
-        metadata:    Internal bookkeeping (timing, cache hits, etc.).
-    """
+    """Generic, structured result envelope returned by every module action."""
 
     success: bool
     data: _T | None = None
@@ -323,9 +222,7 @@ class ActionResult(Generic[_T]):
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # TEMP DEBUG: capture stack of suspicious empty-error failure
-        # ActionResult(success=False, error='' or None, data=None) - this is
-        # the exact shape leaking into Bash tool_call events with no diagnostic.
+        # Capture stack when a failure result has no diagnostic, for postmortem.
         if (
             self.success is False
             and (self.error is None or self.error == "")
@@ -343,8 +240,8 @@ class ActionResult(Generic[_T]):
                         + "".join(_tb.format_stack()[-12:-1])
                         + "\n"
                     )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("base best-effort block failed: %s", exc)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -354,18 +251,9 @@ class ActionResult(Generic[_T]):
             "metadata": self.metadata,
         }
 
-
 @dataclass
 class ResourceEstimate:
-    """Pre-execution cost estimation for an action.
-
-    Used by the executor to schedule actions intelligently (e.g. avoid
-    running multiple GPU-heavy vision parses simultaneously).
-
-    The defaults are conservative non-zero values so the scheduler has
-    a meaningful baseline even when a module does not override
-    ``estimate_cost()``.  Override with measured values for precision.
-    """
+    """Pre-execution cost estimation for an action."""
 
     estimated_duration_seconds: float = 1.0
     estimated_memory_mb: float = 10.0
@@ -373,14 +261,9 @@ class ResourceEstimate:
     estimated_io_operations: int = 0
     confidence: float = 0.5
 
-
 @dataclass
 class ModulePolicy:
-    """Runtime policy constraints declared by a module.
-
-    The PolicyEnforcer checks these constraints before dispatching
-    actions to the module.
-    """
+    """Runtime policy constraints declared by a module."""
 
     max_parallel_calls: int = 0
     cooldown_seconds: float = 0.0
@@ -389,54 +272,18 @@ class ModulePolicy:
     max_memory_mb: int = 0
     retry_on_failure: bool = False
 
-
 class BaseModule(ABC, IModule):
-    """Abstract base class for all Digitorn modules.
-
-    Explicitly inherits from :class:`~digitorn.module.protocol.IModule` so
-    that:
-
-    - ``issubclass(MyModule, IModule)`` is ``True`` without needing an
-      instance.
-    - Static type checkers (mypy / pyright) verify all Protocol members are
-      implemented at class-definition time.
-    - The relationship between the contract and its primary implementation
-      is explicit in the code, not just implicit by structural match.
-
-    Subclasses must:
-      1. Set ``MODULE_ID`` (snake_case, unique, e.g. ``"filesystem"``)
-      2. Set ``VERSION`` (semver string, e.g. ``"1.0.0"``)
-      3. Set ``SUPPORTED_PLATFORMS`` (list of ``Platform`` values)
-      4. Implement :meth:`get_manifest` returning a ``ModuleManifest``
-      5. Expose actions via ``@action``-decorated methods (recommended -
-         single source of truth) **or** ``_action_<name>(params)`` methods
-         (legacy convention)
-      6. Optionally implement :meth:`_check_dependencies` to gate loading
-
-    **DRY principle**: use the ``@action`` decorator to declare a handler
-    alongside its ``ActionSpec`` in one place.  This eliminates the drift
-    risk of maintaining a parallel list of specs in ``get_manifest()``.
-    ``ModuleManifest.from_module(self)`` then auto-derives the manifest.
-
-    The :meth:`execute` method is **not** abstract - it dispatches to
-    the ``_action_registry`` dict first (O(1) ``@action`` path), then
-    dynamic actions, then falls back to the ``_action_<name>`` naming
-    convention.  Override only for fully custom dispatch logic.
-    """
+    """Abstract base class for all Digitorn modules."""
 
     MODULE_ID: str = ""
     VERSION: str = "0.0.0"
     SUPPORTED_PLATFORMS: list[Platform] = [Platform.ALL]
     MODULE_TYPE: str = "user"
     CONFIG_MODEL: type | None = None
-    # When True, every app deployment shares the daemon-wide singleton
-    # instance (created via registry.get). Default False = per-app instance
-    # via registry.create. Use for modules that hold daemon-scoped state
-    # backed by a single persistence file (e.g. web_preview's attachments).
+    # When True, every app deployment shares the daemon-wide singleton instance.
     MODULE_SINGLETON: bool = False
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
-        """Auto-wrap ``get_manifest()`` to enrich with decorator metadata."""
         super().__init_subclass__(**kwargs)
         original = cls.__dict__.get("get_manifest")
         if original is not None and not getattr(original, "__isabstractmethod__", False):
@@ -471,15 +318,7 @@ class BaseModule(ABC, IModule):
 
     @property
     def workspace(self) -> str | None:
-        """Per-execution workspace, session-scoped.
-
-        Reads from the current ``ExecutionContext`` first (set per-session
-        in manager.py), then falls back to ``self._workspace`` (set once
-        at bootstrap via ``on_config_update``).
-
-        This ensures that when multiple sessions share a module instance,
-        each action execution sees its own session's workspace.
-        """
+        """Per-execution workspace, session-scoped."""
         ctx = self._context_var.get()
         if ctx is not None and ctx.workspace:
             return ctx.workspace
@@ -487,23 +326,7 @@ class BaseModule(ABC, IModule):
 
     @property
     def stream(self) -> Any | None:
-        """Access the execution stream for real-time agent feedback.
-
-        Available only during action execution. Returns None outside
-        of an execute() call or when no event bus is configured.
-
-        Usage in a module action::
-
-            @action(description="Long running task")
-            async def process(self, params):
-                if self.stream:
-                    await self.stream.progress(1, 3, "Starting...")
-                if self.stream:
-                    await self.stream.partial_result({"intermediate": data})
-                if self.stream:
-                    await self.stream.progress(3, 3, "Done")
-                return ActionResult(success=True, data=result)
-        """
+        """Access the execution stream for real-time agent feedback."""
         ctx = self._context_var.get()
         if ctx is not None:
             return ctx.stream
@@ -511,46 +334,21 @@ class BaseModule(ABC, IModule):
 
     @property
     def _context(self) -> ExecutionContext | None:
-        """Current execution context (concurrency-safe via ContextVar)."""
         return self._context_var.get()
 
     @_context.setter
     def _context(self, value: ExecutionContext | None) -> None:
-        """Set execution context (for tests and backward compat)."""
         self._context_var.set(value)
 
     def _notify_bg(self, notification: dict[str, Any]) -> None:
-        """Push a background task notification for the agent.
-
-        Called by modules when a long-running background task completes or
-        fails (e.g. http.download, shell.background_run).  The notification
-        is routed to the context_builder's queue and delivered to the LLM
-        automatically - either before the next LLM call or proactively
-        while waiting for user input.
-
-        Args:
-            notification: Dict with keys like task_id, tool_name, status,
-                elapsed_seconds, result/error.
-        """
         if self._bg_notify is not None:
             self._bg_notify(notification)
 
     def set_security(self, security: Any) -> None:
-        """Inject the SecurityManager into this module.
-
-        Called by the server startup after constructing the SecurityManager.
-        Decorators on ``_action_*`` methods access it via ``self._security``.
-        """
+        """Inject the SecurityManager into this module."""
         self._security = security
 
     def _collect_security_metadata(self) -> dict[str, dict[str, Any]]:
-        """Introspect decorated ``_action_*`` methods and return security metadata.
-
-        Returns a dict keyed by action name (without the ``_action_`` prefix),
-        with values from legacy ``collect_security_metadata``.  With the new
-        ``@action`` decorator, metadata lives in ``_action_registry`` and this
-        method is only needed for backward-compatible legacy modules.
-        """
         try:
             from digitorn.security.decorators import collect_security_metadata
         except ImportError:
@@ -570,7 +368,7 @@ class BaseModule(ABC, IModule):
         return result
 
     def is_supported_on_current_platform(self) -> bool:
-        """Return ``True`` if this module runs on the current OS."""
+        """Return `True` if this module runs on the current OS."""
         if Platform.ALL in self.SUPPORTED_PLATFORMS:
             return True
         current = _platform_module.system().lower()
@@ -586,40 +384,18 @@ class BaseModule(ABC, IModule):
 
     @abstractmethod
     def get_manifest(self) -> ModuleManifest:
-        """Return the Capability Manifest for this module.
-
-        The manifest is used to:
-          - Generate LangChain tools
-          - Populate the /modules API endpoint
-          - Validate params schemas
-        """
+        """Return the Capability Manifest for this module."""
         ...
 
     def _check_dependencies(self) -> None:
-        """Raise ``ModuleLoadError`` if a required dependency is missing.
-
-        Called in ``__init__``.  Default implementation does nothing.
-        """
+        pass
 
     def get_context_snippet(self) -> str | None:
-        """Return dynamic context for the LLM system prompt, or ``None``.
-
-        Modules that manage stateful resources (e.g. database connections)
-        can override this to inject live context (schemas, session info)
-        into the system prompt that guides the LLM.
-
-        Default: ``None`` (no dynamic context).
-        """
+        """Return dynamic context for the LLM system prompt, or `None`."""
         return None
 
-
     def set_context(self, ctx: Any) -> None:
-        """Inject the ModuleContext into this module.
-
-        Called by the server startup after constructing the ServiceBus
-        and LifecycleManager.  Provides structured access to inter-module
-        communication, events, and system services.
-        """
+        """Inject the ModuleContext into this module."""
         self._ctx = ctx
 
     @property
@@ -633,17 +409,11 @@ class BaseModule(ABC, IModule):
         return self._config
 
     def _collect_config_schema(self) -> dict[str, Any] | None:
-        """Generate config_schema from CONFIG_MODEL if defined."""
         if self.CONFIG_MODEL is not None:
             return self.CONFIG_MODEL.to_config_schema()
         return None
 
     def _collect_streaming_metadata(self) -> dict[str, dict[str, Any]]:
-        """Introspect decorated ``_action_*`` methods for streaming metadata.
-
-        Returns a dict keyed by action name (without ``_action_`` prefix),
-        with values from :func:`collect_streaming_metadata`.
-        """
         try:
             from digitorn.orchestration.streaming_decorators import collect_streaming_metadata
         except ImportError:
@@ -662,7 +432,6 @@ class BaseModule(ABC, IModule):
                 result[action_name] = meta
         return result
 
-
     _SECURITY_SPEC_KEYS = frozenset(
         {"permissions", "risk_level", "irreversible", "data_classification"}
     )
@@ -676,12 +445,6 @@ class BaseModule(ABC, IModule):
     )
 
     def _enrich_manifest_metadata(self, manifest: ModuleManifest) -> ModuleManifest:
-        """Auto-enrich manifest actions with security + streaming decorator metadata.
-
-        Called automatically via ``__init_subclass__`` wrapping of ``get_manifest()``.
-        Only fills fields that are still at their default (empty/falsy) values, so
-        modules that already set them explicitly in ``get_manifest()`` are unaffected.
-        """
         security_meta = self._collect_security_metadata()
         streaming_meta = self._collect_streaming_metadata()
 
@@ -709,7 +472,6 @@ class BaseModule(ABC, IModule):
 
     @classmethod
     def _infer_risk_from_permissions(cls, permissions: list[str]) -> str:
-        """Infer a risk level from permission strings when no explicit level is set."""
         joined = " ".join(permissions).lower()
         if any(kw in joined for kw in cls._HIGH_RISK_KEYWORDS):
             return "high"
@@ -717,73 +479,18 @@ class BaseModule(ABC, IModule):
             return "medium"
         return "low"
 
-
     async def on_start(self) -> None:
-        """Called when the module transitions to ACTIVE state.
-
-        Override to initialise connections, load models, etc.
-        """
+        """Called when the module transitions to ACTIVE state."""
 
     async def on_stop(self) -> None:
-        """Called when the module is being stopped/disabled.
-
-        Override to close connections, save state, release resources.
-        """
+        """Called when the module is being stopped/disabled."""
 
     def get_prompt_sections(self) -> list[dict[str, Any]]:
-        """Return prompt sections to inject into the agent's system prompt.
-
-        Override to contribute context to the LLM's system prompt.
-        Each section is a dict with:
-        - ``id`` (str): unique section identifier
-        - ``title`` (str): section heading (e.g. "Database Context")
-        - ``content`` (str): the text to inject
-        - ``priority`` (int): lower = earlier (default 50)
-        - ``position`` (str): "before_tools", "after_tools", or "end" (default "end")
-
-        The context_builder collects sections from all active modules,
-        sorts by priority, and inserts them at the specified positions.
-
-        Returns an empty list by default - modules opt in by overriding.
-        """
+        """Return prompt sections to inject into the agent's system prompt."""
         return []
 
-    # ── Workspace Provider (opt-in) ──────────────────────────────────
-
     def workspace_card(self) -> dict[str, Any] | None:
-        """Return a workspace card for the UI panel, or None to opt out.
-
-        Override this to give your module a presence in the workspace panel.
-        The card is refreshed after every tool call involving this module.
-
-        Return a dict with:
-        - ``id`` (str): unique card identifier (defaults to MODULE_ID)
-        - ``label`` (str): display name (e.g. "Database", "HTTP")
-        - ``icon`` (str): emoji or symbol for the card header
-        - ``sections`` (list): list of RendererSection dicts
-          (table, list, stats, tree, code, kv, progress, outline, log, diff, image, etc.)
-        - ``priority`` (int): sort order, lower = higher (default 50)
-
-        Example::
-
-            def workspace_card(self):
-                return {
-                    "id": "database",
-                    "label": "Database",
-                    "icon": "🗄️",
-                    "priority": 30,
-                    "sections": [
-                        section_stats([{"label": "queries", "value": len(self._history)}]),
-                        section_table(
-                            columns=["Query", "Time", "Status"],
-                            rows=[[q.sql[:50], f"{q.ms}ms", q.status] for q in self._history[-5:]],
-                            title="Recent queries",
-                        ),
-                    ],
-                }
-
-        Returns None by default - modules opt in by overriding.
-        """
+        """Return a workspace card for the UI panel, or None to opt out."""
         return None
 
     async def widget_interact(
@@ -792,60 +499,21 @@ class BaseModule(ABC, IModule):
         action: str,
         state: dict[str, Any],
     ) -> dict[str, Any] | None:
-        """Handle a bidirectional widget interaction from the frontend.
-
-        Called when the user clicks an action button on an interactive section
-        in the workspace panel. Override this to process user actions.
-
-        Args:
-            widget: Widget type (e.g. "sql_editor", "chart_editor").
-            action: Action name (e.g. "execute", "explain", "format").
-            state: Current widget state from the frontend.
-
-        Returns:
-            A dict with the result, or None.
-
-        Example::
-
-            async def widget_interact(self, widget, action, state):
-                if widget == "sql_editor" and action == "execute":
-                    result = await self._execute_query(state["query"])
-                    return {"rows": len(result), "success": True}
-        """
+        """Handle a bidirectional widget interaction from the frontend."""
         return None
 
     async def on_pause(self) -> None:
-        """Called when the module is paused (ACTIVE -> PAUSED).
-
-        Override to suspend background tasks or release non-critical resources.
-        """
+        """Called when the module is paused (ACTIVE -> PAUSED)."""
 
     async def on_resume(self) -> None:
-        """Called when the module resumes (PAUSED -> ACTIVE).
-
-        Override to re-acquire resources suspended during pause.
-        """
+        """Called when the module resumes (PAUSED -> ACTIVE)."""
 
     async def on_config_update(self, config: dict[str, Any]) -> None:
-        """Called when module configuration is updated at runtime.
-
-        If CONFIG_MODEL is set, validates the incoming dict against the
-        Pydantic model before storing. Subclasses can override to add
-        custom logic after validation.
-
-        Workspace is extracted automatically so every module has access
-        to ``self._workspace`` without needing to parse config manually.
-        """
+        """Called when module configuration is updated at runtime."""
         if isinstance(config, dict):
             ws = config.get("workspace")
             if ws:
-                # ``{WORKSPACE}`` is a deferred placeholder - the real
-                # path is injected per-session by ``manager._chat_locked``
-                # via ``str.replace(WORKSPACE_PLACEHOLDER, ...)``. Calling
-                # ``Path(ws).resolve()`` on the literal placeholder treats
-                # it as a relative path and prefixes it with the daemon's
-                # cwd, yielding a mangled ``<daemon cwd>\{WORKSPACE}``
-                # that breaks the later substitution.
+                # WORKSPACE_PLACEHOLDER must stay literal; manager substitutes it per-session.
                 from digitorn.core.runtime.types import WORKSPACE_PLACEHOLDER
                 if ws == WORKSPACE_PLACEHOLDER:
                     self._workspace = WORKSPACE_PLACEHOLDER
@@ -854,12 +522,8 @@ class BaseModule(ABC, IModule):
         if self.CONFIG_MODEL is not None:
             self._config = self.CONFIG_MODEL.model_validate(config)
 
-
     async def health_check(self) -> dict[str, Any]:
-        """Return health status of this module.
-
-        Override to add connectivity checks, model load status, etc.
-        """
+        """Return health status of this module."""
         return {
             "status": "ok",
             "module_id": self.MODULE_ID,
@@ -867,101 +531,45 @@ class BaseModule(ABC, IModule):
         }
 
     def metrics(self) -> dict[str, Any]:
-        """Return operational metrics for this module.
-
-        Override to expose action counts, latencies, cache hit rates, etc.
-        """
+        """Return operational metrics for this module."""
         return {}
 
     def state_snapshot(self) -> dict[str, Any]:
-        """Return a snapshot of this module's internal state.
-
-        Override to expose active sessions, loaded models, connections, etc.
-        """
+        """Return a snapshot of this module's internal state."""
         return {}
 
-
     def register_services(self) -> list[Any]:
-        """Return ServiceDescriptor instances for services this module provides.
-
-        Override to declare services on the ServiceBus during startup.
-        Default: no services provided.
-        """
+        """Return ServiceDescriptor instances for services this module provides."""
         return []
 
-
     async def on_event(self, topic: str, event: dict[str, Any]) -> None:
-        """Called when an event is emitted on a topic this module subscribes to.
-
-        Modules declare subscribed topics via ``subscribes_events`` in their
-        manifest.  The lifecycle manager auto-subscribes modules on start and
-        auto-unsubscribes on stop.
-
-        Override to react to system events (e.g. react to security events,
-        perception changes, other module state changes).
-        """
-
+        """Called when an event is emitted on a topic this module subscribes."""
 
     async def restore_state(self, state: dict[str, Any]) -> None:
-        """Restore module state after crash/restart.
-
-        Receives the dict previously returned by :meth:`state_snapshot`.
-        Override to restore connections, sessions, loaded models, etc.
-        """
-
+        """Restore module state after crash/restart."""
 
     async def on_install(self) -> None:
-        """Called when module is first installed from the hub.
-
-        Override to perform one-time setup (download models, create DB tables).
-        """
+        """Called when module is first installed from the hub."""
 
     async def on_update(self, old_version: str) -> None:
-        """Called when module is upgraded to a new version.
-
-        Override to perform migrations between versions.
-        """
-
+        """Called when module is upgraded to a new version."""
 
     async def on_resource_pressure(self, level: str) -> None:
-        """Called when system detects memory/CPU pressure.
-
-        Args:
-            level: ``"warning"`` (>75% usage) or ``"critical"`` (>90%).
-
-        Override to release caches, unload models, close idle connections.
-        """
+        """Called when system detects memory/CPU pressure."""
 
     async def estimate_cost(
         self, action: str, params: dict[str, Any]
     ) -> ResourceEstimate:
-        """Pre-execution cost estimation for the given action.
-
-        Override to provide module-specific estimates.
-        Default: returns a generic low-confidence estimate.
-        """
+        """Pre-execution cost estimation for the given action."""
         return ResourceEstimate()
 
-
     def policy_rules(self) -> ModulePolicy:
-        """Declare runtime policy constraints for this module.
-
-        Override to set max_parallel_calls, cooldowns, etc.
-        Default: no constraints.
-        """
+        """Declare runtime policy constraints for this module."""
         return ModulePolicy()
 
     def describe(self) -> dict[str, Any]:
-        """Dynamic self-description for LLM introspection.
-
-        Beyond the static manifest, this provides live context:
-        loaded models, active connections, available capabilities
-        based on current state.
-
-        Default: returns the manifest as a dict.
-        """
+        """Dynamic self-description for LLM introspection."""
         return self.get_manifest().to_dict()
-
 
     def register_action(
         self,
@@ -969,11 +577,7 @@ class BaseModule(ABC, IModule):
         handler: Callable[..., Any],
         spec: ActionSpec | None = None,
     ) -> None:
-        """Register a dynamic action at runtime.
-
-        The handler must have signature: ``async (params: dict) -> Any``.
-        Dynamic actions take precedence over ``_action_`` methods.
-        """
+        """Register a dynamic action at runtime."""
         self._dynamic_actions[name] = handler
         if spec is not None:
             self._dynamic_specs[name] = spec
@@ -983,9 +587,7 @@ class BaseModule(ABC, IModule):
         self._dynamic_actions.pop(name, None)
         self._dynamic_specs.pop(name, None)
 
-
     def _get_action_spec(self, action: str) -> "ActionSpec | None":
-        """Return the ActionSpec for an action, or None if not declared."""
         entry = self._action_registry.get(action)
         if entry is not None:
             return entry.spec
@@ -994,30 +596,6 @@ class BaseModule(ABC, IModule):
         return None
 
     def _get_handler(self, action: str) -> Any:
-        """Look up an action handler method and wrap it for the correct execution tier.
-
-        Dispatch priority (first match wins):
-
-        1. ``_action_registry`` - dict populated by ``@action`` at class
-           definition time.  **O(1) lookup**, preferred path.
-        2. ``_dynamic_actions`` - runtime-registered handlers (via
-           :meth:`register_action`).
-        3. ``_action_<name>`` naming convention - legacy fallback for
-           modules that don't yet use the ``@action`` decorator.
-
-        Execution mode (only applied to registry path):
-        - ``"async"`` (default): handler is an ``async def``; runs on the
-          event loop - completely non-blocking for I/O-bound work.
-        - ``"threaded"``: handler is a blocking ``def``; wrapped in
-          ``asyncio.to_thread()`` so the event loop stays responsive while
-          the thread runs.  Ideal for blocking C-extension calls or legacy
-          sync libraries.
-        - ``"sync"``: like ``"threaded"``; kept as an alias for backwards
-          compatibility.
-
-        Raises:
-            ActionNotFoundError: If the action is not found via any path.
-        """
         import inspect as _inspect
 
         entry = self._action_registry.get(action)
@@ -1050,45 +628,10 @@ class BaseModule(ABC, IModule):
             raise ActionNotFoundError(module_id=self.MODULE_ID, action=action)
         return handler
 
-
     async def execute(
         self, action: str, params: dict[str, Any], context: ExecutionContext | None = None
     ) -> Any:
-        """Dispatch *action* to its registered handler.
-
-        Handler resolution order (via :meth:`_get_handler`):
-
-        1. ``_action_registry`` dict - ``@action``-decorated methods (O(1))
-        2. ``_dynamic_actions`` dict - runtime-registered handlers
-        3. ``_action_<name>`` method naming convention - legacy fallback
-
-        Applies the two-level cache automatically when the handler is decorated
-        with ``@cacheable`` or ``@invalidates_cache``:
-
-        - **L2 cache check** (before execution): if the action is cacheable and
-          a matching entry exists in Redis/fakeredis, the cached value is
-          returned immediately without calling the handler.
-        - **L2 invalidation** (before execution): if the action declares
-          ``@invalidates_cache("other_action", ...)``, all matching Redis keys
-          for those actions are deleted before the write executes.
-        - **L2 cache store** (after successful execution): cacheable action
-          results are stored in Redis with the configured TTL.
-
-        Subclasses that need custom dispatch logic (e.g. stateful session
-        management) may override this method.
-
-        Args:
-            action:  Action name (e.g. ``"read_file"``).
-            params:  Already-resolved and schema-validated parameters.
-            context: Optional execution context for tracing.
-
-        Returns:
-            Any JSON-serialisable value.  Will be sanitised by OutputSanitizer.
-
-        Raises:
-            ActionNotFoundError: If no ``_action_<action>`` method exists.
-            ActionExecutionError: If the handler raises any unexpected exception.
-        """
+        """Dispatch *action* to its registered handler."""
         handler = self._get_handler(action)
         cache_meta = _collect_handler_cache_meta(handler)
 
@@ -1160,23 +703,8 @@ class BaseModule(ABC, IModule):
             except Exception as exc:
                 logger.debug("cache L2 get error: %s", exc)
 
-        # ``_context_var`` is a CLASS-LEVEL ContextVar shared by every
-        # BaseModule subclass. When one module calls another module's
-        # ``execute(action, params)`` mid-handler WITHOUT passing
-        # ``context=``, naively writing ``context=None`` here would
-        # CLOBBER the caller's live context for the inner call —
-        # the inner module's handler then reads ``_context_var.get()
-        # is None`` and loses the workspace / session / user_id the
-        # caller had set up. Concretely: ``web_preview.proxy`` calling
-        # ``shell.execute("bash", args)`` would erase the workspace
-        # from shell's view and bash would error out with "No workspace
-        # resolved" 40ms after PreviewProxy starts. Same shape across
-        # every module-to-module call (rag→database, channels→shell,
-        # mcp→anything, etc.). The fix: when no context is passed,
-        # INHERIT the currently-set value instead of overwriting with
-        # None. Callers that explicitly want an empty context can
-        # pass an empty ``ExecutionContext()`` — None now means
-        # "keep what the surrounding execute() set".
+        # When no context is passed, inherit the surrounding execute()'s context
+        # so inter-module calls keep workspace / session / user_id.
         effective_ctx = (
             context if context is not None else self._context_var.get()
         )

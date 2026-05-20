@@ -1,39 +1,4 @@
-"""File-backed credential store: encrypted blobs on local disk.
-
-Same crypto guarantees as the legacy DB-backed store -- AES-GCM via
-``Cipher`` from ``digitorn.core.credentials.cipher`` -- but rows live
-on the filesystem instead of Postgres. Used by the local-mode runtime
-(no DB) and as the default for single-machine deployments.
-
-Layout::
-
-    ~/.digitorn/credentials/
-    └── <user_id>/
-        ├── <credential_id>.json    (encrypted payload + metadata)
-        └── ...
-
-Each ``<credential_id>.json`` is a small JSON envelope::
-
-    {
-      "credential_id": "...",
-      "user_id": "...",
-      "provider": "github_copilot",
-      "label": "Production",
-      "scope": "per_user",
-      "created_at": "2026-...",
-      "updated_at": "2026-...",
-      "payload_b64": "...",       (encrypted blob)
-      "nonce_b64": "..."           (AES-GCM nonce)
-    }
-
-Atomicity: writes go via tmp + ``os.replace`` so a crash mid-write
-never leaves a partial file. Reads tolerate missing/corrupt files
-gracefully (return None, log at warning).
-
-Concurrency: single-writer-per-credential. Two processes touching the
-same credential are NOT supported (and would NOT be supported in DB
-mode either without row locks).
-"""
+"""File-backed credential store: encrypted blobs on local disk."""
 
 from __future__ import annotations
 
@@ -63,9 +28,7 @@ def _utc_iso() -> str:
 
 @dataclass
 class CredentialSummary:
-    """Lightweight metadata returned by ``list_user_credentials``.
-    The encrypted payload is NOT included -- use ``get_credential``
-    to load + decrypt."""
+    """Lightweight metadata returned by `list_user_credentials`."""
 
     credential_id: str
     user_id: str
@@ -88,11 +51,7 @@ class CredentialSummary:
 
 
 class FileCredentialStore:
-    """Per-user encrypted credential store on local disk.
-
-    Construct with a Cipher instance (same one the rest of the daemon
-    uses). The store does NOT manage the master key; that's the
-    cipher's provider responsibility."""
+    """Per-user encrypted credential store on local disk."""
 
     def __init__(self, *, root: Path, cipher: Cipher) -> None:
         self._root = Path(root)
@@ -123,11 +82,7 @@ class FileCredentialStore:
         scope: str = "per_user",
         credential_id: str | None = None,
     ) -> CredentialSummary:
-        """Encrypt + persist. Returns the summary metadata.
-
-        ``credential_id`` is generated if not supplied (UUID4 hex).
-        Existing files are overwritten atomically.
-        """
+        """Encrypt + persist"""
         cid = credential_id or uuid.uuid4().hex
         payload, nonce = await self._cipher.encrypt(fields)
         now = _utc_iso()
@@ -153,8 +108,7 @@ class FileCredentialStore:
     async def get_credential(
         self, *, user_id: str, credential_id: str,
     ) -> dict[str, Any] | None:
-        """Decrypt + return the original ``fields`` dict, or ``None``
-        when the credential doesn't exist or is corrupt."""
+        """Decrypt + return the original `fields` dict, or `None`"""
         envelope = await asyncio.to_thread(
             self._read_envelope, user_id, credential_id,
         )
@@ -193,15 +147,13 @@ class FileCredentialStore:
     async def list_user_credentials(
         self, *, user_id: str,
     ) -> list[CredentialSummary]:
-        """List all credentials owned by ``user_id``. Empty list when
-        the user dir doesn't exist."""
+        """List all credentials owned by `user_id`. Empty list when"""
         return await asyncio.to_thread(self._list_sync, user_id)
 
     async def delete_credential(
         self, *, user_id: str, credential_id: str,
     ) -> bool:
-        """Delete a credential file. Returns True when removed,
-        False when the file didn't exist."""
+        """Delete a credential file"""
         return await asyncio.to_thread(
             self._delete_sync, user_id, credential_id,
         )
@@ -209,9 +161,7 @@ class FileCredentialStore:
     async def update_label(
         self, *, user_id: str, credential_id: str, new_label: str,
     ) -> bool:
-        """Rename a credential. Decrypt + re-encrypt to refresh the
-        ``updated_at`` field; the ciphertext changes (new nonce) but
-        the ``credential_id`` stays the same."""
+        """Rename a credential. Decrypt + re-encrypt to refresh the"""
         envelope = await asyncio.to_thread(
             self._read_envelope, user_id, credential_id,
         )

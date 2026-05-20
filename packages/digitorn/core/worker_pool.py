@@ -1,29 +1,4 @@
-"""Daemon Worker Pool - dedicated thread pools for heavy operations.
-
-The daemon uses ONE process with multiple thread pools:
-
-1. **Agent Turn Pool** - runs agent turns (LLM calls + tool chains)
-   in dedicated threads so the event loop stays free for HTTP/SSE.
-
-2. **I/O Pool** - for blocking I/O (KV backend, filesystem).
-   Used automatically by asyncio.to_thread().
-
-The sandbox (SandboxWorker) is UNAFFECTED - it wraps individual tool
-calls in isolated subprocesses. Workers are at a higher level (turns).
-
-Usage::
-
-    pool = DaemonWorkerPool(max_turn_workers=8, max_io_workers=16)
-
-    # Run an agent turn in the pool
-    result = await pool.run_turn(coro)
-
-    # Run blocking I/O in the pool
-    result = await pool.run_io(sync_func, *args)
-
-    # Shutdown
-    await pool.shutdown()
-"""
+"""Daemon worker pool: dedicated thread pools for heavy operations."""
 
 from __future__ import annotations
 
@@ -38,22 +13,14 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
-# Defaults based on typical server hardware
 _DEFAULT_TURN_WORKERS = min(16, (os.cpu_count() or 4) * 2)
 _DEFAULT_IO_WORKERS = min(32, (os.cpu_count() or 4) * 4)
 
-# Thread-local storage for cached event loops (one per thread, reused across turns)
 _thread_loops = threading.local()
 
 
 class DaemonWorkerPool:
-    """Manages thread pools for the daemon.
-
-    Thread-based (not process-based) because:
-    - Shared memory: workers access AppManager, EventBus, SessionStore directly
-    - I/O bound: LLM API calls are network I/O, GIL is not a bottleneck
-    - Cross-platform: works on Windows, Mac, Linux (no fork() needed)
-    """
+    """Manages thread pools for the daemon."""
 
     def __init__(
         self,
@@ -74,7 +41,6 @@ class DaemonWorkerPool:
         self._max_io_workers = max_io_workers
         self._shutting_down = False
 
-        # Set the I/O pool as the default executor for asyncio.to_thread()
         try:
             loop = asyncio.get_running_loop()
             loop.set_default_executor(self._io_pool)
@@ -83,15 +49,10 @@ class DaemonWorkerPool:
                 max_turn_workers, max_io_workers,
             )
         except RuntimeError:
-            # No running loop yet - will be set when the loop starts
             logger.debug("worker_pool_created (loop not running yet)")
 
     def set_as_default_executor(self) -> None:
-        """Set the I/O pool as asyncio default executor.
-
-        Call this after the event loop is running (e.g., in FastAPI lifespan).
-        After this, all asyncio.to_thread() calls use our pool.
-        """
+        """Set the I/O pool as asyncio default executor."""
         loop = asyncio.get_running_loop()
         loop.set_default_executor(self._io_pool)
         logger.info(
@@ -99,14 +60,7 @@ class DaemonWorkerPool:
         )
 
     async def run_turn(self, coro: Coroutine[Any, Any, T]) -> T:
-        """Run an agent turn coroutine in the turn pool.
-
-        Creates a new event loop in a dedicated thread, runs the coroutine
-        there, and returns the result. The main event loop stays free.
-
-        The coroutine has full access to shared state (AppManager, EventBus)
-        because threads share memory with the main process.
-        """
+        """Run an agent turn coroutine in the turn pool."""
         if self._shutting_down:
             raise RuntimeError("Worker pool is shutting down")
 
@@ -125,11 +79,6 @@ class DaemonWorkerPool:
 
     @staticmethod
     def _run_coro_in_thread(coro: Coroutine[Any, Any, T]) -> T:
-        """Run an async coroutine in a cached event loop in the current thread.
-
-        Uses a thread-local event loop that persists across turns to avoid
-        the overhead of creating/destroying a loop for every agent turn.
-        """
         loop = getattr(_thread_loops, 'loop', None)
         if loop is None or loop.is_closed():
             loop = asyncio.new_event_loop()
@@ -137,10 +86,7 @@ class DaemonWorkerPool:
         return loop.run_until_complete(coro)
 
     async def run_io(self, func: Callable[..., T], *args: Any) -> T:
-        """Run a blocking I/O function in the I/O pool.
-
-        Equivalent to asyncio.to_thread() but uses our dedicated I/O pool.
-        """
+        """Run a blocking I/O function in the I/O pool."""
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._io_pool, func, *args)
 
@@ -164,17 +110,13 @@ class DaemonWorkerPool:
         }
 
     async def shutdown(self, wait: bool = True, timeout: float = 30.0) -> None:
-        """Gracefully shutdown both pools.
-
-        Waits for active turns to complete (up to timeout).
-        """
+        """Gracefully shutdown both pools."""
         self._shutting_down = True
         logger.info(
             "worker_pool_shutdown active_turns=%d", self._active_turns,
         )
 
         if wait and self._active_turns > 0:
-            # Wait for active turns to finish
             deadline = asyncio.get_event_loop().time() + timeout
             while self._active_turns > 0:
                 if asyncio.get_event_loop().time() > deadline:
@@ -189,8 +131,6 @@ class DaemonWorkerPool:
         self._io_pool.shutdown(wait=False, cancel_futures=True)
         logger.info("worker_pool_stopped")
 
-
-# ── Global singleton ────────────────────────────────────────────────
 
 _pool: DaemonWorkerPool | None = None
 

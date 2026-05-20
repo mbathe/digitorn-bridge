@@ -1,12 +1,4 @@
-"""SemanticCache - sub-15ms response for repeated/similar queries.
-
-Caches full retrieval results keyed by query embedding similarity.
-Hit rate 15-40% in production workloads.
-
-Backends:
-- memory (default): in-process dict + brute-force cosine
-- redis: RedisVL SemanticCache for multi-worker sharing
-"""
+"""SemanticCache - sub-15ms response for repeated/similar queries."""
 
 from __future__ import annotations
 
@@ -20,7 +12,6 @@ from .config import CacheConfig
 from .embeddings import EmbeddingManager, ResolvedModel
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass(slots=True)
 class CacheEntry:
@@ -37,7 +28,6 @@ class CacheEntry:
     def expired(self) -> bool:
         return time.time() - self.created_at > self.ttl
 
-
 @dataclass(slots=True)
 class CacheStats:
     total_queries: int = 0
@@ -49,7 +39,6 @@ class CacheStats:
     @property
     def hit_rate(self) -> float:
         return self.cache_hits / self.total_queries if self.total_queries else 0.0
-
 
 class SemanticCache:
     """In-memory semantic cache with cosine similarity lookup."""
@@ -168,7 +157,6 @@ class SemanticCache:
         oldest_key = min(self._entries, key=lambda k: self._entries[k].created_at)
         del self._entries[oldest_key]
         self._stats.evictions += 1
-
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b))

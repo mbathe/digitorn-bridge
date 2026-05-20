@@ -1,8 +1,4 @@
-"""RuntimeApp - the main execution engine.
-
-Like a JVM for YAML apps: takes a CompiledApp, bootstraps it,
-and runs it in the configured mode.
-"""
+"""RuntimeApp - the main execution engine."""
 
 from __future__ import annotations
 
@@ -18,10 +14,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class RuntimeApp:
-    """A fully bootstrapped application ready to execute.
-
-    Created via ``RuntimeApp.from_compiled()`` - never constructed directly.
-    """
+    """A fully bootstrapped application ready to execute."""
 
     app_id: str
     execution: CompiledExecution
@@ -32,16 +25,10 @@ class RuntimeApp:
     approval_queue: Any = None
 
     def __post_init__(self) -> None:
-        """Wire modules that need a reference to the RuntimeApp."""
         self._wire_channels_module()
 
     def _wire_channels_module(self) -> None:
-        """Inject RuntimeApp + hook_runner into the channels module.
-
-        The channels module needs these references to:
-        - Access all agent contexts for routing (via self._runtime_app.contexts)
-        - Pass hook_runner to agent_turn activations
-        """
+        """Inject RuntimeApp + hook_runner into the channels module."""
         channels_mod = self.modules.get("channels")
         if channels_mod is not None:
             channels_mod._runtime_app = self
@@ -57,20 +44,12 @@ class RuntimeApp:
         return self.contexts[agent_id]
 
     def set_on_hook_event(self, callback: Any) -> None:
-        """Set the hook event callback on the hook runner.
-
-        This allows UI layers to receive real-time notifications
-        when hook actions fire (e.g., context compaction).
-        """
+        """Set the hook event callback on the hook runner."""
         if self.hook_runner is not None:
             self.hook_runner.on_hook_event = callback
 
     def set_on_approval_request(self, callback: Any) -> None:
-        """Set callback for approval requests (CLI prompt or API event).
-
-        Signature: async (request: ApprovalRequest) -> None
-        The callback should resolve the request via queue.resolve().
-        """
+        """Set callback for approval requests (CLI prompt or API event)."""
         if self.approval_queue is not None:
             self.approval_queue.set_on_request(callback)
 
@@ -142,11 +121,7 @@ class RuntimeApp:
         on_tool_call: Any | None = None,
         on_activation: Any | None = None,
     ) -> None:
-        """Run in background mode: trigger-driven daemon.
-
-        If the channels module is loaded, it handles all triggers.
-        Otherwise, falls back to the legacy cron/watch loops.
-        """
+        """Run in background mode: trigger-driven daemon."""
         from digitorn.core.runtime.modes.background import run_background
 
         await run_background(
@@ -167,11 +142,7 @@ class RuntimeApp:
         user_input: str = "",
         **kwargs: Any,
     ) -> TurnResult | None:
-        """Run the app in its configured mode.
-
-        For one_shot: returns TurnResult.
-        For conversation/background: runs until interrupted, returns None.
-        """
+        """Run the app in its configured mode."""
         mode = self.execution.mode
 
         if mode == "one_shot":

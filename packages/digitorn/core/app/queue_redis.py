@@ -1,52 +1,4 @@
-"""Redis-backed message queue backend.
-
-Same contract as ``message_queue`` module-level functions, but every
-critical transition is a single atomic Lua script. This closes the
-``mark_done`` ↔ ``next_queued`` race that exists with the SQL backend
-(rows enqueued during the window between marking T1 done and scanning
-for T2 are silently orphaned).
-
-Schema
-------
-- ``queue:zset:{sid}``   - ZSET, member=row_id, score=position (monotonic).
-                          Holds the ``queued`` rows in FIFO order.
-- ``queue:running:{sid}``- STRING, value=row_id of the currently running
-                          turn for this session. TTL = lease.
-- ``queue:msg:{row_id}`` - HASH, all the row's fields. Set on enqueue,
-                          mutated by status transitions, deleted on
-                          terminal cleanup (kept by default for audit).
-- ``queue:pos:{sid}``    - INCR counter for monotonic positions.
-- ``queue:sessions``     - SET of session_ids that currently have any
-                          queued or running rows. Maintained on every
-                          mutation. Used by ``sessions_with_queued`` so
-                          we don't have to ``SCAN`` keys at boot.
-
-Atomicity
----------
-Four Lua scripts cover every place where a race could open:
-
-1. ``ENQUEUE``   - depth check + position alloc + ZADD + HSET + sessions
-                   tracking, all in one round-trip.
-2. ``DEQUEUE``   - ZPOPMIN + set running marker + flip status, atomic.
-                   Returns the row_id or nil.
-3. ``FINISH``    - terminal status flip on the running row + DEL running
-                   marker + return the next ZPOPMIN'd row_id (or nil).
-                   This is THE script that closes the race: caller drains
-                   into the next turn or stops, but never both miss a
-                   concurrent enqueue.
-4. ``MERGE_OR_ENQUEUE`` / ``REPLACE_LAST_OR_ENQUEUE`` - read-modify-
-                   write on the tail under the same key set, atomic.
-
-Lua scripts run with full Redis serialization so the only ordering that
-matters is the first command Redis sees - clients never observe a
-torn state.
-
-In-process state
-----------------
-``_awaiters`` (correlation_id → Future) stays in-process; same as the
-SQL backend. Multi-worker ``queue_mode=wait`` was never multi-process
-safe and doesn't become so here - out of scope for this rewrite.
-"""
+"""Redis-backed message queue backend."""
 from __future__ import annotations
 
 import asyncio
@@ -77,19 +29,6 @@ _DEFAULT_LEASE_SECONDS = 120
 
 # NOTE: QueueEntry and QueueFullError are imported from message_queue
 # lazily (see _entry_cls / _full_cls helpers) to avoid a circular import.
-
-
-# ─── Lua scripts ──────────────────────────────────────────────────────
-#
-# Conventions:
-#   KEYS[1] = queue:zset:{sid}
-#   KEYS[2] = queue:running:{sid}
-#   KEYS[3] = queue:pos:{sid}
-#   KEYS[4] = queue:sessions
-#   ARGV[*] depends on the script
-#
-# Status hash field: 'status' ∈ queued|running|completed|failed|cancelled
-# Hash key: queue:msg:{row_id} (built inline from row_id ARGV)
 
 
 _LUA_ENQUEUE = """
@@ -160,7 +99,7 @@ if already then
 end
 
 -- Pop the lowest-position member, skipping any rows whose TTL has
--- expired (mark them ``failed`` for the audit trail).
+-- expired (mark them `failed` for the audit trail).
 -- ZPOPMIN-equivalent via ZRANGE+ZREM: ZPOPMIN was added in Redis 5.0
 -- but the legacy MS Windows port stays on 3.0 (no ZPOPMIN). The
 -- pair stays atomic because Lua scripts run single-threaded in Redis.
@@ -350,7 +289,7 @@ if #tail > 0 then
     if status == "queued" and user_id == expected_user then
         -- Parse ISO timestamp into unix; we use a lighter trick - Redis
         -- doesn't have a date parser, so we compare via the
-        -- ``enqueued_at_unix`` field that the Python side stores in the
+        -- `enqueued_at_unix` field that the Python side stores in the
         -- hash on every write. Read it now.
         local tail_unix = tonumber(redis.call("HGET", key, "enqueued_at_unix") or "0")
         if (now_unix - tail_unix) <= window then
@@ -506,9 +445,6 @@ return 1
 """
 
 
-# ─── Backend ──────────────────────────────────────────────────────────
-
-
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -570,16 +506,11 @@ def fail_awaiter(correlation_id: str, exc: Exception) -> None:
 
 
 class RedisQueueBackend:
-    """Concrete Redis backend.
-
-    Construct with an async Redis client (``redis.asyncio.Redis``) or
-    a fakeredis instance for tests. Pre-loads Lua scripts at first use
-    via ``Script(...)`` for SHA-cached EVALSHA fallback.
-    """
+    """Concrete Redis backend."""
 
     def __init__(self, redis_client: Any) -> None:
         self._r = redis_client
-        # Register scripts. ``register_script`` returns a Script object
+        # Register scripts. `register_script` returns a Script object
         # that handles EVALSHA + fallback to EVAL on NOSCRIPT.
         self._enqueue = redis_client.register_script(_LUA_ENQUEUE)
         self._dequeue = redis_client.register_script(_LUA_DEQUEUE)
@@ -589,7 +520,6 @@ class RedisQueueBackend:
         self._replace_last = redis_client.register_script(_LUA_REPLACE_LAST_OR_ENQUEUE)
         self._cancel = redis_client.register_script(_LUA_CANCEL)
 
-    # ── Public API (same shape as message_queue module-level) ─────────
 
     async def enqueue(
         self,
@@ -612,10 +542,6 @@ class RedisQueueBackend:
         refs_list = list(image_refs or [])
         refs_json = json.dumps(refs_list)
 
-        # Use the merge/replace-style script entry shape - pure enqueue
-        # is the no-merge fallthrough so we share the same depth check
-        # logic. Slightly cheaper to keep a dedicated ENQUEUE script
-        # though, so we do.
         result = await self._enqueue(
             keys=[
                 _zset_key(session_id),
@@ -800,9 +726,6 @@ class RedisQueueBackend:
     ) -> Any | None:
         now_iso = _now_iso()
         now_unix = _now_unix()
-        # The DEQUEUE script uses KEYS[1]=zset, KEYS[2]=running, KEYS[4]=sessions.
-        # Pass a harmless placeholder for KEYS[3] to keep the Redis cluster
-        # slot mapping consistent (all four keys hash on {sid}).
         row_id = await self._dequeue(
             keys=[
                 _zset_key(session_id),
@@ -830,7 +753,7 @@ class RedisQueueBackend:
         running = await self._r.get(_running_key(sid))
         if running is None or _decode(running) != row_id:
             return False
-        # ``EXPIRE`` resets the TTL.
+        # `EXPIRE` resets the TTL.
         await self._r.expire(_running_key(sid), lease_seconds)
         await self._r.hset(
             _msg_key(row_id), "lease_until",
@@ -839,10 +762,6 @@ class RedisQueueBackend:
         return True
 
     async def reap_expired_leases(self) -> int:
-        # Redis already auto-removes the running marker when its TTL expires.
-        # We just need to reset the row's ``status`` from ``running`` back
-        # to ``queued`` and re-add it to the zset. Walk all sessions
-        # tracked in queue:sessions and look for orphaned running rows.
         sids = await self._r.smembers(_SESSIONS_SET)
         reaped = 0
         for sid_raw in sids:
@@ -850,17 +769,6 @@ class RedisQueueBackend:
             running = await self._r.get(_running_key(sid))
             if running is not None:
                 continue  # marker still alive
-            # Find any row whose hash says status=running on this session.
-            # We can't scan hashes by predicate cheaply, so we keep a
-            # convention: the running row's id was last written to the
-            # marker, and when the marker disappears (TTL), the hash
-            # status is stale. Walk the zset for queued rows to confirm
-            # this session has work to do, and look at history rows…
-            # Pragmatic shortcut: we don't reset stale ``running`` row
-            # hashes here. They'll be observed via ``rehydrate_on_boot``
-            # at next daemon start. Ephemeral lease-loss in mid-uptime
-            # already triggers ``next_queued`` to dispatch the next
-            # queued row anyway.
             continue
         if reaped:
             logger.warning(
@@ -886,13 +794,7 @@ class RedisQueueBackend:
         error_code: str = "",
         lease_seconds: int = _DEFAULT_LEASE_SECONDS,
     ) -> Any | None:
-        """Atomically mark ``row_id`` terminal AND drain the next queued
-        row. Returns the new running entry, or None if the queue is empty.
-
-        This is the script that closes the race between ``mark_done`` and
-        ``next_queued`` - a concurrent ``enqueue`` can never sneak between
-        the two phases.
-        """
+        """Atomically mark `row_id` terminal AND drain the next queued"""
         now_iso = _now_iso()
         now_unix = _now_unix()
         next_id = await self._finish_and_drain(
@@ -920,10 +822,6 @@ class RedisQueueBackend:
         return int(result) > 0
 
     async def clear(self, session_id: str) -> int:
-        # Walk the zset and cancel each. Done outside Lua because the
-        # per-session zset can grow to ``max_depth`` (≤ 1000) - small
-        # enough that a Python loop over individual cancels is fine and
-        # avoids embedding more Lua.
         ids = await self._r.zrange(_zset_key(session_id), 0, -1)
         cancelled = 0
         for raw in ids:
@@ -942,10 +840,6 @@ class RedisQueueBackend:
         running = await self._r.get(_running_key(session_id))
         if running is not None:
             ids.append(_decode(running))
-        # ``include_finished`` would require scanning all queue:msg:*
-        # hashes by session_id - expensive and rarely needed at the API
-        # layer. We mirror the SQL backend's "active rows only" view; if
-        # the caller really needs history they should query the audit log.
         entries: list[Any] = []
         for rid in ids:
             entry = await self._read_entry(rid)
@@ -957,14 +851,7 @@ class RedisQueueBackend:
         return entries
 
     async def rehydrate_on_boot(self) -> int:
-        """Reset rows the daemon left in ``running`` state across a
-        restart. Walk ``queue:sessions``, drop any stale running marker,
-        and push the orphaned row back into the queued zset.
-
-        Redis clears the running marker via TTL after the lease expires.
-        The ``queue:was_running:{sid}`` survival pointer (no TTL) lets us
-        find the orphaned row even after the lease-marker disappeared.
-        """
+        """Reset rows the daemon left in `running` state across a"""
         sids = await self._r.smembers(_SESSIONS_SET)
         rehydrated = 0
         for sid_raw in sids:
@@ -1012,8 +899,7 @@ class RedisQueueBackend:
         return rehydrated
 
     async def sessions_with_queued(self) -> list[tuple[str, str, str]]:
-        """Return ``[(app_id, session_id, user_id)]`` for every session
-        that currently has at least one queued row."""
+        """Return `[(app_id, session_id, user_id)]` for every session"""
         sids = await self._r.smembers(_SESSIONS_SET)
         out: list[tuple[str, str, str]] = []
         for sid_raw in sids:
@@ -1069,7 +955,6 @@ class RedisQueueBackend:
         running = 1 if await self.has_running(session_id) else 0
         return queued + running
 
-    # ── Internals ─────────────────────────────────────────────────────
 
     async def _set_terminal(
         self, row_id: str, status: str, error_code: str = "",
@@ -1135,12 +1020,8 @@ def _try_float(v: Any) -> float | None:
         return None
 
 
-# ─── Connector ────────────────────────────────────────────────────────
-
-
 async def create_redis_client(redis_url: str) -> Any:
-    """Create a single async Redis client. Returns None on failure
-    (caller falls back to in-memory backend)."""
+    """Create a single async Redis client"""
     try:
         import redis.asyncio as aioredis  # type: ignore
     except ImportError:

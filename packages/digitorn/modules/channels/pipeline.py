@@ -1,18 +1,4 @@
-"""Activation pipeline - the core event processing flow.
-
-When an inbound event arrives from any adapter, the pipeline processes it
-through these stages:
-
-1. **Filter**   - Drop events that don't match YAML conditions.
-2. **Prepare**  - Call tools via ServiceBus to enrich event context.
-3. **Route**    - Pick the target agent based on enriched data.
-4. **Build**    - Construct system prompt + user message for agent_turn.
-5. **Activate** - Run agent_turn with the resolved context.
-6. **Reply**    - If ``reply: auto``, send agent response back on channel.
-
-Security: prepare steps use ServiceBus (audited, permissioned).
-Templates use safe_render (no eval). Secrets filtered from outbound.
-"""
+"""Activation pipeline - the core event processing flow."""
 
 from __future__ import annotations
 
@@ -30,7 +16,6 @@ if TYPE_CHECKING:
     from digitorn.modules.channels.session_manager import ChannelSessionManager
 
 logger = logging.getLogger(__name__)
-
 
 class ActivationPipeline:
     """Processes inbound events through the activation stages."""
@@ -69,7 +54,6 @@ class ActivationPipeline:
             },
         }
 
-        # ── 1. Filter ────────────────────────────────────────────
         if activation.filter:
             for cond in activation.filter:
                 if not self._check_filter(cond, variables):
@@ -79,41 +63,28 @@ class ActivationPipeline:
                     )
                     return
 
-        # ── 2. Prepare ───────────────────────────────────────────
         for step in activation.prepare:
             result = await self._run_prepare_step(step, variables)
             if result is not None:
                 variables[step.as_field] = result
 
-        # ── 3. Route ─────────────────────────────────────────────
         agent_id = activation.agent or self._config.default_agent
         if activation.route:
             routed = self._resolve_route(activation.route, variables)
             if routed:
                 agent_id = routed
 
-        # ── 4. Build messages ────────────────────────────────────
         system_prompt, user_message = self._build_messages(
             event, activation, variables,
         )
 
-        # ── 5. Resolve session ───────────────────────────────────
         session_id = self._session_mgr.resolve_session_id(
             event, activation.session, variables,
         )
 
-        # ── 5b. Resolve the calling user's identity ──────────────
-        # We need this so the runtime credential resolver can
-        # substitute per-user secrets (per_user / per_app_per_user
-        # scopes) inside the rendered templates. Extracted from the
-        # event payload / metadata using known channel patterns
-        # (telegram chat_id, slack user, webhook X-User-Id header,
-        # email From). Falls back to "anonymous" when no user can
-        # be inferred - in that case the resolver still hits
-        # system_wide and per_app_shared scopes.
+        # `anonymous` falls back to system / per_app_shared scopes.
         user_id = _extract_user_id_from_event(event)
 
-        # ── 6. Activate agent ────────────────────────────────────
         agent_response = await self._activate_agent(
             agent_id=agent_id,
             system_prompt=system_prompt,
@@ -126,7 +97,6 @@ class ActivationPipeline:
             user_id=user_id,
         )
 
-        # ── 7. Reply auto ───────────────────────────────────────
         if activation.reply == "auto" and agent_response and event.reply_context:
             text = agent_response
             if self._config.secret_filter_enabled:
@@ -154,14 +124,11 @@ class ActivationPipeline:
             session_id, elapsed, activation.reply,
         )
 
-    # ── Filter ───────────────────────────────────────────────────
-
     def _check_filter(
         self,
         cond: Any,  # FilterCondition
         variables: dict[str, Any],
     ) -> bool:
-        """Return True if event passes the filter condition."""
         value = resolve_dotpath(cond.field, variables)
 
         if cond.equals is not None:
@@ -184,14 +151,11 @@ class ActivationPipeline:
         # No condition specified - pass through
         return True
 
-    # ── Prepare ──────────────────────────────────────────────────
-
     async def _run_prepare_step(
         self,
         step: Any,  # PrepareStep
         variables: dict[str, Any],
     ) -> Any:
-        """Execute a prepare step via ServiceBus."""
         ctx = getattr(self._module, "_ctx", None)
         if not ctx or not ctx.service_bus:
             logger.warning("channel_prepare_no_service_bus action=%s", step.action)
@@ -229,14 +193,11 @@ class ActivationPipeline:
             )
             return None
 
-    # ── Route ────────────────────────────────────────────────────
-
     def _resolve_route(
         self,
         route: Any,  # RouteConfig
         variables: dict[str, Any],
     ) -> str:
-        """Resolve dynamic route to agent ID."""
         value = resolve_dotpath(route.field, variables)
         for rule in route.rules:
             if rule.default:
@@ -245,15 +206,12 @@ class ActivationPipeline:
                 return rule.agent
         return ""
 
-    # ── Build messages ───────────────────────────────────────────
-
     def _build_messages(
         self,
         event: InboundEvent,
         activation: Any,  # ActivationConfig
         variables: dict[str, Any],
     ) -> tuple[str, str]:
-        """Build system prompt addition and user message."""
         # Extra context for system prompt
         context_extra = ""
         if activation.context:
@@ -274,8 +232,6 @@ class ActivationPipeline:
 
         return context_extra, user_msg
 
-    # ── Activate ─────────────────────────────────────────────────
-
     async def _activate_agent(
         self,
         agent_id: str,
@@ -288,7 +244,6 @@ class ActivationPipeline:
         activation: Any,
         user_id: str = "anonymous",
     ) -> str | None:
-        """Run agent_turn with the resolved context. Returns agent response text."""
         app = self._module._runtime_app
         if not app:
             logger.error("channel_no_runtime_app - cannot activate agent")
@@ -324,14 +279,8 @@ class ActivationPipeline:
                 {"role": "user", "content": user_message},
             ]
 
-        # ── Dashboard telemetry: create an Activation row + recorder ──
-        # The channels module is a separate entry point from
-        # background.run_background, so it needs its own wiring to the
-        # activation_events table. Without this, channel-triggered
-        # agent runs are invisible in the Flutter background dashboard
-        # (no row in /activations, no events in the timeline drawer,
-        # no artifacts), which is exactly the gap the user hit during
-        # the V2 audit.
+        # Wire channels-driven runs into `activation_events` for
+        # dashboard visibility.
         activation_id: str | None = None
         activation_store = None
         _recorder_token = None
@@ -378,20 +327,11 @@ class ActivationPipeline:
             _recorder_token = _CURRENT_ACTIVATION_RECORDER.set(rec)
             try:
                 ctx.activation_recorder = rec  # type: ignore[attr-defined]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("pipeline best-effort block failed: %s", exc)
 
-        # ── Runtime per-user secret resolution ─────────────────────
-        # The compiler left {{secret.X}} references for per_user /
-        # per_app_per_user scopes as passthroughs (they need user
-        # context to resolve). Now that we know who's behind this
-        # channel event (via user_id extracted from the payload at
-        # process_event step 5b), walk the messages list and
-        # substitute those passthroughs via the CredentialStore.
-        #
-        # Falls back to a no-op when no credential_store is wired
-        # in - preserves the existing behaviour for tests and
-        # standalone scripts.
+        # Substitute compiler-deferred {{secret.X}} references for per-user scopes
+        # now that user_id is known. No-op when credential_store isn't wired.
         try:
             credential_store = _get_credential_store_for_channel(self._module)
             if credential_store is not None:
@@ -443,12 +383,12 @@ class ActivationPipeline:
             if _recorder_token is not None:
                 try:
                     _CURRENT_ACTIVATION_RECORDER.reset(_recorder_token)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("pipeline best-effort block failed: %s", exc)
             try:
                 ctx.activation_recorder = None  # type: ignore[attr-defined]
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("pipeline best-effort block failed: %s", exc)
 
         # Persist the activation outcome so the dashboard's status +
         # recent-runs list actually reflect the channel-triggered run.
@@ -490,39 +430,7 @@ class ActivationPipeline:
 
         return response_text
 
-
-# ────────────────────────────────────────────────────────────────────
-# Helpers - runtime per-user secret resolution
-# ────────────────────────────────────────────────────────────────────
-
-
 def _extract_user_id_from_event(event: InboundEvent) -> str:
-    """Best-effort extraction of a Digitorn user id from an inbound event.
-
-    Different channel adapters carry user identity in different
-    fields. We try a sequence of common patterns and fall back to
-    ``"anonymous"`` if none match.
-
-    Patterns checked in order:
-
-    1. ``event.payload.user_id`` - explicit Digitorn user id
-       (e.g. set by an upstream auth proxy)
-    2. ``event.metadata.headers["X-User-Id"]`` - webhook callers
-       authenticated by a proxy or API gateway
-    3. ``event.payload.from`` - Telegram-style sender block
-       (the chat_id used as a stable per-user anchor)
-    4. ``event.payload.user`` - Slack message ``user`` field
-    5. ``event.payload.author.id`` - Discord message author id
-    6. ``event.source`` - fallback to the adapter-set source
-       string (telegram chat_id, email From address, etc.)
-
-    The returned value is used by the credentials runtime resolver
-    to look up per_user / per_app_per_user scoped secrets. If it
-    doesn't match a real Digitorn user_id, the resolver simply
-    falls through to the system_wide / per_app_shared scopes -
-    nothing breaks, the user just sees the literal ``{{secret.X}}``
-    template if no shared credential exists either.
-    """
     payload = event.payload or {}
     metadata = event.metadata or {}
 
@@ -568,18 +476,7 @@ def _extract_user_id_from_event(event: InboundEvent) -> str:
 
     return "anonymous"
 
-
 def _get_credential_store_for_channel(module: Any) -> Any:
-    """Best-effort lookup of the daemon's CredentialStore from the channels module.
-
-    The store is attached to the FastAPI ``app.state`` at daemon
-    startup. Channel modules don't get a direct handle to ``app.state``
-    but they DO have a reference to the AppManager via
-    ``module._runtime_app.manager`` - and the manager carries
-    ``_credential_store``. Walks that chain and returns ``None`` if
-    anything is missing (which makes the runtime resolver a no-op
-    in tests and standalone scripts).
-    """
     runtime_app = getattr(module, "_runtime_app", None)
     if runtime_app is None:
         return None

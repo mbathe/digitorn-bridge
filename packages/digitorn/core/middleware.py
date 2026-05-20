@@ -1,49 +1,4 @@
-"""Digitorn Middleware System - pluggable pipeline at every level.
-
-Three levels of middleware, from outermost to innermost:
-
-1. **App-level** - intercepts before/after the LLM call in the agent loop.
-   Can modify system prompt, user messages, mask secrets, inject RAG context.
-
-2. **Module-level** - wraps any module's ``execute()`` call.
-   Audit, retry, transform for native modules.
-
-3. **MCP-level** - wraps raw MCP ``call_tool()`` (specialized, in mcp/middleware.py).
-
-All levels share the same protocol and pipeline mechanics.
-
-YAML example::
-
-    app:
-      middleware:
-        - mask_secrets:
-            patterns: ["password", "api_key", "token"]
-        - rag_inject:
-            source: "{{workspace}}/knowledge"
-            max_chunks: 5
-        - prompt_inject:
-            system: "Always respond in French"
-        - content_filter:
-            block_patterns: ["DROP TABLE", "rm -rf /"]
-
-    modules:
-      filesystem:
-        middleware:
-          - audit:
-              log_params: true
-          - retry:
-              max_attempts: 3
-
-Custom middleware (user-defined)::
-
-    app:
-      middleware:
-        - custom:
-            path: "./my_middleware.py"
-            class: "MyAppMiddleware"
-            config:
-              key: value
-"""
+"""Digitorn Middleware System - pluggable pipeline at every level."""
 
 from __future__ import annotations
 
@@ -61,11 +16,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AppMiddlewareContext:
-    """Context for app-level middleware, passed before each LLM call.
-
-    Middlewares can modify ``system_prompt``, ``messages``, and ``metadata``
-    to influence the agent's behavior.
-    """
+    """Context for app-level middleware, passed before each LLM call."""
 
     agent_id: str
     system_prompt: str
@@ -76,39 +27,21 @@ class AppMiddlewareContext:
 
 @runtime_checkable
 class AppMiddleware(Protocol):
-    """Protocol for app-level middleware.
-
-    Called before each LLM invocation in the agent loop.
-    Can modify system_prompt, messages, or short-circuit the call.
-
-    If ``before()`` returns a string, it short-circuits the agent loop
-    and that string becomes the agent's response (no LLM call).
-    """
+    """Protocol for app-level middleware."""
 
     async def before(self, ctx: AppMiddlewareContext) -> str | None:
-        """Called before the LLM call. Return string to short-circuit."""
+        """Called before the LLM call."""
         ...
 
     async def after(
         self, ctx: AppMiddlewareContext, response: str, tool_calls: list[Any],
     ) -> str:
-        """Called after the LLM response. Can modify the response text."""
+        """Called after the LLM response."""
         ...
 
 
 class SecretMaskMiddleware:
-    """Mask sensitive patterns in user messages before sending to LLM.
-
-    Replaces passwords, API keys, tokens, and other secrets with
-    ``[MASKED]`` to prevent the LLM from seeing or echoing them.
-
-    YAML::
-
-        - mask_secrets:
-            patterns: ["password", "api_key", "secret_key"]
-            replacement: "[MASKED]"
-            mask_values: true
-    """
+    """Mask sensitive patterns in user messages before sending to LLM."""
 
     def __init__(
         self,
@@ -164,17 +97,7 @@ class SecretMaskMiddleware:
 
 
 class PromptInjectMiddleware:
-    """Dynamically inject content into the system prompt.
-
-    Appends or prepends text to the system prompt before each LLM call.
-    Useful for adding dynamic context, language preferences, or rules.
-
-    YAML::
-
-        - prompt_inject:
-            system: "Always respond in French."
-            position: append
-    """
+    """Dynamically inject content into the system prompt."""
 
     def __init__(
         self,
@@ -198,17 +121,7 @@ class PromptInjectMiddleware:
 
 
 class ContentFilterMiddleware:
-    """Block messages containing dangerous patterns.
-
-    If a user message matches a block pattern, the middleware
-    short-circuits the agent loop with a rejection message.
-
-    YAML::
-
-        - content_filter:
-            block_patterns: ["DROP TABLE", "rm -rf", "DELETE FROM"]
-            rejection_message: "This request has been blocked for safety."
-    """
+    """Block messages containing dangerous patterns."""
 
     def __init__(
         self,
@@ -244,21 +157,7 @@ class ContentFilterMiddleware:
 
 
 class RagInjectMiddleware:
-    """Inject RAG (retrieval-augmented generation) context.
-
-    Before each LLM call, retrieves relevant chunks from a knowledge
-    source and injects them into the system prompt.
-
-    The ``retriever`` callback is set programmatically; in YAML mode,
-    the middleware auto-configures from the app's index module.
-
-    YAML::
-
-        - rag_inject:
-            max_chunks: 5
-            max_chars: 2000
-            position: append
-    """
+    """Inject RAG (retrieval-augmented generation) context."""
 
     def __init__(
         self,
@@ -335,17 +234,7 @@ class RagInjectMiddleware:
 
 
 class ResponseFilterMiddleware:
-    """Filter or transform the LLM's response before returning to user.
-
-    Can mask secrets in the response, enforce length limits, or
-    apply custom transformations.
-
-    YAML::
-
-        - response_filter:
-            max_length: 5000
-            mask_secrets: true
-    """
+    """Filter or transform the LLM's response before returning to user."""
 
     def __init__(
         self,
@@ -380,10 +269,7 @@ class ModuleCallContext:
 
 @runtime_checkable
 class ModuleMiddleware(Protocol):
-    """Protocol for module-level middleware.
-
-    Wraps a module's execute() call. Same pattern as MCP middleware.
-    """
+    """Protocol for module-level middleware."""
 
     async def __call__(
         self, ctx: ModuleCallContext, next_: Any,
@@ -476,12 +362,7 @@ class ModuleTimeoutMiddleware:
 
 
 class AppMiddlewarePipeline:
-    """Pipeline for app-level middleware.
-
-    Executes ``before()`` hooks in order, then (if no short-circuit)
-    lets the agent loop call the LLM, then executes ``after()`` hooks
-    in reverse order.
-    """
+    """Pipeline for app-level middleware."""
 
     def __init__(self, middlewares: list[AppMiddleware] | None = None) -> None:
         self._middlewares: list[AppMiddleware] = middlewares or []
@@ -494,7 +375,7 @@ class AppMiddlewarePipeline:
         self._middlewares.append(mw)
 
     async def run_before(self, ctx: AppMiddlewareContext) -> str | None:
-        """Run all before() hooks. Returns short-circuit response or None."""
+        """Run all before() hooks."""
         for mw in self._middlewares:
             result = await mw.before(ctx)
             if result is not None:
@@ -603,14 +484,7 @@ def build_app_pipeline(
     *,
     custom_base_path: str | None = None,
 ) -> AppMiddlewarePipeline | None:
-    """Build an app-level middleware pipeline from YAML config.
-
-    Resolution order for each middleware name:
-    1. TOML registry (``digitorn-middleware.toml`` packages)
-    2. Inline fallback (hardcoded built-in classes)
-
-    Returns None if no middlewares are configured.
-    """
+    """Build an app-level middleware pipeline from YAML config."""
     if not config_list:
         return None
 
@@ -643,10 +517,7 @@ def build_module_pipeline(
     *,
     custom_base_path: str | None = None,
 ) -> ModuleMiddlewarePipeline | None:
-    """Build a module-level middleware pipeline from YAML config.
-
-    Returns None if no middlewares are configured.
-    """
+    """Build a module-level middleware pipeline from YAML config."""
     if not config_list:
         return None
 
@@ -679,31 +550,7 @@ def _load_custom_middleware(
     base_path: str | None,
     level: str,
 ) -> Any | None:
-    """Load a custom middleware class.
-
-    Three resolution strategies (tried in order):
-
-    **1. Local file** - relative to the app YAML::
-
-        custom:
-          path: "./middlewares/my_mw.py"
-          class: "MyMiddleware"
-
-    **2. Middleware directory** - ``middleware/`` folder next to the YAML.
-       The ``path`` can be just a filename::
-
-        custom:
-          path: "my_mw.py"
-          class: "MyMiddleware"
-
-    **3. Installed Python package** - use ``module`` instead of ``path``::
-
-        custom:
-          module: "my_package.middleware"
-          class: "MyMiddleware"
-
-    All forms accept an optional ``config`` dict passed as kwargs to ``__init__``.
-    """
+    """Load a custom middleware class."""
     file_path = config.get("path")
     module_import = config.get("module")
     class_name = config.get("class")

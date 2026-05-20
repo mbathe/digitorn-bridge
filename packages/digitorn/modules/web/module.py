@@ -1,9 +1,4 @@
-"""Web module - fast search, fetch, and parse web content.
-
-Supports multiple search backends (DuckDuckGo free default, Brave, Tavily, SearXNG).
-Uses aiohttp for async HTTP + html2text/bs4 for content parsing.
-Includes response caching for repeated fetches.
-"""
+"""Web module - fast search, fetch, and parse web content."""
 
 from __future__ import annotations
 
@@ -89,7 +84,6 @@ class WebConfig(BaseModel):
     max_content_length: int = PydanticField(50000, ge=1000, le=1_000_000, description="Max content length from fetched pages")
     fetch_timeout: float = PydanticField(30.0, ge=1.0, le=300.0, description="HTTP fetch timeout in seconds")
 
-
 class WebModule(BaseModule):
     """Web search, fetch, and content extraction."""
 
@@ -164,15 +158,7 @@ class WebModule(BaseModule):
         self._cache = _FetchCache(ttl=cache_ttl, max_size=cache_max)
 
     async def on_stop(self) -> None:
-        """Close the aiohttp ClientSession + invalidate the fetch cache.
-
-        Merged from two duplicate ``on_stop`` definitions: the original
-        had try/except around ``close()`` (defends against pending
-        requests crashing shutdown) but forgot to invalidate the cache.
-        A later edit added cache invalidation as a second ``on_stop``
-        which Python silently let SHADOW the first, dropping the
-        exception handling. Now combined.
-        """
+        """Close the aiohttp ClientSession + invalidate the fetch cache."""
         if self._session is not None and not self._session.closed:
             try:
                 await self._session.close()
@@ -185,7 +171,6 @@ class WebModule(BaseModule):
             logger.debug("web_cache_invalidate_failed: %s", exc)
 
     def _check_domain(self, url: str) -> str | None:
-        """Return error message if URL domain is not allowed, else None."""
         try:
             from urllib.parse import urlparse
             host = urlparse(url).hostname or ""
@@ -205,7 +190,6 @@ class WebModule(BaseModule):
         return None
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Reuse a single aiohttp session for connection pooling."""
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession(
                 headers={"User-Agent": self._user_agent},
@@ -294,7 +278,6 @@ class WebModule(BaseModule):
         allowed: list[str] | None,
         blocked: list[str] | None,
     ) -> list[dict[str, str]]:
-        """Filter search results by allowed/blocked domain lists."""
         if not allowed and not blocked:
             return results
 
@@ -360,7 +343,6 @@ class WebModule(BaseModule):
 
         url = params.url
 
-        # ── HTTP → HTTPS auto-upgrade (like Claude Code) ───────
         if url.startswith("http://"):
             url = "https://" + url[7:]
 
@@ -399,7 +381,6 @@ class WebModule(BaseModule):
             async with session.get(url, timeout=_FETCH_TIMEOUT, allow_redirects=True) as resp:
                 final_url = str(resp.url)
 
-                # ── Cross-host redirect detection (like Claude Code) ──
                 if final_url != url:
                     from urllib.parse import urlparse
                     orig_host = urlparse(url).hostname
@@ -422,7 +403,6 @@ class WebModule(BaseModule):
                         error=f"HTTP {resp.status} fetching {url}",
                     )
 
-                # ── Binary content detection ───────────────────────
                 content_type = resp.headers.get("Content-Type", "")
                 if "application/pdf" in content_type:
                     size = int(resp.headers.get("Content-Length", 0))
@@ -451,7 +431,6 @@ class WebModule(BaseModule):
             else:
                 content = await asyncio.to_thread(html_to_text, html, params.max_length)
 
-            # ── Prompt-based filtering ─────────────────────────
             if params.prompt:
                 content = self._apply_prompt_filter(content, params.prompt, params.max_length)
 
@@ -486,12 +465,6 @@ class WebModule(BaseModule):
 
     @staticmethod
     def _apply_prompt_filter(content: str, prompt: str, max_length: int) -> str:
-        """Filter content to sections relevant to the prompt.
-
-        Simple keyword-based extraction: finds paragraphs containing prompt keywords
-        and returns them with context. Not LLM-based (that would require a provider),
-        but effective for targeted extraction.
-        """
         keywords = [w.lower() for w in prompt.split() if len(w) > 3]
         if not keywords:
             return content[:max_length]
@@ -582,10 +555,7 @@ class WebModule(BaseModule):
                     return ActionResult(success=False, error=f"HTTP {resp.status}")
 
                 total = 0
-                # Disk write off-loop. ``open()`` and each ``f.write()``
-                # are synchronous - on slow / network-mounted FS even an
-                # 8 KB write can stall the loop and drop Socket.IO. We
-                # batch chunks and flush via ``asyncio.to_thread``.
+                # Off-load disk writes; batch chunks to one `to_thread`.
                 import asyncio as _asyncio
                 buf: list[bytes] = []
                 buf_size = 0
@@ -624,7 +594,6 @@ class WebModule(BaseModule):
     async def _search_with_backend(
         self, backend: str, query: str, limit: int,
     ) -> list[dict[str, str]]:
-        """Dispatch search to the configured backend."""
         if backend == "duckduckgo":
             return await self._search_duckduckgo(query, limit)
         elif backend == "brave":
@@ -639,7 +608,6 @@ class WebModule(BaseModule):
             raise ValueError(f"Unknown search backend: {backend}")
 
     async def _search_duckduckgo(self, query: str, limit: int) -> list[dict[str, str]]:
-        """DuckDuckGo HTML search - free, no API key needed."""
         session = await self._get_session()
         url = "https://html.duckduckgo.com/html/"
 
@@ -650,8 +618,6 @@ class WebModule(BaseModule):
         ) as resp:
             html = await resp.text(errors="replace")
 
-        # BeautifulSoup parse off-loop. SERP HTML is typically 50–300 KB
-        # and parsing routinely takes 50–200 ms.
         def _parse() -> list[dict[str, str]]:
             out: list[dict[str, str]] = []
             try:
@@ -678,7 +644,6 @@ class WebModule(BaseModule):
         return await asyncio.to_thread(_parse)
 
     async def _search_brave(self, query: str, limit: int) -> list[dict[str, str]]:
-        """Brave Search API - requires API key."""
         api_key = self._api_keys.get("brave")
         if not api_key:
             raise ValueError("Brave Search requires api_keys.brave in config")
@@ -704,7 +669,6 @@ class WebModule(BaseModule):
         return results
 
     async def _search_tavily(self, query: str, limit: int) -> list[dict[str, str]]:
-        """Tavily Search API - designed for AI agents."""
         api_key = self._api_keys.get("tavily")
         if not api_key:
             raise ValueError("Tavily Search requires api_keys.tavily in config")
@@ -728,7 +692,6 @@ class WebModule(BaseModule):
         return results
 
     async def _search_searxng(self, query: str, limit: int) -> list[dict[str, str]]:
-        """SearXNG meta-search - self-hosted, aggregates Google+Bing+DDG."""
         base_url = self._api_keys.get("searxng_url", "http://localhost:8080")
         session = await self._get_session()
 
@@ -749,7 +712,6 @@ class WebModule(BaseModule):
         return results
 
     async def _search_google(self, query: str, limit: int) -> list[dict[str, str]]:
-        """Google Custom Search API - requires API key + CX."""
         api_key = self._api_keys.get("google")
         cx = self._api_keys.get("google_cx")
         if not api_key or not cx:

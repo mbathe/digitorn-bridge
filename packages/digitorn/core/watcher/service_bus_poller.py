@@ -16,7 +16,7 @@ The watcher calls them periodically and diffs the results.
 Contract for watchable modules
 ==============================
 
-``list_items``
+`list_items`
     Parameters:
         source_id (str): The registered source ID.
         root (str): Root URI/path of the source.
@@ -24,7 +24,7 @@ Contract for watchable modules
     Returns:
         {"items": [{"id": str, "path": str, ...}, ...]}
 
-``checksum``
+`checksum`
     Parameters:
         source_id (str): The registered source ID.
         items (list[str]): List of item IDs to checksum.
@@ -47,7 +47,7 @@ logger = structlog.get_logger(__name__)
 class ServiceBusPollingWatcher:
     """Watch a source by periodically querying its owning module via service bus.
 
-    The module must expose ``list_items`` and ``checksum`` actions.
+    The module must expose `list_items` and `checksum` actions.
     """
 
     def __init__(

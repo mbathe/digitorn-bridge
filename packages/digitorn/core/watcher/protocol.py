@@ -39,6 +39,6 @@ class WatcherBackend(Protocol):
 
         The iterator yields events as they are detected and
         blocks (awaits) when there is nothing new.  It should
-        terminate cleanly when ``stop()`` is called.
+        terminate cleanly when `stop()` is called.
         """
         ...

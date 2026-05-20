@@ -1,35 +1,4 @@
-"""Webhook Output Channel - generic HTTP POST delivery.
-
-The most universal external channel: any system with an HTTP endpoint
-can receive notifications. Works with:
-- Slack Incoming Webhooks
-- Discord Webhooks
-- Microsoft Teams Connectors
-- Zapier/Make/n8n Webhooks
-- Custom backend APIs
-- Any REST endpoint
-
-YAML example::
-
-    channels:
-      my_webhook:
-        type: webhook
-        config:
-          url: "https://hooks.slack.com/services/T.../B.../..."
-          method: POST
-          headers:
-            Content-Type: "application/json"
-          timeout: 10
-          payload_template: |
-            {"text": "{{message}}", "channel": "#alerts"}
-
-Per-delivery config overrides::
-
-    output_channel: "my_webhook"
-    output_config:
-      url: "https://other-endpoint.com/api/notify"
-      headers: {"Authorization": "Bearer {{token}}"}
-"""
+"""Webhook Output Channel - generic HTTP POST delivery."""
 
 from __future__ import annotations
 
@@ -50,14 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class WebhookChannel(BaseOutputChannel):
-    """Generic HTTP webhook delivery channel.
-
-    Sends a JSON POST (or configurable method) to any URL.
-    Supports custom headers, timeout, and payload templates.
-
-    Uses a singleton aiohttp.ClientSession per channel instance to avoid
-    file descriptor exhaustion under high concurrency.
-    """
+    """Generic HTTP webhook delivery channel."""
 
     CHANNEL_ID = "webhook"
     CHANNEL_NAME = "Webhook (HTTP)"
@@ -72,11 +34,7 @@ class WebhookChannel(BaseOutputChannel):
         self._http_session: Any = None  # Lazy-initialized aiohttp.ClientSession
 
     async def _get_http_session(self) -> Any:
-        """Get or create the singleton aiohttp ClientSession.
-
-        Lazy-initialized on first use. Reused across all deliveries
-        to avoid socket exhaustion under load.
-        """
+        """Get or create the singleton aiohttp ClientSession."""
         if self._http_session is None or getattr(self._http_session, "closed", True):
             try:
                 import aiohttp
@@ -237,7 +195,6 @@ class WebhookChannel(BaseOutputChannel):
     def _build_body(
         self, payload: ChannelPayload, config: dict[str, Any]
     ) -> dict[str, Any] | str:
-        """Build the HTTP request body from payload + config."""
         if "payload" in config:
             return config["payload"]
 
@@ -272,7 +229,6 @@ class WebhookChannel(BaseOutputChannel):
         body: dict[str, Any] | str,
         timeout: int,
     ) -> DeliveryResult:
-        """Fallback delivery using urllib (no aiohttp dependency)."""
         import asyncio
         import urllib.request
 

@@ -1,10 +1,4 @@
-"""CLI commands for per-app secret management.
-
-    digitorn secret list <app_id>              - List secret keys
-    digitorn secret set <app_id> <key> <value> - Set a secret
-    digitorn secret get <app_id> <key>         - Check if secret exists
-    digitorn secret delete <app_id> <key>      - Delete a secret
-"""
+"""CLI commands for per-app secret management."""
 
 from __future__ import annotations
 

@@ -1,18 +1,4 @@
-"""BuiltinSource - packages shipped with the daemon wheel.
-
-Scans ``packages/digitorn/builtins/`` for sub-directories that
-contain a ``package.toml``. Each match is an available built-in
-package. The bootstrap loop installs them automatically at first
-boot and re-installs them when the wheel-shipped hash changes
-(typically after ``pip install -U digitorn``).
-
-This source never reaches the network and never modifies the
-wheel files - it only **reads**. The ``fetch`` step is a regular
-``shutil.copytree`` from the read-only wheel location into the
-user's writable install root.
-
-Source URI format: ``bundle://digitorn/<package_id>``.
-"""
+"""BuiltinSource - packages shipped with the daemon wheel."""
 
 from __future__ import annotations
 
@@ -30,15 +16,11 @@ from digitorn.core.packages.source import (
 
 logger = logging.getLogger(__name__)
 
-
 class BuiltinSource(PackageSource):
     source_type = "builtin"
 
     def __init__(self, builtins_dir: Path) -> None:
-        """Args:
-            builtins_dir: usually ``packages/digitorn/builtins/`` - the
-                directory inside the wheel where built-in packages live.
-        """
+        """"""
         self._builtins_dir = builtins_dir
 
     async def list_available(self) -> list[AvailablePackage]:
@@ -69,11 +51,8 @@ class BuiltinSource(PackageSource):
                 )
                 continue
 
-            # Off-loop: hashing every file in every builtin at startup
-            # walks 50+ packages × N files each = seconds of stall on
-            # the bootstrap path. Off-load so the FastAPI lifespan can
-            # finish and start serving HTTP while builtins are still
-            # being discovered.
+            # Off-load: hashing every file across all builtins would
+            # stall the bootstrap path for seconds.
             import asyncio as _asyncio
             try:
                 pkg_hash = await _asyncio.to_thread(compute_package_hash, entry)
@@ -95,12 +74,7 @@ class BuiltinSource(PackageSource):
         return result
 
     async def fetch(self, source_uri: str, dest: Path) -> Path:
-        """Copy a builtin from the wheel into ``dest``.
-
-        ``source_uri`` is ``bundle://digitorn/<package_id>``. We
-        translate that into a local subdirectory under
-        ``self._builtins_dir`` and copytree it.
-        """
+        """Copy a builtin from the wheel into `dest`."""
         if not source_uri.startswith("bundle://digitorn/"):
             raise FetchError(
                 f"BuiltinSource: invalid source_uri {source_uri!r}, "
@@ -114,12 +88,8 @@ class BuiltinSource(PackageSource):
                 f"in {self._builtins_dir}"
             )
 
-        # ``shutil.rmtree`` + ``shutil.copytree`` on the main asyncio
-        # loop blocks for tens of seconds when builtins ship with
-        # ``web/node_modules`` or ``web/dist`` (100+ MB). The watchdog
-        # rightly reports 27 s+ stalls during ``bootstrap_builtins``.
-        # Punt to a thread so the loop stays responsive while uvicorn
-        # is also still binding sockets.
+        # Off-load: `rmtree` + `copytree` over `node_modules` /
+        # `dist` stalls the loop for tens of seconds.
         import asyncio as _asyncio
         def _do_copy() -> None:
             if dest.exists():
@@ -137,13 +107,7 @@ class BuiltinSource(PackageSource):
         return dest
 
     async def check_update(self, installed_uri: str, current_hash: str) -> str | None:
-        """Return the new version string if the wheel-shipped package
-        has been upgraded since the user installed it.
-
-        Compares the hash on disk in the wheel with the hash recorded
-        in the registry. If they differ, the wheel was upgraded and
-        a re-install is in order.
-        """
+        """Return the new version string if the wheel-shipped package."""
         try:
             packages = await self.list_available()
         except Exception:

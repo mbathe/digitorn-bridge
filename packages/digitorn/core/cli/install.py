@@ -1,22 +1,4 @@
-"""``digitorn install-local`` — pair this daemon to a central account.
-
-Two paths to obtain the access token used for pairing:
-
-  * ``--oauth google|microsoft`` (default behaviour when ``--oauth`` set)
-    Opens a browser to the central's ``/auth/oauth/{provider}?bounce_to=…``
-    URL. The provider's consent screen runs, the central exchanges
-    the code, and bounces the token back to a tiny HTTP listener
-    on a random localhost port. Same pattern as ``gh auth login`` etc.
-
-  * default (no ``--oauth`` flag)
-    Prompts for username + password at the terminal and POSTs them
-    to ``/auth/login``. Simpler when the user already has local
-    credentials on the central.
-
-Once the access token is obtained, the CLI calls
-``POST /auth/devices/pair`` and persists the returned device_token
-locally via ``LocalDeviceAuth.write(...)``.
-"""
+"""`digitorn install-local` - pair this daemon to a central account."""
 
 from __future__ import annotations
 
@@ -110,10 +92,6 @@ def install_local(
 
     data = resp.json()
 
-    # Fetch the JWKS so the daemon can verify device tokens fully
-    # offline. We grab it now (we KNOW we have internet — we just
-    # paired) rather than at first daemon boot, where the user might
-    # already be offline.
     central_jwks: dict | None = None
     try:
         jr = httpx.get(f"{auth_url}/.well-known/jwks.json", timeout=10.0)
@@ -149,14 +127,8 @@ def install_local(
     )
 
 
-# ── Login paths ────────────────────────────────────────────────────
-
-
 def _login_via_password(auth_url: str, username: str | None) -> str:
-    """Interactive username + password login, no browser involved.
-
-    Returns a fresh access_token suitable for /auth/devices/pair.
-    """
+    """Interactive username + password login, no browser involved."""
     import httpx
     if not username:
         username = typer.prompt("Username (or email)")
@@ -183,11 +155,7 @@ def _login_via_password(auth_url: str, username: str | None) -> str:
 
 
 def _login_via_oauth(auth_url: str, provider: str, timeout: int) -> str:
-    """OAuth browser-bounce login.
-
-    Spins up a localhost HTTP listener, opens the consent URL, waits
-    for the bounce, and returns the access_token from the callback.
-    """
+    """OAuth browser-bounce login."""
     callback_port = _find_free_port()
     callback_url = f"http://127.0.0.1:{callback_port}/oauth-callback"
     bounce_param = urllib.parse.quote(callback_url, safe="")
@@ -210,9 +178,6 @@ def _login_via_oauth(auth_url: str, provider: str, timeout: int) -> str:
         listener.server_close()
 
     return state["access_token"]
-
-
-# ── Helpers ────────────────────────────────────────────────────────
 
 
 def _find_free_port() -> int:
@@ -255,7 +220,7 @@ def _start_callback_server(
 
 
 def _wait_for(state: dict[str, str], key: str, timeout: int) -> bool:
-    """Poll ``state`` until ``key`` arrives or timeout elapses."""
+    """Poll `state` until `key` arrives or timeout elapses."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if key in state or "oauth_error" in state:

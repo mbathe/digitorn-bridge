@@ -1,24 +1,4 @@
-"""Digitorn AppPackages - distributable units of installation.
-
-Public surface for callers:
-
-    from digitorn.core.packages import (
-        PackageManifest,
-        PackageRegistry,
-        InstallFlow,
-        Status,
-        SourceType,
-        BuiltinSource,
-        LocalSource,
-        HubSource,
-        GitSource,
-        compute_package_hash,
-        require_install_permission,
-        classify_existing_apps,
-    )
-
-See ``docs/APP_PACKAGES.md`` for the full design doc.
-"""
+"""Digitorn AppPackages - distributable units of installation."""
 
 from digitorn.core.packages.hash import (
     compute_package_hash,

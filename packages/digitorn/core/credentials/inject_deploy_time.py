@@ -1,37 +1,4 @@
-"""Deploy-time credential injection.
-
-Runs ONCE per app deploy, AFTER the compile and BEFORE bootstrap.
-Walks the compiled app for `credential:` references at the
-**deploy-visible scopes** (`system_wide`, `per_app_shared`),
-resolves them against the vault, and mutates the compiled module +
-inline-brain configs in place so the bootstrap layer sees fully
-filled-in configs (no template strings, no missing api_keys).
-
-Per-user scopes (`per_user`, `per_app_per_user`) are deliberately
-**skipped here** - they have no user context at deploy. Those are
-applied at session-start by `session_resolver` (parallel to the
-legacy `{{secret.X}}` runtime resolver).
-
-Failure policy:
-  - **Required slot, missing/expired credential** -> raise
-    `CredentialInjectError`. Activation aborts.
-  - **Optional slot, missing credential** -> log a warning and skip.
-    The module sees its YAML inline values (or empty fields) and
-    decides whether to fail at `on_config_update` time.
-  - **Store unavailable (None)** -> full no-op so dev paths without
-    a configured store keep deploying legacy apps unchanged.
-
-The injector itself is unchanged - this module is a thin orchestrator
-that:
-  1. builds the synthetic `app_def`-shaped view from the CompiledApp
-     (so the existing `_collect_refs` walks the new dataclasses),
-  2. assembles the `compiled_blocks` map pointing the injector at the
-     LIVE config dicts to mutate (per-module config, inline-brain
-     provider config),
-  3. filters out refs whose declared scope isn't in the deploy-time
-     set,
-  4. delegates to `CredentialInjector.inject_app(...)`.
-"""
+"""Deploy-time credential injection."""
 
 from __future__ import annotations
 
@@ -67,14 +34,7 @@ async def inject_deploy_time_credentials(
     audit: "AuditLog | None" = None,
     module_slots: dict[str, list[CredentialSlot]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Resolve every deploy-visible `credential:` ref in the compiled
-    app, mutating the module + inline-brain config dicts in place.
-
-    Returns a diagnostic list of injection records (one per resolved
-    ref). Empty list when nothing to inject. Never carries plaintext.
-
-    No-op when `store` is None.
-    """
+    """Resolve every deploy-visible `credential:` ref in the compiled"""
     if store is None:
         return []
 
@@ -84,9 +44,6 @@ async def inject_deploy_time_credentials(
     # Map block_path -> mutable config dict the injector should patch.
     compiled_blocks = _build_compiled_blocks(compiled)
 
-    # Filter pass: only keep refs whose declared scope is in `scopes`.
-    # We strip the rest BEFORE the injector sees them so the injector
-    # never tries to vault-lookup a per_user credential at deploy.
     filtered_view = _ScopeFilteredView(app_view, allowed_scopes=set(scopes))
 
     injector = CredentialInjector(
@@ -118,19 +75,8 @@ async def inject_deploy_time_credentials(
         return []
 
 
-# ── Adapters ───────────────────────────────────────────────────────
-
-
 class _CompiledAppView:
-    """Adapter that exposes a `CompiledApp` as the duck-typed shape
-    the existing `CredentialInjector._collect_refs` expects.
-
-    Notable shape differences vs the parsed `AppDefinition`:
-      - `CompiledAgent.agent_id` (not `id`).
-      - No top-level `brain` (compiled apps only have per-agent brains).
-      - `compiled.modules[mid]` is a `CompiledModuleConfig` with
-        `.credential` (added in the compiler patch); duck-types fine.
-    """
+    """Adapter that exposes a `CompiledApp` as the duck-typed shape"""
 
     def __init__(self, compiled: "CompiledApp") -> None:
         self._compiled = compiled
@@ -166,14 +112,7 @@ class _CompiledAgentView:
 
 
 class _ScopeFilteredView:
-    """Wraps a view and strips `credential` refs whose declared scope
-    is not in the allowed set.
-
-    Implementation: the wrapper replicates the underlying shape but
-    with `.credential = None` on any block whose scope is filtered
-    out. The injector then walks the trimmed view and never sees the
-    out-of-scope refs.
-    """
+    """Wraps a view and strips `credential` refs whose declared scope"""
 
     def __init__(
         self,
@@ -220,8 +159,7 @@ class _FilteredAgent:
 
 
 class _BlockProxy:
-    """Cheap wrapper that exposes a block's attributes plus an
-    overridden `.credential` field (None when filtered out)."""
+    """Cheap wrapper that exposes a block's attributes plus an"""
 
     def __init__(self, inner: Any, credential: Any) -> None:
         self._inner = inner
@@ -234,9 +172,7 @@ class _BlockProxy:
 def _wrap_block_credential_filter(
     block: Any, allowed: set[str],
 ) -> Any:
-    """Return a proxy where `.credential` is the original ref if its
-    declared scope is allowed, else `None`. When the block has no
-    credential, return it unchanged."""
+    """Return a proxy where `.credential` is the original ref if its"""
     if block is None:
         return None
     raw = getattr(block, "credential", None)
@@ -256,30 +192,10 @@ def _wrap_block_credential_filter(
     return block
 
 
-# ── Block path -> config dict map ──────────────────────────────────
-
-
 def _build_compiled_blocks(
     compiled: "CompiledApp",
 ) -> dict[str, dict[str, Any]]:
-    """Map every block_path the injector may target to a wrapper
-    dict whose `"config"` key points at the LIVE config dict to
-    mutate.
-
-    The wrapper is required because handler `inject_path_default`
-    templates use the form `{block}.config.<field>` (so they can be
-    used from YAML-level paths). With a wrapper of shape
-    `{"config": <live_dict>}`, `_set_dotted("config.api_key", v)`
-    lands inside `<live_dict>` directly, mutating the real config in
-    place.
-
-    Block paths produced by `CredentialInjector._collect_refs`:
-      - `"brain"`              -> top-level brain (no-op for compiled apps)
-      - `"agents.<id>.brain"`  -> wraps the live provider config in
-                                  `compiled.modules[llm_provider]
-                                  .config[providers][<provider_id>]`
-      - `"modules.<id>"`       -> wraps `compiled.modules[id].config`
-    """
+    """Map every block_path the injector may target to a wrapper"""
     blocks: dict[str, dict[str, Any]] = {}
 
     # Modules: wrap so `{block}.config.<field>` lands inside .config.

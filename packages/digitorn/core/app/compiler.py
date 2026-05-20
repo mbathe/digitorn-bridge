@@ -1,24 +1,4 @@
-"""AppYAMLCompiler - parse, validate, and resolve an app YAML into executable IR.
-
-The compiler is **pure validation** - no side effects, no I/O beyond reading
-the YAML file.  It needs read access to the ``ModuleRegistry`` to look up
-manifests and action specs for validation, but never mutates anything.
-
-Pipeline::
-
-    YAML file/dict
-      → Parse & validate against AppDefinition (Pydantic)
-      → Resolve {{variables}} in all params/constraints
-      → Validate modules exist in registry
-      → Validate actions exist on each module
-      → Validate params against each action's params_model
-      → Validate constraints against ConstraintSpec
-      → Build SecurityProfile from capabilities
-      → Return CompiledApp
-
-All errors are collected and raised together so the user sees every problem
-at once rather than fixing them one by one.
-"""
+"""AppYAMLCompiler - parse, validate, and resolve an app YAML into executable IR."""
 
 from __future__ import annotations
 
@@ -65,7 +45,6 @@ if TYPE_CHECKING:
 
 
 def _is_safe_name(name: str) -> bool:
-    """True iff ``name`` is a safe identifier for URL segments + filenames."""
     import re as _re
     return bool(_re.match(r"^[a-z0-9][a-z0-9_-]*[a-z0-9]$|^[a-z0-9]$", name))
 
@@ -90,7 +69,6 @@ _ALLOWED_FILTERS: frozenset[str] = frozenset({
 
 
 def _walk_strings(value: Any, path: str = "$") -> Any:
-    """Yield ``(path, string_value)`` tuples for every string inside a nested structure."""
     if isinstance(value, str):
         yield path, value
     elif isinstance(value, dict):
@@ -104,18 +82,7 @@ def _walk_strings(value: Any, path: str = "$") -> Any:
 def _validate_placeholder_references(
     raw: dict[str, Any], definition: Any, errors: list[str],
 ) -> None:
-    """Walk the raw YAML, find every ``{{...}}`` placeholder, and validate:
-
-    - ``{{credential.PROVIDER.FIELD}}``: PROVIDER must be declared in
-      ``execution.credentials_schema.providers`` with a matching FIELD.
-    - ``{{variable_name}}``: must be declared in the ``variables:`` block
-      or be a reserved namespace (``env``, ``secret``, ``sys``, ``app``,
-      ``credential``, ``field``, ``config_data``, ``client``, ``tool``,
-      ``event``, ``state``, ``runtime_context``, ``workspace``).
-
-    Emits clear errors with path, offending placeholder, and fuzzy-match
-    suggestions for typos.
-    """
+    """Walk the raw YAML, find every `{{...}}` placeholder, and validate:"""
     declared_vars: set[str] = set((getattr(getattr(definition, "dev", None), "variables", {}) or {}).keys())
 
     providers_map: dict[str, set[str]] = {}
@@ -136,7 +103,7 @@ def _validate_placeholder_references(
         "tool", "event", "state", "runtime_context", "workspace", "agent",
         "prompt", "skill", "asset", "behavior",
         "input", "steps", "output", "caller", "request",
-        # Flow runtime context (Phase 2 flow: block).
+        # Flow runtime context (`flow:` block).
         "previous", "approvals", "session",
     }
 
@@ -223,15 +190,7 @@ def _validate_placeholder_references(
 
 
 def _validate_dependency_graph(definition: Any, errors: list[str]) -> None:
-    """Cross-check references between sections of the YAML.
-
-    Currently checks:
-    - Agent ids unique
-    - Coordinator's delegate_to references existing specialist ids
-    - Capabilities.grant modules are declared in the modules block
-    - execution.default_channel exists in modules.channels.config.providers
-    - hooks referencing module_action target an actually-loaded module
-    """
+    """Cross-check references between sections of the YAML."""
     agent_ids: list[str] = []
     seen_agent_ids: set[str] = set()
     for i, a in enumerate(getattr(definition, "agents", []) or []):
@@ -361,19 +320,7 @@ def _validate_dependency_graph(definition: Any, errors: list[str]) -> None:
 
 
 def _collect_known_tools(definition: Any, registry: Any) -> set[str]:
-    """Build the comprehensive set of tool identifiers an app exposes.
-
-    Includes:
-      - Every module id (so ``module_action.module: web`` validates)
-      - For each declared module, every ``module.action`` FQN
-      - The short and double-underscore variants of every action
-      - Tools listed in ``capabilities.grant.actions`` (in case the
-        registry isn't fully loaded in test mode)
-
-    Tolerant: when the registry can't enumerate a module's actions
-    (registry not loaded, MCP module discovered at runtime, ...), we
-    skip silently rather than emitting a phantom error.
-    """
+    """Build the comprehensive set of tool identifiers an app exposes."""
     tools: set[str] = set()
     for mod_id in (getattr(getattr(definition, "tools", None), "modules", {}) or {}).keys():
         tools.add(mod_id)
@@ -384,8 +331,8 @@ def _collect_known_tools(definition: Any, registry: Any) -> set[str]:
                 tools.add(action)
                 tools.add(f"{mod_id}.{action}")
                 tools.add(f"{mod_id}__{action}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("compiler best-effort block failed: %s", exc)
 
     caps = getattr(getattr(definition, "tools", None), "capabilities", None)
     if caps is not None:
@@ -404,15 +351,7 @@ def _collect_known_tools(definition: Any, registry: Any) -> set[str]:
 def _validate_behavior_rule_triggers(
     definition: Any, known_tools: set[str], errors: list[str],
 ) -> None:
-    """Strict FQN check on behavior custom rule triggers.
-
-    Complements the lenient ``validate_behavior_config_structured`` which
-    accepts a short-name fallback (``trigger: write`` matches any
-    ``write`` action). When a trigger uses dotted FQN form
-    (``module.action``), the exact FQN must exist - otherwise a typo on
-    the module half slides through (e.g. ``filesytem.write`` would have
-    matched ``write`` short and gone unnoticed).
-    """
+    """Strict FQN check on behavior custom rule triggers."""
     if not known_tools:
         return
     behavior = getattr(getattr(definition, "security", None), "behavior", None)
@@ -436,9 +375,7 @@ def _validate_behavior_rule_triggers(
 
 
 def _walk_hook_actions(hook: Any):
-    """Yield every leaf action declared by a hook (resolves nested
-    ``chain`` and ``transform_*`` wrappers). Always yields the action
-    itself first so callers can inspect the wrapper's ``type``."""
+    """Yield every leaf action declared by a hook (resolves nested"""
     action = getattr(hook, "action", None)
     if action is None:
         return
@@ -452,21 +389,7 @@ def _walk_hook_actions(hook: Any):
 def _validate_hook_action_consistency(
     definition: Any, warnings: list[str], errors: list[str],
 ) -> None:
-    """Catch hook actions whose runtime requirements are not declared.
-
-    Two checks today:
-
-      - ``action.type == 'compact_context'`` only meaningful when the
-        app has multiple turns. In ``mode: one_shot`` the hook fires
-        once over a one-turn history, so the action does nothing.
-        Emit a warning, NOT an error - the runtime is harmless.
-
-      - ``action.type == 'shell'`` requires the ``shell`` module to be
-        declared in the modules block (the action delegates to
-        ``shell.bash`` for sandboxing). Without it, the hook silently
-        no-ops at runtime. Emit a hard ERROR because that's a real
-        configuration mistake, not a deferred warning.
-    """
+    """Catch hook actions whose runtime requirements are not declared."""
     exe = getattr(definition, "runtime", None)
     mode = getattr(exe, "mode", "conversation") if exe is not None else "conversation"
     tools = getattr(definition, "tools", None)
@@ -504,15 +427,7 @@ def _validate_hook_action_consistency(
 
 
 def _validate_hook_expressions(definition: Any, errors: list[str]) -> None:
-    """Lint every ``condition.expr`` (and nested composite conditions).
-
-    Catches syntactic errors at compile time so a typo in an expression
-    can't slip into a deployed app and cause the runtime ``eval()`` to
-    silently swallow the exception (returning False forever).
-
-    Phase 9 upgrade: also validates that identifier paths reference
-    one of ``HOOK_CONTEXT_ROOTS`` (the names actually exposed by
-    ``hooks._eval_expression``)."""
+    """Lint every `condition.expr` (and nested composite conditions)."""
     from digitorn.core.app.expressions import (
         HOOK_CONTEXT_ROOTS,
         validate_expression_against_context,
@@ -558,23 +473,7 @@ def _validate_hook_expressions(definition: Any, errors: list[str]) -> None:
 
 
 def _validate_flow_expressions(definition: Any, errors: list[str]) -> None:
-    """Lint flow ``routes[].when`` and ``decision.expr`` clauses.
-
-    Two semantics for ``when:`` depending on the source node type:
-
-      - On a ``decision`` node, ``when:`` matches the value produced by
-        ``expr:``. So ``when: 'refund'`` is a literal string match
-        against the expr result, NOT an expression to evaluate. We
-        only require syntactic well-formedness here, no identifier
-        check, because bare words are valid literals.
-
-      - On every other node type (agent, tool, parallel, approval),
-        ``when:`` is a boolean expression evaluated against the flow
-        context. We enforce both syntactic correctness AND identifier
-        roots from ``FLOW_CONTEXT_ROOTS``.
-
-    Phase 9 upgrade over Phase 4: identifier path validation against
-    the runtime context schema."""
+    """Lint flow `routes[].when` and `decision.expr` clauses."""
     from digitorn.core.app.expressions import (
         FLOW_CONTEXT_ROOTS,
         validate_expression,
@@ -634,27 +533,15 @@ def _validate_flow_expressions(definition: Any, errors: list[str]) -> None:
 def _validate_hook_tool_refs(
     definition: Any, known_tools: set[str], errors: list[str],
 ) -> None:
-    """Validate every ``tool_name`` condition in hooks against known tools.
-
-    The condition is a regex (``match: "web.search|web.fetch"``). We try
-    to match it against the known tools set: if at least one known tool
-    matches, the regex is valid for this app. If none match, the user
-    almost certainly typed a wrong name.
-
-    Skipped when known_tools is empty (registry not loaded).
-    """
+    """Validate every `tool_name` condition in hooks against known tools."""
     if not known_tools:
         return
     from fnmatch import fnmatchcase
 
     def _check_one_pattern(pattern: str, ctx: str) -> None:
-        """The runtime uses fnmatch (glob), not regex. Match the same
-        semantics here so the linter's verdict aligns with reality."""
+        """The runtime uses fnmatch (glob), not regex. Match the same"""
         if not pattern:
             return
-        # Glob has very few invalid forms; only an unclosed bracket
-        # raises. Most "invalid" patterns are user errors against the
-        # known-tools set.
         try:
             if any(fnmatchcase(t, pattern) for t in known_tools):
                 return
@@ -719,31 +606,13 @@ def _validate_hook_tool_refs(
 def _validate_mode_specific_fields(
     definition: Any, warnings: list[str], errors: list[str],
 ) -> None:
-    """Discriminated mode gating: every ``execution.*`` field is checked
-    against the declared mode. Splits into two severities:
-
-      - **errors** (hard refuse): functional fields that the runtime
-        actively branches on. Setting them outside their mode means
-        the runtime will never honour them, which is always a bug.
-
-          watchers, scheduler, session_mode (!= mono),
-          max_sessions_per_user (!= 10), payload_schema
-          (each only consumed in mode='background')
-
-      - **warnings** (non-fatal smell): cosmetic fields the runtime
-        silently ignores in the wrong mode. The user might leave them
-        for documentation / future migration.
-
-          greeting (only conversation), input/output customised
-          (only one_shot)
-    """
+    """Discriminated mode gating: every `execution.*` field is checked"""
     exe = getattr(definition, "runtime", None)
     if exe is None:
         return
     mode = getattr(exe, "mode", "conversation")
     ui = getattr(definition, "ui", None)
 
-    # ── Cosmetic mismatches: warn only ───────────────────────────
     if mode != "conversation":
         if getattr(ui, "greeting", ""):
             warnings.append(
@@ -781,7 +650,6 @@ def _validate_mode_specific_fields(
                     f"you switch to mode: one_shot."
                 )
 
-    # ── Functional mismatches: hard error ───────────────────────
     if mode != "background":
         if getattr(exe, "session_mode", "mono") != "mono":
             errors.append(
@@ -813,14 +681,7 @@ def _validate_mode_specific_fields(
 
 
 def _validate_credential_refs(definition: Any, errors: list[str]) -> None:
-    """Cross-check that every ``credential:`` reference points at a provider
-    declared in ``execution.credentials_schema.providers``.
-
-    Skipped entirely when no credentials_schema is declared - in that case
-    refs are treated as opaque vault keys (current behaviour). When the
-    schema IS declared, references that don't match must fail compilation
-    so the runtime never tries to resolve a non-existent credential.
-    """
+    """Cross-check that every `credential:` reference points at a provider"""
     sec = getattr(definition, "security", None)
     schema = getattr(sec, "credentials_schema", None) if sec is not None else None
     if schema is None:
@@ -873,14 +734,7 @@ def _validate_plugin_params(
     supplied: dict[str, Any],
     schema: dict[str, str] | None,
 ) -> None:
-    """Check hook condition/action params against a declared schema.
-
-    schema is ``{param_name: "required" | "optional"}``. ``None`` means
-    no schema declared - no validation performed. When a schema is
-    declared, unknown params and missing required params both error.
-    Closest-match suggestion is included for unknown params to catch
-    typos like ``value`` vs ``match``.
-    """
+    """Check hook condition/action params against a declared schema."""
     if schema is None:
         return
     known = set(schema.keys())
@@ -920,22 +774,12 @@ class CompiledModuleConfig:
     setup_steps: list[CompiledSetupStep] = field(default_factory=list)
     constraints: dict[str, Any] = field(default_factory=dict)
     middleware: list[dict[str, Any]] = field(default_factory=list)
-    # Raw `credential:` ref from the YAML block (str compact form OR
-    # `{ref, scope, provider}` mapping). Resolved at deploy time
-    # (system_wide / per_app_shared) and at session-start (per_user /
-    # per_app_per_user). None when the block does not bind a vault
-    # credential.
     credential: Any = None
 
 
 @dataclass
 class CompiledBrain:
-    """Compiled brain configuration for an agent.
-
-    Either references a named provider (provider_id) or contains
-    a fully resolved inline config that will be registered as a
-    provider at bootstrap time.
-    """
+    """Compiled brain configuration for an agent."""
 
     provider_id: str
     is_inline: bool = False
@@ -967,9 +811,6 @@ class CompiledAgent:
     pool_max_workers: int = 3
     pool_progress: bool = False
     pool_auto_retry: int = 0
-    # Per-agent hooks - each CompiledHook in this list has agent_id set
-    # to this agent's id so the runtime filter fires them only for the
-    # matching agent's turns. Empty list = no per-agent hooks.
     hooks: list["CompiledHook"] = field(default_factory=list)
 
 
@@ -1040,11 +881,8 @@ class CompiledHook:
     enabled: bool = True
     tags: list[str] = field(default_factory=list)
     # Optional scope - when set, this hook only fires for the named
-    # agent (sub-agent specialisation). ``None`` = app-wide.
+    # agent (sub-agent specialisation). `None` = app-wide.
     agent_id: str | None = None
-    # Hard wall on action runtime (seconds). Cancels the action if
-    # exceeded. Default 30s = enough for compaction; lower in YAML
-    # for cheap hooks.
     timeout: float = 30.0
 
 
@@ -1073,19 +911,8 @@ class CompiledExecution:
     session_mode: str = "mono"
     max_sessions_per_user: int = 10
     max_concurrent_activations: int = 20
-    # Optional declarative payload schema, normalised to a plain dict
-    # so the API can ship it to the Flutter dashboard verbatim and the
-    # validator can read it without a Pydantic dependency. ``None`` =
-    # no schema declared (legacy / free-form payloads).
     payload_schema: dict[str, Any] | None = None
-    # Optional declarative credentials schema. Declares external
-    # services (API keys, OAuth providers, MCP servers, DB
-    # connections) the app needs. Same normalisation as above.
     credentials_schema: dict[str, Any] | None = None
-    # Composer mode picker keyed by mode id. Carries the full ModeDef
-    # untouched so the runtime merge layer (pending) can read every
-    # override without going back to the source YAML. Empty dict =
-    # no picker (client hides the pill).
     modes: dict[str, Any] = field(default_factory=dict)
 
 
@@ -1112,55 +939,22 @@ class CompiledApp:
     source_path: Path | None = None
     middleware: list[dict[str, Any]] = field(default_factory=list)
     skills: list[dict[str, str]] = field(default_factory=list)
-    # End-user CRUD permission for skills (set from dev.allow_user_skills).
-    # When false the ``/api/apps/{app_id}/skills`` mutation endpoints
-    # reject POST/PATCH/DELETE; GET still works but only returns the
-    # app-declared ``skills`` list and an empty ``user_skills``.
     allow_user_skills: bool = False
     hidden_actions: list[dict[str, Any]] = field(default_factory=list)
     behavior: Any = None  # BehaviorConfig from the YAML - passed to bootstrap for wiring
 
-    # Every external file the compiler read while producing this
-    # CompiledApp, keyed by its path relative to the YAML source dir.
-    # Kept for downstream introspection (e.g. /health, drift checks).
-    # Keys are always forward-slash relative paths.
     collected_assets: dict[str, str] = field(default_factory=dict)
 
-    # The raw YAML text used to produce this compiled app. Always
-    # populated - by ``compile_file`` from the file bytes and by
-    # ``compile_string`` from its content argument. The AppSyncer uses
-    # this as the bundle's ``app.yaml`` payload instead of re-reading
-    # ``source_path`` from disk, which can be missing, moved, or replaced
-    # by the time the sync runs.
     raw_yaml: str = ""
 
-    # Optional workspace block carried through from the YAML root
-    # ``workspace:`` block. Tells the client this app uses a virtual
-    # file workspace (render_mode, entry_file, title). The daemon emits
-    # the metadata via preview:state_changed on the first file write.
     workspace: Any = None  # WorkspaceBlock | None
 
-    # Optional declarative widgets tree carried through from the YAML
-    # root ``widgets:`` block. The compiler validates the tree at
-    # deploy time; the daemon serves it via /api/apps/{id}/widgets/*
-    # and the agent can push live render/update events via the
-    # ``widget`` module's actions.
     widgets: Any = None  # WidgetsConfig | None
 
-    # ── Client manifest extensions ────────────────────────────────
-    # Opaque pass-through blocks read only by the Flutter/web client to
-    # customise its UI. The daemon does not interpret their values; it
-    # simply parses and exposes them via DeployedApp.summary() so the
-    # client can read them from GET /api/apps/{id}.
     features: dict[str, bool] = field(default_factory=dict)
     theme: dict[str, str] = field(default_factory=dict)
     slash_commands: list[dict[str, str]] = field(default_factory=list)
 
-    # ── Chat layout / behaviour blocks (added 2026-05-04) ──────────
-    # Mirror of UIBlock's new optional sub-blocks. Pure pass-through:
-    # the daemon never reads these, the Flutter / web clients do.
-    # Each is None when the YAML omitted the corresponding section,
-    # which lets the client fall back to its historical defaults.
     chat_layout: str = "default"
     chat_density: str = "comfortable"
     chat_thinking: Any = None       # ChatThinkingBlock | None
@@ -1168,37 +962,16 @@ class CompiledApp:
     chat_composer: Any = None       # ChatComposerBlock | None
     chat_visual: Any = None         # ChatVisualBlock | None
     chat_slots: Any = None          # SlotsConfig | None
-    # Phase 3 - YAML-driven custom rendering for tool calls.
-    # ``None`` keeps the legacy chip; presence + ``enabled: true``
-    # flips the client dispatcher.
     chat_tool_renderers: Any = None  # ToolRenderersBlock | None
-    # Phase 2 - per-message custom action rows. Same opt-in
-    # contract as tool_renderers.
+    # Per-message custom action rows. Same opt-in contract as
+    # `tool_renderers`.
     chat_message_actions: Any = None  # MessageActionsBlock | None
-    # Activity pane block (opt-in observability for sub-agents).
-    # ``None`` (default) means the YAML omitted ``ui.activity`` —
-    # both clients hide the Activity mode entry. When set, the
-    # full ActivityPanelBlock is forwarded untouched through the
-    # manifest summary.
     chat_activity: Any = None       # ActivityPanelBlock | None
 
-    # Optional declarative orchestration graph carried through from the
-    # YAML root ``flow:`` block. The compiler validates every cross-ref
-    # at deploy time; the runtime drives the agents along this graph
-    # when present, the canvas renders it as a flowchart.
     flow: Any = None  # FlowConfig | None
 
-    # Starter templates declared by the app (templates.yaml fragment or
-    # inline). Exposed by the daemon via /api/apps/{id}/templates so the
-    # chat client renders a native gallery under the composer.
     templates: list[Any] = field(default_factory=list)  # list[TemplateBlock]
 
-    # Non-fatal warnings emitted during compilation. Surfaced to clients
-    # (CLI, Builder canvas, Web validator) so the user sees configuration
-    # smells the compiler accepts but probably did not intend - e.g.
-    # ``triggers`` declared with ``mode: conversation`` (the trigger will
-    # never fire), ``compact_context`` hooks with ``mode: one_shot``
-    # (nothing to compact across a single turn).
     warnings: list[str] = field(default_factory=list)
 
     @property
@@ -1225,21 +998,7 @@ def _validate_prompt_metadata(
     declared_variables: set[str],
     errors: list[str],
 ) -> None:
-    """Validate YAML frontmatter found in prompt/skill files.
-
-    Runs after variable resolution so every prompt has been read.
-    Checks:
-
-    - ``variables_required`` lists - each must be declared in the
-      app's ``variables:`` block
-    - ``max_tokens_estimate`` - warn-level, adds an informational
-      error (compiler still succeeds) if the estimate exceeds a
-      hard cap of 200k (above which no model can accept it)
-    - ``min_model`` - informational, no enforcement in v1
-
-    Errors are appended to the ``errors`` list - the compiler
-    raises ``AppCompilationError`` after this pass.
-    """
+    """Validate YAML frontmatter found in prompt/skill files."""
     for full_key, fm in metadata.items():
         required = fm.get("variables_required") or []
         if isinstance(required, list):
@@ -1261,7 +1020,6 @@ def _validate_prompt_metadata(
 
 
 def _compile_brain_context(brain: Any) -> CompiledContextConfig | None:
-    """Compile per-brain context config. Returns None if not set."""
     if brain.context is None:
         return None
     ctx = brain.context
@@ -1278,14 +1036,7 @@ def _compile_brain_context(brain: Any) -> CompiledContextConfig | None:
 
 
 class AppYAMLCompiler:
-    """Stateless compiler: YAML → CompiledApp.
-
-    Usage::
-
-        compiler = AppYAMLCompiler(registry)
-        compiled = compiler.compile_file(Path("my-app.yaml"))
-        compiled = compiler.compile({"app": {...}, "modules": {...}})
-    """
+    """Stateless compiler: YAML → CompiledApp."""
 
     def __init__(self, registry: "ModuleRegistry") -> None:
         self._registry = registry
@@ -1295,45 +1046,15 @@ class AppYAMLCompiler:
         self._positions: PositionMap = {}
         self._source_name: str = ""
         self._collected_assets: dict[str, str] = {}
-        # Non-fatal warnings collected during a single compile() call.
-        # Reset at the start of compile(), bubbled into CompiledApp.warnings
-        # at the end. Surfaced to the user (CLI, Builder canvas, web
-        # validator) without aborting the build.
         self._warnings: list[str] = []
-        # Serialise compile_file / compile_string calls across threads.
-        # The compiler keeps per-call state as INSTANCE attributes
-        # (``_source_dir``, ``_collected_assets``, ...)
-        # which would race when ``reload_from_db`` launches up to 16
-        # parallel ``asyncio.to_thread(compiler.compile_*)`` jobs on
-        # the same shared compiler. Without this lock, Thread A's
-        # ``_source_dir`` gets reset by Thread B's ``finally`` clause
-        # mid-compile, leaving Thread A's ``_load_external_text`` to
-        # resolve relative paths against ``cwd`` instead of
-        # ``install_dir`` — every external skill / prompt file
-        # vanishes.
-        #
-        # ``threading.Lock`` (not ``asyncio.Lock``) because the
-        # contention is between OS threads spawned by
-        # ``asyncio.to_thread``. Calls executed on the event loop
-        # itself (rare path) also acquire it; no deadlock risk because
-        # compile never re-enters compile.
         import threading as _threading
         self._compile_lock = _threading.Lock()
 
-    # ── External-file loading ───────────────────────────────────────────
 
     def _load_external_text(
         self, path_str: str, *, label: str,
     ) -> tuple[str, str]:
-        """Resolve an external file referenced by the YAML.
-
-        Returns ``(normalised_relpath, content)``. The path is read
-        from disk under ``_source_dir / path_str``. The resulting
-        content is stored in ``_collected_assets`` for downstream
-        introspection.
-
-        Raises ``FileNotFoundError`` if the asset cannot be resolved.
-        """
+        """Resolve an external file referenced by the YAML."""
         # Normalise to a forward-slash relative path.
         rel_path = path_str.replace("\\", "/").strip()
         while rel_path.startswith("./"):
@@ -1349,18 +1070,12 @@ class AppYAMLCompiler:
         except (OSError, UnicodeDecodeError) as exc:
             raise FileNotFoundError(f"{label}: cannot read '{path}': {exc}")
 
-        # Re-derive the rel path now that we know the real on-disk
-        # location - this handles edge cases where the caller passed an
-        # absolute path that happens to live under the source dir.
         if self._source_dir is not None:
             try:
                 rel_path = path.resolve().relative_to(
                     self._source_dir.resolve()
                 ).as_posix()
             except ValueError:
-                # Not under source_dir (e.g. absolute path elsewhere).
-                # Keep the original normalised rel_path so the bundle
-                # records something sensible.
                 pass
 
         self._collected_assets[rel_path] = content
@@ -1369,12 +1084,7 @@ class AppYAMLCompiler:
     def _load_external_binary(
         self, path_str: str, *, label: str,
     ) -> tuple[str, str]:
-        """Resolve an external BINARY file (e.g. template cover image)
-        and return ``(normalised_relpath, base64_string)``.
-
-        Binary payloads are stored base64-encoded so they fit alongside
-        text assets in ``_collected_assets``.
-        """
+        """Resolve an external BINARY file (e.g. template cover image)"""
         import base64
         rel_path = path_str.replace("\\", "/").strip()
         while rel_path.startswith("./"):
@@ -1408,18 +1118,11 @@ class AppYAMLCompiler:
         self._collected_assets[rel_path] = encoded
         return rel_path, encoded
 
-    # ── Entry points ────────────────────────────────────────────────────
 
     def compile_file(
         self, path: Path, *, secrets: dict[str, str] | None = None
     ) -> CompiledApp:
-        """Load a YAML file and compile it.
-
-        Thread-safe: serialised via ``self._compile_lock`` because the
-        compiler stores per-call state on instance attributes that
-        races between concurrent ``asyncio.to_thread(compile_file)``
-        calls would corrupt.
-        """
+        """Load a YAML file and compile it."""
         with self._compile_lock:
             return self._compile_file_locked(path, secrets=secrets)
 
@@ -1476,14 +1179,7 @@ class AppYAMLCompiler:
         source: str = "<string>",
         secrets: dict[str, str] | None = None,
     ) -> CompiledApp:
-        """Compile a YAML string into a CompiledApp.
-
-        Relative paths in the YAML (skills/, agent prompt files, ...)
-        are resolved against ``source``'s parent directory on the real
-        filesystem.
-
-        Thread-safe: serialised via ``self._compile_lock``.
-        """
+        """Compile a YAML string into a CompiledApp."""
         with self._compile_lock:
             return self._compile_string_locked(
                 content,
@@ -1542,21 +1238,11 @@ class AppYAMLCompiler:
             self._collected_assets = {}
 
     def compile(self, raw: dict[str, Any]) -> CompiledApp:
-        """Compile a raw dict (parsed YAML) into a CompiledApp.
-
-        Collects all errors and raises a single ``AppCompilationError``
-        with the full list.
-        """
+        """Compile a raw dict (parsed YAML) into a CompiledApp."""
         errors: list[str] = []
         # Fresh warnings list per compile call. Bubbled into CompiledApp.
         self._warnings = []
 
-        # Apply top-level schema aliases first: rewrite ``runtime:``
-        # -> ``execution:``, ``ui:`` -> top-level fields, ``dependencies:``
-        # -> legacy locations. This lets new YAMLs use the cleaner
-        # shape without breaking the legacy AppDefinition schema.
-        # Deprecation warnings (app.features / app.theme) flow into
-        # CompiledApp.warnings via self._warnings.
         if isinstance(raw, dict):
             from digitorn.core.app.schema_aliases import apply_schema_aliases
             raw = apply_schema_aliases(
@@ -1564,7 +1250,7 @@ class AppYAMLCompiler:
             )
 
         # Apply fragmentation: auto-load ./agents, ./hooks and any
-        # explicit include: block from ``_source_dir`` on disk.
+        # explicit include: block from `_source_dir` on disk.
         if isinstance(raw, dict) and self._source_dir is not None:
             from digitorn.core.app.include_loader import apply_includes
 
@@ -1576,12 +1262,6 @@ class AppYAMLCompiler:
             if _include_errors:
                 raise AppCompilationError(_include_errors)
 
-        # Pre-flight: catch the most common LLM hallucinations and
-        # return a clear "did you mean ..." message BEFORE the Pydantic
-        # validator drowns the user in low-level errors. BUG-040 found
-        # the builder writing `name:` at root, `modules` as a list,
-        # `agent.model:` instead of `brain:` etc. - these used to come
-        # out as a cryptic 30-error pydantic dump; now we short-circuit.
         if isinstance(raw, dict):
             pre_errors: list[str] = []
             if "name" in raw and not isinstance(raw.get("app"), dict):
@@ -1656,10 +1336,6 @@ class AppYAMLCompiler:
         )
         inject_app_variables(definition.dev.variables, definition.app)
 
-        # Filesystem namespaces ({{prompt.X}} / {{skill.X}} /
-        # {{asset.X}}) need the bundle dir + app_id. We set both
-        # once here via a context manager so every downstream
-        # resolve_variables() call in this compile picks them up.
         _bundle_cm = bundle_context(
             bundle_dir=self._source_dir,
             app_id=getattr(definition.app, "app_id", "") or "",
@@ -1694,11 +1370,6 @@ class AppYAMLCompiler:
                     errors=errors,
                 )
 
-            # Behavior engine validator: deep static check catches
-            # every runtime bug at deploy time - typos in enum values,
-            # bad regex, undefined sets/counters/flags, unknown condition
-            # keys, placeholder references to ghost names, trigger names
-            # that aren't in granted capabilities.
             if definition.security.behavior:
                 try:
                     from digitorn.modules.behavior.validator import (
@@ -1712,10 +1383,6 @@ class AppYAMLCompiler:
                         definition.security.behavior, "model_dump"
                     ) else dict(definition.security.behavior)
 
-                    # Collect tool names known to this app via the
-                    # comprehensive helper (modules, FQN actions, short
-                    # names). Reuses _known_tools computed above when
-                    # available.
                     known_tools: set[str] = set(_known_tools) if _known_tools else _collect_known_tools(definition, self._registry)
                     if definition.tools.capabilities is not None:
                         for grant in (definition.tools.capabilities.grant or []):
@@ -1770,25 +1437,13 @@ class AppYAMLCompiler:
                     self._annotate_error_with_location(e) for e in errors
                 ]
                 raise AppCompilationError(errors)
-            # Refresh warnings: validations that run AFTER `_compile_body`
-            # (the dependency graph pass, expression linter, action
-            # consistency) append to ``self._warnings`` after the
-            # CompiledApp was built. Sync the list back here so callers
-            # see the full picture.
             compiled.warnings = list(self._warnings)
             return compiled
         finally:
             _bundle_cm.__exit__(None, None, None)
 
     def _annotate_error_with_location(self, err: str) -> str:
-        """Prepend ``file:line:col:`` to a compiler error by parsing its
-        ``ctx:`` prefix and looking up the YAML position.
-
-        Works with errors like ``"execution.hooks[0].condition.type: ..."``
-        by converting the ctx to a tuple path and querying the position
-        map. Leaves already-positioned errors alone (heuristic: error
-        already starts with ``<name>:<digit>``).
-        """
+        """Prepend `file:line:col:` to a compiler error by parsing its"""
         import re as _re2
         if _re2.match(r"^[^:\s]+:\d+:\d+:", err):
             return err
@@ -1827,16 +1482,10 @@ class AppYAMLCompiler:
         definition: Any,
         errors: list[str],
     ) -> CompiledApp:
-        """Body of ``compile`` extracted so the bundle_context manager
-        can wrap it cleanly without indenting 400+ lines."""
+        """Body of `compile` extracted so the bundle_context manager"""
         resolved_modules: dict[str, dict[str, Any]] = {}
         for module_id, block in definition.tools.modules.items():
             try:
-                # For the channels module: activation blocks inside provider
-                # configs contain runtime templates (e.g. {{config_data}},
-                # {{client}}) that are resolved by the channels pipeline at
-                # execution time, not by the compiler.  Temporarily remove
-                # them before variable resolution and restore afterwards.
                 saved_activations: dict[str, Any] = {}
                 if module_id == "channels" and "providers" in block.config:
                     for prov_id, prov_cfg in block.config.get("providers", {}).items():
@@ -1874,17 +1523,6 @@ class AppYAMLCompiler:
             except ValueError as exc:
                 errors.append(f"modules.{module_id}: {exc}")
 
-        # ``llm_provider`` is always available to every app at the daemon
-        # level (it's a system module, MODULE_SINGLETON). Its actions are
-        # hidden from the LLM by ``context_builder._HIDDEN_MODULES``, so
-        # injecting it here only makes the module REACHABLE via the
-        # per-app ``modules`` dict (used by the gateway resolver, the
-        # fallback/summary/classifier brain builders, etc.) without
-        # polluting the agent's tool catalogue. Without this, any app
-        # whose YAML doesn't explicitly list ``llm_provider`` under
-        # ``tools.modules`` would hit "session_provider: KEEP
-        # (llm_provider module missing)" in ``gateway_resolver`` and
-        # never route via the gateway.
         if "llm_provider" not in resolved_modules:
             resolved_modules["llm_provider"] = {
                 "config": {},
@@ -1918,22 +1556,6 @@ class AppYAMLCompiler:
             config_model = getattr(module, "CONFIG_MODEL", None)
             if resolved_config and config_model is not None:
                 try:
-                    # Persist the validated + normalised form rather than the
-                    # raw YAML dict. Without this, any ``@field_validator``
-                    # / ``@model_validator`` that normalises input (defaults
-                    # injection, list→dict coercion, alias resolution…) sees
-                    # its output silently dropped — the runtime ends up with
-                    # the original input shape and the normalisation might
-                    # as well not exist. Surfaced in the May 2026 MCP audit
-                    # where ``McpConfig.servers``' list-to-dict validator
-                    # produced a clean dict that the runtime never saw.
-                    #
-                    # ``model_dump(mode="python")`` keeps native Python
-                    # types (Path, datetime, …) intact for downstream
-                    # consumers, and Pydantic v2 includes ``model_extra``
-                    # for ``extra=allow`` configs (llm_provider, lsp,
-                    # memory, web_preview) so user-typed keys still flow
-                    # through to the runtime.
                     validated = config_model.model_validate(resolved_config)
                     resolved_config = validated.model_dump(mode="python")
                 except ValidationError as exc:
@@ -1948,8 +1570,8 @@ class AppYAMLCompiler:
                                 sug = _df.get_close_matches(str(bad), known, n=3, cutoff=0.5)
                                 if sug:
                                     suggestions = f" Did you mean: {', '.join(sug)}?"
-                            except Exception:
-                                pass
+                            except Exception as exc:
+                                logger.debug("compiler best-effort block failed: %s", exc)
                         errors.append(
                             f"modules.{module_id}.config: {loc} - {e['msg']}.{suggestions}"
                         )
@@ -2004,13 +1626,6 @@ class AppYAMLCompiler:
                 module_id, constraints, manifest, errors
             )
 
-            # Re-fetch the actual ModuleBlock for THIS module_id so we
-            # don't carry the stale `block` from the previous loop.
-            # Bug fix: the first loop iterated definition.tools.modules.items()
-            # and `block` retained the LAST module's value when reused
-            # here, causing every CompiledModuleConfig to get the same
-            # `credential` and `middleware` from whatever module was
-            # last in YAML order.
             cur_block = definition.tools.modules.get(module_id)
             compiled_modules[module_id] = CompiledModuleConfig(
                 module_id=module_id,
@@ -2032,14 +1647,12 @@ class AppYAMLCompiler:
             definition, compiled_agents, errors
         )
 
-        # ── Error: app without agents (except pipeline mode) ──
         if not compiled_agents and compiled_execution.mode != "pipeline":
             errors.append(
                 "agents: At least one agent is required "
                 "(except in 'pipeline' mode which chains other apps)."
             )
 
-        # ── Error: triggers declared in non-background mode ──
         if definition.runtime.triggers and compiled_execution.mode != "background":
             errors.append(
                 f"execution.triggers: Triggers are only valid in 'background' mode "
@@ -2047,7 +1660,6 @@ class AppYAMLCompiler:
                 f"Either change mode to 'background' or remove the triggers."
             )
 
-        # ── Validate direct_modules against compiled modules ──
         if compiled_execution.direct_modules:
             all_module_ids = set(compiled_modules.keys()) | set(definition.tools.modules.keys())
             for dm in compiled_execution.direct_modules:
@@ -2069,7 +1681,6 @@ class AppYAMLCompiler:
             else None
         )
 
-        # ── Warn if MCP servers lack sandbox declarations ──
         if security_profile is not None and "mcp" in compiled_modules:
             mcp_config = compiled_modules["mcp"].config or {}
             mcp_servers = mcp_config.get("servers", {})
@@ -2099,10 +1710,6 @@ class AppYAMLCompiler:
 
         compiled_skills: list[dict[str, str]] = []
         for i, skill_def in enumerate(definition.dev.skills):
-            # SkillEntry is a Pydantic model now; attribute access. The
-            # required-field checks below are redundant with the model's
-            # own min_length=1 constraints but kept as a safety net for
-            # any code path that bypasses Pydantic validation.
             command = getattr(skill_def, "command", "") or ""
             description = getattr(skill_def, "description", "") or ""
             skill_path_str = getattr(skill_def, "path", "") or ""
@@ -2175,8 +1782,8 @@ class AppYAMLCompiler:
                 if resolved_behavior:
                     _f.write(f"  profile raw: {str(getattr(resolved_behavior, 'profile', None))[:80]}\n")
                     _f.write(f"  rule_definitions: {len(getattr(resolved_behavior, 'rule_definitions', []) or [])}\n")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("compiler best-effort block failed: %s", exc)
 
         if resolved_behavior is not None:
             try:
@@ -2199,15 +1806,15 @@ class AppYAMLCompiler:
                     try:
                         with open(_compile_trace, "a", encoding="utf-8") as _f:
                             _f.write(f"  PROFILE RESOLVED len={len(resolved_profile)} preview: {str(resolved_profile)[:150]}\n")
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("compiler best-effort block failed: %s", exc)
             except Exception as _exc:
                 errors.append(f"behavior.profile: variable resolution failed: {_exc}")
                 try:
                     with open(_compile_trace, "a", encoding="utf-8") as _f:
                         _f.write(f"  PROFILE FAILED: {_exc}\n")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("compiler best-effort block failed: %s", exc)
             try:
                 cls = getattr(resolved_behavior, "classifier", None)
                 if cls is not None:
@@ -2234,12 +1841,9 @@ class AppYAMLCompiler:
             behavior=resolved_behavior,
             workspace=definition.ui.workspace,
             widgets=compiled_widgets,
-            # Opaque pass-through blocks for the Flutter/web client.
+            # Opaque pass-through blocks for the chat client.
             features=dict(definition.ui.features),
             theme=dict(definition.ui.theme),
-            # Chat layout / behaviour blocks (2026-05-04). Forwarded
-            # untouched - the daemon never inspects them, the client
-            # parses them out of the manifest summary.
             chat_layout=getattr(definition.ui, "layout", "default"),
             chat_density=getattr(definition.ui, "density", "comfortable"),
             chat_thinking=getattr(definition.ui, "thinking", None),
@@ -2250,10 +1854,6 @@ class AppYAMLCompiler:
             chat_tool_renderers=getattr(definition.ui, "tool_renderers", None),
             chat_message_actions=getattr(definition.ui, "message_actions", None),
             chat_activity=getattr(definition.ui, "activity", None),
-            # Phase 2 typed slash_commands as Pydantic SlashCommand
-            # objects, but the compiled output stays a list[dict] so
-            # the API surface (summary(), Flutter client, downstream
-            # filters) keeps working with attribute-or-key access.
             slash_commands=[
                 (s.model_dump() if hasattr(s, "model_dump") else dict(s))
                 for s in (definition.ui.slash_commands or [])
@@ -2264,12 +1864,7 @@ class AppYAMLCompiler:
         )
 
     def _load_widget_files(self, errors: list[str]) -> dict[str, Any]:
-        """Discover ``./widgets/*.yaml`` next to app.yaml and parse each.
-
-        Returns a ``{stem: parsed_dict}`` map. Errors during parsing
-        are appended to the shared error list and the offending file
-        is skipped - partial loads still allow other widgets to work.
-        """
+        """Discover `./widgets/*.yaml` next to app.yaml and parse each."""
         from digitorn.core.app.yaml_loader import safe_load_strict
 
         loaded: dict[str, Any] = {}
@@ -2294,49 +1889,16 @@ class AppYAMLCompiler:
                     self._positions, sub_positions,
                     prefix=("widgets", "inline", fp.stem),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("compiler best-effort block failed: %s", exc)
         return loaded
 
     def _compile_widgets(self, widgets_def: Any, errors: list[str]) -> Any:
-        """Validate a ``widgets:`` block and merge external ./widgets/*.yaml files.
-
-        Phase 1 - parse + version check + closed-set walk. The deeper
-        validation (filters, action targets, ref cycles) lives in
-        :meth:`_validate_widget_tree` invoked via ``errors``.
-
-        Returns the WidgetsConfig instance unchanged if all checks
-        pass, or a stub ``None`` if widgets were absent. On error the
-        compiler appends to the shared ``errors`` list - the caller
-        raises after collecting them all.
-        """
+        """Validate a `widgets:` block and merge external ./widgets/*.yaml files."""
         if widgets_def is None:
-            # Even when no inline widgets: block is declared, an
-            # external ./widgets/*.yaml folder can supply named inline
-            # widgets that the agent pushes via ref:. Build an empty
-            # WidgetsConfig and merge into it below.
             from digitorn.core.app.schema import WidgetsConfig
             widgets_def = WidgetsConfig()
 
-        # ── External ./widgets/*.yaml loading ─────────────────────
-        # Same pattern as ./skills/ - each .yaml file under the
-        # bundle's widgets/ subdir defines one named inline widget.
-        # The file stem becomes the inline key (so an agent can do
-        # ``widget.render(ref="confirm_delete")`` after dropping
-        # ``widgets/confirm_delete.yaml`` next to app.yaml).
-        #
-        # File shape:
-        #
-        #   # widgets/confirm_delete.yaml
-        #   data: {}            # optional
-        #   tree:
-        #     type: confirm
-        #     text: "Delete?"
-        #     confirm_label: Delete
-        #     confirm_action: { action: tool, tool: delete, ... }
-        #
-        # If the file contains only a ``tree:`` it is wrapped
-        # automatically in an InlineWidget.
         loaded_external = self._load_widget_files(errors)
         if loaded_external:
             from digitorn.core.app.schema import InlineWidget
@@ -2356,8 +1918,8 @@ class AppYAMLCompiler:
                     else:
                         errors.append(
                             f"widgets/{name}.yaml: must be either a "
-                            "tree node (with ``type:``) or a wrapper "
-                            "with ``tree:`` + optional ``data:``"
+                            "tree node (with `type:`) or a wrapper "
+                            "with `tree:` + optional `data:`"
                         )
                 except Exception as exc:
                     errors.append(
@@ -2446,15 +2008,12 @@ class AppYAMLCompiler:
             if not isinstance(act, dict):
                 return
             kind = act.get("action")
-            # ``submit:`` wraps an inner action under ``action:`` along
+            # `submit:` wraps an inner action under `action:` along
             # with display fields (label, icon, etc) - peel one layer.
             if isinstance(kind, dict):
                 _validate_action(kind, f"{path}.action")
                 return
             if kind is None:
-                # Some containers (submit, reset) might omit the action
-                # altogether - that's fine; validate nested fields if
-                # they happen to be present.
                 for f in ("then", "on_success", "on_error"):
                     if isinstance(act.get(f), dict):
                         _validate_action(act[f], f"{path}.{f}")
@@ -2493,9 +2052,7 @@ class AppYAMLCompiler:
         return widgets_def
 
     def _validate_widget_refs(self, widgets_def: Any, errors: list[str]) -> None:
-        """Verify every ``ref:`` in a widget tree points to widgets.inline.<name>,
-        and detect cycles (A → B → A).
-        """
+        """Verify every `ref:` in a widget tree points to widgets.inline.<name>,"""
         inline_names = set((getattr(widgets_def, "inline", {}) or {}).keys())
 
         def _collect_refs(node: Any) -> list[str]:
@@ -2591,7 +2148,6 @@ class AppYAMLCompiler:
         manifest: Any,
         errors: list[str],
     ) -> dict[str, Any]:
-        """Validate constraint keys against module's ConstraintSpec declarations."""
         if not constraints:
             return {}
 
@@ -2635,7 +2191,6 @@ class AppYAMLCompiler:
         module_id: str,
         errors: list[str],
     ) -> Any:
-        """Coerce a constraint value to the expected type."""
         try:
             if expected_type == "integer":
                 return int(value)
@@ -2693,7 +2248,6 @@ class AppYAMLCompiler:
         available_modules: set[str],
         errors: list[str],
     ) -> None:
-        """Validate that capability references point to real modules/actions."""
         caps = definition.tools.capabilities
         if caps is None:
             return
@@ -2760,15 +2314,7 @@ class AppYAMLCompiler:
         errors: list[str],
         source_dir: Path | None = None,
     ) -> list[CompiledAgent]:
-        """Compile agent definitions and resolve brain configurations.
-
-        For inline brains: generates a provider config that will be
-        auto-registered in llm_provider at bootstrap time, and ensures
-        llm_provider is in the compiled modules.
-
-        For reference brains: validates the provider_id exists in
-        modules.llm_provider.config.providers.
-        """
+        """Compile agent definitions and resolve brain configurations."""
         if not definition.agents:
             return []
 
@@ -2792,14 +2338,10 @@ class AppYAMLCompiler:
 
             brain = agent_def.brain
 
-            # Pool config: AgentPoolConfig (Pydantic) enforces every
-            # constraint - max_workers >= 1, auto_retry >= 0, no extras.
-            # We just unpack the validated values here.
             pool_max_workers = agent_def.pool.max_workers
             pool_progress = agent_def.pool.progress
             pool_auto_retry = agent_def.pool.auto_retry
 
-            # ── Validate specialist agent modules (independent of variables) ──
             if agent_def.role == "specialist" and getattr(agent_def, "modules", None):
                 all_module_ids = set(compiled_modules.keys()) | set(definition.tools.modules.keys())
                 for m_idx, m in enumerate(agent_def.modules):
@@ -2865,11 +2407,6 @@ class AppYAMLCompiler:
                     secrets=self._secrets,
                 ) if agent_def.system_prompt else ""
 
-                # ── Auto-load capabilities from skills/ ──
-                # When the agent declares ``capabilities: [commit,
-                # review]``, read ``skills/<name>.md`` for each and
-                # append the content under a dedicated section so
-                # the LLM sees the skill definitions inline.
                 capabilities = getattr(agent_def, "capabilities", []) or []
                 if capabilities:
                     sections: list[str] = []
@@ -2940,11 +2477,6 @@ class AppYAMLCompiler:
                         f"{ctx}.brain.backend: unknown backend '{brain.backend}'. "
                         f"Supported: {sorted(_KNOWN_BACKENDS)}.{hint}"
                     )
-                # Provider name is NOT validated here — the gateway is the
-                # source of truth for the provider catalogue (admins add
-                # new providers without re-deploying the daemon). A typo
-                # surfaces at session-start with the gateway's "unknown
-                # provider" error.
 
                 detected_backend = brain.backend
                 if detected_backend == "openai_compat" and brain.provider:
@@ -2994,11 +2526,6 @@ class AppYAMLCompiler:
                 except FileNotFoundError as exc:
                     errors.append(str(exc))
 
-            # ── Cross-check: every module/action referenced in the
-            # specialist's modules: list must exist. We accept system
-            # modules (agent_spawn, context_builder, llm_provider, index)
-            # because they are auto-loaded by bootstrap even when not
-            # declared at top-level.
             _SYSTEM_MODULES = {
                 "agent_spawn", "context_builder", "llm_provider", "index",
             }
@@ -3040,10 +2567,6 @@ class AppYAMLCompiler:
                                 f"{sorted(known_actions)}.{hint}"
                             )
 
-            # Per-agent hooks: reuse the execution-hooks compiler to
-            # validate condition/action types, then stamp each with
-            # agent_id=<this agent> so the runtime filter knows to
-            # fire them only for this agent's turns.
             agent_hooks_list: list[CompiledHook] = []
             if getattr(agent_def, "hooks", None):
                 agent_hooks_list = self._compile_agent_hooks(
@@ -3084,13 +2607,7 @@ class AppYAMLCompiler:
         compiled_agents: list[CompiledAgent],
         errors: list[str],
     ) -> CompiledExecution:
-        """Compile the runtime block and validate references.
-
-        Reads from ``definition.runtime`` for most fields, plus
-        ``definition.security`` (sandbox, credentials_schema) and
-        ``definition.ui.greeting`` for fields that moved out of the
-        legacy ``execution:`` block.
-        """
+        """Compile the runtime block and validate references."""
         exe = definition.runtime
 
         valid_modes = {"one_shot", "conversation", "background", "pipeline"}
@@ -3163,10 +2680,6 @@ class AppYAMLCompiler:
                     routing_key=getattr(t, "routing_key", ""),
                 ))
         elif exe.triggers:
-            # Triggers declared but mode is not 'background'. The runtime
-            # silently ignores them - that's a footgun. Surface as a
-            # non-fatal warning so the user sees it without breaking
-            # builds that explicitly set the mode for another reason.
             trigger_ids = ", ".join(t.id for t in exe.triggers)
             self._warnings.append(
                 f"execution.triggers: {len(exe.triggers)} trigger(s) declared "
@@ -3280,26 +2793,7 @@ class AppYAMLCompiler:
         definition: AppDefinition,
         errors: list[str],
     ) -> dict[str, Any] | None:
-        """Validate and freeze the optional credentials_schema into a plain dict.
-
-        The schema lives under ``security.credentials_schema`` in the
-        canonical shape (it migrated out of the legacy ``execution:``
-        block because credential vault is a security concern, not an
-        execution concern).
-
-        Rules enforced here:
-
-        - ``oauth2`` providers MUST use ``scope: per_user`` (an OAuth
-          access_token is tied to a single user account and can't be
-          meaningfully shared).
-        - Provider names must be unique within the schema.
-        - Provider names must be valid identifiers (kebab-case allowed
-          since we use them as URL segments).
-        - Scope must be one of the 4 declared values.
-
-        Returns ``None`` when no credentials_schema is declared so
-        existing apps are unaffected.
-        """
+        """Validate and freeze the optional credentials_schema into a plain dict."""
         cs = definition.security.credentials_schema
         if cs is None:
             return None
@@ -3383,12 +2877,7 @@ class AppYAMLCompiler:
         exe: ExecutionConfig,
         errors: list[str],
     ) -> dict[str, Any] | None:
-        """Validate and freeze the optional payload_schema into a plain dict.
-
-        Returns ``None`` when no schema is declared. Returns a dict with
-        the same shape as the YAML so the API can ship it verbatim and
-        validators can read it without importing Pydantic.
-        """
+        """Validate and freeze the optional payload_schema into a plain dict."""
         ps = getattr(exe, "payload_schema", None)
         if ps is None:
             return None
@@ -3443,7 +2932,6 @@ class AppYAMLCompiler:
         exe: ExecutionConfig,
         errors: list[str],
     ) -> list[CompiledHook]:
-        """Compile internal hooks from the execution config."""
         if not exe.hooks:
             return []
 
@@ -3452,13 +2940,6 @@ class AppYAMLCompiler:
 
         compiled_hooks: list[CompiledHook] = []
         seen_ids: set[str] = set()
-        # Full set of 15 events. The runtime currently emits 4 directly
-        # (turn_start, turn_end, tool_start, tool_end) plus aliases
-        # (pre_tool_use → tool_start, post_tool_use → tool_end,
-        # user_prompt → turn_start). The others fire from their natural
-        # integration points (manager, approval queue, agent_spawn, …)
-        # once wired. We accept all 15 names at compile time so apps
-        # can declare forward-compatible hook configs.
         valid_events = {
             "turn_start", "turn_end",
             "tool_start", "tool_end",
@@ -3544,12 +3025,7 @@ class AppYAMLCompiler:
         hooks: list[Any],
         errors: list[str],
     ) -> list[CompiledHook]:
-        """Compile per-agent hooks - stamps ``agent_id`` on each.
-
-        Reuses the same validation rules as ``_compile_hooks`` but tags
-        each compiled hook with its owning agent so the runtime filter
-        (see ``HookRunner.run``) only fires them for that agent's turns.
-        """
+        """Compile per-agent hooks - stamps `agent_id` on each."""
         if not hooks:
             return []
 
@@ -3638,7 +3114,6 @@ class AppYAMLCompiler:
         definition: AppDefinition,
         errors: list[str],
     ) -> dict[str, "CompiledChannelInstance"]:
-        """Compile the channels block - resolve variables in channel configs."""
         compiled: dict[str, CompiledChannelInstance] = {}
 
         if not definition.tools.channels:
@@ -3700,7 +3175,6 @@ class AppYAMLCompiler:
     def _check_actions_exist(
         self, context: str, module_id: str, actions: list[str], errors: list[str]
     ) -> None:
-        """Check that action names exist on a module."""
         try:
             module = self._registry.get(module_id)
             manifest = module.get_manifest()
@@ -3721,11 +3195,7 @@ class AppYAMLCompiler:
         definition: AppDefinition,
         errors: list[str] | None = None,
     ) -> SecurityProfile:
-        """Build a SecurityProfile from the capabilities section.
-
-        May be called with ``definition.tools.capabilities = None`` if only
-        module-level constraints (allowed/blocked actions) are present.
-        """
+        """Build a SecurityProfile from the capabilities section."""
         caps = definition.tools.capabilities
         module_grants: dict[str, ModuleGrant] = {}
 
@@ -3876,9 +3346,6 @@ class AppYAMLCompiler:
 
         for sys_mod in ("context_builder", "llm_provider", "index"):
             existing = module_grants.get(sys_mod)
-            # Preserve explicitly granted action_overrides from capabilities.grant.
-            # This allows apps to expose specific actions (e.g. ask_user) from
-            # system modules that are otherwise hidden.
             module_grants[sys_mod] = ModuleGrant(
                 module_id=sys_mod,
                 visibility="hidden",

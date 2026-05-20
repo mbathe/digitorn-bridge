@@ -1,12 +1,4 @@
-"""CLI commands for app YAML management.
-
-    digitorn app validate <path>   - Dry-run compile (no execution)
-    digitorn app schema <module>   - Show YAML schema for a module
-    digitorn app deploy <path>     - Deploy an app (creates a frozen bundle)
-    digitorn app list              - List all deployed apps
-    digitorn app undeploy <id>     - Stop an app in memory (keeps bundle + DB)
-    digitorn app delete <id>       - Permanently remove an app (bundle + DB + secrets)
-"""
+"""CLI commands for app YAML management."""
 
 from __future__ import annotations
 
@@ -143,7 +135,7 @@ def undeploy(
     """Stop an app in memory but keep its bundle + DB rows.
 
     The app remains on disk and is automatically re-deployed at the next
-    daemon restart. Use ``digitorn app delete`` to remove it permanently.
+    daemon restart. Use `digitorn app delete` to remove it permanently.
     """
     resp = daemon_request(
         "delete",
@@ -178,7 +170,7 @@ def delete(
 
     This is irreversible. The daemon will NOT reload the app at the next
     restart. To temporarily stop an app without losing data, use
-    ``digitorn app undeploy`` instead.
+    `digitorn app undeploy` instead.
     """
     if not yes:
         console.print(

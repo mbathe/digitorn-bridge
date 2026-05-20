@@ -1,25 +1,4 @@
-"""Module lifecycle manager - state machine and orchestration.
-
-Manages the lifecycle state of every registered module, enforces valid
-transitions, calls lifecycle hooks (``on_start``, ``on_stop``, ``on_pause``,
-``on_resume``), and emits events to the EventBus.
-
-State machine::
-
-    LOADED --> STARTING --> ACTIVE <--> PAUSED
-                            |
-                            +--> STOPPING --> DISABLED
-                                   |
-                                 ERROR (on failure)
-
-Usage::
-
-    lifecycle = ModuleLifecycleManager(registry, event_bus, service_bus)
-    lifecycle.set_type("filesystem", ModuleType.SYSTEM)
-    await lifecycle.start_all()
-    await lifecycle.pause_module("browser")
-    await lifecycle.stop_all()
-"""
+"""Module lifecycle manager - state machine and orchestration."""
 
 from __future__ import annotations
 
@@ -47,14 +26,8 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-
 class ModuleLifecycleManager:
-    """Orchestrate module lifecycle transitions and action toggles.
-
-    Each module's state is tracked internally.  The manager calls the
-    appropriate lifecycle hook on the module instance and emits events
-    to the EventBus on every state change.
-    """
+    """Orchestrate module lifecycle transitions and action toggles."""
 
     def __init__(
         self,
@@ -71,7 +44,6 @@ class ModuleLifecycleManager:
         self._types: dict[str, ModuleType] = {}
         self._disabled_actions: dict[str, dict[str, str]] = {}
         self._event_subscriptions: dict[str, list[tuple[str, Any]]] = {}
-
 
     def get_state(self, module_id: str) -> ModuleState:
         """Return the current lifecycle state of a module."""
@@ -92,17 +64,8 @@ class ModuleLifecycleManager:
             or self._types.get(module_id) == ModuleType.SYSTEM
         )
 
-
     async def start_module(self, module_id: str) -> None:
-        """Transition a module to ACTIVE state (LOADED/PAUSED/DISABLED/ERROR -> ACTIVE).
-
-        Calls ``on_start()`` (from LOADED/DISABLED/ERROR) or ``on_resume()``
-        (from PAUSED) on the module instance.
-
-        On first start (from LOADED/DISABLED/ERROR), restores saved state
-        from the state store (if available) and auto-subscribes to declared
-        event topics.
-        """
+        """Transition a module to ACTIVE state (LOADED/PAUSED/DISABLED/ERROR -> ACTIVE)."""
         current = self.get_state(module_id)
         module = self._registry.get(module_id)
 
@@ -135,14 +98,7 @@ class ModuleLifecycleManager:
         self._auto_register_services(module_id, module)
 
     async def stop_module(self, module_id: str) -> None:
-        """Transition a module to DISABLED state.
-
-        Saves the module's state snapshot before stopping, unsubscribes from
-        event topics, then calls ``on_stop()`` on the module instance.
-
-        Raises:
-            ModuleLifecycleError: If the module is a system module.
-        """
+        """Transition a module to DISABLED state."""
         current = self.get_state(module_id)
 
         if current in (ModuleState.DISABLED, ModuleState.LOADED):
@@ -169,10 +125,7 @@ class ModuleLifecycleManager:
             raise
 
     async def pause_module(self, module_id: str) -> None:
-        """Transition a module to PAUSED state (ACTIVE -> PAUSED).
-
-        Calls ``on_pause()`` on the module instance.
-        """
+        """Transition a module to PAUSED state (ACTIVE -> PAUSED)."""
         current = self.get_state(module_id)
         self._validate_transition(module_id, current, ModuleState.PAUSED)
 
@@ -187,10 +140,7 @@ class ModuleLifecycleManager:
             raise
 
     async def resume_module(self, module_id: str) -> None:
-        """Transition a module from PAUSED to ACTIVE.
-
-        Calls ``on_resume()`` on the module instance.
-        """
+        """Transition a module from PAUSED to ACTIVE."""
         await self.start_module(module_id)
 
     async def restart_module(self, module_id: str) -> None:
@@ -200,12 +150,8 @@ class ModuleLifecycleManager:
             await self.stop_module(module_id)
         await self.start_module(module_id)
 
-
     async def start_all(self) -> dict[str, str]:
-        """Start all registered modules that are in LOADED state.
-
-        Returns a dict of module_id -> result ("ok", "skipped", or error message).
-        """
+        """Start all registered modules that are in LOADED state."""
         results: dict[str, str] = {}
         for module_id in self._registry.list_available():
             state = self.get_state(module_id)
@@ -230,7 +176,6 @@ class ModuleLifecycleManager:
                 except Exception as exc:
                     log.warning("stop_all_module_failed module_id=%s error=%s", module_id, exc, exc_info=True)
 
-
     def disable_action(self, module_id: str, action: str, reason: str = "") -> None:
         """Disable a specific action on a module."""
         if module_id not in self._disabled_actions:
@@ -253,7 +198,6 @@ class ModuleLifecycleManager:
     def get_disabled_actions(self, module_id: str) -> dict[str, str]:
         """Return disabled actions and their reasons for a module."""
         return dict(self._disabled_actions.get(module_id, {}))
-
 
     async def install_module(self, module_id: str) -> None:
         """Call on_install() on a newly installed module and emit event."""
@@ -287,20 +231,13 @@ class ModuleLifecycleManager:
         self._disabled_actions.pop(module_id, None)
         await self._emit_lifecycle_event(module_id, "uninstalled")
 
-
     async def update_config(self, module_id: str, config: dict[str, Any]) -> None:
-        """Update a module's runtime configuration.
-
-        If the module declares a CONFIG_MODEL, validates the config dict
-        against the schema before applying. Raises ValidationError on
-        invalid input.
-        """
+        """Update a module's runtime configuration."""
         module = self._registry.get(module_id)
         if module.CONFIG_MODEL is not None:
             module.CONFIG_MODEL.model_validate(config)
         await module.on_config_update(config)
         await self._emit_lifecycle_event(module_id, "config_updated")
-
 
     def get_full_report(self) -> dict[str, dict[str, Any]]:
         """Return a comprehensive status report for all modules."""
@@ -313,9 +250,7 @@ class ModuleLifecycleManager:
             }
         return report
 
-
     def _set_state(self, module_id: str, state: ModuleState) -> None:
-        """Set a module's state (internal - no validation)."""
         old = self._states.get(module_id, ModuleState.LOADED)
         self._states[module_id] = state
         log.debug(
@@ -328,7 +263,6 @@ class ModuleLifecycleManager:
     def _validate_transition(
         self, module_id: str, current: ModuleState, target: ModuleState
     ) -> None:
-        """Validate that a state transition is allowed."""
         valid_targets = VALID_TRANSITIONS.get(current, set())
         if target not in valid_targets:
             raise ModuleLifecycleError(
@@ -340,7 +274,6 @@ class ModuleLifecycleManager:
     async def _emit_lifecycle_event(
         self, module_id: str, event_type: str, **extra: Any
     ) -> None:
-        """Emit a lifecycle event to the EventBus."""
         from digitorn.core.events.models import UniversalEvent
 
         topic = f"{TOPIC_MODULES}.{module_id}.{event_type}"
@@ -361,9 +294,7 @@ class ModuleLifecycleManager:
         except Exception as exc:
             log.warning("lifecycle_event_emit_failed error=%s", exc, exc_info=True)
 
-
     def _auto_subscribe_events(self, module_id: str, module: Any) -> None:
-        """Subscribe a module to its declared event topics."""
         try:
             manifest = module.get_manifest()
         except Exception:
@@ -392,7 +323,6 @@ class ModuleLifecycleManager:
         self._event_subscriptions[module_id] = subscriptions
 
     def _auto_unsubscribe_events(self, module_id: str) -> None:
-        """Unsubscribe a module from all its event topics."""
         subscriptions = self._event_subscriptions.pop(module_id, [])
         for topic, callback in subscriptions:
             self._event_bus.unsubscribe(topic, callback)
@@ -402,9 +332,7 @@ class ModuleLifecycleManager:
                 topic=topic,
             )
 
-
     def _auto_register_services(self, module_id: str, module: Any) -> None:
-        """Register a module's declared services on the service bus."""
         if self._service_bus is None:
             return
 
@@ -431,7 +359,6 @@ class ModuleLifecycleManager:
             )
 
     def _auto_unregister_services(self, module_id: str) -> None:
-        """Unregister a module's services from the service bus."""
         if self._service_bus is None:
             return
 
@@ -451,9 +378,7 @@ class ModuleLifecycleManager:
                 service=service_name,
             )
 
-
     async def _save_module_state(self, module_id: str, module: Any) -> None:
-        """Persist module's state_snapshot() to the state store."""
         if self._state_store is None:
             return
         try:
@@ -470,7 +395,6 @@ class ModuleLifecycleManager:
             )
 
     async def _restore_module_state(self, module_id: str, module: Any) -> None:
-        """Load saved state and call restore_state() on the module."""
         if self._state_store is None:
             return
         try:

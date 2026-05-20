@@ -1,25 +1,11 @@
-"""Digitorn - Socket.IO server + event bridge.
-
-Two things live here:
-
-1. ``create_socketio_server()`` - builds the Socket.IO AsyncServer and
-   installs all session-level handlers on the ``/events`` namespace:
-   connect (auth + auto-join user room + handshake), join_app,
-   leave_app, join_session, leave_session, send_message, replay,
-   disconnect. Rooms match the client spec::
-
-        user:{user_id}       (auto-joined on connect)
-        app:{app_id}         (join_app)
-        session:{session_id} (join_session)
-
-2. ``SocketIOEventBus`` - a ``FanoutEventBus`` backend that forwards
-   module-level ``UniversalEvent`` instances to broadcast rooms. Kept
-   for backward compat with the module system; session-level events
-   go through ``SocketIOBus`` (see ``session_bus.py``), not this class.
-"""
+"""Digitorn - Socket.IO server + event bridge."""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 import asyncio
 from typing import Any
 
@@ -31,35 +17,11 @@ from digitorn.core.events.router import EventRouter
 
 logger = structlog.get_logger(__name__)
 
-
 def _as_dict(data: Any) -> dict[str, Any]:
-    """Coerce a Socket.IO event payload into a dict.
-
-    Clients sometimes emit raw strings (``sio.emit('join_session',
-    'sid-xyz')``) instead of the documented dict shape - that's a
-    legitimate client mistake but historically crashed the daemon
-    here with ``AttributeError: 'str' object has no attribute 'get'``,
-    leaving the join silently un-acknowledged so the client never
-    received any session events. Treat anything that isn't a dict
-    as an empty payload - handlers will then fail their explicit
-    ``if not app_id`` check and return a clean error instead.
-    """
     return data if isinstance(data, dict) else {}
 
-
 class SocketIOEventBus(EventBus):
-    """FanoutEventBus backend for module-level ``UniversalEvent``s.
-
-    Session-level events (tokens, tool calls, results) flow through
-    ``SocketIOBus`` in ``session_bus.py``. Both buses MUST emit
-    envelopes with the same shape - the frontend sorts by ``seq`` and
-    assumes ``{type, seq, kind, app_id, session_id, payload, ts}`` on
-    every message. Previously this bus emitted the raw ``UniversalEvent``
-    fields (``event_id, topic, timestamp, event_type, data, ...``)
-    which had no ``seq``, no ``kind`` and no ``type``, breaking the
-    client's timeline sort for anything emitted from module actions
-    (notably ``action_failed`` errors).
-    """
+    """FanoutEventBus backend for module-level `UniversalEvent`s."""
 
     def __init__(
         self,
@@ -68,28 +30,15 @@ class SocketIOEventBus(EventBus):
     ) -> None:
         self._sio = sio
         self._router = EventRouter()
-        # ``session_bus`` is a ``SocketIOBus`` - we use it as the single
+        # `session_bus` is a `SocketIOBus` - we use it as the single
         # source of truth for seq generation and envelope shape.
         self._session_bus = session_bus
 
     def attach_session_bus(self, session_bus: Any) -> None:
-        """Late-bind the session bus so envelopes get proper ``seq``/``kind``."""
+        """Late-bind the session bus so envelopes get proper `seq`/`kind`."""
         self._session_bus = session_bus
 
     def _envelope(self, event: "UniversalEvent") -> dict[str, Any]:
-        """Normalize a ``UniversalEvent`` into the standard envelope.
-
-        The standard shape (produced by ``SocketIOBus``) is::
-
-            {type, seq, kind, app_id, session_id, payload, ts}
-
-        where ``seq`` is the monotonic per-user counter and ``kind`` is
-        routed by ``_EVENT_KIND_MAP``. Module events come in with
-        ``event_type`` (info|error|progress|result) and ``data`` - we
-        map ``event_type -> type`` and ``data -> payload``. All original
-        UniversalEvent fields (topic, event_id, correlation_id, source)
-        are preserved inside ``payload`` so nothing is lost.
-        """
         from datetime import datetime, timezone
 
         event_type = event.event_type or "info"
@@ -116,18 +65,11 @@ class SocketIOEventBus(EventBus):
                     app_id=event.app_id,
                     session_id=event.session_id,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("socketio_bus best-effort block failed: %s", exc)
 
-        # Bootstrap window - the session bus hasn't been attached yet.
-        # Returning an envelope with seq=0 (the previous behavior)
-        # violated the monotonicity invariant: the client has no way
-        # to order seq=0 against the real per-session counter once it
-        # starts at N+1, and the row was never persisted to
-        # ``history_log`` either, so a reconnect-replay never sees it.
-        # Signal the absence with seq=-1 (clients are expected to drop
-        # any envelope with a non-positive seq) and log so the operator
-        # sees a publish that happened too early.
+        # Bootstrap window: session bus not attached. Emit seq=-1 so clients drop it
+        # (any non-positive seq means "ignore"); log for operator visibility.
         logger.warning(
             "module_event_dropped_pre_bootstrap topic=%s type=%s",
             event.topic, event_type,
@@ -149,16 +91,7 @@ class SocketIOEventBus(EventBus):
         envelope = self._envelope(event)
         namespace = "/events"
 
-        # Route to ONE room only - the most specific scope wins.
-        # Previously this method emitted to BOTH ``app:<id>`` AND
-        # ``session:<id>`` when both were present, sending the
-        # envelope twice over the wire. Combined with the strict
-        # session isolation in ``on_join_session`` (which kicks the
-        # client out of every room except its current session), the
-        # ``app:`` copy went to nobody but still consumed CPU,
-        # bandwidth, and a serialisation pass each time. Choose ONE
-        # destination based on the most specific scope present:
-        # session > app > broadcast.
+        # Route to one room only: session > app > broadcast.
         try:
             if event.session_id:
                 await self._sio.emit(
@@ -189,16 +122,14 @@ class SocketIOEventBus(EventBus):
                 return_exceptions=True,
             )
 
-
     def subscribe(self, pattern: str, handler: EventHandler) -> None:
         self._router.add(pattern, handler)
 
     def unsubscribe(self, pattern: str, handler: EventHandler) -> None:
         self._router.remove(pattern, handler)
 
-
-# Minimal fallback map for module-level ``event_type`` values. The
-# authoritative map lives in ``session_bus.py``; we duplicate only the
+# Minimal fallback map for module-level `event_type` values. The
+# authoritative map lives in `session_bus.py`; we duplicate only the
 # common buckets to avoid a circular import.
 _EVENT_KIND_MAP_FALLBACK: dict[str, str] = {
     "info": "session",
@@ -207,7 +138,6 @@ _EVENT_KIND_MAP_FALLBACK: dict[str, str] = {
     "error": "error",
     "warning": "session",
 }
-
 
 def create_socketio_server(
     cors_allowed_origins: list[str] | str = "*",
@@ -218,21 +148,7 @@ def create_socketio_server(
     redis_url: str | None = None,
     **kwargs: Any,
 ) -> socketio.AsyncServer:
-    """Create the Socket.IO server and register session-level handlers.
-
-    Args:
-        auth_service: JWT verifier. When set, every connection must
-            provide a valid token via Socket.IO ``auth={'token': ...}``,
-            ``?token=`` query string, or ``Authorization: Bearer ...``
-            header.
-        manager: AppManager used by the ``send_message`` handler.
-        session_bus: ``SocketIOBus`` instance used for replay. The same
-            instance is shared with AppManager so ``publish()`` and
-            replay read the same buffer.
-        redis_url: Optional Redis URL for multi-worker pub/sub. When set,
-            Socket.IO uses ``AsyncRedisManager`` so events are shared between
-            all uvicorn workers. Without this, each worker has isolated rooms.
-    """
+    """Create the Socket.IO server and register session-level handlers."""
     # Multi-worker support: use Redis as the Socket.IO message queue
     # so events emitted by one worker reach clients on all workers.
     sio_kwargs: dict[str, Any] = {
@@ -240,31 +156,8 @@ def create_socketio_server(
         "cors_allowed_origins": cors_allowed_origins,
         "logger": False,
         "engineio_logger": False,
-        # 60s instead of the Socket.IO default of 25s. Longer interval
-        # means clients tolerate transient server pauses (e.g. a brief
-        # WSASend stall on another writer) without panicking and
-        # sending CLOSE, which would itself echo back into a synchronous
-        # write_close_frame -> WSASend stall on the main loop. With
-        # ping_timeout=5, a genuinely dead client is still reaped
-        # within 65s. The daemon also has streaming events flowing on
-        # active sessions, so a real disconnect is detected by the
-        # write failing long before the next ping anyway.
         "ping_interval": 60,
-        # Back to the Socket.IO default of 20s. The previous 5s was a
-        # mitigation for a Windows IOCP WSASend stall but proved
-        # over-aggressive in practice: every event-loop hiccup > 5s on
-        # the daemon (sync JWT verify, sync filesystem scan, sync
-        # SQLite write) caused legit clients to be disconnected mid-
-        # session — the cure was worse than the disease. A 20s budget
-        # tolerates the observed 13s+ stalls without dropping users
-        # while still reaping genuinely dead clients within 80s
-        # (ping_interval + ping_timeout). Address the real stall
-        # sources (off-load CPU/sync I/O to threads) separately rather
-        # than papering over them with a tight ping timeout.
         "ping_timeout": 20,
-        # 256 KB per frame instead of 1 MB. Bounds the size of any single
-        # WSASend so a slow client cannot cause a multi-second loop stall
-        # off one massive frame.
         "max_http_buffer_size": 256_000,
     }
     if redis_url and redis_url.startswith(("redis://", "rediss://")):
@@ -307,18 +200,8 @@ def create_socketio_server(
             _ws_connect_times.clear()
         return True
 
-    # Per-sid session state, populated in the connect handler. We keep
-    # it here rather than using ``sio.save_session()`` because some
-    # python-socketio versions silently fail when save_session is called
-    # inside the connect handler.
     _sid_sessions: dict[str, dict[str, Any]] = {}
 
-    # Daemon-resource protocol heartbeat tracking.
-    # ``_active_sessions`` refcounts how many sids have joined each
-    # session room — > 0 means the heartbeat task should still emit
-    # for that session. ``_sid_to_session_ids`` lets ``on_disconnect``
-    # decrement every session this sid was in (clean up after a tab
-    # close that didn't send ``leave_session``).
     _active_sessions: dict[str, int] = {}
     _sid_to_session_ids: dict[str, set[str]] = {}
     _heartbeat_task: dict[str, Any] = {"task": None}  # mutable closure cell
@@ -359,15 +242,6 @@ def create_socketio_server(
         )
 
     async def _heartbeat_loop() -> None:
-        """Emit a ``heartbeat`` event to every active session every 5s.
-
-        Carries ``instance_id`` so clients re-detect daemon restart on
-        each tick (cheap), and ``current_seq`` so a stale client can
-        notice a gap and trigger snapshot reconcile without waiting
-        for the next real event. The 5 s cadence matches the
-        connection-state thresholds (``stale`` after 15 s, ``offline``
-        after 30 s) used by the client primitives.
-        """
         try:
             from digitorn.core.instance import get_instance_id
         except Exception:
@@ -378,17 +252,8 @@ def create_socketio_server(
             except asyncio.CancelledError:
                 return
             if not _active_sessions:
-                # No active session rooms — keep ticking but skip
-                # emission. The task itself stays alive so future
-                # joins reuse it (cheap to keep, avoids restart
-                # races on rapid join/leave cycles).
                 continue
             instance_id = get_instance_id()
-            # Snapshot the active sessions ONCE per tick to avoid
-            # mutating-during-iteration. Yield to the event loop
-            # between batches so a 1000-session daemon doesn't hold
-            # the main loop for the full fanout. Batch size of 32
-            # keeps a single tick under ~5ms even at heavy load.
             _active_sids = [
                 (s, c) for s, c in _active_sessions.items() if c > 0
             ]
@@ -399,22 +264,12 @@ def create_socketio_server(
                     current_seq = 0
                     if session_bus is not None:
                         try:
-                            # Heartbeat carries ALL participants' seq view
-                            # — but per-session seq is global to the session,
-                            # so any user_id works. We pass empty string;
-                            # ``get_latest_seq`` keys on session_id when
-                            # given, ignoring user_id (event_buffer.py:85).
                             current_seq = session_bus.user_latest_seq("", session_id)
                         except Exception:
                             current_seq = 0
                     try:
-                        # Control-plane event: NOT a chat-history entry.
-                        # Carries ``control=True`` + no ``seq`` so the
-                        # frontend's strict "every history element must
-                        # have a seq" rule skips it before the timeline
-                        # reducer ever sees it. ``current_seq`` is a
-                        # liveness probe (the latest committed seq the
-                        # server has seen), not a slot in the timeline.
+                        # Control-plane heartbeat (carries `control=True`,
+                        # no seq) so the timeline reducer skips it.
                         await sio.emit(
                             "event",
                             {
@@ -441,12 +296,6 @@ def create_socketio_server(
                 await asyncio.sleep(0)
 
     async def _authenticate(sid: str, environ: dict, auth: Any) -> str | None:
-        """Return user_id on success, None on failure. Token sources:
-            1. ``auth={'token': ...}`` (Socket.IO standard)
-            2. ``Authorization: Bearer <t>`` header
-            3. ``?token=<t>`` query string (browser fallback)
-            4. ``digitorn_preview_token`` cookie (preview iframe)
-        """
         if not auth_service:
             _sid_sessions[sid] = {"user_id": "local", "roles": ["admin"], "permissions": ["*"]}
             return "local"
@@ -474,12 +323,7 @@ def create_socketio_server(
             await logger.ainfo("socketio_auth_no_token", sid=sid)
             return None
         try:
-            # JWT signature verification is sync crypto (RSA/ECDSA
-            # signature check + claim deserialization). Holds the GIL
-            # for the duration -- ~5-20ms on RSA, longer on cold-load
-            # of the key. Run off-loop so every WebSocket handshake
-            # (including high-frequency reconnects from flaky clients)
-            # doesn't block other in-flight requests.
+            # Off-loop: JWT verification is GIL-bound sync crypto.
             payload = await asyncio.to_thread(
                 auth_service.verify_access_token, token,
             )
@@ -499,10 +343,6 @@ def create_socketio_server(
 
         _sid_sessions[sid] = {
             "user_id": user_id, "roles": roles, "permissions": permissions,
-            # Carry the raw JWT so socket-initiated turns (form submit,
-            # iframe useChat.send) can propagate it to the gateway via
-            # ``attach_jwt`` / ``set_inbound_user_jwt`` - same auth path
-            # the HTTP POST /messages middleware uses.
             "token": token,
         }
         return user_id
@@ -510,8 +350,6 @@ def create_socketio_server(
     def _utc_iso() -> str:
         from datetime import datetime, timezone
         return datetime.now(timezone.utc).isoformat()
-
-    # ── Connect / disconnect ───────────────────────────────────────
 
     @sio.on("connect", namespace="/events")
     async def on_connect(sid: str, environ: dict, auth: Any = None) -> bool | None:
@@ -523,13 +361,8 @@ def create_socketio_server(
             await logger.ainfo("socketio_auth_rejected", sid=sid, ip=ip)
             return False
 
-        # Capture client kind for socket-scoped branching (rendering
-        # hints, attachment policy, telemetry). Tried in order:
-        # ``auth['client_kind']`` (preferred, sent by both Flutter and
-        # web), then the ``X-Digitorn-Client`` HTTP header surfaced
-        # by Engine.IO at the polling handshake. Stored on the sid
-        # session dict so any handler can resolve it via
-        # ``_sid_sessions[sid]['client_kind']``.
+        # Capture the client kind from `auth['client_kind']` or the
+        # `X-Digitorn-Client` header for socket-scoped branching.
         from digitorn.core.clients import parse_client_kind
         raw_ck: str | None = None
         if isinstance(auth, dict):
@@ -560,22 +393,14 @@ def create_socketio_server(
             except Exception:
                 latest = 0
 
-        # Daemon instance id - clients compare this to their stored
-        # copy on every reconnect. Mismatch ⇒ daemon restarted ⇒ wipe
-        # local state + re-seed via snapshot endpoint. The single
-        # source of truth that prevents zombie state from surviving a
-        # process restart.
+        # Daemon instance id: clients wipe their local state when this
+        # changes (process restart).
         try:
             from digitorn.core.instance import get_instance_id
             _instance_id = get_instance_id()
         except Exception:
             _instance_id = ""
-        # Control-plane handshake: NOT a history entry. ``control=True``
-        # + no top-level ``seq`` so the frontend strict-seq filter
-        # skips it before the timeline reducer. The high-water mark is
-        # carried explicitly in ``latest_seq`` so clients can request
-        # replay from that point without conflating it with a timeline
-        # slot.
+        # Control-plane handshake (`control=True`, no seq).
         await sio.emit(
             "event",
             {
@@ -599,24 +424,12 @@ def create_socketio_server(
     async def on_disconnect(sid: str) -> None:
         user_id = _sid_user(sid)
         _sid_sessions.pop(sid, None)
-        # Drop heartbeat refcount entries for every session this sid
-        # was in. Catches the ``tab close that didn't send
-        # leave_session`` path so the heartbeat task stops emitting
-        # for empty rooms.
         _track_sid_disconnect(sid)
-        # Forget any live-session flag this sid was holding so the
-        # producer resumes promoting events for that (user, session)
-        # the moment the user leaves. Fail-safe on disconnect when
-        # the client never sent a clean ``leave_session``.
         try:
             from digitorn.core.events import presence as _presence
             _presence.clear_sid(sid)
         except Exception as exc:
             logger.debug("presence_clear_failed sid=%s: %s", sid, exc)
-        # Control-plane event: NOT a chat-history entry. ``control=True``
-        # + no ``seq`` so the frontend strict-seq filter drops it
-        # before the timeline reducer (it's a connection-state signal,
-        # not something the user should see scroll past in history).
         await sio.emit(
             "event",
             {
@@ -635,11 +448,9 @@ def create_socketio_server(
         )
         await logger.ainfo("socketio_disconnected", sid=sid, user_id=user_id)
 
-    # ── Room joins (with replay) ───────────────────────────────────
-
     @sio.on("join_app", namespace="/events")
     async def on_join_app(sid: str, data: dict) -> dict:
-        """Join an app room. ``{app_id, since?}`` - replays missed events."""
+        """Join an app room. `{app_id, since?}` - replays missed events."""
         app_id = _as_dict(data).get("app_id")
         since = int(_as_dict(data).get("since", 0) or 0)
         if not app_id:
@@ -670,15 +481,7 @@ def create_socketio_server(
 
     @sio.on("join_session", namespace="/events")
     async def on_join_session(sid: str, data: dict) -> dict:
-        """Join a session room. ``{app_id, session_id}``.
-
-        Verifies session ownership via ``manager.get_session`` before
-        letting the client into the room. The session-event replay
-        path was removed - clients load history through the paginated
-        HTTP ``GET /sessions/{sid}/history`` route, and any in-flight
-        operation comes back via the ``LiveOpsRegistry`` snapshot
-        emitted at the end of this handler.
-        """
+        """Join a session room. `{app_id, session_id}`."""
         app_id = _as_dict(data).get("app_id")
         session_id = _as_dict(data).get("session_id")
         if not app_id or not session_id:
@@ -702,46 +505,25 @@ def create_socketio_server(
         room = f"session:{session_id}"
         await sio.enter_room(sid, room, namespace="/events")
 
-        # Refcount this session as ACTIVE for the heartbeat loop.
-        # The loop emits ``heartbeat`` to ``session:{sid}`` every 5 s
-        # while at least one sid is joined; drops to silent when the
-        # last sid leaves (saved bandwidth).
         _track_session_join(sid, session_id)
 
-        # Mark the user as LIVE in this session so the inbox producer
-        # knows to skip notifications for events that already arrive
-        # via this socket. Mirror in ``on_leave_session`` /
-        # ``on_disconnect`` keeps the registry in sync.
+        # Mark the user live so the inbox producer skips notifications
+        # that already arrive via this socket.
         try:
             from digitorn.core.events import presence as _presence
             _presence.mark_user_in_session(sid, user_id, session_id)
         except Exception as exc:
             logger.debug("presence_mark_join_failed sid=%s: %s", sid, exc)
 
-        # Total session isolation: leave every other room this socket
-        # is currently joined to (the user inbox, any app room, any
-        # prior session room). While joined to a session the client
-        # MUST only receive events tagged with this exact session_id.
-        # Without this step the socket also stays in:
-        #   - ``user:<uid>``   - inbox / approval fanout, leaks events
-        #                        from other sessions of the same user
-        #   - ``app:<app_id>`` - app-scope module events, leaks across
-        #                        every session of the same app
-        #   - ``session:<X>``  - any prior session the client navigated
-        #                        away from without an explicit leave
-        # The room layer is the only correct place to do this filter -
-        # client-side filtering by session_id still pays the network
-        # round-trip and the dedup CPU. Leaving the rooms means those
-        # events are never serialised onto this socket in the first
-        # place. The user room is rejoined in ``on_leave_session``.
+        # Full session isolation: leave every other room so the socket
+        # only receives events tagged with this exact session_id. The
+        # user room is rejoined in `on_leave_session`.
         try:
             current_rooms = sio.rooms(sid, namespace="/events")
         except Exception:
             current_rooms = []
         for r in list(current_rooms):
             if r == sid:
-                # Default room: the sid itself. Required for direct
-                # ``to=sid`` emits (replay, hydrations). Never leave.
                 continue
             if r == room:
                 continue
@@ -753,46 +535,13 @@ def create_socketio_server(
                     sid, r, exc,
                 )
 
-        # NOTE: the durable per-event replay path that lived here was
-        # removed - clients load history through the paginated HTTP
-        # ``GET /sessions/{sid}/history`` route now, and any in-flight
-        # operation is hydrated from the ``LiveOpsRegistry`` snapshot
-        # below. Streaming the full session log over the socket on
-        # every join was duplicating the HTTP load and visibly
-        # re-streaming finished events into the timeline.
-
-        # Per-session counter, not per-user: the client de-dups
-        # against the session-scoped seq, so a user-scope number here
-        # would cause it to either skip an event (latest_seq too high)
-        # or trigger a needless full replay (latest_seq=0 because the
-        # bucket is wrong, see ``EventBuffer.get_latest_seq``).
+        # Per-session latest_seq: the client de-dups against the
+        # session-scoped counter, not the per-user one.
         latest = session_bus.user_latest_seq(user_id, session_id) if session_bus else 0
 
         async def _make_hydration_envelope(
             evt_type: str, payload: dict[str, Any],
         ) -> dict[str, Any]:
-            """Mint a per-client hydration envelope.
-
-            Hydration snapshots are sent ``to=sid`` (one specific
-            socket) at the moment that socket joins the session
-            room. They are NOT persisted to ``history_log`` because:
-
-              * They are client-bound, not session-bound. A second
-                client joining the same room receives its OWN fresh
-                snapshot - persisting one client's snapshot then
-                replaying it to another client would feed it a stale
-                view of the server state.
-              * They are derived state (the canonical truth for
-                preview is ``state.json`` on disk; for queue / turn
-                / approvals it is the in-memory store). Replay
-                rebuilds the same view from the source data when
-                the client joins.
-
-            The envelope still consumes a ``seq`` from the per-
-            session counter so its ordering is consistent with the
-            other live events the client receives over the same
-            socket - just no history_log row.
-            """
             _seq = session_bus._buffer.next_seq(user_id, session_id) \
                 if session_bus else 0
             return {
@@ -812,20 +561,10 @@ def create_socketio_server(
                 "payload": payload,
             }
 
-        # NOTE: ``preview:snapshot`` used to be emitted here. The disk
-        # hydration (``activate_session`` + ``hydrate_files_from_disk``)
-        # was the slow part of join_session - tens of files re-read off
-        # disk before the room-join could complete and the agent could
-        # answer the first message. Both calls now live in HTTP
-        # ``GET /sessions/{sid}/preview`` which the client hits only
-        # when its YAML manifest declares a workspace / preview mode.
-        # join_session is back to a pure room-join + live-ops emission.
+        # preview:snapshot is now served by GET /sessions/{sid}/preview.
 
-        # Queue snapshot + turn status - lets the client rebuild its
-        # pending-messages UI and the "turn in progress" indicator
-        # without a separate HTTP round-trip. Sent after preview
-        # snapshot so the messages pane is already hydrated before
-        # the queue chips render on top.
+        # Queue snapshot + turn status so the client rebuilds the pending-messages
+        # UI without a separate HTTP round-trip.
         try:
             from digitorn.core.app import message_queue as _mq
             entries = await _mq.list_for_session(session_id)
@@ -845,11 +584,8 @@ def create_socketio_server(
                 to=sid, namespace="/events",
             )
 
-            # Resume-after-crash: if the session has queued messages and
-            # nothing running, kick the dispatcher NOW. Covers the case
-            # where the daemon restarted with a non-empty queue - the
-            # user just reconnected, they shouldn't have to send a new
-            # message to unblock the old ones.
+            # Resume-after-crash: if the session has queued messages and nothing
+            # is running, kick the dispatcher so reconnects flush old queues.
             has_queued = any(e.status == "queued" for e in entries)
             turn_running = False
             if manager is not None and hasattr(manager, "is_turn_running"):
@@ -875,21 +611,8 @@ def create_socketio_server(
         except Exception as exc:
             logger.warning("queue_snapshot_on_join failed: %s", exc)
 
-        # NOTE: ``state:snapshot`` used to be emitted here. The same
-        # envelope is now served by HTTP ``GET /sessions/{sid}/state``
-        # which the client calls via ``useSessionStateStore.onSessionEntered``
-        # in ``initSession``. Building the envelope holds the manager
-        # lock briefly - keeping it out of join_session removes the
-        # last blocking call before the room-join completes.
+        # state:snapshot is now served by GET /sessions/{sid}/state.
 
-        # ── Hydration - everything a reconnecting client needs ──
-        # The whole point of the universal event contract is that a
-        # client who lost the connection can rebuild ALL of its UI in
-        # one join. The events below are computed server-side and
-        # emitted on the same Socket.IO channel with the full
-        # envelope contract (event_id / seq / op_id / op_type /
-        # op_state / correlation_id). Payload is free-form but
-        # stable per snapshot type.
         try:
             from digitorn.core.events.hydration import (
                 compute_active_ops,
@@ -904,14 +627,8 @@ def create_socketio_server(
             compute_session_snapshot = None  # type: ignore[assignment]
             compute_approvals_snapshot = None  # type: ignore[assignment]
 
-        # All four snapshot types below reuse ``_make_hydration_envelope``
-        # defined at the top of this handler. That helper persists the
-        # envelope before returning, so a reconnect-replay finds the
-        # row in ``history_log`` instead of phantom-skipping the seq.
-
-        # (a) active_ops:snapshot - non-terminal tool / agent / approval
-        # / compact / turn operations. Primary answer to "what was
-        # running when I lost the connection?".
+        # active_ops snapshot: non-terminal tool / agent / approval /
+        # compact / turn operations - answers "what was running?".
         if compute_active_ops is not None:
             try:
                 ops_payload = await compute_active_ops(
@@ -966,7 +683,7 @@ def create_socketio_server(
                 logger.warning("memory_snapshot_on_join failed: %s", exc)
 
         # (d) approvals:snapshot - open approval modals (the original
-        # ``approval_request`` event won't replay; the modal would
+        # `approval_request` event won't replay; the modal would
         # stay closed without this).
         if compute_approvals_snapshot is not None and manager is not None:
             try:
@@ -985,15 +702,8 @@ def create_socketio_server(
             except Exception as exc:
                 logger.warning("approvals_snapshot_on_join failed: %s", exc)
 
-        # ── In-progress ops: replay each non-terminal envelope ─────
-        # The ``LiveOpsRegistry`` keeps the latest envelope for every
-        # currently-running op (tools, agents, approvals, thinking,
-        # turns). On join we emit each one back to the joining socket
-        # under its original event type - the client's reducer treats
-        # them as live events and reconstructs the in-progress
-        # bubbles. Each emit goes through the same ``event`` channel
-        # the live socket uses, so dedup by ``event_id`` against the
-        # paginated HTTP load is automatic.
+        # Replay every in-flight op envelope to the joining socket so
+        # the reducer can rebuild the in-progress bubbles.
         live_ops = getattr(session_bus, "_live_ops", None)
         if live_ops is not None:
             try:
@@ -1011,16 +721,8 @@ def create_socketio_server(
             except Exception as exc:
                 logger.warning("live_ops_snapshot_on_join failed: %s", exc)
 
-        # (e) stream:catchup - in-flight assistant generation buffer.
-        # Empty in the common case (~95% of joins). Only fires when a
-        # client reconnects DURING a turn whose assistant_message has
-        # not yet been finalised. Hot path stays free: dict lookup is
-        # O(1), the bridge is in-memory, no DB / no disk. Old clients
-        # that don't know the type silently ignore the event. New
-        # clients use the payload + correlation_id to rehydrate the
-        # in-progress bubble; the client's existing assistant_message
-        # event will override anything we set here when the turn ends,
-        # so a wrong binding self-heals within the same turn.
+        # `stream:catchup`: rehydrate an in-flight assistant bubble
+        # when the client reconnects mid-turn.
         try:
             from digitorn.core.runtime.session_store.bridge import (
                 get_default_bridge,
@@ -1033,11 +735,9 @@ def create_socketio_server(
                 )
                 _partials_raw = dict(_state.streaming_partials)
                 if _partials_raw:
-                    # Pair each partial slot with the correlation_id of
-                    # an in-flight turn so the client can bind by corrId
-                    # (its bubble identity) instead of guessing.
-                    # ``live_ops`` was already queried above; querying
-                    # again is a memory lookup, ~µs.
+                    # Bind each partial slot to an in-flight turn's
+                    # `correlation_id` so the client maps it onto
+                    # the right bubble.
                     _turn_corrids: list[str] = []
                     if live_ops is not None:
                         try:
@@ -1048,11 +748,9 @@ def create_socketio_server(
                                         _turn_corrids.append(_cid)
                         except Exception:
                             _turn_corrids = []
-                    # Common case: exactly one in-flight turn. Bind every
-                    # partial slot to it. Multi-agent case (rare): leave
-                    # correlation_id None - client skips binding rather
-                    # than misroute. Final assistant_message will still
-                    # land correctly via the existing event path.
+                    # Single in-flight turn: bind every slot to it.
+                    # Multi-agent: leave it None and let the final
+                    # `assistant_message` event resolve the bubble.
                     _solo_cid = (
                         _turn_corrids[0] if len(_turn_corrids) == 1 else None
                     )
@@ -1084,7 +782,7 @@ def create_socketio_server(
         if not session_id:
             return {"ok": False, "error": "session_id required"}
         await sio.leave_room(sid, f"session:{session_id}", namespace="/events")
-        # Drop the heartbeat refcount for this session — the loop
+        # Drop the heartbeat refcount for this session - the loop
         # stops emitting once the last sid leaves.
         _track_session_leave(sid, session_id)
         # Drop the live-in-session flag so the inbox producer starts
@@ -1096,12 +794,7 @@ def create_socketio_server(
             )
         except Exception as exc:
             logger.debug("presence_mark_leave_failed sid=%s: %s", sid, exc)
-        # Restore the user inbox room - ``on_join_session`` removed it
-        # for total isolation, so leaving the session means the socket
-        # has no rooms to receive on (apart from the implicit sid
-        # default room). Rejoining ``user:<uid>`` brings back inbox
-        # / approval / notification fanout the way ``on_connect``
-        # originally set it up.
+        # Rejoin the user inbox room dropped by `on_join_session`.
         user_id = _sid_user(sid)
         if user_id:
             try:
@@ -1115,16 +808,9 @@ def create_socketio_server(
                 )
         return {"ok": True}
 
-    # ── Send message (equivalent of POST /messages) ────────────────
-
     @sio.on("send_message", namespace="/events")
     async def on_send_message(sid: str, data: dict) -> dict:
-        """Run an agent turn. ``{app_id, session_id, message, images?, workspace?}``.
-
-        Returns immediately; events flow through the normal session
-        room. Concurrency is bounded by the shared semaphore in
-        ``api/apps.py`` to keep the daemon stable under load.
-        """
+        """Run an agent turn. `{app_id, session_id, message, images?, workspace?}`."""
         if manager is None:
             return {"ok": False, "error": "manager unavailable"}
 
@@ -1138,12 +824,8 @@ def create_socketio_server(
         workspace = _as_dict(data).get("workspace")
         raw_images = _as_dict(data).get("images") or []
 
-        # One-turn system prompt fragment from the preview SDK
-        # (``useTurnEnricher`` / ``usePendingHints``). Same shape +
-        # cap as the HTTP POST /messages path; we frame it identically
-        # so the agent sees a consistent format regardless of transport.
-        # The framing tells the LLM this came from the iframe's
-        # observation layer, not from the user's typed text.
+        # One-turn system prompt fragment from the preview SDK; framed the same
+        # way as POST /messages so the LLM treats it identically across transports.
         raw_addendum = _as_dict(data).get("system_addendum")
         framed_addendum = ""
         if isinstance(raw_addendum, str):
@@ -1175,27 +857,17 @@ def create_socketio_server(
             except Exception as exc:
                 await logger.awarning("socketio_image_upload_failed", error=str(exc))
 
-        # Route through the per-session queue - same contract as the
-        # REST ``POST /messages`` endpoint. Without this the Socket.IO
-        # path bypassed the queue entirely: concurrent sends spawned
-        # parallel turns on the same session (races), and queued
-        # messages from REST never got drained because the chain hook
-        # only fires on entries that went through the queue. Now both
-        # transports funnel into the same FIFO: enqueue → drain chain
-        # → ``_drain_queue_next`` fires the next entry the instant the
-        # current turn's ``finally`` runs.
+        # Funnel through the per-session queue (same contract as
+        # `POST /messages`) so REST + socket share the FIFO.
         import asyncio as _asyncio
         from digitorn.core.app import message_queue as _mq
         from digitorn.core.config import get_settings as _get_settings
 
         _qcfg = _get_settings().session.queue
         if not _qcfg.enabled:
-            # Queue disabled by config - fall back to direct chat. Set
-            # the JWT ContextVar inside the spawned task so the gateway
-            # call carries the user's bearer (without this, the gateway
-            # rejects with 401 "Not enough segments" - the placeholder
-            # api_key from the YAML never gets swapped for the user's
-            # real token).
+            # Queue disabled: direct chat path. The JWT contextvar must
+            # be set inside the spawned task so the gateway sees the
+            # user's bearer.
             _socket_jwt = _sid_sessions.get(sid, {}).get("token")
             async def _run_direct():
                 from digitorn.core.runtime.request_context import (
@@ -1219,18 +891,13 @@ def create_socketio_server(
                     if _tok_handle is not None:
                         try:
                             reset_inbound_user_jwt(_tok_handle)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("socketio_bus best-effort block failed: %s", exc)
             _asyncio.create_task(_run_direct())
             return {"ok": True, "accepted": True}
 
-        # Persist the workspace on the session BEFORE enqueueing so
-        # the drain → manager.chat() pipeline reads it from
-        # ``session.workspace``. Without this, the queue carries the
-        # message but loses the ``workspace`` field, and apps in
-        # ``workspace_mode: required`` (digitorn-code, etc.) reject
-        # the turn with "This app requires a workspace" - even though
-        # the caller passed it in the send_message payload.
+        # Persist the workspace before enqueueing; the drain reads it
+        # from `session.workspace` (the queue doesn't carry the field).
         if workspace:
             try:
                 store = getattr(manager, "_session_store", None)
@@ -1269,29 +936,18 @@ def create_socketio_server(
             )
             return {"ok": False, "error": f"enqueue failed: {exc}"}
 
-        # Stash the inbound JWT so a queued/replayed turn can re-publish
-        # it via ContextVar before calling the gateway. Socket.IO does
-        # NOT propagate the HTTP middleware's ContextVar into this
-        # coroutine, so reading ``get_inbound_user_jwt()`` alone returns
-        # None and the gateway gets an empty Authorization header.
-        # Fall back to the JWT we stashed at connect time in
-        # ``_sid_sessions[sid]['token']`` - that one was just validated
-        # by ``_authenticate``, so it's the canonical user creds for
-        # this socket.
+        # Stash the inbound JWT on the queue entry; the contextvar from
+        # the HTTP middleware does not cross into this Socket.IO
+        # coroutine. Fall back to the JWT validated at connect time.
         try:
             from digitorn.core.runtime.request_context import get_inbound_user_jwt
             _jwt = _sid_sessions.get(sid, {}).get("token") or get_inbound_user_jwt()
             _mq.attach_jwt(entry.id, _jwt)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("socketio_bus best-effort block failed: %s", exc)
 
-        # Mirror the REST POST /messages route: emit ``user_message``
-        # so the SDK chat history hook (and any other listener tracking
-        # the conversation log) sees the user's turn even when the
-        # caller is the iframe instead of HTTP. Without this, an SDK
-        # iframe driving send_message via WS would never hear back its
-        # own message echoed - the assistant tokens would arrive without
-        # a matching user entry on the bus, breaking the chat UX.
+        # Echo a `user_message` event so iframe-driven sends show up
+        # in the chat history (mirror of POST /messages).
         try:
             from digitorn.core.events.envelope import (
                 SessionEvent, OpType, OpState,
@@ -1324,10 +980,7 @@ def create_socketio_server(
                 app_id=app_id, session_id=session_id, error=str(exc),
             )
 
-        # Kick the drain chain if nothing is currently running.
-        # ``drain_session_queue`` iterates the queue until empty and
-        # handles crash-safe state transitions + event emission for
-        # each entry (message_started / message_done / error).
+        # Kick the drain chain when nothing is in flight.
         async def _maybe_drain():
             try:
                 if await _mq.has_running(session_id):
@@ -1350,21 +1003,9 @@ def create_socketio_server(
             "queue_depth": entry.position + 1,
         }
 
-    # ── Chat - abort the running turn over the WS ────────────────
-
     @sio.on("abort_turn", namespace="/events")
     async def on_abort_turn(sid: str, data: dict) -> dict:
-        """Abort the currently running agent turn for a session.
-
-        Body: ``{app_id, session_id, purge_queue?}``. Mirrors
-        ``POST /sessions/{sid}/abort`` exactly: cancels the agent task,
-        cancels pending approvals (so any blocked ``enqueue`` unwinds
-        immediately), and optionally drains the message queue.
-
-        Iframe path saves an HTTP round-trip when the user smashes
-        "Stop" - the click goes out on the same WS that's already
-        delivering streaming tokens.
-        """
+        """Abort the currently running agent turn for a session."""
         if manager is None:
             return {"ok": False, "error": "manager unavailable"}
 
@@ -1417,22 +1058,9 @@ def create_socketio_server(
             "queue_purged": purged,
         }
 
-    # ── Approvals - resolve pending tool calls ────────────────────
-
     @sio.on("resolve_approval", namespace="/events")
     async def on_resolve_approval(sid: str, data: dict) -> dict:
-        """Resolve a pending approval over the live WebSocket.
-
-        Body: ``{app_id, request_id, approved, message?}``.
-
-        Mirrors ``POST /api/apps/{app_id}/approve`` exactly: same
-        ``ApprovalQueue.resolve`` call, same per-user ownership check,
-        same payload semantics. Using the WS skips the HTTPS round-trip
-        when the iframe already has a live session bus, and keeps
-        approval traffic on the same connection that delivered the
-        ``approval_request`` event in the first place (symmetric IO,
-        no second auth handshake).
-        """
+        """Resolve a pending approval over the live WebSocket."""
         if manager is None:
             return {"ok": False, "error": "manager unavailable"}
 
@@ -1476,11 +1104,9 @@ def create_socketio_server(
             "payload_received": bool(message),
         }
 
-    # ── Replay on demand ───────────────────────────────────────────
-
     @sio.on("replay", namespace="/events")
     async def on_replay(sid: str, data: dict) -> dict:
-        """Replay missed events. ``{since, app_id?, session_id?}``."""
+        """Replay missed events. `{since, app_id?, session_id?}`."""
         if session_bus is None:
             return {"ok": False, "error": "bus unavailable"}
         user_id = _sid_user(sid)

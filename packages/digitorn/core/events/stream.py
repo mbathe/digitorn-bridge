@@ -1,13 +1,4 @@
-"""Digitorn - Execution stream for real-time agent feedback.
-
-Bridges a running module action to the event bus, allowing modules
-to emit progress, partial results, logs, and warnings that agents
-and clients receive in real-time via Socket.IO.
-
-Every event emitted through the stream is a child of the original
-action_started event, so agents can correlate all events from a
-single execution via correlation_id.
-"""
+"""Digitorn - Execution stream for real-time agent feedback."""
 
 from __future__ import annotations
 
@@ -21,14 +12,8 @@ if TYPE_CHECKING:
     from digitorn.core.events.bus import EventBus
     from digitorn.core.events.models import UniversalEvent
 
-
 class ExecutionStream:
-    """Real-time feedback channel injected into ExecutionContext.stream.
-
-    Modules use this to push live updates to agents during execution.
-    All emitted events are children of the parent_event (action_started),
-    inheriting its correlation_id, session_id, and source.
-    """
+    """Real-time feedback channel injected into ExecutionContext.stream."""
 
     def __init__(
         self,
@@ -70,7 +55,6 @@ class ExecutionStream:
         await self.log("warning", message, data)
 
     async def _emit(self, event_type: str, data: dict[str, Any]) -> None:
-        """Emit a child event through the bus."""
         data["action"] = self._action
         event = self._parent.child(
             topic=f"{self._topic_prefix}.{event_type}",

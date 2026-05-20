@@ -1,35 +1,4 @@
-"""Unified injection point for every runtime-emitted system directive.
-
-A *system directive* is any ``role: system`` message that the daemon
-inserts into the chat timeline at runtime (i.e. not the YAML-resolved
-agent system prompt). Examples: behavior-engine task classification,
-post-tool nudges, turn-limit warnings, hook ``inject_message`` actions,
-cron reminders, per-turn template addendums.
-
-Before this module existed, every site did ``messages.append({"role":
-"system", "content": ...})`` directly. That works for the in-flight LLM
-call but leaves no trace on the durable event log: a daemon restart
-rebuilds ``session.messages`` from ``history_log`` events and the
-directives are gone, breaking the chronological reconstruction.
-
-The single entry point :func:`inject_system_directive` fixes this by
-funneling every injection through ``ctx.event_bus.emit`` with the
-canonical ``system_message`` event type. The bus assigns a monotonic
-seq, persists the row, and broadcasts to the session room. The existing
-projection in ``session_store.projections.apply_projection`` already
-appends a ``Message(role=system, content=..., seq=ev.seq, ts=ev.ts)``
-to ``state.messages`` on receipt, so the directive lands in the exact
-position it would on next replay.
-
-The helper also mutates the *in-flight* ``messages`` working list (when
-provided) so the directive is visible to the LLM on the current
-tool-loop iteration. The two paths are not racy: the local mutation is
-immediate; the event-bus emit runs asynchronously and lands the same
-content into ``state.messages`` for the next turn. Between turns, the
-agent loop reads from ``session.messages`` (rebuilt from
-``state.messages``), so the directive is preserved cross-turn without
-double-injection.
-"""
+"""Unified injection point for every runtime-emitted system directive."""
 
 from __future__ import annotations
 
@@ -47,9 +16,6 @@ from digitorn.core.events.envelope import (
 logger = logging.getLogger(__name__)
 
 
-# Provenance tag. Stored in payload.source so the timeline keeps full
-# attribution across restarts (useful for debugging, filtering at
-# compaction time, and any future pruning policy).
 DirectiveSource = Literal[
     "behavior_classifier",
     "behavior_pending",
@@ -161,17 +127,7 @@ async def inject_system_directive(
     session_id: str | None = None,
     user_id: str | None = None,
 ) -> int:
-    """Persist a system directive and (optionally) inject it into the
-    in-flight working list.
-
-    Returns the seq assigned by the bus, or 0 when the event could not
-    be emitted (no bus / missing ids). The local mutation still
-    happens in that case so the in-flight LLM call sees the directive.
-
-    ``bus`` / ``app_id`` / ``session_id`` / ``user_id`` overrides exist
-    for call sites that fire BEFORE the per-turn AgentContext is built
-    (e.g. cron reminder injection in ``manager_v2._chat``).
-    """
+    """Persist a system directive and (optionally) inject it into the"""
     if not content:
         return 0
 
@@ -216,14 +172,7 @@ def inject_system_directive_sync(
     session_id: str | None = None,
     user_id: str | None = None,
 ) -> None:
-    """Sync wrapper: mutate ``messages`` immediately, schedule the
-    event emit on the running loop.
-
-    For call sites that aren't ``async`` (some hook handlers run inside
-    sync ``transform_*`` actions). Best-effort: when no loop is
-    running, the local mutation still happens but the event is dropped
-    with a debug log.
-    """
+    """Sync wrapper: mutate `messages` immediately, schedule the"""
     if not content:
         return
 

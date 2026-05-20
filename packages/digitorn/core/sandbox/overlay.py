@@ -1,16 +1,4 @@
-"""Copy-on-Write workspace snapshots - session-level filesystem isolation.
-
-Provides per-session workspace snapshots so each session sees its own
-copy of the workspace.  Changes are isolated - one session cannot see
-another's modifications.
-
-Strategies (tried in order):
-    1. overlayfs in user namespace (kernel 5.11+) - zero-copy, instant
-    2. cp --reflink=auto (btrfs/xfs) - CoW at block level
-    3. rsync - fallback, full copy
-
-On session end, changes can be committed (merge back) or discarded.
-"""
+"""Copy-on-Write workspace snapshots for session-level filesystem isolation."""
 
 from __future__ import annotations
 
@@ -40,15 +28,14 @@ class WorkspaceSnapshot:
             tempfile.gettempdir()
         ) / "digitorn-snapshots"
 
-        self._upper: Path | None = None    # overlayfs upper layer (changes)
-        self._work: Path | None = None     # overlayfs work dir
-        self._merged: Path | None = None   # merged view (session workspace)
+        self._upper: Path | None = None
+        self._work: Path | None = None
+        self._merged: Path | None = None
         self._strategy: str = "none"
         self._active = False
 
     @property
     def merged_path(self) -> str:
-        """The path the session should use as its workspace."""
         if self._merged:
             return str(self._merged)
         return str(self._original)
@@ -65,7 +52,6 @@ class WorkspaceSnapshot:
         """Create the workspace snapshot. Returns the merged path."""
         self._scratch_base.mkdir(parents=True, exist_ok=True)
 
-        # Try strategies in order
         if await self._try_overlayfs():
             self._strategy = "overlayfs"
         elif await self._try_reflink():
@@ -106,10 +92,7 @@ class WorkspaceSnapshot:
         self._active = False
         logger.info("snapshot_discarded session=%s", self._session_id)
 
-    # ── overlayfs ────────────────────────────────────────────────
-
     async def _try_overlayfs(self) -> bool:
-        """Try to create an overlayfs mount (requires user namespace + kernel 5.11+)."""
         try:
             session_dir = self._scratch_base / self._session_id
             self._upper = session_dir / "upper"
@@ -119,7 +102,6 @@ class WorkspaceSnapshot:
             for d in (self._upper, self._work, self._merged):
                 d.mkdir(parents=True, exist_ok=True)
 
-            # mount -t overlay overlay -o lowerdir=...,upperdir=...,workdir=... merged
             proc = await asyncio.create_subprocess_exec(
                 "mount", "-t", "overlay", "overlay",
                 "-o", f"lowerdir={self._original},upperdir={self._upper},"
@@ -133,7 +115,6 @@ class WorkspaceSnapshot:
             if proc.returncode == 0:
                 return True
 
-            # Clean up on failure
             for d in (self._merged, self._work, self._upper):
                 if d.exists():
                     d.rmdir()
@@ -145,12 +126,10 @@ class WorkspaceSnapshot:
             return False
 
     async def _commit_overlay(self) -> bool:
-        """Merge overlayfs upper layer back to original."""
         if not self._upper or not self._upper.exists():
             return False
 
         try:
-            # rsync the upper (changed files) back to original
             proc = await asyncio.create_subprocess_exec(
                 "rsync", "-a", "--remove-source-files",
                 f"{self._upper}/", f"{self._original}/",
@@ -174,17 +153,14 @@ class WorkspaceSnapshot:
                     stderr=asyncio.subprocess.PIPE,
                 )
                 await asyncio.wait_for(proc.communicate(), timeout=5)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("overlay best-effort block failed: %s", exc)
 
         session_dir = self._scratch_base / self._session_id
         if session_dir.exists():
             shutil.rmtree(session_dir, ignore_errors=True)
 
-    # ── reflink / copy ───────────────────────────────────────────
-
     async def _try_reflink(self) -> bool:
-        """Try CoW copy via cp --reflink=auto (btrfs/xfs)."""
         self._merged = self._scratch_base / self._session_id / "workspace"
         self._merged.parent.mkdir(parents=True, exist_ok=True)
 
@@ -200,14 +176,12 @@ class WorkspaceSnapshot:
             if proc.returncode == 0:
                 return True
 
-            # Check if reflink is supported
             if b"not supported" in stderr or b"Operation not supported" in stderr:
                 if self._merged.exists():
                     shutil.rmtree(self._merged, ignore_errors=True)
                 self._merged = None
                 return False
 
-            # cp succeeded without reflink (auto fallback) - that's fine
             return proc.returncode == 0
 
         except Exception:
@@ -215,7 +189,6 @@ class WorkspaceSnapshot:
             return False
 
     async def _fallback_copy(self) -> None:
-        """Full copy as last resort."""
         self._merged = self._scratch_base / self._session_id / "workspace"
         self._merged.parent.mkdir(parents=True, exist_ok=True)
 
@@ -228,7 +201,6 @@ class WorkspaceSnapshot:
         )
 
     async def _commit_copy(self) -> bool:
-        """Sync changes from copy back to original."""
         if not self._merged or not self._merged.exists():
             return False
 

@@ -15,7 +15,6 @@ from .base import RetrievalStrategy
 
 logger = logging.getLogger(__name__)
 
-
 class HybridStrategy(RetrievalStrategy):
 
     def __init__(
@@ -97,7 +96,6 @@ class HybridStrategy(RetrievalStrategy):
                     ))
 
         return results
-
 
 def _citation_from_meta(meta: dict[str, Any], score: float) -> Citation:
     parts = []

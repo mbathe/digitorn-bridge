@@ -1,12 +1,11 @@
-"""CLI command: digitorn run <app_id_or_path> [message]
-
-Runs a Digitorn application by app_id (deployed) or YAML path.
-All execution goes through the daemon - the CLI is a pure HTTP client.
-All rendering goes through the Textual TUI - no Rich CLI rendering.
-"""
+"""CLI command: digitorn run <app_id_or_path> [message]"""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -27,11 +26,7 @@ def _resolve_input(
     json_input: str | None,
     stdin: bool,
 ) -> str | None:
-    """Resolve user input from CLI arguments.
-
-    Priority: message > input_file > image > json_input > stdin.
-    Returns None if no input provided (interactive mode).
-    """
+    """Resolve user input from CLI arguments."""
     if message:
         return message
     if input_file:
@@ -123,5 +118,5 @@ def run(
                 "\033[?25h"     # Show cursor
             )
             _sys.stdout.flush()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("run best-effort block failed: %s", exc)

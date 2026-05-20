@@ -1,9 +1,4 @@
-"""Shared libc loader - avoids tempfile creation in find_library.
-
-ctypes.util.find_library("c") internally creates a temp file in /tmp,
-which fails after Landlock restricts filesystem access. This module
-loads libc directly by known paths, falling back to CDLL(None).
-"""
+"""Shared libc loader; avoids tempfile creation in find_library (breaks under Landlock)."""
 
 from __future__ import annotations
 
@@ -23,5 +18,4 @@ def get_libc() -> ctypes.CDLL:
             return ctypes.CDLL(path, use_errno=True)
         except OSError:
             continue
-    # Fallback: CDLL(None) loads the already-linked libc
     return ctypes.CDLL(None, use_errno=True)

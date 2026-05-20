@@ -1,21 +1,11 @@
-"""Custom keybindings loader.
-
-Reads ~/.digitorn/keybindings.json if it exists:
-{
-    "submit": "enter",
-    "newline": "shift+enter",
-    "search": "ctrl+f",
-    "sidebar": "ctrl+b",
-    "bookmark": "ctrl+d",
-    "quit": "ctrl+c",
-    "undo": "ctrl+z",
-    "clear": "ctrl+l",
-    "help": "f1"
-}
-"""
+"""Custom keybindings loader."""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 from pathlib import Path
 from typing import Any
@@ -44,8 +34,8 @@ def load_keybindings() -> dict[str, str]:
             data = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 bindings.update(data)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("keybindings best-effort block failed: %s", exc)
     return bindings
 
 

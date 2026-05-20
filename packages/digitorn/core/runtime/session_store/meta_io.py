@@ -1,13 +1,4 @@
-"""Atomic read/write of per-session meta.json.
-
-Holds {last_seq, event_count, started_at, ended_at, ...}: the metadata
-the SeqAllocator's seed_loader needs in O(1) on cold start, plus the
-SessionIndex summary on close.
-
-Writes are atomic via tmp file + os.replace. Reads return None on
-missing/corrupt files so the caller can treat this as "no session
-yet" without try/except dance.
-"""
+"""Atomic read/write of per-session meta.json."""
 
 from __future__ import annotations
 
@@ -61,9 +52,7 @@ class MetaIO:
 
     @staticmethod
     def update(session_dir: Path, **fields: Any) -> dict[str, Any]:
-        """Read-modify-write convenience. Caller is responsible for
-        serialising concurrent updates per session (the DiskFlusher's
-        single-writer-per-session contract handles this in prod)."""
+        """Read-modify-write convenience. Caller is responsible for"""
         meta = MetaIO.read(session_dir) or {}
         meta.update(fields)
         MetaIO.write(session_dir, meta)
@@ -71,10 +60,7 @@ class MetaIO:
 
     @staticmethod
     def last_seq_from_jsonl_tail(session_dir: Path) -> int:
-        """Fallback for the case where meta.json is missing or
-        corrupt: read the last line of events.jsonl and parse its
-        ``seq``. Slower than reading meta.json (full file open + seek
-        to end) but bulletproof."""
+        """Fallback for the case where meta.json is missing or"""
         path = session_dir / "events.jsonl"
         if not path.exists():
             return 0

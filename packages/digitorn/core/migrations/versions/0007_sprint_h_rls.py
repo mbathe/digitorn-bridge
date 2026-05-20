@@ -5,8 +5,8 @@ Revises: 0006
 Create Date: 2026-05-05
 
 Final defense layer: even if a query escapes the application's own
-``WHERE user_id = ?`` filter, Postgres refuses to return rows that
-don't match ``current_setting('digitorn.current_user_id')``.
+`WHERE user_id = ?` filter, Postgres refuses to return rows that
+don't match `current_setting('digitorn.current_user_id')`.
 
 How the daemon plugs in:
 
@@ -17,11 +17,11 @@ How the daemon plugs in:
             jwt_user_id,
         )
 
-    The ``true`` makes the setting transaction-scoped (LOCAL), so a
+    The `true` makes the setting transaction-scoped (LOCAL), so a
     pooled connection can't leak across requests. The connection
-    pool's ``reset_query`` clears it on release as a belt.
+    pool's `reset_query` clears it on release as a belt.
 
-    Admin endpoints set ``digitorn.is_admin = 'true'`` (also LOCAL),
+    Admin endpoints set `digitorn.is_admin = 'true'` (also LOCAL),
     which the policies recognise as a bypass. The schema is
     intentionally fail-closed: if the setting is unset, every policy
     refuses access.
@@ -36,7 +36,7 @@ We add policies but do NOT yet create the application role - that's
 an environment-specific operator step (database admin creates the
 role, attaches it to the DATABASE_URL the daemon uses).
 
-This migration is REVERSIBLE: ``downgrade()`` simply DISABLE RLS on
+This migration is REVERSIBLE: `downgrade()` simply DISABLE RLS on
 each table without dropping the policies (so re-upgrade is a no-op
 toggle).
 

@@ -1,27 +1,4 @@
-"""MCP Server Catalog - plug-and-play server configurations.
-
-Two-layer resolution:
-
-1. **Static catalog** - built-in entries for popular servers (GitHub,
-   Notion, Slack, etc.).  Fastest, zero network, includes env_mapping
-   for shorthand credentials.
-
-2. **Registry lookup** - queries the official MCP registry
-   (registry.modelcontextprotocol.io) at runtime.  Any server published
-   to the registry works automatically - no code changes needed.
-
-Users write shorthand YAML::
-
-    servers:
-      github:
-        token: "{{secret.GITHUB_TOKEN}}"
-
-The catalog resolves this to a full config with command, args, env vars,
-transport, and OAuth settings - no need to read each server's docs.
-
-Explicit configs (with ``command``, ``url``, or ``transport``) bypass
-both catalog and registry entirely for backward compatibility.
-"""
+"""MCP Server Catalog - plug-and-play server configurations."""
 
 from __future__ import annotations
 
@@ -39,7 +16,6 @@ _STANDARD_KEYS = frozenset({
     "timeout", "buffer_size", "auth", "examples", "rate_limit_rpm",
     "via", "smithery_key", "smithery_namespace", "smithery_slug",
 })
-
 
 _SMITHERY_CONNECT_BASE = "https://api.smithery.ai/connect"
 
@@ -59,7 +35,6 @@ _SMITHERY_SLUGS: dict[str, str] = {
     "postgres": "@anthropics/postgres",
     "brave": "@anthropics/brave-web-search",
 }
-
 
 @dataclass(frozen=True)
 class CatalogEntry:
@@ -98,36 +73,14 @@ class CatalogEntry:
 
     timeout: float = 30.0
 
-    # UI metadata - consumed by the Flutter Hub > MCP tab. Icon is
-    # an emoji (works everywhere without asset shipping); category
-    # is a string keyed to the Flutter client's category pills.
-    # Both left empty here so the route-level substring fallback
-    # map populates sensible values based on ``server_id``. Each
-    # catalog entry can override these by setting them explicitly.
     icon: str = ""
     category: str = ""
 
-    # ── App Store classification (Hub-curated, sourced from
-    # ``hub.mcp_featured_entries`` post-migration 0009) ─────────────
-    # Subset of ``env_mapping`` keys the user fills personally. Used
-    # by the install dialog to prominently show only what's truly
-    # user-specific. Empty = no personal credentials needed.
     personal_keys: tuple[str, ...] = ()
-    # ``{env_var_name: credential_name}`` — env vars Digitorn provides
-    # at install time from the credential store (system_wide scope).
-    # The daemon resolves each name via ``CredentialStore`` and
-    # injects the value into the subprocess env. The user never sees
-    # these fields in the install dialog.
     digitorn_provided: dict[str, str] = field(default_factory=dict)
-    # Digitorn-hosted endpoint URL (shared infra bridge, e.g. a public
-    # Cloudflare Worker we operate for all users). Filled into the
-    # canonical URL env var when present and the user hasn't supplied
-    # one — see ``install_server._resolve_for_install``.
     hosted_url: str = ""
 
-
 CATALOG: dict[str, CatalogEntry] = {
-
 
     "github": CatalogEntry(
         server_id="github",
@@ -209,7 +162,6 @@ CATALOG: dict[str, CatalogEntry] = {
         },
     ),
 
-
     "google_drive": CatalogEntry(
         server_id="google_drive",
         display_name="Google Drive",
@@ -272,7 +224,6 @@ CATALOG: dict[str, CatalogEntry] = {
         key_descriptions={"api_key": "Google Maps API key (console.cloud.google.com → Credentials)"},
     ),
 
-
     "stripe": CatalogEntry(
         server_id="stripe",
         display_name="Stripe",
@@ -310,7 +261,6 @@ CATALOG: dict[str, CatalogEntry] = {
         },
     ),
 
-
     "mailgun": CatalogEntry(
         server_id="mailgun",
         display_name="Mailgun",
@@ -327,7 +277,6 @@ CATALOG: dict[str, CatalogEntry] = {
             "domain": "Sending domain (e.g. mg.example.com)",
         },
     ),
-
 
     "brave_search": CatalogEntry(
         server_id="brave_search",
@@ -355,7 +304,6 @@ CATALOG: dict[str, CatalogEntry] = {
         args=("-y", "@modelcontextprotocol/server-puppeteer"),
         package="@modelcontextprotocol/server-puppeteer",
     ),
-
 
     "postgres": CatalogEntry(
         server_id="postgres",
@@ -394,7 +342,6 @@ CATALOG: dict[str, CatalogEntry] = {
             "api_key": "Qdrant API key (optional for local instances)",
         },
     ),
-
 
     "filesystem": CatalogEntry(
         server_id="filesystem",
@@ -441,7 +388,6 @@ CATALOG: dict[str, CatalogEntry] = {
         args=("-y", "@modelcontextprotocol/server-sequential-thinking"),
         package="@modelcontextprotocol/server-sequential-thinking",
     ),
-
 
     "vercel": CatalogEntry(
         server_id="vercel",
@@ -492,7 +438,6 @@ CATALOG: dict[str, CatalogEntry] = {
         key_descriptions={"kubeconfig": "Path to kubeconfig file (default: ~/.kube/config)"},
     ),
 
-
     "everart": CatalogEntry(
         server_id="everart",
         display_name="EverArt",
@@ -515,15 +460,8 @@ CATALOG: dict[str, CatalogEntry] = {
     ),
 }
 
-
 def get_catalog_entry(server_id: str) -> CatalogEntry | None:
-    """Look up a server in the catalog. Returns None if not found.
-
-    Resolution order: Hub-served curated catalog (5 min in-process
-    cache, the authoritative source) → baked-in ``CATALOG`` dict
-    (last-resort offline fallback). Per the App Store / iPhone model,
-    each daemon defers to the Hub for what's installable.
-    """
+    """Look up a server in the catalog. Returns None if not found."""
     from . import hub_catalog_client as _hub
     cache = _hub.get()
     if cache is not None:
@@ -532,35 +470,21 @@ def get_catalog_entry(server_id: str) -> CatalogEntry | None:
             return hit
     return CATALOG.get(server_id)
 
-
 def list_catalog() -> list[str]:
-    """List available catalog server IDs.
-
-    Returns the Hub-served list when the cache is populated, else the
-    baked-in fallback. Server IDs are sorted alphabetically in both
-    cases for stable rendering.
-    """
+    """List available catalog server IDs."""
     from . import hub_catalog_client as _hub
     cache = _hub.get()
     if cache is not None and cache.size > 0:
         return sorted(cache.all_sync().keys())
     return sorted(CATALOG.keys())
 
-
 def all_catalog_entries() -> dict[str, CatalogEntry]:
-    """Return the full live catalog as a dict.
-
-    Hub-first with offline fallback (same resolution as ``get_catalog_entry``).
-    Used by the daemon API ``/api/mcp/catalog`` route handler so the
-    Flutter client always sees the authoritative list — adding a server
-    via the Hub admin API propagates here within one cache TTL.
-    """
+    """Return the full live catalog as a dict."""
     from . import hub_catalog_client as _hub
     cache = _hub.get()
     if cache is not None and cache.size > 0:
         return cache.all_sync()
     return dict(CATALOG)
-
 
 @dataclass
 class ServerRequirement:
@@ -570,7 +494,6 @@ class ServerRequirement:
     description: str
     required: bool
     is_arg: bool = False
-
 
 @dataclass
 class ServerRequirements:
@@ -588,12 +511,8 @@ class ServerRequirements:
     install_hint: str = ""
     yaml_example: str = ""
 
-
 def get_server_requirements(server_id: str) -> ServerRequirements:
-    """Get configuration requirements for a catalog server.
-
-    Works BEFORE installation. For registry servers, use the async version.
-    """
+    """Get configuration requirements for a catalog server."""
     entry = CATALOG.get(server_id)
     if entry is None:
         raise ValueError(
@@ -603,21 +522,8 @@ def get_server_requirements(server_id: str) -> ServerRequirements:
         )
     return _requirements_from_catalog(entry)
 
-
 async def get_server_requirements_async(server_id: str) -> ServerRequirements:
-    """Get configuration requirements - catalog + registry fallback.
-
-    Resolution order:
-
-    1. Direct catalog hit on ``server_id`` (the curated 31-entry list,
-       Hub-backed cache + baked-in fallback).
-    2. Registry lookup. If the registry entry's ``package`` (e.g.
-       ``@modelcontextprotocol/server-github``) matches a catalog entry,
-       **promote** the request to the catalog entry — the user gets the
-       curated env_mapping + key_descriptions instead of the registry's
-       often-empty ``environmentVariables`` list.
-    3. Plain registry requirements (community-submitted, no env_mapping).
-    """
+    """Get configuration requirements - catalog + registry fallback."""
     entry = get_catalog_entry(server_id)
     if entry is not None:
         return _requirements_from_catalog(entry)
@@ -634,24 +540,9 @@ async def get_server_requirements_async(server_id: str) -> ServerRequirements:
         f"Run: digitorn mcp search {server_id}"
     )
 
-
 def _promote_registry_to_catalog(
     registry_entry: dict[str, Any],
 ) -> CatalogEntry | None:
-    """Return the catalog entry that ships the same package as *registry_entry*.
-
-    The official MCP registry mirrors packages like
-    ``@modelcontextprotocol/server-github`` under registry-specific
-    server ids (``smithery-ai-github``, etc.). When the user clicks
-    one of those in the Registry tab, we want to install the **curated**
-    entry instead — same npm package, but with admin-curated env_mapping
-    + key_descriptions + OAuth wiring.
-
-    Match strategy: exact ``package`` string equality across all
-    ``packages[].identifier`` values in the registry entry. We do not
-    fuzzy-match on names because the registry has many forks/wrappers
-    that share a similar name but ship different code.
-    """
     pkgs = registry_entry.get("packages") or []
     pkg_ids: set[str] = set()
     for pkg in pkgs:
@@ -666,27 +557,15 @@ def _promote_registry_to_catalog(
             return entry
     return None
 
-
-# Pattern matched by ``_description_has_default``. Catches ``(default: X)``
-# and ``(default = X)``, case-insensitive, anywhere in the description.
+# Pattern matched by `_description_has_default`. Catches `(default: X)`
+# and `(default = X)`, case-insensitive, anywhere in the description.
 import re as _re
 _DEFAULT_HINT_RE = _re.compile(r"\(default\s*[:=]\s*[^)]+\)", _re.IGNORECASE)
 
-
 def _description_has_default(description: str) -> bool:
-    """Return True when *description* declares a literal default value.
-
-    Many catalog/registry authors embed the fallback their server uses
-    when an env var is absent (e.g. ``"...(default: https://example.com)"``).
-    A field bearing such a hint is effectively optional — the user can
-    omit it and let the server's default kick in. We use this to soften
-    the form's required-marker UX and to relax the install validator.
-    """
     return bool(_DEFAULT_HINT_RE.search(description or ""))
 
-
 def _requirements_from_catalog(entry: CatalogEntry) -> ServerRequirements:
-    """Build requirements from a catalog entry."""
     creds = []
     for key, env_var in entry.env_mapping.items():
         is_arg = env_var == _ARG_APPEND
@@ -728,12 +607,10 @@ def _requirements_from_catalog(entry: CatalogEntry) -> ServerRequirements:
         yaml_example=yaml_example,
     )
 
-
 def _requirements_from_registry(
     server_id: str,
     registry_entry: dict[str, Any],
 ) -> ServerRequirements:
-    """Build requirements from a registry entry."""
     name = registry_entry.get("name", server_id)
     description = registry_entry.get("description", "")
     packages = registry_entry.get("packages", [])
@@ -759,10 +636,8 @@ def _requirements_from_registry(
                 continue
             shorthand = _env_var_to_shorthand(var_name)
             desc = env_var.get("description", "")
-            # An "(default: X)" hint in the description signals a sane
-            # fallback the server will use when the env var is absent —
-            # in that case the field is not strictly required, even if
-            # the registry metadata flags it as such.
+            # `(default: X)` in the description means the env var is
+            # optional even when the registry flags it required.
             raw_required = env_var.get("required", True)
             required = raw_required and not _description_has_default(desc)
             creds.append(ServerRequirement(
@@ -809,25 +684,22 @@ def _requirements_from_registry(
         yaml_example=yaml_example,
     )
 
-
 _REGISTRY_URL = "https://registry.modelcontextprotocol.io/v0.1/servers"
 _REGISTRY_TIMEOUT = 10
 # Daemon-local cache for burst absorption. The Hub is the source of
 # truth and refreshes upstream every 24h; the daemon just needs to
 # avoid hammering the Hub on every keystroke from the dashboard.
 # 5 min strikes a balance: bursts collapse to one round-trip; new
-# servers added via manual ``POST /api/v1/mcp/registry/refresh``
+# servers added via manual `POST /api/v1/mcp/registry/refresh`
 # show up in the dashboard within 5 min without a daemon restart.
 _REGISTRY_TTL_SECONDS = 300
 
 # Cache entries are tuples of (timestamp, value). Two key shapes:
-# - ``"search:<query>"``           → single ``dict | None`` (first match)
-# - ``"browse:<query>:<cursor>"``  → ``dict`` with ``servers`` + ``next_cursor``
+# - `"search:<query>"`           → single `dict | None` (first match)
+# - `"browse:<query>:<cursor>"`  → `dict` with `servers` + `next_cursor`
 _registry_cache: dict[str, tuple[float, Any]] = {}
 
-
 def _cache_get(key: str) -> Any:
-    """Return cached value if still fresh, else None."""
     import time
     entry = _registry_cache.get(key)
     if entry is None:
@@ -838,30 +710,17 @@ def _cache_get(key: str) -> Any:
         return None
     return value
 
-
 def _cache_set(key: str, value: Any) -> None:
-    """Stamp a value with the current timestamp."""
     import time
     _registry_cache[key] = (time.time(), value)
 
-
 def clear_registry_cache() -> int:
-    """Drop every cached registry response. Returns the count flushed.
-
-    Called by the admin ``POST /api/mcp/registry/refresh`` endpoint when
-    operators need to pull fresh metadata without restarting the daemon.
-    """
+    """Drop every cached registry response. Returns the count flushed."""
     count = len(_registry_cache)
     _registry_cache.clear()
     return count
 
-
 async def _search_registry(query: str) -> dict[str, Any] | None:
-    """Search the official MCP registry for a server.
-
-    Returns the first matching server entry, or None.
-    Results are cached per query with a 1h TTL.
-    """
     cache_key = f"search:{query}"
     cached = _cache_get(cache_key)
     if cached is not None or cache_key in _registry_cache:
@@ -904,31 +763,12 @@ async def _search_registry(query: str) -> dict[str, Any] | None:
     _cache_set(cache_key, first)
     return first
 
-
 async def list_registry_servers(
     query: str = "",
     cursor: str | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
-    """Browse the MCP registry, served preferentially from the Hub.
-
-    Resolution order:
-
-    1. **Hub** at ``{settings.hub.url}/api/v1/mcp/registry/browse`` —
-       the Hub keeps a Postgres mirror of the upstream registry, runs
-       hybrid FTS + semantic search, and returns ranked results.
-       This is the fast path; daemon stays cold on the upstream API.
-    2. **Direct upstream** ``registry.modelcontextprotocol.io`` —
-       fallback when the Hub is unreachable or returns 5xx. Gives
-       the same paginated shape but only name-substring search.
-    3. **Empty page** — when both paths fail (network down, no Hub
-       configured, no httpx). UI degrades gracefully.
-
-    Returns:
-        ``{"servers": [...], "next_cursor": str | None, "count": int}``
-        where each ``servers[i]`` matches the daemon-side
-        ``_summarize_registry_server`` shape regardless of source.
-    """
+    """Browse the MCP registry, served preferentially from the Hub."""
     safe_limit = max(1, min(100, int(limit)))
     cache_key = f"browse:{query}:{cursor or ''}:{safe_limit}"
     cached = _cache_get(cache_key)
@@ -943,7 +783,6 @@ async def list_registry_servers(
         logger.debug("registry_browse: httpx not available")
         return empty
 
-    # ── Path 1: Hub ────────────────────────────────────────────
     hub_url = ""
     try:
         from digitorn.core.config import get_settings
@@ -957,7 +796,6 @@ async def list_registry_servers(
             _cache_set(cache_key, result)
             return result
 
-    # ── Path 2: Direct upstream registry ───────────────────────
     result = await _fetch_from_upstream(query, cursor, safe_limit)
     if result is not None:
         _cache_set(cache_key, result)
@@ -965,14 +803,12 @@ async def list_registry_servers(
 
     return empty
 
-
 async def _fetch_from_hub(
     hub_url: str,
     query: str,
     cursor: str | None,
     safe_limit: int,
 ) -> dict[str, Any] | None:
-    """Hub call. Returns None to signal "fall back to upstream"."""
     import httpx
 
     offset = 0
@@ -995,7 +831,7 @@ async def _fetch_from_hub(
             resp.raise_for_status()
             data = resp.json() or {}
     except Exception as exc:
-        logger.debug("hub_browse_failed: %s — falling back to upstream", exc)
+        logger.debug("hub_browse_failed: %s - falling back to upstream", exc)
         return None
 
     raw_servers = data.get("servers") or []
@@ -1003,8 +839,8 @@ async def _fetch_from_hub(
     for s in raw_servers:
         if not isinstance(s, dict):
             continue
-        # Hub returns the already-flattened shape, with ``source =
-        # "registry"`` baked in.
+        # Hub returns the already-flattened shape, with `source =
+        # "registry"` baked in.
         out_servers.append({
             "server_id": s.get("server_id", ""),
             "name": s.get("name", ""),
@@ -1026,14 +862,11 @@ async def _fetch_from_hub(
         "count": len(out_servers),
     }
 
-
 async def _fetch_from_upstream(
     query: str,
     cursor: str | None,
     safe_limit: int,
 ) -> dict[str, Any] | None:
-    """Direct call to registry.modelcontextprotocol.io. Returns None
-    when even the upstream is unreachable."""
     import httpx
 
     params: dict[str, Any] = {"limit": safe_limit, "version": "latest"}
@@ -1070,14 +903,7 @@ async def _fetch_from_upstream(
         "count": len(out_servers),
     }
 
-
 def _summarize_registry_server(server: dict[str, Any]) -> dict[str, Any]:
-    """Flatten a raw registry server entry into a UI-friendly summary.
-
-    Picks the first npm/pip package or remote endpoint, counts required
-    env vars, detects OAuth from env-var patterns, and exposes the most
-    useful metadata for a card in the hub.
-    """
     name = server.get("name", "")
     short = name.rsplit("/", 1)[-1] if "/" in name else name
 
@@ -1149,17 +975,11 @@ def _summarize_registry_server(server: dict[str, Any]) -> dict[str, Any]:
         "source": "registry",
     }
 
-
 def _map_registry_env_vars(
     env_vars: list[dict[str, Any]],
     user_config: dict[str, Any],
     resolved: dict[str, Any],
 ) -> None:
-    """Map registry env vars to user-provided shorthand values.
-
-    Tries multiple candidate shorthands for each env var name,
-    so users don't need to know the exact env var name.
-    """
     for env_var in env_vars:
         var_name = env_var.get("name", "")
         if not var_name:
@@ -1172,16 +992,10 @@ def _map_registry_env_vars(
                 resolved["env"][var_name] = str(user_config[candidate])
                 break
 
-
 def _registry_entry_to_config(
     server: dict[str, Any],
     user_config: dict[str, Any],
 ) -> dict[str, Any]:
-    """Convert a registry server entry to a Digitorn MCP config dict.
-
-    Handles both ``packages`` (local install) and ``remotes`` (hosted).
-    Prefers ``packages`` (stdio) over ``remotes`` (HTTP).
-    """
     resolved: dict[str, Any] = {"timeout": 30.0}
 
     packages = server.get("packages", [])
@@ -1270,7 +1084,6 @@ def _registry_entry_to_config(
 
     return resolved
 
-
 _OAUTH_ENV_PATTERNS: dict[str, str] = {
     "google": "google",
     "github": "github",
@@ -1286,15 +1099,7 @@ _OAUTH_ENV_PATTERNS: dict[str, str] = {
     "linkedin": "custom",
 }
 
-
 def _detect_oauth_from_env_vars(server: dict[str, Any]) -> dict[str, Any] | None:
-    """Detect OAuth provider and env var names from registry environment variables.
-
-    Scans env var names for patterns like ``*_CLIENT_ID``, ``*_CLIENT_SECRET``,
-    ``*_OAUTH_*`` to auto-detect OAuth requirements.
-
-    Returns an ``auth`` dict to store in config, or None if no OAuth detected.
-    """
     all_env_vars: list[dict[str, Any]] = []
     for pkg in server.get("packages", []):
         all_env_vars.extend(pkg.get("environmentVariables", []))
@@ -1347,17 +1152,7 @@ def _detect_oauth_from_env_vars(server: dict[str, Any]) -> dict[str, Any] | None
 
     return auth_info
 
-
 def _env_var_to_shorthand(env_name: str) -> str:
-    """Convert an env var name to a user-friendly shorthand key.
-
-    Examples:
-        GITHUB_PERSONAL_ACCESS_TOKEN → token
-        STRIPE_API_KEY → api_key
-        NOTION_API_KEY → api_key
-        SLACK_BOT_TOKEN → bot_token
-        BRAVE_API_KEY → api_key
-    """
     name = env_name.lower()
     for prefix in (
         "github_personal_", "github_", "notion_", "slack_",
@@ -1373,18 +1168,7 @@ def _env_var_to_shorthand(env_name: str) -> str:
         return "token"
     return name
 
-
 def _env_var_to_shorthands(env_name: str) -> list[str]:
-    """Generate multiple candidate shorthand keys for an env var.
-
-    For registry servers with unknown prefixes, we need a generic
-    approach. Returns candidates in priority order.
-
-    Examples:
-        WEATHER_API_KEY → ["api_key", "weather_api_key"]
-        MY_SERVICE_TOKEN → ["token", "service_token", "my_service_token"]
-        API_KEY → ["api_key"]
-    """
     known = _env_var_to_shorthand(env_name)
     name = env_name.lower()
 
@@ -1400,22 +1184,11 @@ def _env_var_to_shorthands(env_name: str) -> list[str]:
 
     return candidates
 
-
 def resolve_server_config(
     server_id: str,
     user_config: dict[str, Any],
 ) -> dict[str, Any]:
-    """Resolve shorthand YAML config into a full server config.
-
-    Resolution order:
-    0. Smithery proxy (``via: smithery``) → streamable_http via Smithery
-    1. Explicit config (has ``command``/``url``/``transport``) → as-is
-    2. Static catalog lookup (built-in entries) → merge with user config
-    3. Registry lookup marker → handled async in ``resolve_server_config_async``
-
-    For sync callers, raises ValueError if server is unknown.
-    For async callers, use ``resolve_server_config_async`` instead.
-    """
+    """Resolve shorthand YAML config into a full server config."""
     if user_config.get("via") == "smithery":
         return _resolve_via_smithery(server_id, user_config)
 
@@ -1432,19 +1205,11 @@ def resolve_server_config(
         f"or provide an explicit config (command/url/transport)."
     )
 
-
 async def resolve_server_config_async(
     server_id: str,
     user_config: dict[str, Any],
 ) -> dict[str, Any]:
-    """Async version - falls back to registry.modelcontextprotocol.io.
-
-    Resolution order:
-    0. Smithery proxy (``via: smithery``) → streamable_http via Smithery
-    1. Explicit config → as-is
-    2. Static catalog → merge
-    3. Online registry → auto-build config from registry entry
-    """
+    """Async version - falls back to registry.modelcontextprotocol.io."""
     if user_config.get("via") == "smithery":
         return _resolve_via_smithery(server_id, user_config)
 
@@ -1471,35 +1236,10 @@ async def resolve_server_config_async(
         f"or use a known server: {available}"
     )
 
-
 def _resolve_via_smithery(
     server_id: str,
     user_config: dict[str, Any],
 ) -> dict[str, Any]:
-    """Resolve a server config to use Smithery Connect.
-
-    Two modes supported:
-
-    **Connect API** (recommended - requires ``smithery_namespace``):
-        URL: ``api.smithery.ai/connect/{namespace}/{server_id}/mcp``
-        Auth: ``Authorization: Bearer {smithery_key}``
-        The namespace must exist in the user's Smithery dashboard.
-
-    **Proxy** (fallback - no namespace needed):
-        URL: ``server.smithery.ai/{slug}/mcp``
-        Auth: ``Authorization: Bearer {smithery_key}``
-        May require a different token type (service token with ``mcp`` scope).
-
-    Slug resolution order:
-    1. Explicit ``smithery_slug`` in user_config
-    2. ``smithery_slug`` field on the catalog entry (if server is in catalog)
-    3. ``_SMITHERY_SLUGS`` mapping (built-in known slugs)
-    4. Fallback: server_id as-is
-
-    Server-specific credentials (e.g. ``token``, ``api_key``) are passed
-    as a JSON ``config`` query parameter - Smithery injects them as env
-    vars into the hosted server process.
-    """
     import urllib.parse
 
     smithery_key = user_config.get("smithery_key", "")
@@ -1562,12 +1302,10 @@ def _resolve_via_smithery(
 
     return resolved
 
-
 def _resolve_from_catalog(
     entry: CatalogEntry,
     user_config: dict[str, Any],
 ) -> dict[str, Any]:
-    """Build config from a static catalog entry + user overrides."""
 
     resolved: dict[str, Any] = {
         "transport": entry.transport,
@@ -1619,12 +1357,8 @@ def _resolve_from_catalog(
 
     return resolved
 
-
 def check_runtime(entry: CatalogEntry) -> str | None:
-    """Check if the server's command is available.
-
-    Returns an actionable error message, or None if OK.
-    """
+    """Check if the server's command is available."""
     if not entry.command:
         return None
 

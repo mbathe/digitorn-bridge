@@ -1,8 +1,4 @@
-"""HTML to text parser - clean, fast content extraction.
-
-Uses html2text for markdown-like output, bs4 for targeted extraction.
-Strips scripts, styles, nav, footer, ads - keeps only useful content.
-"""
+"""HTML to text parser - clean, fast content extraction."""
 
 from __future__ import annotations
 
@@ -19,7 +15,6 @@ _NOISE_SELECTORS = [
     "#cookie-banner", "#cookie-consent", "#ads", "#sidebar", "#nav",
 ]
 
-
 _INJECTION_MARKERS = [
     "ignore previous instructions",
     "ignore all instructions",
@@ -33,7 +28,6 @@ _INJECTION_MARKERS = [
     "<<SYS>>",
 ]
 
-
 def scan_for_injection(text: str) -> str | None:
     """Return a warning if text contains likely prompt injection patterns."""
     lower = text.lower()
@@ -42,12 +36,8 @@ def scan_for_injection(text: str) -> str | None:
             return f"Potential prompt injection detected: content contains '{marker}'"
     return None
 
-
 def html_to_text(html: str, max_length: int = 50000) -> str:
-    """Convert HTML to clean readable text (markdown-like).
-
-    Fast path: html2text with noise removal.
-    """
+    """Convert HTML to clean readable text (markdown-like)."""
     try:
         import html2text
 
@@ -74,12 +64,8 @@ def html_to_text(html: str, max_length: int = 50000) -> str:
     except ImportError:
         return _regex_strip(html, max_length)
 
-
 def html_to_markdown(html: str, max_length: int = 50000) -> str:
-    """Convert HTML to proper Markdown preserving links, images, headers, code blocks.
-
-    Richer than html_to_text: keeps images, uses reference-style links for readability.
-    """
+    """Convert HTML to proper Markdown preserving links, images, headers, code blocks."""
     try:
         import html2text
 
@@ -105,7 +91,6 @@ def html_to_markdown(html: str, max_length: int = 50000) -> str:
 
     except ImportError:
         return html_to_text(html, max_length)
-
 
 def extract_with_selector(html: str, selector: str, max_length: int = 30000) -> str:
     """Extract content using CSS selector via BeautifulSoup."""
@@ -141,12 +126,10 @@ def extract_with_selector(html: str, selector: str, max_length: int = 30000) -> 
     except ImportError:
         return html_to_text(html, max_length)
 
-
 def extract_title(html: str) -> str:
     """Extract page title from HTML."""
     match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
     return match.group(1).strip() if match else ""
-
 
 def extract_meta_description(html: str) -> str:
     """Extract meta description from HTML."""
@@ -161,9 +144,7 @@ def extract_meta_description(html: str) -> str:
         )
     return match.group(1).strip() if match else ""
 
-
 def _strip_noise_tags(html: str) -> str:
-    """Remove noise tags via regex (fast, no bs4 needed)."""
     for tag in _STRIP_TAGS:
         html = re.sub(
             rf"<{tag}[\s>].*?</{tag}>",
@@ -173,9 +154,7 @@ def _strip_noise_tags(html: str) -> str:
         )
     return html
 
-
 def _regex_strip(html: str, max_length: int) -> str:
-    """Basic HTML to text via regex (fallback when html2text unavailable)."""
     text = re.sub(r"<[^>]+>", " ", html)
     text = re.sub(r"\s+", " ", text)
     text = text.strip()

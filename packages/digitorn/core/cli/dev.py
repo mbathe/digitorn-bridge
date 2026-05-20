@@ -1,27 +1,11 @@
-"""Dev mode - CLI chat with a real daemon for testing.
-
-Usage:
-    digitorn dev chat <app_id> [--workspace <path>] [--daemon <url>]
-    digitorn dev deploy <yaml_path> [--daemon <url>]
-    digitorn dev status <app_id> [--daemon <url>]
-    digitorn dev history <app_id> <session_id> [--daemon <url>]
-
-Multi-turn conversation loop:
-    $ digitorn dev chat digitorn-code --workspace /path/to/project
-    [digitorn-code] session abc123
-    > analyze this project
-    (waiting for agent...)
-    Assistant: I'll explore the project structure...
-    > fix the bug in src/auth.py
-    ...
-    > /quit
-
-This talks to the REAL daemon - same as the Flutter client.
-Every behavior rule, sub-agent, and tool call runs in production mode.
-"""
+"""Dev mode - CLI chat with a real daemon for testing."""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import sys
 import time
@@ -50,7 +34,7 @@ def _print(msg: str, style: str = "") -> None:
 
 
 def _auto_approve_pending(daemon: str, app_id: str) -> int:
-    """Auto-approve all pending approval requests. Returns count approved."""
+    """Auto-approve all pending approval requests."""
     try:
         resp = daemon_request("get", f"{daemon}/api/apps/{app_id}/approvals")
         pending = resp.json().get("data", {}).get("pending", [])
@@ -67,8 +51,8 @@ def _auto_approve_pending(daemon: str, app_id: str) -> int:
                     )
                     _print(f"  [auto-approved] {tool}", "yellow")
                     approved += 1
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("dev best-effort block failed: %s", exc)
         return approved
     except Exception:
         return 0
@@ -99,8 +83,8 @@ def _poll_until_done(
                 last_turn = turn
             if not active and turn > 0:
                 return data
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("dev best-effort block failed: %s", exc)
         time.sleep(1.0)
     return {"error": "timeout", "timeout_seconds": timeout}
 
@@ -144,8 +128,8 @@ def _format_tool_calls(tool_calls: list) -> str:
         if isinstance(args, str):
             try:
                 args = json.loads(args)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("dev best-effort block failed: %s", exc)
         # Show compact params
         if isinstance(args, dict):
             params = []
@@ -171,22 +155,22 @@ def deploy(
         "--scope",
         "-s",
         help=(
-            "Deploy scope. Defaults to ``system`` so every authenticated "
+            "Deploy scope. Defaults to `system` so every authenticated "
             "user on the daemon (and every chat session) sees the same "
-            "app — that's what you want when iterating on a YAML with "
-            "the dev CLI. Override with ``--scope user`` to deploy a "
+            "app - that's what you want when iterating on a YAML with "
+            "the dev CLI. Override with `--scope user` to deploy a "
             "private copy visible only to your account."
         ),
     ),
 ) -> None:
     """Deploy an app to the daemon for testing.
 
-    ``scope=system`` is the dev-CLI default. The API back-channel in
-    ``apps_v2/lifecycle.py::deploy_app`` accepts ``scope=system`` for
-    any caller with ``apps:deploy`` when the YAML lives inside the
-    daemon's bundled ``builtins/`` tree. For YAMLs outside that tree
-    you need the admin permission ``*`` to push at system scope;
-    otherwise re-run with ``--scope user`` to deploy privately.
+    `scope=system` is the dev-CLI default. The API back-channel in
+    `apps_v2/lifecycle.py::deploy_app` accepts `scope=system` for
+    any caller with `apps:deploy` when the YAML lives inside the
+    daemon's bundled `builtins/` tree. For YAMLs outside that tree
+    you need the admin permission `*` to push at system scope;
+    otherwise re-run with `--scope user` to deploy privately.
     """
     resp = daemon_request(
         "post",
@@ -329,6 +313,7 @@ def chat(
         result = _get_last_response(daemon, app_id, sid)
         content = result.get("content", "")
         tcs = result.get("tool_calls", [])
+        last_err = session_data.get("last_error") if isinstance(session_data, dict) else None
 
         if tcs:
             _print(f"\n  Tools used ({len(tcs)}):", "blue")
@@ -337,6 +322,14 @@ def chat(
         if content:
             _print(f"\nAssistant:", "cyan")
             _print(content)
+        elif last_err:
+            cat = last_err.get("category", "?")
+            code = last_err.get("code", "?")
+            detail = last_err.get("error") or last_err.get("detail") or "unknown error"
+            _print(f"\n  Turn failed [{cat}/{code}]:", "red")
+            _print(f"  {detail}", "red")
+            if last_err.get("retry"):
+                _print("  (retriable - check API key / credits / network, then resend)", "yellow")
         elif not tcs:
             _print("(no response)", "yellow")
 

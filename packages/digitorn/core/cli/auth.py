@@ -1,27 +1,4 @@
-"""``digitorn auth`` — manage CLI authentication via browser-OAuth.
-
-Same UX as ``gh auth login``, ``gcloud auth login``, ``vercel login``:
-the CLI opens your default browser, you authenticate with the Digitorn
-central auth service (``auth.digitorn.ai`` or whatever ``--auth`` points
-to), the auth service redirects back to a localhost HTTP listener that
-captures the token, and the listener closes. No password prompt, no
-copy-paste.
-
-Three commands:
-
-  - ``digitorn auth login`` — start the browser flow, save credentials
-  - ``digitorn auth logout`` — clear local credentials
-  - ``digitorn auth whoami`` — display the current logged-in user
-
-The CLI credentials end up in ``~/.digitorn/credentials.json`` (same
-file ``daemon_request`` from ``auth_helpers.py`` reads), so once you
-``auth login`` every other CLI command (``dev``, ``hub``, ``credentials``,
-…) authenticates transparently.
-
-The OAuth browser-bounce primitives are shared with ``install-local``
-(see ``install.py``); this module just wraps them with a more ergonomic
-top-level command + adds the whoami/logout management commands.
-"""
+"""`digitorn auth` - manage CLI authentication via browser-OAuth."""
 
 from __future__ import annotations
 
@@ -46,15 +23,8 @@ from digitorn.core.cli.install import (
 
 console = Console()
 
-# Default central auth URL. Overrideable via ``--auth``. The production
-# default points at the public auth service; local dev users pass
-# ``--auth http://127.0.0.1:8001`` (or whatever their local auth
-# instance listens on).
 DEFAULT_AUTH_URL = "https://auth.digitorn.ai"
 
-# Same file ``auth_helpers.py`` uses to read tokens. Keeping the path in
-# sync means a successful ``auth login`` immediately authenticates every
-# other CLI command.
 _CREDENTIALS_PATH = Path.home() / ".digitorn" / "credentials.json"
 
 
@@ -63,9 +33,6 @@ auth_cli = typer.Typer(
     help="Authenticate the CLI against the Digitorn central auth service.",
     no_args_is_help=True,
 )
-
-
-# ── Commands ───────────────────────────────────────────────────────
 
 
 @auth_cli.command("login")
@@ -102,11 +69,11 @@ def login_cmd(
     """Open the browser, authenticate against the central auth service.
 
     The auth service bounces the access token back to a localhost HTTP
-    listener; we capture it, store it in ``~/.digitorn/credentials.json``,
+    listener; we capture it, store it in `~/.digitorn/credentials.json`,
     and every subsequent CLI command authenticates with that token.
 
-    Defaults to Google OAuth; use ``--provider microsoft`` or
-    ``--provider azure`` for the other supported flows.
+    Defaults to Google OAuth; use `--provider microsoft` or
+    `--provider azure` for the other supported flows.
     """
     if _CREDENTIALS_PATH.exists() and not force:
         existing = _load_credentials()
@@ -141,12 +108,7 @@ def login_cmd(
 
 @auth_cli.command("logout")
 def logout_cmd() -> None:
-    """Clear the locally stored CLI credentials.
-
-    The token on the auth service is NOT revoked — only the local copy
-    is removed. To fully revoke, also visit the auth service's session
-    management UI.
-    """
+    """Clear the locally stored CLI credentials."""
     if not _CREDENTIALS_PATH.exists():
         console.print("[yellow]No credentials to clear.[/yellow]")
         raise typer.Exit(0)
@@ -186,18 +148,8 @@ def whoami_cmd() -> None:
     console.print(table)
 
 
-# ── OAuth browser flow ─────────────────────────────────────────────
-
-
 def _browser_oauth(auth_url: str, provider: str, timeout: int) -> dict[str, str]:
-    """Open the browser, capture the full OAuth callback state.
-
-    Returns the dict captured from the callback URL (access_token,
-    refresh_token, expires_in, provider, ...). The shared helpers
-    from ``install.py`` handle the listener + HTML pages. We just
-    wrap them and surface the full state instead of only the access
-    token (which is what ``_login_via_oauth`` returns).
-    """
+    """Open the browser, capture the full OAuth callback state."""
     callback_port = _find_free_port()
     callback_url = f"http://127.0.0.1:{callback_port}/oauth-callback"
     bounce_param = urllib.parse.quote(callback_url, safe="")
@@ -226,17 +178,8 @@ def _browser_oauth(auth_url: str, provider: str, timeout: int) -> dict[str, str]
     return state
 
 
-# ── Credentials persistence ────────────────────────────────────────
-
-
 def _build_credentials(auth_url: str, oauth_state: dict[str, str]) -> dict[str, Any]:
-    """Assemble the credentials dict from the OAuth callback state.
-
-    Decodes the JWT payload (no signature check) to pull user_id +
-    email + name for display purposes. The signature verification
-    happens server-side on every request; the client only needs the
-    raw token bytes.
-    """
+    """Assemble the credentials dict from the OAuth callback state."""
     access_token = oauth_state["access_token"]
     creds: dict[str, Any] = {
         "access_token": access_token,
@@ -255,10 +198,6 @@ def _build_credentials(auth_url: str, oauth_state: dict[str, str]) -> dict[str, 
     if provider:
         creds["provider"] = provider
 
-    # Pull user identity out of the JWT for whoami + UX. JWT format is
-    # ``header.payload.signature``; payload is base64url-encoded JSON
-    # without padding. No signature check here -- server-side verifies
-    # on every request.
     try:
         parts = access_token.split(".")
         if len(parts) >= 2:
@@ -274,12 +213,7 @@ def _build_credentials(auth_url: str, oauth_state: dict[str, str]) -> dict[str, 
 
 
 def _save_credentials(data: dict[str, Any]) -> None:
-    """Persist credentials with restrictive permissions from creation.
-
-    Uses ``os.open(O_CREAT, mode=0o600)`` so the file is never world-
-    readable, even momentarily. Mirrors the pattern in
-    ``auth_helpers._save_credentials``.
-    """
+    """Persist credentials with restrictive permissions from creation."""
     _CREDENTIALS_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(data, indent=2).encode("utf-8")
     fd = os.open(

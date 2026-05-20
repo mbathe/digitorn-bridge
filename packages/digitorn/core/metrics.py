@@ -1,10 +1,10 @@
 """In-process metrics collector for Digitorn daemon.
 
 Collects counters, gauges, and histograms without external dependencies.
-Exposes ``/api/metrics`` as JSON for dashboards and alerting.
+Exposes `/api/metrics` as JSON for dashboards and alerting.
 
 Optional Prometheus exposition is handled separately via a thin adapter
-if ``prometheus_client`` is installed.
+if `prometheus_client` is installed.
 
 Usage::
 

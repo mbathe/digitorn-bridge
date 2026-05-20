@@ -1,19 +1,4 @@
-"""Digitorn - Requirements API routes.
-
-    GET  /api/requires                     List all module requirements with status
-    POST /api/requires/install             Install a specific requirement (background)
-    POST /api/requires/install-all         Install all missing requirements (background)
-    GET  /api/requires/jobs                List install jobs
-    GET  /api/requires/jobs/{job_id}       Poll a single install job
-    POST /api/requires/jobs/{job_id}/cancel  Cancel a pending/running job
-
-**Non-blocking guarantee**: install calls return ``202 Accepted``
-immediately with a ``job_id``. The actual ``pip install`` (or npm /
-go / cargo / …) runs in an asyncio task wrapping a subprocess. The
-daemon's event loop is NEVER blocked by a package manager - a
-previous implementation ran the work inside the request handler and
-timed out on clients after ~15 seconds for any non-trivial install.
-"""
+"""Digitorn - Requirements API routes."""
 
 from __future__ import annotations
 
@@ -37,18 +22,9 @@ class InstallRequest(BaseModel):
     name: str
 
 
-# ── Background job registry ──────────────────────────────────────────
-
-
 @dataclass
 class InstallJob:
-    """In-memory record of an install job.
-
-    Jobs are retained for ``_JOB_RETENTION_SECONDS`` after they finish
-    so clients that disconnect and come back can still read the
-    result. After that window they're garbage-collected by
-    :func:`_gc_jobs`.
-    """
+    """In-memory record of an install job."""
 
     job_id: str
     kind: str                  # "single" | "all"
@@ -87,7 +63,6 @@ _JOB_RETENTION_SECONDS = 3600  # keep finished jobs for 1 h
 
 
 def _gc_jobs() -> None:
-    """Drop finished jobs older than the retention window."""
     now = time.monotonic()
     stale = [
         jid for jid, j in _install_jobs.items()
@@ -95,9 +70,6 @@ def _gc_jobs() -> None:
     ]
     for jid in stale:
         _install_jobs.pop(jid, None)
-
-
-# ── Inventory ────────────────────────────────────────────────────────
 
 
 @router.get("")
@@ -128,13 +100,8 @@ async def list_requirements() -> dict[str, Any]:
     }
 
 
-# ── Async install drivers ───────────────────────────────────────────
-
-
 async def _run_single_install(job: InstallJob) -> None:
-    """Execute ``install_requirement`` for one target and record the
-    outcome on ``job``. Runs inside an ``asyncio.Task`` - never on the
-    request path."""
+    """Execute `install_requirement` for one target and record the"""
     from digitorn.core.requirements import (
         scan_all_requirements, install_requirement,
     )
@@ -178,9 +145,7 @@ async def _run_single_install(job: InstallJob) -> None:
 
 
 async def _run_all_install(job: InstallJob) -> None:
-    """Install every missing requirement, streaming progress into
-    ``job.results`` after each one so the client can poll and see
-    partial progress."""
+    """Install every missing requirement, streaming progress into"""
     from digitorn.core.requirements import (
         scan_all_requirements, install_requirement,
     )
@@ -220,7 +185,6 @@ async def _run_all_install(job: InstallJob) -> None:
 
 
 def _enqueue(kind: str, target: str, coro_factory) -> InstallJob:
-    """Register a new job and spawn its background task."""
     _gc_jobs()
     job = InstallJob(
         job_id=f"inst-{uuid.uuid4().hex[:12]}",
@@ -241,18 +205,9 @@ def _enqueue(kind: str, target: str, coro_factory) -> InstallJob:
     return job
 
 
-# ── Routes ────────────────────────────────────────────────────────────
-
-
 @router.post("/install", status_code=202)
 async def install_requirement_bg(body: InstallRequest) -> dict[str, Any]:
-    """Install a specific requirement **in the background**.
-
-    Returns 202 immediately with a ``job_id``. Poll
-    ``GET /api/requires/jobs/{job_id}`` for progress and the final
-    result. The daemon event loop is never blocked by a package
-    manager invocation.
-    """
+    """Install a specific requirement **in the background**."""
     job = _enqueue("single", body.name, _run_single_install)
     return {
         "accepted": True,
@@ -265,13 +220,7 @@ async def install_requirement_bg(body: InstallRequest) -> dict[str, Any]:
 
 @router.post("/install-all", status_code=202)
 async def install_all_missing_bg() -> dict[str, Any]:
-    """Install every missing requirement **in the background**.
-
-    Returns 202 immediately with a ``job_id``. Poll
-    ``GET /api/requires/jobs/{job_id}`` for incremental progress:
-    ``progress.done`` counts completed requirements, ``results`` grows
-    as each install finishes.
-    """
+    """Install every missing requirement **in the background**."""
     job = _enqueue("all", "", _run_all_install)
     return {
         "accepted": True,

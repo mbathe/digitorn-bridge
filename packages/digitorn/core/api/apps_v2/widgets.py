@@ -1,8 +1,4 @@
-"""Routes for the widgets group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the widgets group, extracted from the legacy `apps.py`."""
 
 from __future__ import annotations
 
@@ -105,15 +101,9 @@ from ._shared import (
 router = APIRouter(tags=["apps"])
 
 
-
 @router.get("/{app_id}/widgets")
 async def get_widgets(request: Request, app_id: str):
-    """Return the app's compiled widgets tree.
-
-    Flutter calls this once on app open to render Z2 (chat_side) and
-    Z3 (workspace_tabs). Z1 (inline) and Z4 (modals) are addressable
-    by name via SSE / open_modal actions.
-    """
+    """Return the app's compiled widgets tree."""
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     if not deployed:
@@ -128,34 +118,7 @@ async def get_widget_data(
     app_id: str,
     binding: str,
 ):
-    """Resolve and return one named data binding from the app's widgets.
-
-    The widget tree references data via ``items: '{{sources}}'`` etc.
-    Each name maps to an entry under the zone's ``data:`` block:
-
-    .. code-block:: yaml
-
-        widgets:
-          chat_side:
-            data:
-              sources:
-                type: http
-                url: /rag/sources
-                poll: 10s
-
-    The client calls ``GET /api/apps/{id}/widgets/data/sources`` to
-    hydrate the binding. Supported source types:
-
-    - ``http``    - HTTP request (relative to daemon, app-scoped)
-    - ``tool``    - invoke a module action with args
-    - ``static``  - return the value verbatim
-    - ``stream``  - opens an SSE stream (delegated to the SSE route;
-                    this endpoint just returns a placeholder)
-    - ``local``   - client-side only, returns the default value
-
-    Query params (any) are forwarded to HTTP source requests as the
-    request query string, and to tool source as additional args.
-    """
+    """Resolve and return one named data binding from the app's widgets."""
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     if not deployed:
@@ -254,10 +217,6 @@ async def get_widget_data(
             )
 
     if source_type == "stream":
-        # Initial snapshot: try to fetch once via HTTP if a URL is
-        # provided so the client has data to render before the SSE
-        # stream warms up. The actual stream lives at
-        # /widgets/data/{binding}/stream below.
         url = data_spec.get("url") or ""
         snapshot: Any = None
         if url:
@@ -290,24 +249,7 @@ async def stream_widget_data(
     app_id: str,
     binding: str,
 ):
-    """SSE bridge for ``type: stream`` data sources.
-
-    The widget's ``data: { live_metrics: { type: stream, url: ... } }``
-    block declares an upstream URL serving SSE. The daemon proxies
-    each frame to the client so the dashboard updates live without
-    a full re-fetch.
-
-    Two upstream contracts are supported:
-
-    1. **SSE upstream** - the URL serves ``text/event-stream``. The
-       daemon parses ``data:`` lines and forwards them.
-    2. **HTTP poll upstream** - the URL serves JSON. The daemon
-       polls every ``poll`` seconds (from the data spec) and emits
-       a frame per response.
-
-    Reducer hint (``replace`` / ``append`` / ``merge``) is sent in
-    the first frame so the client knows how to integrate updates.
-    """
+    """SSE bridge for `type: stream` data sources."""
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     if not deployed:
@@ -420,10 +362,7 @@ async def widgets_download(
     file_id: str,
     filename: str,
 ):
-    """Serve a previously uploaded file back to the client.
-
-    Per-user scoped: only the owning user (or admin) can read it.
-    """
+    """Serve a previously uploaded file back to the client."""
     _validate_id(app_id)
     caller = getattr(request.state, "user_id", None) or "local"
     perms = list(getattr(request.state, "permissions", []) or [])
@@ -444,11 +383,7 @@ async def widgets_download(
 
 @router.get("/{app_id}/widgets/validate")
 async def validate_widgets(request: Request, app_id: str):
-    """Lint endpoint - recompiles the widgets block and returns errors.
-
-    Used by the builder UI for live validation. Read-only - does not
-    redeploy the app.
-    """
+    """Lint endpoint - recompiles the widgets block and returns errors."""
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     if not deployed:
@@ -470,22 +405,7 @@ async def widgets_action(
     app_id: str,
     body: WidgetActionRequest,
 ):
-    """Dispatch a user widget action.
-
-    Action handling matrix:
-
-    - ``tool``        → run the named tool through the agent loop
-    - ``http``        → execute an app-scoped HTTP call
-    - ``chat``        → inject the message into the session as a user turn
-    - ``set_state``   → mutate the per-session widget state map
-    - ``refresh``     → re-fetch the listed data bindings
-    - ``sequence``    → run multiple steps inside a single dispatch
-    - ``close`` / ``open_modal`` / ``open_workspace`` → effect echo
-      (the client handles the UI side; this just ACKs)
-
-    The route returns ``{ok, effect}`` so the client can chain
-    follow-up actions (toast, refresh, navigation, …).
-    """
+    """Dispatch a user widget action."""
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     if not deployed:
@@ -495,13 +415,6 @@ async def widgets_action(
     payload = body.payload or {}
     effect: dict[str, Any] | None = None
 
-    # ── Server-side form re-validation ────────────────────────────
-    # The Flutter client validates locally before letting the user
-    # submit, but a malicious / buggy client can bypass that. We
-    # re-run the same rules (required, regex, min, max, type_hint)
-    # against the submitted body.form values and reject 400 with
-    # structured field-level errors if any fail. This is the bare
-    # minimum needed for production multi-tenant safety.
     if body.form:
         from digitorn.modules.widget.validate import (
             collect_form_inputs, validate_form_values,
@@ -519,13 +432,6 @@ async def widgets_action(
                     },
                 )
 
-    # ── Auto-promote form values to per-session widget state ──────
-    # Whatever the user submits via a widget form is persisted in
-    # the widget module's session state so the agent can read it
-    # back on the next turn (via {{widget.state.X}} or via the
-    # WIDGET section in the system prompt). This makes form fields
-    # behave as first-class session variables - exactly what the
-    # spec expects ("see each widget value as a variable").
     if body.form and hasattr(deployed, "modules"):
         widget_mod = deployed.modules.get("widget")
         if widget_mod is not None:
@@ -539,25 +445,9 @@ async def widgets_action(
             sess.state["last_form"] = dict(body.form)
 
     if action_type == "tool":
-        # Route through the deployed app's agent loop. We don't run a
-        # full chat turn - just execute the tool directly with the
-        # provided args. This mirrors the existing /interact pattern.
         tool = payload.get("tool")
         args = dict(payload.get("args") or {})
 
-        # ── Form auto-merge into args ─────────────────────────
-        # When a button/submit inside a ``form`` widget triggers a
-        # ``tool`` action, the spec lets the YAML reference form
-        # values via ``args: { topic: "{{form.topic}}" }``. The
-        # Flutter client substitutes ``{{form.X}}`` into the args
-        # before POSTing, so they normally arrive already populated.
-        #
-        # However, for the common case where the YAML omits the
-        # explicit args mapping (``submit: { action: { action: tool,
-        # tool: create_meeting } }``), we automatically fold the
-        # form fields into args here so the tool sees them. This
-        # makes the simplest YAML "just work" without forcing users
-        # to template every field by hand.
         if body.form:
             for k, v in body.form.items():
                 args.setdefault(k, v)
@@ -573,12 +463,6 @@ async def widgets_action(
             )
             effect = {"action": "tool_result", "tool": tool, "result": result}
 
-            # ── Auto-store tool results in widget state ──────
-            # The next agent turn can read this via
-            # {{widget.state.results.<tool>}} or just
-            # {{widget.state.last_result}}. Without this, every
-            # widget-triggered tool call would be invisible to
-            # the conversation that follows.
             if hasattr(deployed, "modules"):
                 widget_mod = deployed.modules.get("widget")
                 if widget_mod is not None:
@@ -596,9 +480,6 @@ async def widgets_action(
             )
 
     elif action_type == "http":
-        # Scoped HTTP call relative to the daemon. The client could
-        # do this directly, but routing through the daemon means the
-        # call inherits the user's auth + the app's network grants.
         method = (payload.get("method") or "GET").upper()
         url = payload.get("url") or ""
         body_data = payload.get("body")
@@ -642,9 +523,6 @@ async def widgets_action(
         effect = {"action": "set_state_ok", "state": dict(sess.state)}
 
     elif action_type == "refresh":
-        # We acknowledge - the client re-fetches the bindings on its
-        # own via /widgets/data/<binding>. (Server-side caches don't
-        # exist yet for v1.)
         effect = {
             "action": "refresh",
             "bindings": payload.get("bindings", []),
@@ -655,9 +533,6 @@ async def widgets_action(
         results: list[Any] = []
         for step in steps:
             try:
-                # Recurse via the same handler by spoofing a request.
-                # In practice a sequence is rare and small; we just
-                # echo the steps so the client can run them.
                 results.append({"action": step.get("action"), "ack": True})
             except Exception as exc:
                 results.append({"error": str(exc)})
@@ -666,10 +541,6 @@ async def widgets_action(
         effect = {"action": "sequence_result", "steps": results}
 
     elif action_type == "open_workspace":
-        # Ephemeral workspace tabs are stored server-side as mounted
-        # widgets in the per-session store, so the snapshot returned
-        # by /widgets and Socket.IO widget events includes them. The client
-        # then renders the new tab next to its declared workspace_tabs.
         effect = {"action": "open_workspace", **payload}
         if isinstance(payload.get("ephemeral"), dict):
             sess_id = body.session_id or "_default_"
@@ -716,19 +587,7 @@ async def widgets_upload(
     session_id: str | None = Form(default=None),
     binding: str | None = Form(default=None),
 ):
-    """Generic multipart upload endpoint for ``file_upload`` widgets.
-
-    Stores the file under
-    ``~/.local/share/digitorn/uploads/{user_id}/{session_id}/{file_id}/{filename}``
-    and returns a ``{file_id, url, size, content_type}`` payload the
-    client can echo into the form value (so the next form submission
-    references the uploaded file by id, not by content).
-
-    Apps that need custom upload handling (validation, virus scan,
-    indexing) can provide their own ``upload_to.url`` in the
-    ``file_upload`` primitive - the daemon only handles the generic
-    case when no custom URL is set.
-    """
+    """Generic multipart upload endpoint for `file_upload` widgets."""
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     if not deployed:
@@ -781,14 +640,7 @@ async def widgets_upload(
 
 @router.post("/{app_id}/interact", response_model=AppResponse)
 async def interact_widget(request: Request, app_id: str, body: InteractRequest) -> AppResponse:
-    """Handle a bidirectional widget interaction from the frontend.
-
-    Routes the action to the module that owns the widget via the service bus.
-    The module processes the action and can update state, which triggers
-    SSE events back to the frontend for live UI updates.
-
-    The module must implement a `widget_interact(widget, action, state)` method.
-    """
+    """Handle a bidirectional widget interaction from the frontend."""
     _validate_id(app_id)
     manager = _get_manager(request)
     deployed = _get_deployed(request, app_id)

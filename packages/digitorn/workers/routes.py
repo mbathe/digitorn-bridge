@@ -1,23 +1,4 @@
-"""FastAPI routes mounted by the worker app.
-
-Three endpoints (plus the standard ``/health``):
-
-  * ``POST /tool/{module}/{action}`` -- unary action call. Body:
-    ``{"args": {...}, "ctx": {...}}``. Response: serialised
-    ``ActionResult`` payload (success / error / data / metadata).
-
-  * ``POST /stream/{module}/{action}`` -- streaming action (LLM
-    chat_stream, file_extract on big PDFs, ...). Response: NDJSON
-    chunked stream; the client parses one JSON object per line.
-
-  * ``GET /modules`` -- introspection: which modules and actions
-    this worker hosts. Used by the supervisor and the routing
-    table healthchecks.
-
-Phase 1 status: routes return placeholder responses so the FastAPI
-app boots cleanly. The actual module dispatch happens in Phase 2
-once we agree on how AgentContext is serialised across the boundary.
-"""
+"""FastAPI routes mounted by the worker app."""
 from __future__ import annotations
 
 import asyncio
@@ -33,23 +14,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-
 def _require_auth(authorization: str | None, expected_secret: str) -> None:
-    """Constant-time check of the shared secret. The worker binds to
-    127.0.0.1 by default so the loopback restriction is the primary
-    defense; the bearer check is defense-in-depth against another
-    local process on the same machine.
-    """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="missing bearer")
     token = authorization.removeprefix("Bearer ").strip()
-    # NB: this is a string equality, not constant-time. The worker is
-    # loopback-only, the secret is 32 random bytes -- a timing attack
-    # would need millions of trips. Keep it simple for now; switch to
-    # ``hmac.compare_digest`` if we ever expose workers over network.
+    # String equality is fine: workers are loopback-only with a
+    # 32-byte secret. Switch to `hmac.compare_digest` for network exposure.
     if token != expected_secret:
         raise HTTPException(status_code=401, detail="bad bearer")
-
 
 @router.post("/tool/{module}/{action}")
 async def call_tool(
@@ -58,25 +30,7 @@ async def call_tool(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> Response:
-    """Forward a unary action call to the locally-hosted module.
-
-    Dispatch path (mirrors the daemon's tool_exec):
-      1. Auth check (Bearer shared secret).
-      2. Lookup the module in ``app.state.modules`` (populated by the
-         lifespan loader).
-      3. Reconstruct an ``ExecutionContext`` from the ``ctx`` envelope
-         the daemon sent (plan_id, action_id, security_profile,
-         session_id, user_id, workspace, ...).
-      4. ``await module.execute(action, args, context=ec)`` -- the
-         same entry point the daemon uses. Pydantic validation,
-         security gates, and cache logic run inside ``execute``.
-      5. Serialise the result (``ActionResult`` dataclass, dict, or
-         arbitrary value) into JSON for the wire.
-
-    Any exception is caught and returned as a JSON-payload error
-    with HTTP 200 -- the proxy on the daemon side expects
-    ActionResult-shaped responses, not HTTP errors.
-    """
+    """Forward a unary action call to the locally-hosted module."""
     state = request.app.state
     _require_auth(authorization, state.shared_secret)
 
@@ -150,21 +104,13 @@ async def call_tool(
             media_type="application/json",
         )
 
-    # Normalise the response to a JSON-safe dict. ActionResult
-    # dataclass -> .to_dict; Pydantic model -> .model_dump; bare
-    # value -> wrap in success envelope so the daemon side always
-    # sees a consistent shape.
     payload = _result_to_payload(result)
     return Response(
         content=dumps(payload),
         media_type="application/json",
     )
 
-
 def _result_to_payload(result: Any) -> dict[str, Any]:
-    """Convert any ``module.execute(...)`` return value to a JSON-
-    serialisable dict the daemon-side proxy can consume.
-    """
     if result is None:
         return {"success": True, "data": None}
     if isinstance(result, dict):
@@ -177,8 +123,8 @@ def _result_to_payload(result: Any) -> dict[str, Any]:
             converted = result.to_dict()
             if isinstance(converted, dict):
                 return converted
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("routes best-effort block failed: %s", exc)
     # Pydantic v2 model
     if hasattr(result, "model_dump") and callable(
         getattr(result, "model_dump", None),
@@ -187,8 +133,8 @@ def _result_to_payload(result: Any) -> dict[str, Any]:
             converted = result.model_dump(mode="python")
             if isinstance(converted, dict):
                 return converted
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("routes best-effort block failed: %s", exc)
     # Dataclass fallback
     try:
         import dataclasses
@@ -196,10 +142,9 @@ def _result_to_payload(result: Any) -> dict[str, Any]:
             result, type,
         ):
             return dataclasses.asdict(result)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("routes best-effort block failed: %s", exc)
     return {"success": True, "data": result}
-
 
 @router.post("/stream/{module}/{action}")
 async def stream_tool(
@@ -208,18 +153,7 @@ async def stream_tool(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> StreamingResponse:
-    """NDJSON-framed streaming action. One JSON object per line.
-
-    Currently supports:
-
-    * ``/stream/llm_provider/chat_stream`` -- forwards anthropic / openai
-      SDK chunks to the daemon-side proxy as NDJSON. Each chunk is a
-      ``StreamChunk`` serialised as ``{delta, finish_reason, usage,
-      tool_calls, thinking}``. The proxy rehydrates these into real
-      ``StreamChunk`` dataclass instances on the daemon side.
-
-    Other modules: returns a 404 (no other streaming action wired yet).
-    """
+    """NDJSON-framed streaming action. One JSON object per line."""
     state = request.app.state
     _require_auth(authorization, state.shared_secret)
 
@@ -251,26 +185,11 @@ async def stream_tool(
         detail=f"no streaming handler for {module}/{action}",
     )
 
-
-# ── LLM provider streaming dispatch ──────────────────────────────
-
-
 async def _llm_chat_stream(
     state: Any,
     args: dict[str, Any],
     ctx: dict[str, Any],
 ):
-    """Async generator yielding NDJSON lines for one ``chat_stream``
-    call. Lazily configures the provider from ``brain_config`` if it
-    isn't already in the worker's ``_providers`` dict.
-
-    Failure modes are surfaced as a special ``{"__error__": true, ...}``
-    JSON line so the daemon-side proxy can rehydrate the exception
-    type and re-raise into the agent loop's existing retry path. We
-    never raise OUT of this generator -- a raised exception in a
-    StreamingResponse generator yields a corrupted half-stream that
-    httpx on the daemon side can't decode cleanly.
-    """
     try:
         module_instance = state.modules.get("llm_provider")
         if module_instance is None:
@@ -290,17 +209,9 @@ async def _llm_chat_stream(
             }) + "\n"
             return
 
-        # Lazy provider creation + credential-freshness check.
-        #
-        # The worker keeps a hot cache in ``module_instance._providers``
-        # so subsequent calls reuse the SDK client. BUT the daemon
-        # hot-swaps the original provider's ``api_key`` and
-        # ``base_url`` per session via ``inject_session_time``
-        # (BYOK keys, gateway session tokens, gateway URL). The
-        # daemon-side proxy reads these LIVE on every call and ships
-        # them in ``brain_config`` -- so the worker must detect when
-        # the incoming credentials differ from the cached provider's
-        # and rebuild before re-using.
+        # Lazy provider creation + credential-freshness check: the
+        # daemon hot-swaps api_key / base_url per session, so the
+        # worker rebuilds when the incoming creds differ from cache.
         brain_config = args.get("brain_config") or {}
         provider = module_instance._providers.get(provider_id)
 
@@ -362,10 +273,6 @@ async def _llm_chat_stream(
             }) + "\n"
             return
 
-        # Rebuild ChatMessage dataclasses from the wire dicts -- the
-        # SDK backends index attributes via getattr but the type hint
-        # in ``BaseLLMProvider.chat_stream`` is ``list[ChatMessage]``;
-        # keep the contract clean.
         from digitorn.modules.llm_provider.providers.base import (
             ChatMessage,
         )
@@ -386,13 +293,8 @@ async def _llm_chat_stream(
         tools = args.get("tools") or None
         gen_params = args.get("gen_params") or {}
 
-        # Restore the daemon-side RequestContext in this worker's
-        # ContextVar. The live provider (e.g. gateway-routed
-        # OpenAICompatProvider with ``api_key = "{{user.jwt}}"``) reads
-        # this at HTTP-request time to substitute the real bearer and
-        # the X-Digitorn-* identity headers. Without restoring it here
-        # the worker would send the placeholder string literally and
-        # the gateway would reject the bearer as a malformed JWT.
+        # Restore the daemon RequestContext on this worker's contextvar
+        # so the provider can substitute the real bearer + identity headers.
         rc_token = _restore_request_context(args.get("request_ctx"))
 
         try:
@@ -430,13 +332,7 @@ async def _llm_chat_stream(
             "error": str(exc) or repr(exc),
         }) + "\n"
 
-
 def _chunk_to_dict(chunk: Any) -> dict[str, Any]:
-    """Serialise a ``StreamChunk`` (or duck-typed equivalent) to the
-    JSON dict the daemon-side proxy expects. Robust to slight shape
-    variations -- providers occasionally extend chunks with extra
-    fields (e.g. OpenAI-compat's per-chunk ``tool_call`` singular).
-    """
     out: dict[str, Any] = {
         "delta": getattr(chunk, "delta", "") or "",
     }
@@ -464,25 +360,15 @@ def _chunk_to_dict(chunk: Any) -> dict[str, Any]:
     thinking = getattr(chunk, "thinking", None)
     if thinking:
         out["thinking"] = thinking
-    # OpenAI-compat per-chunk ``tool_call`` singular -- some chunks
+    # OpenAI-compat per-chunk `tool_call` singular -- some chunks
     # carry partial tool-call deltas this way (see
-    # ``openai_compat.py`` line 1391-1411 cited in the audit).
+    # `openai_compat.py` line 1391-1411 cited in the audit).
     tool_call = getattr(chunk, "tool_call", None)
     if tool_call:
         out["tool_call"] = tool_call
     return out
 
-
 def _restore_request_context(rc_dict: Any) -> Any:
-    """Rebuild a ``RequestContext`` from the dict the daemon-side proxy
-    captured via ``_snapshot_request_context``, and push it onto this
-    worker's ContextVar. Returns the reset token (or ``None`` when no
-    context was sent / restore fails).
-
-    Failure modes are silent on purpose: a missing context is the
-    expected shape for CLI / healthcheck callers; the live provider
-    falls through to its non-gateway path.
-    """
     if not isinstance(rc_dict, dict):
         return None
     try:
@@ -502,11 +388,7 @@ def _restore_request_context(rc_dict: Any) -> Any:
         logger.debug("worker_request_ctx_restore_failed: %s", exc)
         return None
 
-
 def _reset_request_context(token: Any) -> None:
-    """Restore the previous ContextVar value, swallowing token-cross-
-    loop errors that can occur when ``StreamingResponse`` switches
-    coroutines under us."""
     if token is None:
         return
     try:
@@ -517,12 +399,9 @@ def _reset_request_context(token: Any) -> None:
     except Exception as exc:
         logger.debug("worker_request_ctx_reset_failed: %s", exc)
 
-
 @router.get("/modules")
 async def list_modules(request: Request) -> dict[str, Any]:
-    """Public (no-auth) introspection. The supervisor uses it to
-    confirm a worker hosts what its config says it should.
-    """
+    """Public (no-auth) introspection. The supervisor uses it."""
     state = request.app.state
     return {
         "worker_id": getattr(state, "worker_id", "unknown"),
@@ -530,32 +409,13 @@ async def list_modules(request: Request) -> dict[str, Any]:
         "phase": getattr(state, "phase", "1-skeleton"),
     }
 
-
 @router.post("/admin/config/{module}")
 async def push_config(
     module: str,
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> Response:
-    """Apply a per-app ``module.config`` block on a workered module.
-
-    Called by the daemon side immediately after
-    ``wrap_module_for_worker`` so the worker's module instance can
-    register protocol handlers / servers / backends that the YAML
-    declared. Without this, the per-app config is silently dropped
-    because the worker's lifespan only calls ``on_start()`` -- it
-    has no app context at boot.
-
-    Body: ``{"config": {...}}``. Returns
-    ``{"success": bool, "error": "..." | null}`` -- HTTP 200 on
-    *transport* success regardless of module outcome, mirroring
-    the unary tool route's convention.
-
-    Idempotent: if the same config is replayed (hot-reload, daemon
-    restart), the module's ``on_config_update`` runs again -- each
-    workered module is expected to be idempotent (rag / lsp already
-    are; they close stale backends / re-register protocols cleanly).
-    """
+    """Apply a per-app `module.config` block on a workered module."""
     state = request.app.state
     _require_auth(authorization, state.shared_secret)
     body = await request.json()
@@ -585,10 +445,7 @@ async def push_config(
         module, app_id, sorted(config.keys()),
     )
     try:
-        # Forward ``app_id`` when the module's signature accepts it.
-        # Modules that opt into per-app state (like LSP) use this to
-        # key their internal protocol / server maps; modules that
-        # don't keep their existing signature and we omit the kwarg.
+        # Forward `app_id` only when the module accepts it.
         import inspect as _inspect
         sig = _inspect.signature(module_instance.on_config_update)
         if app_id is not None and "app_id" in sig.parameters:
@@ -615,13 +472,9 @@ async def push_config(
         media_type="application/json",
     )
 
-
 @router.get("/health")
 async def health(request: Request) -> dict[str, Any]:
-    """Always returns 200 with a small JSON status. The supervisor
-    polls this; clients (proxies) call it on startup to discover
-    capabilities.
-    """
+    """Always returns 200 with a small JSON status. The supervisor."""
     state = request.app.state
     import time as _time
     return {

@@ -1,18 +1,4 @@
-"""CLI commands for the AppPackages system.
-
-    digitorn package install <path-or-uri>      - Install a package
-    digitorn package uninstall <id>             - Remove a package
-    digitorn package list                       - List installed packages
-    digitorn package init <yaml-path>           - Scaffold package.toml from an app.yaml
-    digitorn package validate <path>            - Compile + manifest check
-    digitorn package bundle <path> -o <file>    - Make a .dtpkg archive
-    digitorn package upgrade <id> <new-uri>     - Upgrade an installed package
-
-The install / uninstall / list / upgrade commands talk to a running
-daemon via the standard ``daemon_request`` helper. The init / validate
-/ bundle commands work **offline** - they read files from disk
-without needing the daemon.
-"""
+"""CLI commands for the AppPackages system."""
 
 from __future__ import annotations
 
@@ -40,9 +26,7 @@ package_cli = typer.Typer(
 _DEFAULT_DAEMON = "http://127.0.0.1:8000"
 
 
-# ────────────────────────────────────────────────────────────────────
 # Online commands - talk to the daemon
-# ────────────────────────────────────────────────────────────────────
 
 
 @package_cli.command(name="list")
@@ -119,7 +103,7 @@ def install_package(
 ) -> None:
     """Install a package from a local directory or remote source.
 
-    Without ``--yes``, the daemon returns the requested permissions
+    Without `--yes`, the daemon returns the requested permissions
     and we display them in a confirmation dialog. The user must
     type 'yes' to proceed.
     """
@@ -293,9 +277,7 @@ def upgrade_package(
     )
 
 
-# ────────────────────────────────────────────────────────────────────
 # Offline commands - work on local files without the daemon
-# ────────────────────────────────────────────────────────────────────
 
 
 @package_cli.command(name="init")
@@ -707,10 +689,10 @@ def new_package(
 ) -> None:
     """Scaffold a new Digitorn app bundle from a template.
 
-    Creates a directory with ``package.toml``, ``app.yaml``,
-    ``prompts/``, ``skills/``, ``assets/``, and ``README.md``
+    Creates a directory with `package.toml`, `app.yaml`,
+    `prompts/`, `skills/`, `assets/`, and `README.md`
     pre-filled based on the chosen template. The result is
-    ready to ``digitorn app deploy``.
+    ready to `digitorn app deploy`.
 
     Templates::
 
@@ -771,9 +753,6 @@ def new_package(
             # Template has a field we didn't supply - write as-is
             file_path.write_text(content, encoding="utf-8")
 
-    # Placeholder icon - a 1x1 transparent PNG so {{asset.icon}}
-    # resolves during the first compile. User can replace with
-    # their real icon later.
     _write_placeholder_icon(target / "assets" / "icon.png")
 
     # Write package.toml
@@ -821,9 +800,7 @@ def _validate_kebab(s: str) -> bool:
 
 
 def _write_placeholder_icon(path: Path) -> None:
-    """Write a 1x1 transparent PNG - avoids shipping binary blobs
-    in the source tree while still giving the user a valid icon
-    file on disk from day one."""
+    """Write a 1x1 transparent PNG - avoids shipping binary blobs"""
     import base64
     # 1x1 transparent PNG, base64-encoded
     png_b64 = (
@@ -949,18 +926,11 @@ def bundle_package(
     )
 
 
-# ────────────────────────────────────────────────────────────────────
 # Helpers
-# ────────────────────────────────────────────────────────────────────
 
 
 def _packages_root() -> Path:
-    """Locate the digitorn ``packages/`` directory (where the wheel installs to).
-
-    Used by offline commands that need to import ``digitorn.core.packages``
-    without a running daemon. In editable mode this is the repo's
-    ``packages/`` directory; in production it's the site-packages.
-    """
+    """Locate the digitorn `packages/` directory (where the wheel installs to)."""
     # Resolve from this file's location: <root>/packages/digitorn/core/cli/package.py
     here = Path(__file__).resolve()
     # 5 parents up: cli → core → digitorn → packages → <root>

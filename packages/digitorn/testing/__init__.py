@@ -2,17 +2,17 @@
 
 THIS IS NOT WHERE YOU ADD TESTS.
 
-This package exposes the tools (``DevClient``, ``LiveEventStream``,
-``assertions``) that a test consumer imports. The tests themselves -
+This package exposes the tools (`DevClient`, `LiveEventStream`,
+`assertions`) that a test consumer imports. The tests themselves -
 scenarios, fixtures, cases - live OUTSIDE this package, typically in
-``tools/live_tests/`` or your own harness.
+`tools/live_tests/` or your own harness.
 
 Rule of thumb:
     - Need a new API endpoint, a new helper, a new assertion primitive?
       Add it HERE. It's a reusable piece of the SDK.
     - Need a scenario that exercises the product (queue, abort,
       cross-session, MCP, RAG, background, channels…)? Write it
-      OUTSIDE, import from ``digitorn.testing`` as any external
+      OUTSIDE, import from `digitorn.testing` as any external
       consumer would.
 
 Usage:

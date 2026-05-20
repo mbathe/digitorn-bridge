@@ -1,24 +1,4 @@
-"""Compile-time credential validation + manifest generation.
-
-Walks an `AppDefinition` after Pydantic parsing, extracts every
-`credential:` reference, and validates them against:
-
-  1. The module's `CredentialSlot` (when the consumer is a module).
-  2. The handler's `allowed_scopes` (the scope must be permitted by
-     the chosen handler_type).
-  3. The provider catalog (when `credential.provider` is set, the
-     name must exist in the catalog and its handler_type must match).
-
-Produces a `CredentialsAppManifest` describing every credential need,
-with the declared reference (if any) and the slot constraints. The
-runtime injector + the per-app-config UI consume this manifest.
-
-The compiler is **structural-only** at this stage: it doesn't query
-the user's vault. Whether a referenced credential actually exists is
-checked at activation time by the runtime, against the activating
-user. That separation lets the same compiled app be deployed to many
-users, each with their own vault.
-"""
+"""Compile-time credential validation + manifest generation."""
 
 from __future__ import annotations
 
@@ -39,15 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class CredentialCompileError(Exception):
-    """Raised when an app.yaml's credential bindings are inconsistent.
-
-    Examples that trigger this:
-      - `credential.scope: system_wide` on an OAuth2 slot (handler
-        only allows per_user).
-      - `credential.provider: openai` but the slot whitelisted
-        ['anthropic', 'deepseek'].
-      - Reference to a provider name that doesn't exist in the catalog.
-    """
+    """Raised when an app.yaml's credential bindings are inconsistent."""
 
 
 def validate_app_credentials(
@@ -55,26 +27,9 @@ def validate_app_credentials(
     *,
     module_slots: dict[str, list[CredentialSlot]] | None = None,
 ) -> CredentialsAppManifest:
-    """Top-level entry: validate every credential ref in the app and
-    build the manifest.
-
-    Args:
-      app_def: parsed `AppDefinition` (the Pydantic model).
-      module_slots: optional pre-collected `{module_id: [slots, ...]}`
-        mapping. When None, the compiler tries to instantiate each
-        module's class and read `credential_slots`. Pass an explicit
-        map when calling from a context that already has the modules
-        live (bootstrap, runtime).
-
-    Returns:
-      `CredentialsAppManifest` listing every credential need.
-
-    Raises:
-      `CredentialCompileError` on any unresolvable structural issue.
-    """
+    """Top-level entry: validate every credential ref in the app and"""
     manifest = CredentialsAppManifest(app_id=getattr(app_def, "id", "") or "")
 
-    # ── Walk every block that can carry a `credential:` ref ──────────
     seen_paths: set[str] = set()
 
     # Top-level brain (single-agent apps).
@@ -121,7 +76,6 @@ def validate_app_credentials(
             seen=seen_paths,
         )
 
-    # ── Aggregate flags ──────────────────────────────────────────────
     missing = [
         e.block for e in manifest.entries
         if e.required and e.ref is None
@@ -129,12 +83,6 @@ def validate_app_credentials(
     manifest.missing_required = missing
     manifest.all_required_resolved = not missing
 
-    # ── Backward-compat warning ──────────────────────────────────────
-    # Walk every block one more time looking for ``{{secret.X}}`` /
-    # ``{{env.X}}`` templates that were NOT accompanied by a
-    # ``credential:`` declaration. We don't reject (legacy still works
-    # via the runtime resolver) but we tell the operator their YAML is
-    # using the deprecated path so they can run the migration CLI.
     legacy_only_blocks = _detect_legacy_only_blocks(app_def)
     if legacy_only_blocks:
         logger.warning(
@@ -148,13 +96,7 @@ def validate_app_credentials(
 
 
 def _detect_legacy_only_blocks(app_def: Any) -> list[str]:
-    """Return paths of blocks that use ``{{secret.X}}`` / ``{{env.X}}``
-    templates without an accompanying ``credential:`` ref.
-
-    Walks brain (top-level + per-agent) and module configs. Detection
-    is purely string-based on the inline config dict's values - cheap
-    and covers the common cases (api_key, base_url, token, ...).
-    """
+    """Return paths of blocks that use `{{secret.X}}` / `{{env.X}}`"""
     import re as _re
     pattern = _re.compile(r"\{\{\s*(?:env|secret)\.[A-Za-z0-9_.\-]+\s*\}\}")
 
@@ -201,7 +143,6 @@ def _validate_block(
     manifest: CredentialsAppManifest,
     seen: set[str],
 ) -> None:
-    """Validate one block's `credential` ref + add a manifest entry."""
     if block_path in seen:
         return
     seen.add(block_path)
@@ -214,23 +155,10 @@ def _validate_block(
             f"{block_path}: invalid credential reference: {exc}",
         ) from exc
 
-    # Look up the module's slots. We accept missing slots silently -
-    # a module that doesn't declare any `credential_slots` simply
-    # won't have an entry in the manifest, even if the YAML named one
-    # (we'll surface that mismatch via warning rather than reject).
     slots = (module_slots or {}).get(module_id) or []
     if not slots:
-        # No declared slot for this consumer. If the YAML still binds
-        # a credential, it's likely targeting a legacy path (e.g.
-        # llm_provider via `brain.config.api_key`). We accept and pass
-        # the ref through to the runtime injector, which falls back
-        # to `inject_path_default` from the handler's first field.
         slot = _make_implicit_slot(module_id, block_path)
     else:
-        # Pick the first slot. Most modules expose a single slot per
-        # block; multi-slot modules (rare, e.g. one for primary brain
-        # and one for fallback) will need richer matching - future
-        # iteration.
         slot = slots[0]
 
     entry = CredentialsManifestEntry(
@@ -257,10 +185,7 @@ def _validate_block(
 
 
 def _make_implicit_slot(module_id: str, block_path: str) -> CredentialSlot:
-    """Synthesise a permissive slot for blocks whose module doesn't
-    declare one. Used as a graceful-degradation path so existing apps
-    that bind a credential to e.g. `brain` keep working before we
-    migrate every module to declare slots."""
+    """Synthesise a permissive slot for blocks whose module doesn't"""
     return CredentialSlot(
         id="default",
         label=f"{module_id} authentication",
@@ -279,8 +204,7 @@ def _validate_ref_against_slot(
     slot: CredentialSlot,
     block_path: str,
 ) -> None:
-    """Structural validation of a ref against the slot constraints +
-    the handler's allowed_scopes + the catalog."""
+    """Structural validation of a ref against the slot constraints +"""
     # 1. Scope must be in the slot's whitelist (when set).
     if slot.scopes_allowed is not None and ref.scope not in slot.scopes_allowed:
         raise CredentialCompileError(

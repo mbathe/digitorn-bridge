@@ -1,19 +1,4 @@
-"""High-level read helpers for callers that don't need the full
-``SessionStore`` API.
-
-Thin wrappers over ``InMemorySessionStore`` that mirror common queries
-the daemon makes today via Postgres ``SELECT ... FROM history_log``:
-
-  * ``load_messages_for_llm(sid)`` -- chat-completion-shaped messages
-    list (role + content + tool_calls), ready to pass to LiteLLM.
-    Replaces the legacy ``SELECT messages WHERE session_id=...``.
-  * ``load_snapshot(sid)``         -- snapshot.json fast-reopen path.
-  * ``replay_events_since(sid, n)`` -- async iterator over events with
-    seq > n, for SSE reconnect.
-
-Designed to feel like a stdlib query helper. The agent loop / manager
-module can swap a DB call for one of these with a one-line change.
-"""
+"""High-level read helpers for callers that don't need the full"""
 
 from __future__ import annotations
 
@@ -31,14 +16,7 @@ def load_messages_for_llm(
     store: InMemorySessionStore,
     sid: str,
 ) -> list[dict[str, Any]]:
-    """Return the chat-completion-shaped message list the LLM expects.
-
-    Reads from ``state.messages`` directly (in-memory dict access,
-    sub-microsecond). The session must be opened first via
-    ``store.open(sid, ...)`` -- callers that just want to peek at a
-    cold session should use ``load_snapshot`` instead, which doesn't
-    require pinning the session in cache.
-    """
+    """Return the chat-completion-shaped message list the LLM expects."""
     state: SessionState | None = store.state(sid)
     if state is None:
         return []
@@ -65,16 +43,13 @@ async def replay_events_since(
     *,
     since: int = 0,
 ) -> AsyncIterator[Event]:
-    """Async iterator over events with seq > ``since``. Used by the
-    SSE reconnect path to stream missed events to a client."""
+    """Async iterator over events with seq > `since`. Used by the"""
     async for ev in store.stream_events(sid, since=since):
         yield ev
 
 
 def latest_seq(store: InMemorySessionStore, sid: str) -> int:
-    """Sub-microsecond read of the per-session high-water-mark seq.
-    Used by clients on first connect to know where to start streaming.
-    """
+    """Sub-microsecond read of the per-session high-water-mark seq."""
     state = store.state(sid)
     return state.last_seq if state is not None else 0
 

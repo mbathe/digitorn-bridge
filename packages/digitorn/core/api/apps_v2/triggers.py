@@ -1,8 +1,4 @@
-"""Routes for the triggers group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the triggers group, extracted from the legacy `apps.py`."""
 
 from __future__ import annotations
 
@@ -105,14 +101,9 @@ from ._shared import (
 router = APIRouter(tags=["apps"])
 
 
-
 @router.get("/{app_id}/triggers", response_model=AppResponse)
 async def app_triggers(request: Request, app_id: str) -> AppResponse:
-    """Get the status of all triggers and channels for a background app.
-
-    Shows configured triggers, active listeners, last activation times,
-    and any errors. Useful for monitoring background apps.
-    """
+    """Get the status of all triggers and channels for a background app."""
     _validate_id(app_id)
     manager = _get_manager(request)
     deployed = _get_deployed(request, app_id)
@@ -146,15 +137,7 @@ async def app_triggers(request: Request, app_id: str) -> AppResponse:
         providers = []
         for name, provider in getattr(channels_mod, "_providers", {}).items():
             adapter = getattr(provider, "adapter", None)
-            # Channel type resolution - `channel_type` is rarely set on
-            # the provider wrapper; the actual kind is on the adapter's
-            # class (ADAPTER_TYPE) or falls back to the provider's own
-            # `type` attr. Previously this returned "?" for every
-            # channel in the diagnostics response.
-            # BUG-099: prefer the class-level ``CHANNEL_ID`` (which is
-            # the authoritative registry key - ``file_watcher``,
-            # ``webhook``, …) over the classname-squish fallback which
-            # produced ``filewatcher`` instead of ``file_watcher``.
+            # prefer the class-level CHANNEL_ID (authoritative registry key) over classname-squish fallbacks.
             ctype = (
                 getattr(provider, "channel_type", None)
                 or getattr(provider, "type", None)
@@ -163,9 +146,6 @@ async def app_triggers(request: Request, app_id: str) -> AppResponse:
                 or getattr(type(adapter), "CHANNEL_ID", None) if adapter else None
             )
             if not ctype and adapter is not None:
-                # Last-resort: classname-derived, but insert a snake
-                # case boundary so CamelCase → camel_case instead of
-                # squishing to ``filewatcher``.
                 import re as _re_cls
                 stripped = adapter.__class__.__name__.replace("Adapter", "")
                 ctype = _re_cls.sub(r"(?<!^)(?=[A-Z])", "_", stripped).lower()
@@ -228,11 +208,7 @@ async def app_triggers(request: Request, app_id: str) -> AppResponse:
 
 @router.post("/{app_id}/triggers/{trigger_id}/fire", response_model=AppResponse)
 async def fire_trigger(request: Request, app_id: str, trigger_id: str) -> AppResponse:
-    """Manually fire a trigger (for testing/debugging).
-
-    Activates the agent as if the trigger had fired naturally.
-    The activation is recorded in the history.
-    """
+    """Manually fire a trigger (for testing/debugging)."""
     _validate_id(app_id)
     manager = _get_manager(request)
     deployed = _get_deployed(request, app_id)
@@ -250,12 +226,7 @@ async def fire_trigger(request: Request, app_id: str, trigger_id: str) -> AppRes
     if trigger is None:
         raise HTTPException(status_code=404, detail=f"Trigger '{trigger_id}' not found")
 
-    # Resolve target sessions BEFORE launching the activation so the
-    # HTTP response tells the caller whether anything will actually
-    # happen. Previously fire_trigger returned {"fired": true} for a
-    # trigger whose app has zero background_sessions - the activation
-    # silently falls back to a global run, and /background-sessions
-    # stays empty, making the response look like a lie.
+    # resolve target sessions before launching so the response reflects whether any session will actually run.
     routing = getattr(trigger, "routing", "broadcast")
     target_sessions: list[dict[str, Any]] = []
     try:
@@ -316,11 +287,7 @@ async def test_trigger(
     trigger_id: str,
     body: dict[str, Any] | None = None,
 ) -> AppResponse:
-    """Test a trigger with a custom payload (dry-run style).
-
-    Fires the trigger synchronously and returns the agent's full response.
-    Useful for debugging webhook payloads.
-    """
+    """Test a trigger with a custom payload (dry-run style)."""
     _validate_id(app_id)
     manager = _get_manager(request)
     deployed = _get_deployed(request, app_id)
@@ -354,10 +321,6 @@ async def test_trigger(
         {"role": "user", "content": message},
     ]
 
-    # Wrap the turn so any exception (timeout, provider error, agent
-    # crash) still surfaces as a well-formed AppResponse instead of a
-    # raw 500 with empty body - the frontend couldn't show any feedback
-    # on failure paths before this.
     try:
         result = await agent_turn(
             ctx, messages,

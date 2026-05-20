@@ -1,20 +1,4 @@
-"""Warm Worker Pool - pre-bootstrapped workers for per-session sandboxing.
-
-Workers are pre-spawned and bootstrapped (expensive: ~2-5s), then sit
-warm in a pool.  When a session starts, a warm worker receives the
-workspace via IPC and applies Landlock in ~0.1ms.
-
-Worker state machine:
-    [SPAWNING] → bootstrap → [WARM] → sandbox(ws) → [SANDBOXED] → session end → [TAINTED] → kill → recycle
-                                ▲                         │
-                                │                         │ same workspace
-                                │                         ▼
-                                │                    reuse for new session
-                              respawn into pool
-
-Workspace affinity: if an existing SANDBOXED worker has the same
-workspace, it can be reused (multiple sessions share the sandbox).
-"""
+"""Warm worker pool: pre-bootstrapped workers for per-session sandboxing."""
 
 from __future__ import annotations
 
@@ -42,7 +26,6 @@ class WorkerPool:
         audit: bool = False,
         workspace_snapshot: bool = False,
     ) -> None:
-        # Load sandbox config, fall back to hardcoded defaults
         try:
             from digitorn.core.config import get_settings
             _cfg = get_settings().sandbox
@@ -57,11 +40,7 @@ class WorkerPool:
 
         self._compiled = compiled
         self._app_id = app_id
-        # ``pool_size=0`` is the explicit "no prewarm" opt-out for
-        # machines where parallel cold imports saturate the disk
-        # (Windows + AV, slow SSDs, ...). Workers spawn lazily on
-        # first session use. clamp(0, ...) preserves the disable
-        # path while keeping the legacy positive defaults.
+        # pool_size=0 = lazy spawn (no prewarm), preserves disable path on AV/slow SSDs
         self._pool_size = max(0, pool_size)
         self._pool_max = max(self._pool_size, pool_max)
         self._namespaces = namespaces or set()
@@ -79,14 +58,12 @@ class WorkerPool:
         self._lock = asyncio.Lock()
         self._replenish_task: asyncio.Task[None] | None = None
         self._idle_reaper_task: asyncio.Task[None] | None = None
-        # Track all fire-and-forget tasks (e.g. _recycle_tainted) so shutdown
-        # can wait for them and prevent orphaned worker processes.
+        # tracked so shutdown can await them and prevent orphan workers
         self._background_tasks: set[asyncio.Task[None]] = set()
         self._running = False
         self._idle_timeout = _default_idle_timeout
 
     def _spawn_background(self, coro: Any) -> asyncio.Task[None]:
-        """Create and track a background task. Use instead of bare create_task."""
         task = asyncio.create_task(coro)
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
@@ -105,12 +82,7 @@ class WorkerPool:
         """Pre-warm the pool with pool_size workers."""
         self._running = True
 
-        # ``pool_size == 0`` is the explicit opt-out: no prewarming,
-        # workers will spawn lazily on first ``acquire``. Skip the
-        # asyncio.gather entirely so we don't even create the empty
-        # task list and short-circuit the log to a single line.
         if self._pool_size > 0:
-            # Spawn initial workers in parallel
             tasks = [self._spawn_warm_worker() for _ in range(self._pool_size)]
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -118,11 +90,8 @@ class WorkerPool:
                 if isinstance(r, Exception):
                     logger.warning("pool_warm_error app=%s: %s", self._app_id, r)
 
-            # Start background replenisher only when prewarming is enabled.
             self._replenish_task = asyncio.create_task(self._replenish_loop())
 
-        # Idle reaper always runs - it cleans up tainted/idle workers
-        # that materialised via the lazy acquire path too.
         self._idle_reaper_task = asyncio.create_task(self._idle_reaper_loop())
 
         logger.info(
@@ -135,33 +104,19 @@ class WorkerPool:
         workspace: str,
         session_id: str,
     ) -> AppSandboxWorker:
-        """Get a sandboxed worker for the given session.
-
-        1. Check workspace affinity - reuse existing sandboxed worker
-        2. Check pending sandboxing - wait for worker being set up for same workspace
-        3. Take a warm worker from pool, apply sandbox
-        4. If pool empty, spawn a new worker on demand
-
-        Returns the ready worker (state: SANDBOXED).
-
-        Thread-safe: uses _lock for all state mutations + _pending_workspaces
-        to prevent duplicate sandboxing for the same workspace under concurrency.
-        """
+        """Get a sandboxed worker for the given session."""
         async with self._lock:
-            # Workspace affinity: reuse active worker with same workspace
             for sid, worker in self._active.items():
                 if worker.workspace == workspace and worker.state == WorkerState.SANDBOXED:
                     self._active[session_id] = worker
                     self._last_active[session_id] = asyncio.get_event_loop().time()
                     return worker
 
-            # Check if another acquire is already sandboxing for this workspace
             if workspace in self._pending_workspaces:
                 fut = self._pending_workspaces[workspace]
             else:
                 fut = None
 
-        # Wait for pending sandbox to finish, then reuse via affinity
         if fut is not None:
             worker = await asyncio.shield(fut)
             async with self._lock:
@@ -169,10 +124,9 @@ class WorkerPool:
                 self._last_active[session_id] = asyncio.get_event_loop().time()
             return worker
 
-        # No existing worker for this workspace - create one
         pending_fut: asyncio.Future[AppSandboxWorker] = asyncio.get_event_loop().create_future()
         async with self._lock:
-            # Double-check after re-acquiring lock (another task may have finished)
+            # re-check under lock after async wait
             for sid, worker in self._active.items():
                 if worker.workspace == workspace and worker.state == WorkerState.SANDBOXED:
                     self._active[session_id] = worker
@@ -192,7 +146,6 @@ class WorkerPool:
                     )
                 worker = await self._spawn_warm_worker()
 
-            # Create workspace snapshot if enabled
             effective_workspace = workspace
             if self._workspace_snapshot and workspace:
                 try:
@@ -203,7 +156,6 @@ class WorkerPool:
                 except Exception as exc:
                     logger.warning("pool_snapshot_failed session=%s: %s", session_id, exc)
 
-            # Apply sandbox
             await worker.apply_sandbox(
                 workspace=effective_workspace,
                 session_id=session_id,
@@ -217,7 +169,6 @@ class WorkerPool:
                 self._last_active[session_id] = asyncio.get_event_loop().time()
                 self._pending_workspaces.pop(workspace, None)
 
-            # Notify waiters
             if not pending_fut.done():
                 pending_fut.set_result(worker)
 
@@ -231,18 +182,12 @@ class WorkerPool:
             raise
 
     async def release(self, session_id: str) -> None:
-        """Release a worker when a session ends.
-
-        If no other sessions share this worker, mark it tainted
-        and schedule recycling. Cleans up workspace snapshots.
-        """
-        # Clean up workspace snapshot
+        """Release a worker when a session ends."""
         snapshot = self._snapshots.pop(session_id, None)
         if snapshot is not None:
             try:
                 await snapshot.discard()
             except Exception as exc:
-                # Log at warning since this can leak disk space if it keeps failing
                 logger.warning(
                     "pool_snapshot_cleanup_error session=%s: %s - disk leak risk",
                     session_id, exc, exc_info=True,
@@ -254,7 +199,6 @@ class WorkerPool:
             if worker is None:
                 return
 
-            # Check if another session still uses this worker
             still_used = any(
                 w is worker for sid, w in self._active.items()
             )
@@ -263,18 +207,12 @@ class WorkerPool:
                 worker.mark_tainted()
                 self._tainted.append(worker)
 
-        # Recycle tainted workers in background - tracked so shutdown can wait
         self._spawn_background(self._recycle_tainted())
 
     async def shutdown(self) -> None:
-        """Stop all workers and clean up.
-
-        Properly awaits all background tasks (replenish, idle reaper, recycle)
-        so we don't leave orphaned worker processes running.
-        """
+        """Stop all workers and clean up."""
         self._running = False
 
-        # Cancel and await long-running loops
         for task in (self._replenish_task, self._idle_reaper_task):
             if task:
                 task.cancel()
@@ -285,7 +223,6 @@ class WorkerPool:
                 except Exception as exc:
                     logger.debug("background_task_shutdown_error: %s", exc)
 
-        # Wait for any in-flight fire-and-forget background tasks (recycle, etc.)
         if self._background_tasks:
             pending = list(self._background_tasks)
             for t in pending:
@@ -296,7 +233,6 @@ class WorkerPool:
                 logger.debug("background_tasks_gather_error: %s", exc)
             self._background_tasks.clear()
 
-        # Stop all workers
         all_workers: list[AppSandboxWorker] = []
         async with self._lock:
             all_workers.extend(self._warm)
@@ -306,7 +242,6 @@ class WorkerPool:
             self._active.clear()
             self._tainted.clear()
 
-        # Deduplicate (shared workers)
         seen: set[int] = set()
         unique: list[AppSandboxWorker] = []
         for w in all_workers:
@@ -319,10 +254,7 @@ class WorkerPool:
 
         logger.info("pool_shutdown app=%s workers=%d", self._app_id, len(unique))
 
-    # ── Internal ──────────────────────────────────────────────────
-
     async def _spawn_warm_worker(self) -> AppSandboxWorker:
-        """Spawn and bootstrap a new warm worker."""
         worker = AppSandboxWorker(
             self._compiled, self._app_id, warm_pool=True,
         )
@@ -336,7 +268,6 @@ class WorkerPool:
         raise RuntimeError(f"Worker failed to reach WARM state: {worker.state}")
 
     async def _recycle_tainted(self) -> None:
-        """Kill tainted workers and replenish the warm pool."""
         async with self._lock:
             to_kill = list(self._tainted)
             self._tainted.clear()
@@ -348,7 +279,6 @@ class WorkerPool:
                 logger.debug("pool_recycle_error: %s", exc)
 
     async def _replenish_loop(self) -> None:
-        """Background task: keep the warm pool at target size."""
         try:
             while self._running:
                 await asyncio.sleep(1.0)
@@ -372,7 +302,6 @@ class WorkerPool:
             pass
 
     async def _idle_reaper_loop(self) -> None:
-        """Release workers for sessions that have been idle too long."""
         try:
             while self._running:
                 await asyncio.sleep(30.0)

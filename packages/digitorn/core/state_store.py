@@ -46,7 +46,7 @@ class StateStore(ABC):
 class JsonStateStore(StateStore):
     """File-based state store using one JSON file per module.
 
-    State files are stored as ``{base_dir}/{module_id}.state.json``.
+    State files are stored as `{base_dir}/{module_id}.state.json`.
     All I/O is offloaded to threads to avoid blocking the event loop.
     """
 

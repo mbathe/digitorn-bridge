@@ -1,20 +1,4 @@
-"""Session store: in-memory canonical session state with disk-backed
-durability. Replaces the Postgres ``history_log`` write path for chat
-events while preserving every contract (seq monotonicity, full
-persistence, persist-before-broadcast).
-
-Public API entry points:
-
-  * ``Event``                       - the dataclass mirroring history_log columns.
-  * ``SessionState``                - the in-memory canonical state.
-  * ``InMemorySessionStore``        - the main orchestrator.
-  * ``SeqAllocator``                - the monotonic seq generator.
-  * ``BlobStore``                   - content-addressed multimedia.
-
-Designed to be self-contained: no Postgres, no daemon imports. Drops in
-on top of ``asyncio`` + ``threading`` only. Integration with the
-existing daemon happens in later phases.
-"""
+"""Session store: in-memory canonical session state with disk-backed"""
 
 from digitorn.core.runtime.session_store.types import (
     Event,

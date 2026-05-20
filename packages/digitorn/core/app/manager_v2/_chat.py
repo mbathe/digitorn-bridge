@@ -1,9 +1,4 @@
-"""_ChatMixin - conversation turn execution.
-
-The big one - owns ``chat`` / ``_chat_locked`` / ``check_notifications``
-/ ``_register_wake_handler``. Method bodies copied verbatim from the
-original manager.
-"""
+"""_ChatMixin - conversation turn execution."""
 
 from __future__ import annotations
 
@@ -22,20 +17,11 @@ from ._models import _resolve_tool_display, _recover_interrupted_session
 logger = logging.getLogger(__name__)
 
 
-# Module-level set holding fire-and-forget session_store persist
-# tasks. asyncio.create_task returns a weak ref - if we don't hold a
-# strong ref, the task may be GC'd before it runs and the persist is
-# silently lost. The done callback removes the task once it completes.
-# Bounded to avoid runaway memory under sustained backpressure.
+# Strong-ref set for fire-and-forget session_store persists; without it asyncio GC can drop the task mid-write.
 _BG_SESSION_PERSIST_TASKS: set[asyncio.Task] = set()
 _BG_SESSION_PERSIST_MAX = 1000
 
-# Strong-ref set for the fire-and-forget end-of-turn result emit
-# (Socket.IO emit can take 1-5s under Windows IOCP backpressure on a
-# slow client; awaiting it held the session lock and delayed the next
-# user message by the same duration). Without this set, ``create_task``
-# returns a Task the loop only weakly tracks -- GC can collect it
-# mid-flight, silently dropping the ``result`` event.
+# Strong-ref set for end-of-turn emits; Socket.IO emit can take 1-5s under backpressure and we don't want to hold the session lock.
 _END_OF_TURN_EMIT_TASKS: set[asyncio.Task] = set()
 
 
@@ -50,28 +36,6 @@ def _schedule_bg_persist_msgs_events(
     *,
     messages_baseline: int | None = None,
 ) -> None:
-    """Fire-and-forget the heavy session_store persists.
-
-    The two callers (per-tool-call hook and end-of-turn) used to
-    ``await asyncio.gather(...)`` these ops while the per-session
-    lock was held - end result was the user observing "the next
-    message doesn't go through" because the lock release was waiting
-    on multi-second ``append_events`` writes (O(N²) load+save of the
-    whole event log).
-
-    Scheduling pattern:
-      * snapshot lists are passed by value (caller already copied),
-        so concurrent mutation by the next turn is impossible
-      * the two store ops run in parallel via ``gather``
-      * the task is detached - control returns immediately to the
-        caller, lock releases as soon as ``_chat_locked`` returns
-      * the task is held in a module-level set so it isn't GC'd
-        before completion; the done callback evicts it
-      * when ``in_flight >= _BG_SESSION_PERSIST_MAX`` we WARN and
-        drop the new task. The DB layer (``_persist_turn_bg``) is
-        unaffected - it has its own isolated worker - so durable
-        state survives. Only the hot session_store cache is missed.
-    """
     if len(_BG_SESSION_PERSIST_TASKS) >= _BG_SESSION_PERSIST_MAX:
         logger.warning(
             "session_persist_backpressure dropping new persist "
@@ -83,14 +47,7 @@ def _schedule_bg_persist_msgs_events(
         )
         return
 
-    # Pick the messages persist mode:
-    # - delta path (O(1) per turn) when we have a valid baseline AND
-    #   the new list is at least as long as it was at turn start
-    #   (i.e. compaction did NOT shrink it during this turn).
-    # - full-blob fallback (O(N) per turn) for compaction case OR when
-    #   the caller didn't pass a baseline. ``save_messages`` also clears
-    #   stale per-turn keys so the next ``load_messages`` doesn't merge
-    #   the legacy blob WITH the deltas.
+    # Delta path is O(1) per turn but only valid when baseline is set and compaction didn't shrink the list.
     _use_delta = (
         messages_baseline is not None
         and 0 <= messages_baseline <= len(snap_messages)
@@ -111,12 +68,6 @@ def _schedule_bg_persist_msgs_events(
         try:
             results = await asyncio.gather(
                 _msgs_op,
-                # Per-turn key (O(1) write) instead of ``append_events``
-                # which loaded + extended + re-saved the WHOLE event log
-                # (O(N²) cumulative over a session). The read path
-                # ``load_events`` already aggregates per-turn keys, so
-                # this is transparent to readers - same interface,
-                # constant time per write.
                 asyncio.to_thread(
                     store.save_turn_events, app_id, session_id,
                     turn_index, snap_events, user_id=user_id,
@@ -193,25 +144,7 @@ class _ChatMixin:
         template_system_prompt: str = "",
         mode_id: str | None = None,
     ) -> TurnResult:
-        """Process a single conversation message within a session.
-
-        Creates the session on first call. Maintains message history
-        across calls with the same session_id.
-
-        Events are also published to the session event bus for any
-        persistent SSE subscribers (SDK clients).
-
-        Args:
-            app_id: The deployed app's ID.
-            session_id: Unique session identifier (client-generated).
-            message: User message text.
-            on_tool_call: Optional callback for tool call display.
-            on_tool_start: Optional callback before tool execution.
-            on_thinking: Optional callback for agent reasoning text.
-
-        Returns:
-            TurnResult with the agent's response.
-        """
+        """Process a single conversation message within a session."""
         deployed = self._get_deployed(app_id, user_id=user_id)
 
         ws_mode = getattr(deployed.compiled.execution, "workspace_mode", "auto")
@@ -233,30 +166,17 @@ class _ChatMixin:
                 raise RuntimeError("This app requires a workspace. Set one before chatting.")
             ws = str(Path(ws).resolve())
         else:
-            # ``workspace_mode: auto`` - default to a per-session isolated
-            # dir under ``~/.digitorn/workspaces/<app_id>/<sid>/`` when the
-            # caller provides nothing. Falling back to ``Path.cwd()`` used
-            # to silently dump every agent write into whatever directory
-            # the daemon was launched from (usually the repo root), and
-            # aliased every session to the same dir so the per-session
-            # preview snapshot was never persisted. The isolated default
-            # matches the layout that ``WorkspaceModule._resolve_sync_dir``
-            # and ``hydrate_files_from_disk`` expect.
+            # workspace_mode=auto defaults to a per-session isolated dir so writes don't leak into the daemon's cwd.
             per_session_default = str(
                 Path.home() / ".digitorn" / "workspaces" / app_id / session_id
             )
-            # Reject a ``_persisted_ws`` that equals the daemon's current
-            # working directory - that's the stale value baked in by the
-            # pre-fix code path for any session created before the
-            # per-session default was introduced. Without this guard the
-            # agent keeps seeing the daemon's cwd (typically the repo
-            # root) as its workspace for the rest of the session's life.
+            # Reject a persisted ws equal to the daemon's cwd (stale value from before per-session defaults).
             daemon_cwd = str(Path.cwd().resolve())
             if _persisted_ws:
                 try:
                     if str(Path(_persisted_ws).resolve()) == daemon_cwd:
                         _persisted_ws = ""
-                except Exception:
+                except OSError:
                     pass
             if workspace or _persisted_ws or yaml_ws:
                 ws = workspace or _persisted_ws or yaml_ws
@@ -272,30 +192,7 @@ class _ChatMixin:
 
         from digitorn.core.workspace import WorkspaceLayout
         from digitorn.core.workdirs import is_named_project_path
-        # Three workspace shapes coexist:
-        #
-        # 1. Legacy per-session daemon workspace
-        #    (``~/.digitorn/workspaces/{app_id}/{sid}/``): the path is
-        #    already scoped to one (app, session), so the layout
-        #    flattens (no ``apps/{app_id}/sessions/{sid}/`` nesting
-        #    inside ``.digitorn/``).
-        #
-        # 2. Project-shared workdir
-        #    (``~/.digitorn/workdirs/{app_id}/{user_id}/{slug}/``,
-        #    introduced with the named-project picker): the workdir
-        #    is shared across every session of the same project, so
-        #    the workdir's ``.digitorn/`` holds ONLY project-level
-        #    artifacts (skills, rules, project memory). Per-session
-        #    state (checkpoints, future per-session files) routes to
-        #    ``~/.digitorn/workspaces/{app_id}/{session_id}/`` via
-        #    ``external_session_dir`` so concurrent sessions never
-        #    trample each other and the workdir stays clean of
-        #    daemon internals the agent shouldn't touch.
-        #
-        # 3. User-picked workspace (CLI / Flutter desktop): the user's
-        #    own project folder. Falls through to the default shared
-        #    layout that segregates apps + sessions inside
-        #    ``.digitorn/`` because one folder may host many apps.
+        # Three workspace shapes (per-session daemon ws, project-shared workdir, user-picked folder); layouts differ for each.
         _per_session_ws = False
         _external_session_dir: Path | None = None
         if ws:
@@ -324,58 +221,30 @@ class _ChatMixin:
         if fs_mod and hasattr(fs_mod, "_checkpoint_dir"):
             fs_mod._checkpoint_dir = str(layout.session_checkpoints_dir(session_id))
 
-        # Serialize concurrent access to the same session.
-        # CRITICAL: the lock MUST be held during _chat_locked execution AND
-        # all session persistence (put, save_messages, append_events) which
-        # happens INSIDE _chat_locked. The lock is only released after
-        # _chat_locked fully returns - never split persistence across the lock.
         session_lock = self._session_store.session_lock(app_id, session_id, uid)
         active_key = f"{app_id}:{session_id}"
         self._active_sessions.add(active_key)
         lock_acquired = False
         try:
             try:
-                # Lock wait timeout. The previous 300 s default was
-                # calibrated to ``agent_turn`` budget which is wrong:
-                # the agent_turn timeout protects ONE turn from
-                # running too long; the lock timeout protects a
-                # NEW message from blocking too long when a previous
-                # turn is in progress. The Phase 3 message queue at
-                # the API layer (``apps_v2/messages.py``) already
-                # handles "session busy" gracefully (enqueues + emits
-                # ``message_queued`` SSE), so we just need a short
-                # safety net here for the rare case where a message
-                # bypassed the queue (legacy wait mode, internal
-                # dispatch). 30 s is plenty for a turn that's about
-                # to finish; beyond that we surface ``session_busy``
-                # so the caller can retry or queue.
+                # Short lock-wait safety net; the API-layer queue handles real busy cases gracefully.
                 try:
                     from digitorn.core.config import get_settings
                     _lock_timeout = get_settings().session.lock_timeout
                 except Exception:
                     _lock_timeout = 30.0
-                # Safety net: clamp ridiculous overrides. The lock is
-                # meant for serialisation, not for waiting out a
-                # whole turn budget.
                 _lock_timeout = min(max(float(_lock_timeout), 5.0), 60.0)
                 await asyncio.wait_for(
                     session_lock.acquire(), timeout=_lock_timeout,
                 )
                 lock_acquired = True
             except asyncio.TimeoutError:
-                # Error message is matched by the HTTP error
-                # classifier (apps_v2/_shared.py:_classify_error)
-                # to map to ``code=session_busy`` (HTTP 409) with a
-                # clean user-facing message. Keep the substring
-                # ``session lock`` in sync with that classifier.
+                # The substring "session lock" is matched by _classify_error to map to session_busy / HTTP 409.
                 raise RuntimeError(
                     f"Session lock timeout after {_lock_timeout:.0f}s "
                     f"for {app_id}/{session_id} - another turn is "
                     f"still in progress; retry or use the message queue."
                 )
-            # All session state mutations happen inside _chat_locked under
-            # the acquired lock. No work after this call should touch the
-            # session store for the same session_id.
             result = await self._chat_locked(
                 deployed, app_id, session_id, uid, message, ws,
                 on_tool_call, on_tool_start, on_thinking,
@@ -404,9 +273,6 @@ class _ChatMixin:
                 self._active_sessions.discard(active_key)
             except Exception:
                 logger.debug("active_sessions_discard_failed", exc_info=True)
-            # TurnState cleanup - cancels the heartbeat task and frees
-            # the entry so the next ``/state`` query correctly reports
-            # ``turn: null``. Wrapped - cleanup must never raise.
             try:
                 self.turn_state_end(app_id, session_id)
             except Exception:
@@ -438,7 +304,6 @@ class _ChatMixin:
         template_system_prompt: str = "",
         mode_id: str | None = None,
     ) -> "TurnResult":
-        """Inner chat logic, called under per-session lock."""
         from digitorn.core.runtime.agent_loop import agent_turn
         from digitorn.core.runtime.mode_merge import resolve_mode
 
@@ -474,25 +339,7 @@ class _ChatMixin:
                     session_id, app_id, uid, workspace,
                 )
 
-        # Heal: regardless of where the session came from (fresh in-memory,
-        # loaded from session_store, restored from history_log), ensure
-        # ``messages[0]`` carries the deploy-time system prompt. Three bugs
-        # used to skip this:
-        #
-        #   1. POST /sessions persists the user message event BEFORE the
-        #      chat handler runs, so ``self._session_store.get`` may return
-        #      a non-None ConversationSession already populated with just
-        #      ``[user_msg]`` - the ``if session is None`` branch is then
-        #      bypassed entirely.
-        #   2. Sessions created in earlier daemon versions (before the
-        #      system_prompt-in-messages convention) carry only user +
-        #      assistant rows.
-        #   3. A failed compile during a prior deploy left
-        #      ``entry_context.system_prompt`` empty when the session
-        #      was first persisted; later redeploys must heal those.
-        #
-        # Idempotent: if a system message is already present anywhere
-        # (typically index 0), leave it alone — never duplicate.
+        # Ensure messages[0] carries the deploy-time system prompt regardless of where the session came from; idempotent.
         try:
             has_system_msg = any(
                 m.get("role") == "system" for m in session.messages
@@ -515,21 +362,14 @@ class _ChatMixin:
         # Update workspace on the session if it was missing (e.g. old sessions)
         if workspace and not session.workspace:
             session.workspace = workspace
-        # ``workdir`` is the agent-facing path. When the user-submitted
-        # ``workspace`` (legacy field on SessionMessageRequest) is set
-        # AND the session has no workdir yet, treat it as the workdir.
-        # New session creation sets both correctly via the dedicated
-        # POST /sessions route; this branch covers older clients that
-        # still pass ``workspace=`` on each message and pre-split sessions.
+        # Legacy clients still pass `workspace` on each message; promote it to workdir when missing.
         if workspace and not getattr(session, "workdir", ""):
             session.workdir = workspace
 
-        # Defensive: strip {WORKSPACE} from the system message even for resumed
         # sessions that were persisted before substitution was applied at creation.
         from digitorn.core.runtime.types import apply_workspace_to_messages
         apply_workspace_to_messages(session.messages, workspace, yaml_ws)
 
-        # ── Event log: capture everything for session reconstruction ──────
         _turn_index = session.turn_count
         _event_log: list[dict[str, Any]] = []
         _out_token_total = [0]
@@ -551,9 +391,6 @@ class _ChatMixin:
                 "data": data,
             })
 
-        # Capture ALL bus events (preview:*, widget:*, etc.) into the event log
-        # so the client can fully replay the turn. This handler is removed at
-        # turn end to avoid leaking between turns.
         async def _bus_capture(captured_user_id: str, envelope: dict[str, Any]) -> None:
             try:
                 env_sid = envelope.get("session_id")
@@ -567,8 +404,8 @@ class _ChatMixin:
                                "thinking_filtered"):
                     return
                 _log_event(ev_type, envelope.get("payload") or {})
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("bus_capture event log failed: %s", exc)
 
         try:
             self.event_bus.add_handler(_bus_capture)
@@ -587,7 +424,6 @@ class _ChatMixin:
                     len(_mem.store.working.key_facts),
                 )
 
-        # ── Smart resume: if session was interrupted, recover interrupted work ──
         if session.interrupted and session.messages:
             session.interrupted = False  # Clear flag
             _recovered = _recover_interrupted_session(session.messages)
@@ -596,14 +432,7 @@ class _ChatMixin:
                 session_id, _recovered,
             )
 
-        # Snapshot the message count BEFORE this turn appends anything
-        # (so the delta we persist at end-of-turn includes the new
-        # user/reminder message + assistant response + tool results,
-        # i.e. everything THIS turn produced). The end-of-turn persist
-        # writes ``session.messages[_messages_baseline:]`` under a
-        # per-turn key, which keeps the cumulative cost at O(1) per
-        # turn. Falls back to a full blob via ``save_messages`` when
-        # compaction shrinks the list (delta would be negative).
+        # Snapshot count before this turn so the end-of-turn delta persist stays O(1).
         _messages_baseline = len(session.messages)
 
         # Build user message - multimodal if images provided
@@ -634,10 +463,7 @@ class _ChatMixin:
         else:
             session.add_user(message)
 
-        # Per-turn system addendum coming from the iframe (template /
-        # useTurnEnricher hook). Persist it as a regular system_message
-        # event so the directive is part of the canonical timeline and
-        # restored in order on daemon restart.
+        # Persist per-turn iframe addendums as system_message events so they replay in order on cold reload.
         if template_system_prompt:
             await inject_system_directive(
                 None,
@@ -660,44 +486,23 @@ class _ChatMixin:
         ctx = copy.copy(deployed.entry_context)
         ctx.session_id = session_id
         ctx.user_id = uid
-        # Tag the context with the app_id too - without this,
-        # `_get_session_metrics(ctx)` falls back to app_id="default" and
-        # SessionMetrics accumulate in the wrong bucket. Downstream
-        # consumers (usage_events record, list_sessions join, cost
-        # calculation) then see 0 because they look up by the real
-        # app_id. We set it unconditionally; the entry_context copy
-        # may or may not already have it set upstream.
+        # Tag ctx with app_id so SessionMetrics + usage_events accumulate in the right bucket.
         ctx.app_id = app_id
-        # Per-turn template addendums used to be carried on
-        # ``ctx.template_system_prompt`` and re-prefixed at every LLM
-        # round-trip. They are now persisted as a regular
-        # ``system_message`` event at turn start (see the
-        # ``template_addendum`` injection above), which restores them
-        # at the correct seq on cold reload. The ctx attribute stays
-        # for legacy readers but holds no behavioural role.
         ctx.template_system_prompt = ""
-        # Apply WORKDIR (agent-facing) to the context, not workspace.
-        # The agent's tools (Read/Write/Bash, Ws*) operate inside
-        # ``ctx.workspace`` - that path must be the workdir so the
-        # agent never touches the daemon-private ``session.workspace``
-        # under ~/.digitorn/.
+        # Agent tools operate inside ctx.workspace; route to workdir so they never touch the daemon-private session workspace.
         agent_workdir = (
             getattr(session, "workdir", "")
             or workspace
             or session.workspace
         )
-        # Final safety net: pre-split sessions / lazy-create paths that
-        # missed the workspace default end up here with an empty workdir.
-        # Without a workspace, shell.bash can't resolve cwd and rejects
-        # every command up-front. Materialise the canonical per-session
-        # path so the agent always has somewhere to work.
+        # Safety net so shell.bash always has a cwd; materialise the per-session workspace if upstream missed it.
         if not agent_workdir:
             from pathlib import Path as _Path
             _fallback = _Path.home() / ".digitorn" / "workspaces" / app_id / session_id
             try:
                 _fallback.mkdir(parents=True, exist_ok=True)
-            except Exception:
-                pass
+            except OSError as exc:
+                logger.warning("session workspace dir create failed at %s: %s", _fallback, exc)
             agent_workdir = str(_fallback)
             if not session.workspace:
                 session.workspace = agent_workdir
@@ -705,14 +510,7 @@ class _ChatMixin:
                 session.workdir = agent_workdir
         apply_workspace_override(ctx, agent_workdir, yaml_ws)
 
-        # ── Gateway routing (multi-user / SaaS deployment) ───────────
-        # If this session has an authenticated user AND the brain
-        # doesn't carry a user-managed credential, hot-swap the
-        # provider to one that talks to the digitorn gateway with
-        # the user's JWT. The YAML stays untouched; only ctx.provider
-        # changes for the duration of this session.
-        # See: digitorn.core.credentials.gateway_resolver for the
-        # decision tree.
+        # For authenticated users without BYOK, hot-swap ctx.provider to talk to the gateway with the user's JWT.
         try:
             from digitorn.core.credentials.gateway_resolver import (
                 resolve_session_provider,
@@ -728,13 +526,6 @@ class _ChatMixin:
                 None,
             )
             if agent_block is not None and ctx.provider is not None:
-                # ``is_byok_enabled`` is a single-row lookup that
-                # short-circuits on cloud mode + anonymous users.
-                # The credential injection has already completed in
-                # the dispatch layer, so by this point the deployed
-                # provider is configured with the user's own key
-                # (or the call would have aborted with
-                # ``CredentialAuthRequired``).
                 byok_on = await is_byok_enabled(uid, app_id)
                 resolved = await resolve_session_provider(
                     deployed_provider=ctx.provider,
@@ -746,17 +537,7 @@ class _ChatMixin:
                     byok_enabled=byok_on,
                 )
                 if resolved is not ctx.provider:
-                    # ``resolve_session_provider`` may return a fresh
-                    # provider instance (gateway-routed for shared
-                    # accounts, BYOK swap, etc.). The proxy installed
-                    # at bootstrap time wraps the DEPLOY-time provider;
-                    # the swap here would undo it -- ``ctx.provider``
-                    # would become a real ``BaseLLMProvider`` again
-                    # and every ``chat_stream`` would run on the
-                    # daemon main loop. Re-wrap so the session provider
-                    # ALSO goes through the worker's ``LLMProviderProxy``.
-                    # No-op when ``llm_provider`` isn't workered or when
-                    # ``resolved`` is already a proxy (idempotent).
+                    # Re-wrap the resolved provider so the session keeps using the worker LLMProviderProxy; idempotent.
                     try:
                         from digitorn.workers.llm_wrap import (
                             maybe_wrap_provider,
@@ -771,14 +552,7 @@ class _ChatMixin:
                         )
                     ctx.provider = resolved
 
-                # Behavior classifier - per-session provider stash.
-                # The classifier ran historically on a SHARED module
-                # singleton; concurrent users would race (a swap by
-                # user A leaks to user B). We resolve once per session
-                # and stash on ``ctx`` - the agent_loop forwards it to
-                # ``classify_turn(provider_override=...)`` so each
-                # turn picks the provider matching its own
-                # (user, BYOK) combination without mutating shared state.
+                # Per-session provider stash for the classifier so concurrent users don't race the shared module singleton.
                 try:
                     bm = getattr(ctx, "behavior_module", None)
                     cls_default = getattr(bm, "_classifier_provider", None)
@@ -790,10 +564,6 @@ class _ChatMixin:
                         and getattr(bbrain, "model", "")
                     ):
                         if byok_on:
-                            # User explicitly opted out - keep the
-                            # deploy-time provider (its api_key has
-                            # been hot-swapped by inject_session_time
-                            # for this caller).
                             ctx._session_classifier_provider = cls_default
                         else:
                             cls_resolved = await resolve_session_provider(
@@ -839,37 +609,18 @@ class _ChatMixin:
         ctx._event_bus = self.event_bus
         ctx._bus_key = bus_key
 
-        # Register the TurnState so the /state endpoint + state:snapshot
-        # SSE event can report "a turn is running now" the instant the
-        # client asks, without having to wait for the first token event.
-        # The correlation_id is authoritative - comes from the POST path.
+        # Register TurnState eagerly so /state can report the running turn before the first token event.
         _turn_corr_id = correlation_id or ""
-        # Stash the correlation_id on the context so streaming events
-        # like ``assistant_stream_snapshot`` can include it in their
-        # payload. Without this, the snapshot envelope's correlation_id
-        # is empty, which made the web client fall back to "find last
-        # streaming bubble" - and when a snapshot raced after
-        # message_done (no streaming bubble left) it created a NEW
-        # bubble, doubling the assistant message visually.
+        # Stash correlation_id on ctx so streaming snapshots can include it and clients don't double-bubble.
         ctx._correlation_id = _turn_corr_id
         if _turn_corr_id:
             self.turn_state_begin(app_id, session_id, _turn_corr_id)
-            # Start the heartbeat pulser - announces liveness every few
-            # seconds so a client watchdog can distinguish "still thinking"
-            # from "server stuck".
             self._start_turn_heartbeat(app_id, session_id, uid, _turn_corr_id)
 
         _save_counter = 0
 
         async def _on_tool_call(name: str, params: dict, result: Any, call_id: str = "") -> None:
-            # Defense-in-depth: the agent loop occasionally emitted
-            # tool_call events with an empty name when the provider's
-            # streaming chunk fragmented the name mid-flight and the
-            # fragment was flushed before the fqn arrived. Clients saw
-            # "?" bubbles. Recover the name from params / result_data
-            # where possible; last resort is "unknown" - and we log a
-            # stack trace of the source so we can hunt the root cause
-            # rather than silently masking it.
+            # Recover empty-name tool calls (streaming chunk fragmented before fqn arrived) so clients don't see "?" bubbles.
             if not name:
                 recovered = (params or {}).get("name") or ""
                 if not recovered and isinstance(result, dict):
@@ -892,18 +643,11 @@ class _ChatMixin:
                 )
                 name = recovered
             nonlocal _save_counter
-            # ── Standardize result: ALWAYS extract success + error + data ──
-            # Every tool_call event sent to the client has the same shape:
-            #   success: bool (always present)
-            #   error: str (always present, empty if no error)
-            #   result: dict (always present, tool-specific data)
             ok, err = True, ""
             result_data: Any = None
             if isinstance(result, dict):
-                # Explicit success=false means failure
                 if result.get("success") is False:
                     ok = False
-                # Explicit error field means failure
                 if result.get("error") and result.get("error") != "":
                     ok = False
                     err = str(result.get("error", ""))
@@ -949,10 +693,7 @@ class _ChatMixin:
             from digitorn.core.events.envelope import (
                 SessionEvent, OpType, OpState, gen_op_id,
             )
-            # Same op_id as the preceding ``tool_start`` - the client
-            # uses it to correlate running → completed on the same
-            # chip. Falls back to a generated id only if the provider
-            # gave us nothing (defensive).
+            # Reuse the tool_start op_id so the client correlates running -> completed on the same chip.
             op_id = call_id or gen_op_id("tool")
             op_state = OpState.FAILED if not ok else OpState.COMPLETED
             event_data["op_id"] = op_id
@@ -988,9 +729,6 @@ class _ChatMixin:
                 from digitorn.core.events.envelope import (
                     SessionEvent as _SE, OpType as _OT, OpState as _OS,
                 )
-                # memory_update is a side effect of the tool call that
-                # just completed - reuse the tool's op_id as parent
-                # so the client can show it under the same chip.
                 await self.event_bus.emit(_SE.build(
                     type="memory_update",
                     app_id=app_id, session_id=session_id, user_id=uid,
@@ -1019,9 +757,6 @@ class _ChatMixin:
                     from digitorn.core.events.envelope import (
                         SessionEvent as _SE, OpType as _OT, OpState as _OS,
                     )
-                    # terminal_output belongs to the shell tool call;
-                    # share its op_id so the client attaches the
-                    # stdout/stderr panel to the right chip.
                     await self.event_bus.emit(_SE.build(
                         type="terminal_output",
                         app_id=app_id, session_id=session_id, user_id=uid,
@@ -1062,12 +797,6 @@ class _ChatMixin:
                     _agent_data.get("agent_id")
                     or gen_op_id("agent")
                 )
-                # This path reflects the TOOL result of ``Agent(...)``
-                # (dispatch/status/wait). The underlying sub-agent
-                # cycle's spawn/progress/result events are emitted
-                # separately by the ``_relay`` notify path above -
-                # here we only carry the current dispatch snapshot so
-                # clients don't need to pick between two sources.
                 _status = _agent_data.get("status", "")
                 _op_state = {
                     "spawned": OpState.RUNNING,
@@ -1099,18 +828,7 @@ class _ChatMixin:
                 "params": params, "success": ok, "error": err,
             })
 
-            # Persist after EVERY tool call - zero data loss on crash/disconnect.
-            # A client reconnecting with ?since=N gets everything.
-            # Wrapped in to_thread() because the KV backend (DiskCache/SQLite)
-            # uses synchronous I/O that would block the event loop. Run the
-            # two writes in parallel since they target distinct keys.
-            #
-            # Messages: save THIS turn's delta only via ``save_turn_messages``
-            # (O(M) where M is messages-so-far-this-turn) instead of the
-            # full blob (O(N) cumulative). Falls back to the legacy
-            # full-blob path if compaction shrunk the list mid-turn -
-            # save_messages also clears stale per-turn keys to keep
-            # load_messages consistent.
+            # Persist after every tool call so reconnecting clients see everything; per-turn delta keeps it O(M) per turn.
             _store = self._session_store
             _msgs = session.messages
             _uid = session.user_id
@@ -1127,10 +845,6 @@ class _ChatMixin:
                 )
             _tc_results = await asyncio.gather(
                 _msgs_op,
-                # Save ONLY this turn's events using a turn-scoped key, so
-                # previous turns are not overwritten. The full history is
-                # reconstructed by load_session_events() which aggregates
-                # all turn event logs.
                 asyncio.to_thread(
                     _store.save_turn_events, app_id, session_id, _turn_index, _elog, user_id=_uid,
                 ),
@@ -1148,36 +862,14 @@ class _ChatMixin:
             from digitorn.core.events.envelope import (
                 SessionEvent, OpType, OpState, gen_op_id,
             )
-            # TurnState: advance phase + bump liveness. The state
-            # envelope picks this up instantly so /state sees
-            # phase='tool_use' + updated tool_calls_count, and the
-            # client reflects "agent is calling tool X" without
-            # having to parse the event stream manually.
             self.turn_state_update(
                 app_id, session_id,
                 phase="tool_use", tool_calls_delta=1,
             )
             label, detail = _tool_label(name, params)
             display = _resolve_tool_display(deployed, name, params)
-            # The op_id is the provider-assigned call_id (Anthropic
-            # ``tool_use.id`` / OpenAI ``tool_call.id``). Falling back
-            # to a fresh ``op-tool-<hex>`` preserves the contract when
-            # the provider streams a call without an id (rare, seen
-            # on partial chunks).
             op_id = call_id or gen_op_id("tool")
-            # Snapshot the params dict so the persisted event log
-            # captures every field present AT TOOL_START — including
-            # the ``intent`` first-property the LLM injected for the
-            # Lovable-style progressive UI. Without this copy, the
-            # downstream ``execute_tool`` path runs ``params.pop("intent")``
-            # on the SAME dict reference before the event bus / disk
-            # journal had a chance to serialize, so a session reloaded
-            # from history showed empty intents on every tool call
-            # (the live frontend captured the value off the in-memory
-            # SSE event just fine; only the cold-replay path saw the
-            # already-stripped snapshot). Shallow copy is enough — the
-            # stripped key is at the top level, no nested mutation in
-            # the offending path.
+            # Snapshot the params dict before execute_tool pops `intent`, so the persisted event log keeps the original.
             params_snapshot = dict(params) if isinstance(params, dict) else params
             await self.event_bus.emit(SessionEvent.build(
                 type="tool_start",
@@ -1208,16 +900,11 @@ class _ChatMixin:
             if not text or not text.strip():
                 return
             stripped = text.strip()
-            # Filter short narrations that just describe tool calls -
-            # the ToolCallGroup already shows this info.
+            # Filter short narrations that just describe tool calls; ToolCallGroup already shows that info.
             lines = stripped.split("\n")
             if len(lines) <= 2 and len(stripped) < 80:
                 _log_event("thinking_filtered", {"text": stripped})
                 return
-            # Turn-scoped helper - every event of THIS turn shares
-            # op_id = correlation_id (the turn's id), op_type = TURN.
-            # Centralised so the 7 emitters below don't repeat the
-            # boilerplate (and can't forget a field).
             from digitorn.core.events.envelope import (
                 SessionEvent as _SE, OpType as _OT, OpState as _OS,
             )
@@ -1276,10 +963,7 @@ class _ChatMixin:
         _stream_chunks: list[str] = []
 
         def _emit_turn_bg(ev_type: str, state, payload: dict) -> None:
-            """Fire-and-forget turn-scoped emission from sync callbacks.
-            Same contract as the async helpers, but suitable for the
-            ``_on_token_bus`` / ``_track_*_token`` sync signatures.
-            """
+            """Fire-and-forget turn-scoped emission from sync callbacks."""
             from digitorn.core.events.envelope import (
                 SessionEvent as _SE, OpType as _OT,
             )
@@ -1298,9 +982,6 @@ class _ChatMixin:
         def _on_token_bus(delta: str, count: int = 0) -> None:
             from digitorn.core.events.envelope import OpState as _OS
             _stream_chunks.append(delta)
-            # Bump liveness - token arrival is the primary signal that
-            # the LLM is actually producing output (not stuck in a
-            # provider retry loop).
             self.turn_state_update(
                 app_id, session_id, phase="generating",
             )
@@ -1339,30 +1020,14 @@ class _ChatMixin:
                 on_in_token(count)
 
         def _on_tool_call_streaming(call_id: str, name: str, count: int, intent: str = "") -> None:
-            """Live progress while the LLM composes a tool call's args.
-            Lets the frontend show "Write · 47 tokens" climbing in
-            real-time so the user knows the agent is working through a
-            big call before execution even begins.
-
-            ``intent`` is the verb phrase extracted from the partial JSON
-            buffer as soon as the schema's first property (``intent``)
-            closes its string literal. Surfaced on the wire so the
-            Lovable-style progress line gets the verb BEFORE tool_start
-            fires — without this, intents only appear after the LLM
-            finishes composing the entire call.
-
-            Skipped for hidden tools (Memory ops, Agent spawn, search_*,
-            etc.) - they don't render a card at all once execution
-            starts, so a streaming placeholder would just flash a chip
-            that immediately disappears and confuses the eye.
-            """
+            """Live progress while the LLM composes a tool call's args."""
             from digitorn.core.events.envelope import OpState as _OS
             from digitorn.core.runtime.tool_display import build_display
             try:
                 if build_display(name, None, None).get("hidden"):
                     return
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("tool_display build for streaming failed name=%s: %s", name, exc)
             payload: dict[str, Any] = {"call_id": call_id, "name": name}
             if count > 0:
                 payload["count"] = count
@@ -1383,10 +1048,7 @@ class _ChatMixin:
 
         def _on_stream_done_bus() -> None:
             from digitorn.core.events.envelope import OpState as _OS
-            # stream_done marks the end of LLM streaming, not the end
-            # of the turn (message_done is the terminal). Keep RUNNING
-            # so a reconnecting client still sees the turn as active
-            # until message_done lands.
+            # stream_done ends LLM streaming but not the turn; keep RUNNING so reconnecting clients still see it active.
             _emit_turn_bg("stream_done", _OS.RUNNING, {})
             _log_event("stream_done", {})
             if on_stream_done is not None:
@@ -1402,29 +1064,14 @@ class _ChatMixin:
                 "phase": hook_event.phase,
                 "details": hook_event.details,
             }
-            # A hook firing is a ONE-SHOT event, not a long-running
-            # op. We used to reuse ``hook_event.hook_id`` as op_id
-            # with op_state=RUNNING for phases that weren't explicitly
-            # completed/failed - that left ``_system`` (the singleton
-            # id used by built-in hooks) stuck in ``active_ops`` forever.
-            # Fix: every hook event is TERMINAL on emission, and each
-            # invocation gets a fresh op_id so two firings of the same
-            # hook don't overwrite each other's state in the client
-            # registry.
+            # Every hook fire is terminal with a fresh op_id; stable hook_id stays in payload for grouping.
             phase = (hook_event.phase or "").lower()
             if phase in ("failed", "error"):
                 op_state = _OS.FAILED
             elif phase in ("cancelled",):
                 op_state = _OS.CANCELLED
             else:
-                # pre / on / completed / done / success / unknown →
-                # COMPLETED. The event is itself the "I happened" -
-                # the client renders it as a log entry, not a chip
-                # that stays alive.
                 op_state = _OS.COMPLETED
-            # Fresh op_id per fire. The stable hook_id is preserved in
-            # the payload for clients that want to group all firings
-            # of the same hook in a debug panel.
             hook_op_id = gen_op_id("hook")
             hook_data["hook_op_id"] = hook_op_id
             await self.event_bus.emit(_SE.build(
@@ -1448,31 +1095,15 @@ class _ChatMixin:
         _turn_error = None
         _aborted = False
         active_key = f"{app_id}:{session_id}"
-        # Expose the live session + store to ctx so runtime helpers
-        # (e.g. title_generator) can update persisted fields without
-        # plumbing a new parameter through the whole call chain.
-        try:
-            ctx.session = session  # type: ignore[attr-defined]
-            ctx.session_store = self._session_store  # type: ignore[attr-defined]
-        except Exception:
-            pass
-        # Resolve the composer mode for this turn. ``mode_id`` is the
-        # client-supplied selection (None / empty falls back to the
-        # default-policy: ``auto`` if declared, else first declared,
-        # else no mode at all). The dispatcher reads
-        # ``ctx.effective_turn`` at turn start to inject the
-        # mode-switch system_message and arm the tool guard. When the
-        # app declares no modes at all, ``effective.active_mode_id`` is
-        # None and the agent loop's mode block becomes a no-op.
+        # Expose live session + store to ctx so runtime helpers can update persisted fields without extra plumbing.
+        ctx.session = session  # type: ignore[attr-defined]
+        ctx.session_store = self._session_store  # type: ignore[attr-defined]
+        # Stamp ctx.effective_turn so the agent loop's mode block + tool guard read this turn's mode selection.
         try:
             _effective = resolve_mode(deployed.compiled, mode_id)
             ctx.effective_turn = _effective  # type: ignore[attr-defined]
         except Exception as _exc:
             logger.debug("resolve_mode_failed: %s", _exc)
-        # Per-turn caps honour the active mode's overrides (ModeDef.max_turns
-        # / ModeDef.timeout) when set, falling back to the app's runtime
-        # values when the mode does not narrow them or no mode is active.
-        # ``ctx.effective_turn`` was stamped earlier by ``resolve_mode``.
         _eff = getattr(ctx, "effective_turn", None)
         _eff_max_turns = (
             getattr(_eff, "max_turns", None)
@@ -1512,9 +1143,6 @@ class _ChatMixin:
             _turn_error = exc
             result = TurnResult(content="", error=str(exc))
         finally:
-            # Each cleanup step is wrapped individually so a failure in one
-            # never prevents the others from running. The finally block must
-            # NEVER raise - leaks happen when it does.
             try:
                 self._session_tasks.pop(active_key, None)
             except Exception:
@@ -1531,8 +1159,8 @@ class _ChatMixin:
             # Remove bus capture handler (safety net for early returns/crashes)
             try:
                 self.event_bus.remove_handler(_bus_capture)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("event_bus remove_handler failed: %s", exc)
             try:
                 if _had_hook_cb and hook_runner is not None:
                     hook_runner.on_hook_event = _prev_hook_cb
@@ -1558,7 +1186,6 @@ class _ChatMixin:
                 except Exception:
                     logger.warning("failed to persist interrupted session %s (messages)", session_id)
 
-        # ── Log final events for the turn ──────────────────────────────────
         if _stream_chunks:
             _log_event("stream_text", {"content": "".join(_stream_chunks)})
         if _out_token_total[0] or _in_token_total[0]:
@@ -1578,8 +1205,8 @@ class _ChatMixin:
                     _in_token_total[0], _rp,
                     _out_token_total[0], _rc,
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("token mismatch check failed: %s", exc)
         _log_event("turn_end", {
             "content": result.content,
             "tool_calls_count": result.tool_calls_count,
@@ -1591,15 +1218,11 @@ class _ChatMixin:
         # Remove the bus capture handler - prevents cross-turn leakage
         try:
             self.event_bus.remove_handler(_bus_capture)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_chat best-effort block failed: %s", exc)
 
         if result.content:
-            # Idempotent guard: the agent loop now appends the final
-            # assistant message to ``session.messages`` BEFORE persisting
-            # so history_log gets the row. Without this guard we'd
-            # double-append on every successful turn (and the LLM would
-            # see two identical assistant turns in its context).
+            # agent_loop already appended the assistant row; this guard prevents a double-append on every successful turn.
             _msgs = session.messages
             _last = _msgs[-1] if _msgs else None
             _already_there = (
@@ -1614,44 +1237,19 @@ class _ChatMixin:
         if _mem and hasattr(_mem, 'store') and _mem.store:
             try:
                 session.memory_snapshot = _mem.store.to_dict()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("memory snapshot to_dict failed: %s", exc)
 
-        # ── Persist session, messages, events ────────────────────────
-        # Strategy: ``_store.put(session)`` is awaited under the lock
-        # because the session object itself is about to mutate when the
-        # next turn starts (turn_count++, add_user, …). Pickling it
-        # under the lock guarantees an atomic snapshot. It's the cheap
-        # op (~10-50ms) so the lock release stays fast.
-        #
-        # The two heavy ops (``save_messages`` rewrites the whole
-        # message blob, ``append_events`` is O(N²) load+save of the
-        # full event log) are dispatched fire-and-forget on snapshot
-        # COPIES of the lists. They never block the lock release, so
-        # the next message from the same session can start immediately.
-        #
-        # Crash safety is preserved: the durable DB layer
-        # (``_persist_turn_bg`` in agent_loop) writes via its own
-        # isolated worker on the same end-of-turn signal, with per-row
-        # incremental inserts. Even if a session_store bg task is
-        # interrupted, the DB has the latest turn and the cache will
-        # rehydrate from it on the next read.
+        # Cheap session.put under the lock for an atomic snapshot; heavy persists dispatched on snapshot copies so lock release stays fast.
         session.turn_count += 1
         if not _aborted:
             session.interrupted = False  # Successful turn clears interruption flag
 
         _store = self._session_store
         _uid = session.user_id
-        # Snapshot the heavy lists under the lock - cheap, just copies
-        # the list-of-refs. The dicts inside aren't mutated after
-        # add_assistant/add_user, so a shallow copy is safe.
         _snap_messages = list(session.messages)
         _snap_events = list(_event_log)
 
-        # Diagnostic: time each end-of-turn await so a stuck step shows
-        # up in the daemon log. The user-visible symptom is "next
-        # message blocks after a turn ends" - any await that takes >1s
-        # under the session lock is a candidate culprit.
         _end_t0 = time.monotonic()
 
         try:
@@ -1660,11 +1258,6 @@ class _ChatMixin:
             logger.warning("session_put_failed: %s", persist_exc)
         _t_put = time.monotonic() - _end_t0
 
-        # Lock will release as soon as ``_chat_locked`` returns. The
-        # heavy persists run in background after that. ``messages_baseline``
-        # tells the scheduler how to slice the per-turn delta - if
-        # compaction shrunk the list mid-turn, the scheduler falls back
-        # to the full-blob path automatically.
         _schedule_bg_persist_msgs_events(
             _store, app_id, session_id, _turn_index,
             _snap_messages, _snap_events, _uid,
@@ -1694,9 +1287,6 @@ class _ChatMixin:
             result_event_data["usage"]["total_tokens"] = sm.total_tokens
             result_event_data["turn_number"] = sm.turn
             _model = sm.model or (getattr(ctx.provider, "model", "") if ctx else "")
-            # Surface the resolved model name on the turn_complete SSE
-            # so the web Context panel can show it without waiting for
-            # the next /sessions/{sid} polling cycle (Flutter web parity).
             if _model:
                 result_event_data["model"] = _model
             _ml = _model.lower()
@@ -1710,8 +1300,8 @@ class _ChatMixin:
                 sm.prompt_tokens * _pi / 1_000_000 + sm.completion_tokens * _po / 1_000_000, 6
             )
             result_event_data["context"] = sm.context.snapshot()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("session_metrics enrichment failed: %s", exc)
 
         _t_ws_start = time.monotonic()
         try:
@@ -1721,8 +1311,8 @@ class _ChatMixin:
                 result_event_data["workspace_status"] = await asyncio.to_thread(
                     _get_workspace_status, _ws,
                 )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("workspace_status enrichment failed: %s", exc)
         _t_ws = time.monotonic() - _t_ws_start
 
         _t_emit_start = time.monotonic()
@@ -1730,9 +1320,6 @@ class _ChatMixin:
             from digitorn.core.events.envelope import (
                 SessionEvent as _SE, OpType as _OT, OpState as _OS,
             )
-            # ``result`` is the turn's payload event (assistant text,
-            # usage, workspace status). Share op_id with the turn,
-            # op_state=COMPLETED marks the turn's payload delivery.
             _turn_op_id = correlation_id or f"turn-{session_id}"
             _result_envelope = _SE.build(
                 type="result",
@@ -1741,16 +1328,7 @@ class _ChatMixin:
                 correlation_id=correlation_id or "",
                 payload=result_event_data,
             )
-            # Fire-and-forget: ``event_bus.emit`` awaits the Socket.IO
-            # transport, which under a slow / disconnecting client can
-            # take 1-5s on Windows IOCP (TCP write buffer backpressure
-            # blocks the proactor's WriteFile). Awaiting it here held
-            # the session lock for the full duration, delaying the
-            # NEXT user message on the same session by the same amount.
-            # Now: scheduled on the loop, kept alive via a strong-ref
-            # set so GC doesn't collect the in-flight task. The
-            # underlying emit still has its own 5s timeout +
-            # backpressure semaphore (see session_bus.py).
+            # Fire-and-forget emit; Socket.IO under slow clients can take seconds and would hold the session lock.
             try:
                 _emit_task = asyncio.create_task(
                     self.event_bus.emit(_result_envelope),
@@ -1761,20 +1339,13 @@ class _ChatMixin:
                     _END_OF_TURN_EMIT_TASKS.discard,
                 )
             except RuntimeError:
-                # Loop not running (shutdown). Fall back to awaiting so
-                # we don't silently drop the result event during a
-                # graceful close.
+                # Loop closed (shutdown); fall back to awaiting so the result event isn't dropped during graceful close.
                 await self.event_bus.emit(_result_envelope)
         _t_emit = time.monotonic() - _t_emit_start
 
         # Usage tracking is owned by the digitorn LLM gateway.
         # The daemon does not record token/cost rows anymore.
 
-        # Total end-of-turn time spent under the session lock. If this
-        # is consistently > 1-2 s, the next message from the same
-        # session will appear blocked because session_lock.acquire()
-        # waits on the previous turn's release. Surface the breakdown
-        # so users can pinpoint which step is slow.
         _t_total = time.monotonic() - _end_t0
         if _t_total > 1.0:
             logger.warning(
@@ -1817,11 +1388,7 @@ class _ChatMixin:
         on_tool_call: Any | None = None,
         on_hook_event: Any | None = None,
     ) -> TurnResult | None:
-        """Drain background notifications and run an agent turn if any exist.
-
-        Returns a TurnResult if notifications were found and processed,
-        or None if there are no pending notifications.
-        """
+        """Drain background notifications and run an agent turn if any exist."""
         from digitorn.core.runtime.agent_loop import agent_turn
 
         deployed = self._get_deployed(app_id, user_id=user_id)
@@ -1831,12 +1398,7 @@ class _ChatMixin:
 
         notifications = cb.drain_bg_notifications(session_id=session_id)
 
-        # Off-loop: ``drain_buffered`` reads + unlinks the JSONL buffer
-        # for this app. Tiny IO on the happy path but pile-ups under
-        # cron storms or background-trigger bursts can put the buffer
-        # file into the multi-MB range; doing the read on the main
-        # loop stalls every turn the storm runs through. Worker
-        # thread keeps the loop free.
+        # Off-loop drain; the JSONL buffer can grow large during cron storms and stall every turn if read on-loop.
         buffered = await asyncio.to_thread(
             self._job_store.drain_buffered, app_id,
         )
@@ -1874,11 +1436,6 @@ class _ChatMixin:
             from digitorn.core.events.envelope import (
                 SessionEvent as _SE, OpType as _OT, OpState as _OS, gen_op_id,
             )
-            # Each background-task notification has a task_id that
-            # doubles as its op_id (lifecycle: running → progress
-            # events → completed/failed). We always emit RUNNING here
-            # because the notification arrives WHILE the task is alive;
-            # the terminal state is later emitted by bg_task_update.
             _task_id = notif.get("task_id") or gen_op_id("bg")
             await self.event_bus.emit(_SE.build(
                 type="notification",
@@ -1933,8 +1490,6 @@ class _ChatMixin:
             hook_runner.on_hook_event = on_hook_event
             _had_hook_cb = True
 
-        # Per-turn caps honour the active mode's overrides when present
-        # (same plumbing as the primary chat path above).
         _eff = getattr(ctx, "effective_turn", None)
         _eff_max_turns = (
             getattr(_eff, "max_turns", None)
@@ -1958,10 +1513,7 @@ class _ChatMixin:
                 hook_runner.on_hook_event = _prev_hook_cb
 
         if result.content:
-            # Idempotent guard - see the matching block above for context.
-            # The agent loop's no-tool-calls exit path now appends the
-            # assistant message itself, so this site only needs to add
-            # it when the loop didn't (legacy / sub-agent code paths).
+            # agent_loop's no-tool-calls exit already appends the assistant message; this guard avoids a double-append.
             _msgs = session.messages
             _last = _msgs[-1] if _msgs else None
             _already_there = (
@@ -1977,10 +1529,6 @@ class _ChatMixin:
         from digitorn.core.events.envelope import (
             SessionEvent as _SE, OpType as _OT, OpState as _OS,
         )
-        # notification_result closes the background-notification cycle
-        # started by the ``notification`` emits above. Use a stable
-        # op_id based on the aggregate (count) so the client can
-        # correlate per-batch if it wants to.
         await self.event_bus.emit(_SE.build(
             type="notification_result",
             app_id=app_id, session_id=session_id, user_id=user_id,

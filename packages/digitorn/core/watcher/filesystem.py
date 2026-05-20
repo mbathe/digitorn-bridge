@@ -1,6 +1,6 @@
 """FilesystemWatcher - native OS file-change detection.
 
-Uses the ``watchfiles`` library (Rust ``notify`` crate underneath),
+Uses the `watchfiles` library (Rust `notify` crate underneath),
 which provides:
     - inotify on Linux
     - FSEvents on macOS
@@ -33,7 +33,7 @@ _CHANGE_MAP = {
 class FilesystemWatcher:
     """Watch a filesystem directory for changes using OS-native notifications.
 
-    Events are buffered in an asyncio.Queue and consumed via ``changes()``.
+    Events are buffered in an asyncio.Queue and consumed via `changes()`.
     """
 
     def __init__(self, config: WatchConfig) -> None:

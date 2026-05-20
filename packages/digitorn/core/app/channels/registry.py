@@ -1,41 +1,4 @@
-"""ChannelRegistry - two-level type/instance management with retry and discovery.
-
-The registry manages two levels:
-
-1. **Types** (global, loaded once at daemon startup):
-   Channel classes registered by CHANNEL_ID. Populated from:
-   - Built-in channels (always available)
-   - Plugin entry points (``pip install digitorn-channel-slack``)
-
-2. **Instances** (per-app, created at deploy time):
-   Live channel objects with resolved config, created from types.
-   Destroyed at undeploy.
-
-Delivery flow::
-
-    registry.deliver("my_slack", app_id, payload, config)
-      → lookup instance "my_slack"
-      → call instance.deliver(app_id, payload, config)
-      → retry on transient failure (per retry_policy)
-      → record health metrics
-      → return DeliveryResult
-
-Usage::
-
-    registry = ChannelRegistry()
-
-    registry.register_type(LLMNotificationChannel)
-    registry.register_type(WebhookChannel)
-    registry.discover_plugins()
-
-    registry.create_instance("slack_alerts", "webhook", {"url": "..."})
-    await registry.start_instance("slack_alerts")
-
-    result = await registry.deliver("slack_alerts", "my-app", payload, {})
-
-    await registry.stop_instance("slack_alerts")
-    registry.remove_instance("slack_alerts")
-"""
+"""ChannelRegistry - two-level type/instance management with retry and discovery."""
 
 from __future__ import annotations
 
@@ -69,13 +32,7 @@ def _get_resolver_class():
 
 
 class ChannelRegistry:
-    """Global registry of output channel types and instances.
-
-    Two-level architecture:
-    - **Types**: channel classes indexed by CHANNEL_ID (global, immutable)
-    - **Instances**: live channel objects indexed by instance name (per-app)
-    - **Resolvers**: optional per-instance UserResolver for auto-targeting
-    """
+    """Global registry of output channel types and instances."""
 
     def __init__(self) -> None:
         self._types: dict[str, type[BaseOutputChannel]] = {}
@@ -86,14 +43,7 @@ class ChannelRegistry:
 
 
     def register_type(self, channel_class: type[BaseOutputChannel]) -> None:
-        """Register a channel type (class) by its CHANNEL_ID.
-
-        Args:
-            channel_class: A BaseOutputChannel subclass.
-
-        Raises:
-            ValueError: If CHANNEL_ID is empty or already registered.
-        """
+        """Register a channel type (class) by its CHANNEL_ID."""
         channel_id = channel_class.CHANNEL_ID
         if not channel_id:
             raise ValueError(
@@ -136,14 +86,7 @@ class ChannelRegistry:
 
 
     def discover_plugins(self) -> int:
-        """Scan Python entry points for plugin channels.
-
-        Looks for the ``digitorn.channels`` entry point group.
-        Plugin channels are registered as types.
-
-        Returns:
-            Number of plugins discovered.
-        """
+        """Scan Python entry points for plugin channels."""
         count = 0
         try:
             from importlib.metadata import entry_points
@@ -191,23 +134,7 @@ class ChannelRegistry:
         app_id: str = "",
         resolver_config: dict[str, Any] | None = None,
     ) -> BaseOutputChannel:
-        """Create a channel instance from a registered type.
-
-        Args:
-            instance_name: User-chosen instance name (e.g. "slack_alerts").
-            channel_type: CHANNEL_ID of the type to instantiate.
-            config: Resolved config from the YAML ``channels:`` block.
-            app_id: Owning app ID (for cleanup on undeploy).
-            resolver_config: Optional user_resolver config from YAML.
-                When set, the channel auto-resolves per-user delivery
-                targets via the configured module action.
-
-        Returns:
-            The created channel instance.
-
-        Raises:
-            ValueError: If channel_type is not registered.
-        """
+        """Create a channel instance from a registered type."""
         cls = self._types.get(channel_type)
         if cls is None:
             raise ValueError(
@@ -242,11 +169,7 @@ class ChannelRegistry:
         *,
         app_id: str = "",
     ) -> None:
-        """Register a pre-built channel instance.
-
-        Used for special channels (like LLM notification) that are
-        created outside the normal type → instance flow.
-        """
+        """Register a pre-built channel instance."""
         self._instances[instance_name] = instance
         self._instance_meta[instance_name] = (instance.CHANNEL_ID, app_id)
 
@@ -275,10 +198,7 @@ class ChannelRegistry:
         return existed
 
     async def stop_and_remove_for_app(self, app_id: str) -> int:
-        """Stop and remove all channel instances for an app.
-
-        Called on undeploy. Returns count of instances removed.
-        """
+        """Stop and remove all channel instances for an app."""
         to_remove = [
             name for name, (_, aid) in self._instance_meta.items()
             if aid == app_id
@@ -300,11 +220,7 @@ class ChannelRegistry:
         instance_name: str,
         modules: dict[str, Any],
     ) -> None:
-        """Inject module references into a channel's resolver.
-
-        Called at bootstrap after modules are instantiated, so the
-        resolver can call module actions (e.g. database.fetch_results).
-        """
+        """Inject module references into a channel's resolver."""
         resolver = self._resolvers.get(instance_name)
         if resolver is not None:
             resolver.set_modules(modules)
@@ -314,12 +230,7 @@ class ChannelRegistry:
         instance_name: str,
         user_store: Any,
     ) -> None:
-        """Inject UserStore into a channel's resolver.
-
-        When set, the resolver can auto-resolve user delivery targets
-        (email, phone, etc.) from the unified user table instead of
-        querying a module action.
-        """
+        """Inject UserStore into a channel's resolver."""
         resolver = self._resolvers.get(instance_name)
         if resolver is not None:
             resolver.set_user_store(user_store)
@@ -337,28 +248,7 @@ class ChannelRegistry:
         *,
         session_id: str | None = None,
     ) -> DeliveryResult:
-        """Route a notification to the specified channel instance.
-
-        Handles:
-        - Instance lookup with fallback to default
-        - Legacy dict → ChannelPayload conversion
-        - **User resolver**: auto-resolve per-user delivery targets
-        - Retry loop based on channel's retry_policy
-        - Health metric recording
-
-        Args:
-            channel_name: Instance name (e.g. "slack_alerts") or channel
-                type ID for backward compat (e.g. "llm_notification").
-            app_id: The app that triggered this notification.
-            payload: ChannelPayload or legacy dict (auto-converted).
-            config: Per-delivery config overrides.
-            session_id: Session that created this delivery (identifies
-                the user). Used by ``user_resolver`` to auto-resolve
-                delivery targets.
-
-        Returns:
-            DeliveryResult from the channel.
-        """
+        """Route a notification to the specified channel instance."""
         if isinstance(payload, dict):
             payload = ChannelPayload.from_dict(payload)
 
@@ -428,18 +318,7 @@ class ChannelRegistry:
         *,
         session_id: str | None = None,
     ) -> list[DeliveryResult]:
-        """Fan out a notification to multiple channels concurrently.
-
-        Args:
-            channel_names: List of instance names to deliver to.
-            app_id: The app that triggered this notification.
-            payload: Notification payload.
-            config: Per-delivery config overrides (shared across channels).
-            session_id: Session that created this delivery (for user resolver).
-
-        Returns:
-            List of DeliveryResult, one per channel (same order).
-        """
+        """Fan out a notification to multiple channels concurrently."""
         tasks = [
             self.deliver(name, app_id, payload, config, session_id=session_id)
             for name in channel_names
@@ -470,14 +349,7 @@ class ChannelRegistry:
         payload: ChannelPayload,
         config: dict[str, Any],
     ) -> DeliveryResult:
-        """Execute delivery with retry loop based on channel policy.
-
-        If we're currently inside a background activation, the final
-        outcome (success or failure) is also recorded as a
-        ``channel_sent`` event in the activation timeline. This is what
-        drives the "📧 email sent to alice@x.com" rows in the Flutter
-        dashboard's activation drawer.
-        """
+        """Execute delivery with retry loop based on channel policy."""
         policy = instance.retry_policy()
         last_result: DeliveryResult | None = None
 
@@ -552,18 +424,7 @@ class ChannelRegistry:
         *,
         success: bool,
     ) -> None:
-        """Push a ``channel_sent`` row into the current activation's timeline.
-
-        Reads the recorder from the background runtime's task-local
-        contextvar. Silently no-ops when we're not inside a background
-        activation (e.g. regular chat session, manual test, CLI run).
-
-        The target is extracted best-effort from the delivery config:
-        ``to`` / ``recipient`` / ``url`` / ``channel`` - whichever the
-        channel plugin put there. If none match we fall back to the
-        channel's instance name so the event at least identifies WHICH
-        channel was involved.
-        """
+        """Push a `channel_sent` row into the current activation's timeline."""
         try:
             from digitorn.core.runtime.modes.background import (
                 get_current_activation_recorder,
@@ -630,11 +491,7 @@ class ChannelRegistry:
 
 
     def register(self, channel: BaseOutputChannel) -> None:
-        """Legacy: register a channel instance by its CHANNEL_ID.
-
-        This is the old API. New code should use register_type() +
-        create_instance() or register_instance().
-        """
+        """Legacy: register a channel instance by its CHANNEL_ID."""
         self.register_instance(channel.CHANNEL_ID, channel)
         cls = type(channel)
         if cls.CHANNEL_ID and cls.CHANNEL_ID not in self._types:

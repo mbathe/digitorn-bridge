@@ -1,17 +1,4 @@
-"""Semantic classifier - generic pre-turn behavioral analysis engine.
-
-Fully data-driven: every aspect is configurable via YAML. The app author
-defines complexity levels, approaches, risk levels, system prompt, directive
-format, when to run, and what context to include.
-
-The classifier receives a ``ClassifierConfig`` dict and builds its prompts
-dynamically. No hardcoded enum values - they come from the config.
-
-Integration:
-  - Called by module.py ``classify_turn()`` before the main LLM call
-  - Directives injected as a system message the agent sees
-  - Frequency, skip logic, timeout all controlled by config
-"""
+"""Semantic classifier - generic pre-turn behavioral analysis engine."""
 
 from __future__ import annotations
 
@@ -21,12 +8,6 @@ import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
-
-# ────────────────────────────────────────────────────────────────────
-# Default system prompt - used when classifier.system_prompt is null.
-# The app author can replace this entirely via YAML or {{prompt.X}}.
-# ────────────────────────────────────────────────────────────────────
 
 _DEFAULT_SYSTEM_PROMPT = """\
 You are a behavioral director for an AI agent. You analyze what the user wants, \
@@ -107,13 +88,8 @@ Adapt to session state:
 - No task content → skip
 """
 
-
 def build_classifier_config_defaults() -> dict[str, Any]:
-    """Return the default classifier config as a plain dict.
-
-    Used when no ClassifierConfig is provided - matches the Pydantic
-    model defaults so behavior is identical.
-    """
+    """Return the default classifier config as a plain dict."""
     return {
         "frequency": "every_turn",
         "frequency_n": 3,
@@ -160,17 +136,13 @@ def build_classifier_config_defaults() -> dict[str, Any]:
         ),
     }
 
-
 def _get_cfg(classifier_config: dict[str, Any] | None, key: str, default: Any = None) -> Any:
-    """Safe access to classifier config with defaults fallback."""
     if classifier_config and key in classifier_config:
         return classifier_config[key]
     defaults = build_classifier_config_defaults()
     return defaults.get(key, default)
 
-
 def _get_context_cfg(classifier_config: dict[str, Any] | None, key: str) -> bool:
-    """Safe access to classifier context config."""
     ctx = {}
     if classifier_config:
         ctx = classifier_config.get("context", {})
@@ -181,18 +153,8 @@ def _get_context_cfg(classifier_config: dict[str, Any] | None, key: str) -> bool
     defaults = build_classifier_config_defaults()["context"]
     return ctx.get(key, defaults.get(key, True))
 
-
-# ────────────────────────────────────────────────────────────────────
-# System prompt builder - dynamic from config
-# ────────────────────────────────────────────────────────────────────
-
 def build_system_prompt(classifier_config: dict[str, Any] | None = None) -> str:
-    """Build the classifier's system prompt from config.
-
-    If ``classifier_config.system_prompt`` is set, uses it directly.
-    Otherwise builds from the default template with dynamic sections
-    generated from the config's complexity levels, approaches, etc.
-    """
+    """Build the classifier's system prompt from config."""
     custom_prompt = _get_cfg(classifier_config, "system_prompt")
     if custom_prompt:
         return custom_prompt
@@ -218,36 +180,20 @@ def build_system_prompt(classifier_config: dict[str, Any] | None = None) -> str:
         risk_guide=risk_guide,
     )
 
-
-# ── Entry normalization ──
-
 def _normalize_entry(entry: str | dict[str, str]) -> dict[str, str]:
-    """Normalize a string or dict entry to a full dict.
-
-    Supports:
-      - ``"direct"`` → ``{"name": "direct"}``
-      - ``{"name": "direct", "label": "...", "when": "...", "behavior": "..."}``
-    """
     if isinstance(entry, str):
         return {"name": entry}
     if isinstance(entry, dict):
         return entry
     return {"name": str(entry)}
 
-
 def _entry_name(entry: str | dict[str, str]) -> str:
-    """Get the name from a normalized or raw entry."""
     if isinstance(entry, str):
         return entry
     return entry.get("name", str(entry))
 
-
 def _entry_label(entry: dict[str, str]) -> str:
-    """Get the label (for display to agent) from an entry."""
     return entry.get("label", entry.get("name", ""))
-
-
-# ── Builders ──
 
 def _build_output_schema(
     complexity: list[dict], approaches: list[dict],
@@ -268,14 +214,7 @@ def _build_output_schema(
         "```"
     )
 
-
 def _build_guide(title: str, items: list[dict[str, str]]) -> str:
-    """Build a guide section from structured entries.
-
-    Each entry can have: name, label, when, behavior.
-    Produces a rich guide that tells the classifier exactly when
-    to pick each value and how the agent should behave.
-    """
     lines = [f"## {title}"]
     for item in items:
         name = item.get("name", "?")
@@ -296,7 +235,6 @@ def _build_guide(title: str, items: list[dict[str, str]]) -> str:
         lines.append(f"- {line}")
     return "\n".join(lines)
 
-
 def get_approach_label(
     approach_name: str,
     classifier_config: dict[str, Any] | None,
@@ -309,15 +247,9 @@ def get_approach_label(
             return _entry_label(item)
     return approach_name
 
-
 def get_entry_names(entries: list) -> list[str]:
     """Extract names from a list of string-or-dict entries."""
     return [_entry_name(e) for e in entries]
-
-
-# ────────────────────────────────────────────────────────────────────
-# Skip logic
-# ────────────────────────────────────────────────────────────────────
 
 _FOLLOWUP_PATTERNS = re.compile(
     r"^(yes|yeah|yep|ok|okay|oui|d'accord|go|go ahead|continue|do it|proceed|sure|lgtm|ship it|"
@@ -325,15 +257,12 @@ _FOLLOWUP_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-
 def should_skip_followup(user_message: str) -> bool:
-    """Return True if the message is a simple follow-up that doesn't
-    need classification."""
+    """Return True if the message is a simple follow-up that doesn't."""
     text = user_message.strip()
     if len(text) > 50:
         return False
     return bool(_FOLLOWUP_PATTERNS.match(text))
-
 
 def should_run_this_turn(
     turn: int,
@@ -360,11 +289,6 @@ def should_run_this_turn(
         # "every_turn" (default) - always run
         return True
 
-
-# ────────────────────────────────────────────────────────────────────
-# Message builder
-# ────────────────────────────────────────────────────────────────────
-
 def build_classify_messages(
     user_message: str,
     capabilities: list[str],
@@ -377,45 +301,35 @@ def build_classify_messages(
     workspace_context: dict[str, Any] | None = None,
     classifier_config: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Build messages for the classifier LLM call.
-
-    What gets included is controlled by ``classifier_config.context``.
-    """
+    """Build messages for the classifier LLM call."""
     parts: list[str] = []
 
-    # ── 1. User message (always) ──
     parts.append(f"## User message\n{user_message}")
 
-    # ── 2. Tool inventory ──
     if _get_context_cfg(classifier_config, "tool_inventory") and tool_inventory:
         tool_lines = [f"- **{t.get('name', '')}**: {t.get('description', '')}" for t in tool_inventory]
         parts.append("## Agent tools\n" + "\n".join(tool_lines))
     elif capabilities:
         parts.append(f"## Agent capabilities (modules)\n{', '.join(capabilities)}")
 
-    # ── 3. Session state ──
     if _get_context_cfg(classifier_config, "session_state") and session_state:
         parts.append("## Session state\n" + _format_session_state(session_state))
     elif not session_state:
         parts.append("## Session state\nTurn: 0 (fresh session)")
 
-    # ── 4. Workspace context ──
     if _get_context_cfg(classifier_config, "workspace_info") and workspace_context:
         ws_text = _format_workspace(workspace_context)
         if ws_text:
             parts.append("## Workspace context\n" + ws_text)
 
-    # ── 5. Active rules ──
     if active_rules:
         parts.append(f"## Active behavioral rules\n{', '.join(active_rules)}")
 
-    # ── 6. Custom profile context ──
     if profile_context:
         profile_text = _format_profile(profile_context)
         if profile_text:
             parts.append("## Behavior profile\n" + profile_text)
 
-    # ── 7. Recent history ──
     if _get_context_cfg(classifier_config, "recent_history") and recent_context:
         depth = 8
         ctx_cfg = classifier_config.get("context", {}) if classifier_config else {}
@@ -427,13 +341,8 @@ def build_classify_messages(
         if history_lines:
             parts.append("## Recent conversation\n" + "\n".join(history_lines))
 
-    # Build system prompt from config
     system_prompt = build_system_prompt(classifier_config)
 
-    # Append a strict role + JSON-only reminder. Critical for smaller LLMs
-    # (DeepSeek-chat, Qwen) which often impersonate the agent when they see
-    # the user's task in their input - they answer as if they had to do the
-    # task, instead of coaching another agent about how to approach it.
     parts.append(
         "## CRITICAL - your role\n"
         "You are the COACH. You are NOT the agent. The user message above is "
@@ -456,23 +365,7 @@ def build_classify_messages(
         {"role": "user", "content": "\n\n".join(parts)},
     ]
 
-
-# ────────────────────────────────────────────────────────────────────
-# Formatters
-# ────────────────────────────────────────────────────────────────────
-
 def _format_session_state(state: dict[str, Any]) -> str:
-    """Format session state generically - works for any app type.
-
-    The state dict comes from ``BhvSessionState.snapshot()`` and contains:
-    - Universal fields: turn, total_tool_calls, violations_count, etc.
-    - Named sets (lists): read_files, edited_files, fetched_urls, etc.
-    - Named counters: ``counter:changes_since_test``, ``counter:queries_since_verify``
-    - Named flags: ``flag:has_web_searched``, ``flag:plan_approved``
-    - Recent tools: list of tool call summaries
-
-    All formatted dynamically - no hardcoded field names.
-    """
     lines: list[str] = []
 
     # Universal scalars first
@@ -530,7 +423,6 @@ def _format_session_state(state: dict[str, Any]) -> str:
 
     return "\n".join(lines)
 
-
 def _format_workspace(ws: dict[str, Any]) -> str:
     lines: list[str] = []
     for key in ("project_type", "languages", "file_count", "framework", "has_tests", "git_status", "workspace_path"):
@@ -541,7 +433,6 @@ def _format_workspace(ws: dict[str, Any]) -> str:
             label = key.replace("_", " ").title()
             lines.append(f"{label}: {val}")
     return "\n".join(lines)
-
 
 def _format_profile(ctx: dict[str, Any]) -> str:
     lines: list[str] = []
@@ -565,12 +456,10 @@ def _format_profile(ctx: dict[str, Any]) -> str:
             lines.append("Custom enforcement rules:\n" + "\n".join(rule_lines))
     return "\n".join(lines)
 
-
 def _format_rich_history(
     messages: list[dict[str, Any]],
     max_messages: int = 8,
 ) -> list[str]:
-    """Format recent messages including tool calls and results."""
     lines: list[str] = []
     for msg in messages[-max_messages:]:
         role = msg.get("role", "?")
@@ -610,17 +499,11 @@ def _format_rich_history(
 
     return lines
 
-
 def _truncate(text: str, max_len: int) -> str:
     text = text.strip()
     if len(text) <= max_len:
         return text
     return text[:max_len - 3] + "..."
-
-
-# ────────────────────────────────────────────────────────────────────
-# Response parsing
-# ────────────────────────────────────────────────────────────────────
 
 def parse_classification(raw_text: str) -> dict[str, Any] | None:
     """Parse the classifier's JSON output. Fault-tolerant."""
@@ -636,9 +519,7 @@ def parse_classification(raw_text: str) -> dict[str, Any] | None:
     logger.warning("behavior_classify: failed to parse: %s", text[:200])
     return None
 
-
 def _try_parse_json(text: str) -> dict[str, Any] | None:
-    """Try multiple strategies to extract JSON from text."""
     # Direct parse
     try:
         result = json.loads(text)
@@ -669,11 +550,6 @@ def _try_parse_json(text: str) -> dict[str, Any] | None:
             pass
 
     return None
-
-
-# ────────────────────────────────────────────────────────────────────
-# Directive formatting (data-driven)
-# ────────────────────────────────────────────────────────────────────
 
 def format_directive_message(
     classification: dict[str, Any],

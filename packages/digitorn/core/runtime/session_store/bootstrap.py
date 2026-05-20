@@ -1,31 +1,4 @@
-"""Daemon-side wiring for the SessionStore subsystem.
-
-One-line activation in the daemon's lifespan:
-
-    from digitorn.core.runtime.session_store.bootstrap import (
-        init_session_store, shutdown_session_store,
-    )
-
-    @asynccontextmanager
-    async def lifespan(app):
-        store = await init_session_store()
-        try:
-            yield
-        finally:
-            await shutdown_session_store(store)
-
-The bootstrap reads three env vars:
-
-  * ``DIGITORN_SESSION_STORE_MODE``  -- ``shadow`` | ``primary`` (default ``primary``)
-  * ``DIGITORN_SESSION_STORE_ROOT``  -- defaults to ``~/.digitorn/sessions``
-  * ``DIGITORN_SESSION_STORE_MAX_BYTES`` -- LRU cap (default 4 GB)
-
-The bootstrap ALWAYS installs a process-wide ``SessionStoreBridge``;
-the legacy KV-backed ``SessionStore`` was removed and the daemon refuses
-to start without the new store wired. ``shadow`` keeps writing to the
-legacy Postgres ``history_log`` table in parallel for compatibility with
-external readers; ``primary`` skips it entirely.
-"""
+"""Daemon-side wiring for the SessionStore subsystem."""
 
 from __future__ import annotations
 
@@ -75,12 +48,7 @@ def _resolve_int(env: str, default: int) -> int:
 
 
 def _resolve_index_path(sessions_root: Path) -> Path | None:
-    """Resolve the SQLite session index path.
-
-    Phase 2 default: when the env var is unset, place the index at
-    ``<sessions_root>/.digitorn-index.db`` so ``list_for_app`` works
-    out of the box. Operators can opt out explicitly with
-    ``DIGITORN_SESSION_INDEX_PATH=off|disabled|none``."""
+    """Resolve the SQLite session index path."""
     raw = os.environ.get("DIGITORN_SESSION_INDEX_PATH")
     if raw is None:
         # New default: enable + place inside the sessions root so the
@@ -104,20 +72,11 @@ async def init_session_store(
     index: SessionIndex | None = None,
     on_internal_seq_alloc: Any = None,
 ) -> InMemorySessionStore | None:
-    """Initialise the process-wide SessionStore + Bridge.
-
-    Always returns a started store and registers the bridge. The legacy
-    KV-backed SessionStore was removed; the daemon cannot run without
-    the new store.
-
-    Idempotent-friendly: a second call with no kwargs returns whatever
-    bridge is already registered without re-creating it. To replace,
-    call ``shutdown_session_store(store)`` first.
-    """
+    """Initialise the process-wide SessionStore + Bridge."""
     resolved_mode = mode if mode is not None else resolve_mode_from_env()
     if resolved_mode == BridgeMode.OFF:
-        # ``off`` is no longer a valid runtime mode -- the daemon needs
-        # the SessionStore. Log loudly and upgrade to ``primary``.
+        # `off` is no longer a valid runtime mode -- the daemon needs
+        # the SessionStore. Log loudly and upgrade to `primary`.
         logger.warning(
             "session_store_mode_off_promoted_to_primary -- legacy KV "
             "session store removed; running in primary mode",
@@ -143,18 +102,6 @@ async def init_session_store(
             "DIGITORN_SESSION_STORE_FLUSH_MS", _DEFAULT_FLUSH_MS,
         )
     )
-    # Phase 6β: durability mode. ``strict`` fsyncs every batch
-    # (~3K-10K events/sec drain) — events are physically on disk
-    # before the next batch starts. ``relaxed`` skips fsync, trusts
-    # the OS write-back to flush eventually (~30s NTFS, ~5s Linux
-    # ext4) -- gives ~50K-100K events/sec on Linux but loses up to
-    # that window of events on hard crash / power loss.
-    #
-    # Default flipped to ``strict`` on 2026-05-15: working-memory
-    # events (memory_goal_set / memory_task_create / etc.) now flow
-    # through this same pipeline. Losing a goal because the OS hadn't
-    # flushed its write-back is unacceptable. ``relaxed`` remains
-    # available via the env var for benchmark / test workloads.
     resolved_durability = (
         durability_mode if durability_mode is not None
         else os.environ.get("DIGITORN_SESSION_STORE_DURABILITY", "strict")
@@ -169,15 +116,6 @@ async def init_session_store(
         idx_path = _resolve_index_path(resolved_root)
         if idx_path is not None:
             resolved_index = SqliteSessionIndex(db_path=idx_path)
-            # Reconcile the index with the on-disk sessions at boot.
-            # The index is upserted on every ``open()`` / ``close()`` /
-            # ``compact()``, but historical sessions may sit on disk
-            # outside the index (e.g. produced by an older daemon
-            # build that only upserted on close, manual file copies,
-            # backup restores). A one-shot rebuild on startup walks
-            # the sessions root and adds any session that exists on
-            # disk but not yet in the index. Runs in a background
-            # task so daemon startup isn't blocked.
             asyncio.create_task(
                 _reconcile_index_from_disk(resolved_root, resolved_index),
                 name="session-index-boot-reconcile",
@@ -211,8 +149,7 @@ async def init_session_store(
 async def shutdown_session_store(
     store: InMemorySessionStore | None,
 ) -> None:
-    """Shutdown helper: drains the disk flusher, stops background
-    tasks, removes the bridge. Safe to call with ``None`` (no-op)."""
+    """Shutdown helper: drains the disk flusher, stops background"""
     if store is None:
         return
     set_default_bridge(None)
@@ -228,20 +165,7 @@ async def shutdown_session_store(
 async def _reconcile_index_from_disk(
     sessions_root: Path, index: "SqliteSessionIndex",
 ) -> None:
-    """Walk every ``meta.json`` under ``sessions_root`` and upsert it
-    into the SQLite index when missing. Runs once on daemon boot to
-    recover from an empty / stale index. Idempotent: existing rows
-    are overwritten by ``INSERT OR REPLACE`` inside ``upsert``.
-
-    Why this exists: the index used to be updated only on
-    ``close_session`` and ``compact_session``. Long-lived chat
-    sessions that never closed were therefore invisible to
-    ``list_for_user``, so the drawer rendered empty even though the
-    sessions existed on disk with the right ``user_id``. Combined
-    with the per-``open()`` upsert in ``store.open``, this boot
-    reconcile guarantees the index stays in sync with the truth on
-    disk across daemon restarts.
-    """
+    """Walk every `meta.json` under `sessions_root` and upsert it"""
     from digitorn.core.runtime.session_store.session_index import (
         SessionSummary,
     )

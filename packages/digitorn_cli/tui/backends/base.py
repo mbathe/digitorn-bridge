@@ -1,11 +1,4 @@
-"""TUIBackend protocol - the contract between the TUI and ANY backend.
-
-The TUI app (app.py) ONLY talks to this protocol. It never imports
-runtime code, module code, or touches backend internals.
-
-Any new client (web, mobile, SDK) can implement this same protocol
-against the daemon HTTP API.
-"""
+"""TUIBackend protocol - the contract between the TUI and ANY backend."""
 
 from __future__ import annotations
 
@@ -13,31 +6,21 @@ from typing import Any, Callable, Protocol
 
 
 class TUIBackend(Protocol):
-    """Backend that bridges a Digitorn daemon to Textual Messages.
+    """Backend that bridges a Digitorn daemon to Textual Messages."""
 
-    All methods correspond to daemon HTTP endpoints.
-    The TUI is a pure client - no runtime code is imported.
-    """
-
-    # ── Lifecycle ──────────────────────────────────────────────
 
     async def initialize(self, post: Callable[..., None]) -> dict[str, Any]:
-        """Bootstrap: fetch app info, post BackendReady.
-
-        Returns dict with keys: app_name, agent_id, mode,
-        total_tools, model, greeting, workspace.
-        """
+        """Bootstrap: fetch app info, post BackendReady."""
         ...
 
     async def send_message(self, text: str, post: Callable[..., None]) -> None:
-        """Send a user message. Posts Messages back to the TUI via SSE."""
+        """Send a user message."""
         ...
 
     async def shutdown(self) -> None:
         """Clean up resources (close HTTP connections, etc.)."""
         ...
 
-    # ── Control ────────────────────────────────────────────────
 
     def abort(self) -> None:
         """Abort the current agent turn."""
@@ -48,7 +31,6 @@ class TUIBackend(Protocol):
         """Approve or deny a pending tool approval request."""
         ...
 
-    # ── Session ────────────────────────────────────────────────
 
     @property
     def session_id(self) -> str:
@@ -81,7 +63,6 @@ class TUIBackend(Protocol):
         """Get full message history for a session."""
         ...
 
-    # ── App info ───────────────────────────────────────────────
 
     def get_app_info(self) -> dict:
         """Get full app info (model, tools, agents, capabilities)."""
@@ -103,16 +84,15 @@ class TUIBackend(Protocol):
         """Health check all MCP servers."""
         ...
 
-    # ── Actions ────────────────────────────────────────────────
 
     def compact(self) -> dict | None:
-        """Trigger context compaction. Returns info or None."""
+        """Trigger context compaction."""
         ...
 
     def undo_last(self) -> dict | None:
-        """Undo the last file edit. Returns info or None."""
+        """Undo the last file edit."""
         ...
 
     def diagnostics(self) -> list[tuple[str, bool, str]]:
-        """Run system diagnostics. Returns [(name, ok, detail), ...]."""
+        """Run system diagnostics."""
         ...

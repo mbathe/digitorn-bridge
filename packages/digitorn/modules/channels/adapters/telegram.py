@@ -1,17 +1,4 @@
-"""Telegram Bot adapter - long polling inbound + HTTP outbound.
-
-Uses the Telegram Bot API directly (no external library required).
-Only needs ``aiohttp`` which is already a project dependency.
-
-Setup:
-    1. Talk to @BotFather on Telegram, create a bot, get the token.
-    2. Set ``TELEGRAM_BOT_TOKEN`` in env or secrets.
-
-Security:
-    - Bot token is never exposed in logs or outbound messages.
-    - Payload size checked before parsing.
-    - Message text sanitized (no HTML injection into templates).
-"""
+"""Telegram Bot adapter - long polling inbound + HTTP outbound."""
 
 from __future__ import annotations
 
@@ -31,7 +18,6 @@ from digitorn.modules.channels.adapter import (
 logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://api.telegram.org/bot{token}"
-
 
 class TelegramAdapter(BaseChannelAdapter):
     """Telegram Bot API adapter - long polling + sendMessage."""
@@ -74,8 +60,6 @@ class TelegramAdapter(BaseChannelAdapter):
                 timeout=aiohttp.ClientTimeout(total=self._poll_timeout + 10),
             )
         return self._session
-
-    # ── Inbound (long polling) ───────────────────────────────────
 
     async def start_listener(self, callback: InboundCallback) -> None:
         if not self._token:
@@ -131,7 +115,6 @@ class TelegramAdapter(BaseChannelAdapter):
             logger.info("telegram_adapter_stopped")
 
     async def _poll_updates(self, session: Any) -> list[dict]:
-        """Long-poll Telegram getUpdates API."""
         params: dict[str, Any] = {
             "timeout": self._poll_timeout,
             "allowed_updates": ["message"],
@@ -156,7 +139,6 @@ class TelegramAdapter(BaseChannelAdapter):
         return updates
 
     def _parse_update(self, update: dict) -> InboundEvent | None:
-        """Convert a Telegram update to an InboundEvent."""
         message = update.get("message")
         if not message:
             return None
@@ -206,8 +188,6 @@ class TelegramAdapter(BaseChannelAdapter):
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
-
-    # ── Outbound (sendMessage) ───────────────────────────────────
 
     async def deliver(
         self,

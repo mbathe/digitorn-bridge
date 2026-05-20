@@ -4,9 +4,9 @@ Three call sites previously each owned their own copy of the
 "run a turn through manager.chat() + classify errors + emit
 events + handle credentials" logic:
 
-* ``messages.py::_run_turn`` (fast-path, POST /messages)
-* ``_shared.py::_drain_queue_next::_run_next`` (chained drain)
-* ``manager_v2/_queue.py::drain_session_queue`` (Socket.IO resume)
+* `messages.py::_run_turn` (fast-path, POST /messages)
+* `_shared.py::_drain_queue_next::_run_next` (chained drain)
+* `manager_v2/_queue.py::drain_session_queue` (Socket.IO resume)
 
 Each had drifted: divergent log levels, missing event-type
 promotion for credential errors, no heartbeat in the drain paths,
@@ -14,7 +14,7 @@ inconsistent cancellation detection. This module collapses all
 three to one async function so the contract is honoured uniformly.
 
 The redesign rationale lives in
-``.logs/QUEUE_DISPATCH_REDESIGN.md``.
+`.logs/QUEUE_DISPATCH_REDESIGN.md`.
 """
 
 from __future__ import annotations
@@ -33,9 +33,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-# ─── Internal RAG context injection ────────────────────────────────
-
-
 async def _maybe_inject_rag_context(
     deployed: Any | None,
     session_id: str,
@@ -44,20 +41,20 @@ async def _maybe_inject_rag_context(
     """Enrich the user message with the content of files attached to
     this session.
 
-    Two modes (from ``compiled.meta.attachments_mode``):
+    Two modes (from `compiled.meta.attachments_mode`):
 
-      * ``direct`` (default) — full extracted text is prepended
+      * `direct` (default) - full extracted text is prepended
         verbatim. Agent answers immediately, no tool call needed.
-      * ``tool``   — text NOT prepended. The agent is told the
-        files live under ``attachments/`` in the workspace and
-        must call ``WsRead`` to inspect them. Falls back to
-        ``direct`` if the workspace module isn't loaded (the agent
+      * `tool`   - text NOT prepended. The agent is told the
+        files live under `attachments/` in the workspace and
+        must call `WsRead` to inspect them. Falls back to
+        `direct` if the workspace module isn't loaded (the agent
         would have no way to read otherwise).
 
     Returns the original message unchanged when no attachment is
     visible.
 
-    Name kept as ``_maybe_inject_rag_context`` for call-site
+    Name kept as `_maybe_inject_rag_context` for call-site
     compatibility - the body no longer touches the rag module.
     """
     if deployed is None:
@@ -74,11 +71,6 @@ async def _maybe_inject_rag_context(
     if not refs:
         return user_message
 
-    # Only announce files the LLM has not been told about yet. Once
-    # a manifest / full-inject block lands in the conversation, the
-    # content lives in the agent's history - re-prepending it on
-    # every turn just makes the agent re-read the same attachment
-    # after every user message.
     new_refs = [r for r in refs if not getattr(r, "announced", False)]
     if not new_refs:
         return user_message
@@ -93,16 +85,11 @@ async def _maybe_inject_rag_context(
 
     new_ids = [getattr(r, "file_id", "") for r in new_refs]
 
-    # ── Mode: tool ───────────────────────────────────────────────
-    # Tool mode requires the workspace module; without it the agent
-    # has no way to read the file. Degrade to ``direct`` so the
-    # content still reaches the LLM.
     if mode == "tool" and ws_mod is not None:
         block = _format_tool_mode_block(cached_texts)
         file_store.mark_announced(new_ids, session_id)
         return block + user_message
 
-    # ── Mode: direct (default + tool-without-workspace fallback)
     if total_chars > 0:
         block = _format_full_inject_block(cached_texts)
         file_store.mark_announced(new_ids, session_id)
@@ -116,11 +103,11 @@ async def _maybe_inject_rag_context(
 
 
 def _resolve_attachments_mode(deployed: Any) -> str:
-    """Read ``attachments_mode`` from the deployed app's meta.
+    """Read `attachments_mode` from the deployed app's meta.
 
-    Defaults to ``"direct"`` when the field is missing (older
+    Defaults to `"direct"` when the field is missing (older
     bundles) or the value is unrecognised. The legacy values
-    ``inject`` / ``hybrid`` / ``auto`` all map to ``direct`` so old
+    `inject` / `hybrid` / `auto` all map to `direct` so old
     YAMLs keep working without a migration.
     """
     try:
@@ -128,18 +115,12 @@ def _resolve_attachments_mode(deployed: Any) -> str:
         mode = (getattr(meta, "attachments_mode", "") or "").lower()
         if mode == "tool":
             return "tool"
-        # ``direct`` and every legacy alias collapse to direct.
+        # `direct` and every legacy alias collapse to direct.
         return "direct"
     except Exception:
         return "direct"
 
 
-# Markers wrapping any one-shot context injected into a user
-# message (attachments manifest, full-inject text, rag block). The
-# runtime strips everything between these markers from every user
-# message EXCEPT the current turn's, so the manifest never lingers
-# in the conversation history and the LLM stops re-applying its
-# "MANDATORY call WsRead" instructions on later turns.
 TRANSIENT_OPEN = "<<<DIGITORN_TRANSIENT_BLOCK>>>"
 TRANSIENT_CLOSE = "<<<END_DIGITORN_TRANSIENT_BLOCK>>>"
 
@@ -152,17 +133,12 @@ def _format_tool_mode_block(cached_texts: list[tuple[Any, str]]) -> str:
     """Render the tool-mode manifest + STRONG instructions.
 
     The block is written assuming the LLM might mistake WsRead for a
-    user-facing command. We hammer the fact that ``WsRead`` is a
+    user-facing command. We hammer the fact that `WsRead` is a
     tool the assistant ITSELF must invoke - never instruct the user
     to call it - because models routinely default to "ask the user
     to do it" when in doubt.
     """
     lines: list[str] = []
-    # Build the per-file rows + remember the FIRST file's path so
-    # we can drop a concrete worked example into the prompt. Models
-    # follow templated examples much more reliably than abstract
-    # instructions; a copy-pasteable function call removes any
-    # excuse to treat ``WsRead`` as a user-side command.
     file_rows: list[str] = []
     first_path: str | None = None
     first_line_count = 0
@@ -185,50 +161,43 @@ def _format_tool_mode_block(cached_texts: list[tuple[Any, str]]) -> str:
             first_path = path
             first_line_count = line_count
 
-    # ── Persistent header (kept across every turn) ────────────
-    # The file list MUST stay visible on later turns - without it
-    # the agent forgets which files exist in the session and may
-    # ask the user to re-upload when asked a follow-up question
-    # ("vas-y extrais le texte de chaque diapo" → "envoie le
-    # fichier"). Listing the exact paths costs ~1 line per file.
     persistent: list[str] = []
     persistent.append("[Attached files]")
     persistent.append(
         "The following files are attached to this chat session. "
-        "You can load any of them with ``WsRead(path)``, using "
+        "You can load any of them with `WsRead(path)`, using "
         "the exact paths below."
     )
     persistent.extend(file_rows)
     persistent.append("[/Attached files]")
     persistent.append("")
 
-    # ── Transient instructions (stripped after the first turn) ─
     transient: list[str] = []
     transient.append("[Attached files - how to read]")
     transient.append(
         f"{len(cached_texts)} new file(s) attached. Their content "
-        f"is not yet in your context. Call ``WsRead(path)`` ONCE "
+        f"is not yet in your context. Call `WsRead(path)` ONCE "
         f"per file you actually need to answer the user's "
         f"question, then answer from that content. Never instruct "
         f"the user to call WsRead - they cannot."
     )
     transient.append(
-        "If you already called ``WsRead`` on a file earlier in "
+        "If you already called `WsRead` on a file earlier in "
         "this conversation, REUSE the prior tool result from your "
         "message history. Only re-call WsRead when the user "
-        "explicitly asks for a different slice (``offset`` / "
-        "``limit``) of the same file."
+        "explicitly asks for a different slice (`offset` / "
+        "`limit`) of the same file."
     )
     transient.append("")
-    transient.append("How ``WsRead`` works:")
-    transient.append("  - Signature: ``WsRead(path, offset?, limit?)``.")
+    transient.append("How `WsRead` works:")
+    transient.append("  - Signature: `WsRead(path, offset?, limit?)`.")
     transient.append(
-        "  - ``path`` MUST start with ``attachments/`` and match "
+        "  - `path` MUST start with `attachments/` and match "
         "one of the paths in the [Attached files] block above. "
-        "No leading slash, no ``./``, no absolute disk path."
+        "No leading slash, no `./`, no absolute disk path."
     )
     transient.append(
-        "  - ``offset`` (0-indexed line number) and ``limit`` "
+        "  - `offset` (0-indexed line number) and `limit` "
         "(line count) are OPTIONAL. Omit both to receive the "
         "WHOLE file. Add them only when paginating a huge doc."
     )
@@ -276,7 +245,7 @@ def _format_tool_mode_block(cached_texts: list[tuple[Any, str]]) -> str:
 
 
 def _sanitise_attachment_name(name: str) -> str:
-    """Mirror of ``WorkspaceModule.register_attachment``'s filter so
+    """Mirror of `WorkspaceModule.register_attachment`'s filter so
     the dispatch's manifest paths match what the workspace actually
     registered. Keeps the agent's WsRead calls deterministic."""
     import re as _re
@@ -289,9 +258,9 @@ def _format_full_inject_block(
 ) -> str:
     """Render the WHOLE extracted text of every attached file.
 
-    Each file is fenced with ``=== BEGIN/END <name> ===`` markers
+    Each file is fenced with `=== BEGIN/END <name> ===` markers
     so the LLM can emit precise per-file citations. This is the
-    block used in ``direct`` mode (default).
+    block used in `direct` mode (default).
     """
     lines: list[str] = []
     lines.append("[Attached files context]")
@@ -331,10 +300,10 @@ def _format_rag_context_block(refs: list[Any], hits: list[Any]) -> str:
 
     Used when there's no extracted text to inject (e.g. all files
     failed extraction). Keeps the agent aware that files WERE
-    uploaded even though it can't read them. The ``hits`` parameter
+    uploaded even though it can't read them. The `hits` parameter
     is kept for call-site compatibility but always empty in the
     current implementation - the historical RAG-retrieval fallback
-    has been retired in favour of the binary ``direct`` / ``tool``
+    has been retired in favour of the binary `direct` / `tool`
     split.
     """
     lines: list[str] = []
@@ -366,14 +335,11 @@ def _format_size(n: int) -> str:
     return f"{n / (1024 * 1024 * 1024):.2f} GB"
 
 
-# ─── Public types ──────────────────────────────────────────────────
-
-
 class TurnSource(str, Enum):
     """Where the dispatch was triggered from. Used as a log
-    breadcrumb and to gate behaviour: ``RESUME`` skips the queue
+    breadcrumb and to gate behaviour: `RESUME` skips the queue
     flip / chain because the resume drain loop manages its own
-    state; ``FAST`` and ``DRAIN`` let dispatch_turn flip + chain
+    state; `FAST` and `DRAIN` let dispatch_turn flip + chain
     internally.
     """
 
@@ -410,21 +376,13 @@ class TurnEntry:
     client_message_id: str = ""
     queue_row_id: str = ""
     position: int = 0
-    # One-turn ``role: system`` directive carried from POST through
-    # the queue to the dispatcher. Set when the original request had
-    # a ``template_id`` field. Empty string => no template attached.
     template_system_prompt: str = ""
-    # Composer mode selected by the client for THIS turn. Forwarded
-    # into ``manager.chat(mode_id=...)``; the runtime's ``resolve_mode``
-    # treats ``""`` / ``None`` as "apply the default-policy choice"
-    # (auto > first > none). Stays a turn-scoped value, never sticky
-    # on the session beyond the duration of the turn it travelled with.
     mode_id: str = ""
 
 
 @dataclass(frozen=True)
 class TurnOutcome:
-    """What dispatch_turn returned. Callers branch on ``status`` to
+    """What dispatch_turn returned. Callers branch on `status` to
     decide whether the queue row needs additional work (PAUSED), or
     just to verify the chain advanced (the chain is now scheduled
     inside dispatch_turn itself - see step 6 of the redesign).
@@ -439,9 +397,6 @@ class TurnOutcome:
     next_entry: Any = None
 
 
-# ─── Internals ─────────────────────────────────────────────────────
-
-
 _CREDENTIAL_CODES: frozenset[str] = frozenset({
     "credential_required",
     "credential_auth_required",
@@ -449,14 +404,6 @@ _CREDENTIAL_CODES: frozenset[str] = frozenset({
 
 _HEARTBEAT_INTERVAL_S = 30
 
-# Strong refs to fire-and-forget queue-chain dispatch tasks. The asyncio
-# event loop only keeps weak refs to tasks (CPython doc), so a task that
-# isn't held elsewhere can be GC'd mid-execution. Same pattern as
-# `_BG_PERSIST_TASKS` / `_BG_TITLE_TASKS` in agent_loop.py and
-# `_active_turn_tasks` in apps_v2/__init__.py. Without it, a chained
-# drain after a turn end could disappear under GC pressure and the
-# next queued message would sit until the orphan-queue watchdog
-# eventually rescued it on the next user POST.
 _CHAIN_TASKS: set[asyncio.Task] = set()
 
 
@@ -472,7 +419,7 @@ def _log_level_for(code: str) -> int:
 
 
 async def _start_heartbeat(queue_row_id: str) -> asyncio.Task | None:
-    """Pulse `_mq.heartbeat(row_id)` every ``_HEARTBEAT_INTERVAL_S`` to
+    """Pulse `_mq.heartbeat(row_id)` every `_HEARTBEAT_INTERVAL_S` to
     keep the lease alive. No-op when there is no queue row (pure
     fast-path with no DB persistence). Returns the task so the caller
     can cancel it in a finally.
@@ -491,7 +438,7 @@ async def _start_heartbeat(queue_row_id: str) -> asyncio.Task | None:
                 return
             except Exception:
                 # Heartbeat misses are non-fatal; lease will be reaped
-                # by ``reap_expired_leases`` on the next sweep.
+                # by `reap_expired_leases` on the next sweep.
                 continue
 
     return asyncio.create_task(_loop())
@@ -500,7 +447,7 @@ async def _start_heartbeat(queue_row_id: str) -> asyncio.Task | None:
 def _emit(event_bus: Any, type_: str, *, app_id: str, session_id: str,
           user_id: str, correlation_id: str, op_state: Any,
           payload: dict[str, Any] | None = None) -> Any:
-    """Thin wrapper around ``event_bus.emit(_turn_event(...))`` that
+    """Thin wrapper around `event_bus.emit(_turn_event(...))` that
     swallows publish exceptions. The bus's own retry / fallback policy
     is the right layer to handle delivery failure - dispatch_turn
     must not abort a turn because an event couldn't be published.
@@ -515,9 +462,6 @@ def _emit(event_bus: Any, type_: str, *, app_id: str, session_id: str,
         op_state=op_state,
         payload=payload,
     ))
-
-
-# ─── Public dispatch_turn ──────────────────────────────────────────
 
 
 async def dispatch_turn(
@@ -536,35 +480,35 @@ async def dispatch_turn(
 
     Two call shapes are supported:
 
-    1. **HTTP-driven** (POST /messages, drain chain) — pass ``request``;
-       ``manager``, ``deployed``, ``credential_store`` are auto-resolved
-       from ``request.app.state``.
-    2. **Background** (Socket.IO resume drain) — pass ``request=None``
-       and the resolved ``manager`` (and optionally ``deployed`` /
-       ``credential_store``) directly. ``_inc_agent_turns`` is skipped
+    1. **HTTP-driven** (POST /messages, drain chain) - pass `request`;
+       `manager`, `deployed`, `credential_store` are auto-resolved
+       from `request.app.state`.
+    2. **Background** (Socket.IO resume drain) - pass `request=None`
+       and the resolved `manager` (and optionally `deployed` /
+       `credential_store`) directly. `_inc_agent_turns` is skipped
        since it's tied to the HTTP request lifecycle.
 
     Responsibilities (single source of truth for all three call sites):
 
-    1. Emit ``message_started`` to anchor the turn on the client.
+    1. Emit `message_started` to anchor the turn on the client.
     2. Start a heartbeat for the queue row, if any.
-    3. Pre-flight credential check; promote ``CredentialMissing`` /
-       ``CredentialAuthRequired`` to ``credential_required`` /
-       ``credential_auth_required`` events. Return ``PAUSED`` so the
+    3. Pre-flight credential check; promote `CredentialMissing` /
+       `CredentialAuthRequired` to `credential_required` /
+       `credential_auth_required` events. Return `PAUSED` so the
        caller halts the queue chain and waits for a grant.
-    4. Invoke ``manager.chat()``.
-    5. Detect mid-turn cancellation (``session.interrupted``).
-    6. On normal exit, emit ``message_done``; on failure, classify the
+    4. Invoke `manager.chat()`.
+    5. Detect mid-turn cancellation (`session.interrupted`).
+    6. On normal exit, emit `message_done`; on failure, classify the
        exception, promote credential codes to the matching event type,
-       emit, and return ``FAILED`` with the structured error payload.
+       emit, and return `FAILED` with the structured error payload.
 
     What this function does NOT own (callers handle):
 
     * Writing the queue row's terminal status (caller decides whether
-      it has a row, and uses ``_mq.finish_and_drain`` to chain).
+      it has a row, and uses `_mq.finish_and_drain` to chain).
     * Re-reserving the session for the next entry in a chain.
     * The decision to chain vs stop on PAUSED.
-    * ``release_session`` / ``_active_sessions`` bookkeeping (caller
+    * `release_session` / `_active_sessions` bookkeeping (caller
       orchestrates this around the dispatch to close the
       "queued right after turn ends" race - see §11 of the design doc).
     """
@@ -594,11 +538,6 @@ async def dispatch_turn(
 
     interrupted = False
     try:
-        # 1. message_started.
-        #    `fast_path` is preserved for clients (web + Flutter) that
-        #    branched on it before the redesign; `source` is the new
-        #    breadcrumb that distinguishes drain from resume on top of
-        #    the binary fast/slow split.
         try:
             await _emit(
                 bus, "message_started",
@@ -613,21 +552,9 @@ async def dispatch_turn(
                     "source": source.value,
                 },
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_dispatch best-effort block failed: %s", exc)
 
-        # 2. Pre-flight credential resolution.
-        #
-        # YAML-declared credentials are honoured ONLY when the user
-        # has explicitly opted out of the Digitorn account via the
-        # BYOK toggle. In the default state the YAML's ``credential:``
-        # blocks are inert: the gateway provides authentication using
-        # the user's JWT and bills the user's Digitorn quota.
-        #
-        # When BYOK is on we ALSO synthesise a ``credential:`` ref for
-        # every brain whose YAML didn't declare one (so a picker can
-        # still pop up). The compiled app object is never mutated -
-        # overrides live only in the dict that we pass through.
         byok_on = False
         byok_overrides: dict[str, dict[str, Any]] = {}
         try:
@@ -669,9 +596,6 @@ async def dispatch_turn(
             if outcome.status == TurnStatus.PAUSED:
                 # No queue flip - caller marks the row failed (Step 5).
                 return outcome
-            # FAILED: flip queue + emit message_done (BUG-039) in the
-            # right order so the client never sees a "done" before the
-            # daemon is idle.
             return await _finalize_failed(
                 outcome, bus, app_id=app_id, session_id=session_id,
                 user_id=user_id, entry=entry, _OS=_OS, source=source,
@@ -679,14 +603,6 @@ async def dispatch_turn(
                 deployed=deployed, credential_store=credential_store,
             )
 
-        # 3. Run the turn.
-        #
-        # Internal RAG context injection: if the app loads the `rag`
-        # module and this session has any uploaded files, we prepend a
-        # context block listing them + the top-K excerpts retrieved
-        # for this user message. The LLM sees the content it needs to
-        # answer; the rag actions stay daemon-internal (unless the
-        # app explicitly exposes them through `direct_modules`).
         message_for_llm = await _maybe_inject_rag_context(
             deployed, session_id, entry.message,
         )
@@ -726,8 +642,8 @@ async def dispatch_turn(
             )
             if sess is not None and getattr(sess, "interrupted", False):
                 interrupted = True
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_dispatch best-effort block failed: %s", exc)
 
         if interrupted:
             return await _finalize_terminal(
@@ -757,9 +673,6 @@ async def dispatch_turn(
         )
 
     except asyncio.CancelledError:
-        # Abort propagated. Emit message_cancelled before re-raising
-        # so the client closes the bubble cleanly even if the caller
-        # doesn't get a chance to do it.
         try:
             await _emit(
                 bus, "message_cancelled",
@@ -772,12 +685,8 @@ async def dispatch_turn(
                     "reason": "task_cancelled",
                 },
             )
-        except Exception:
-            pass
-        # Daemon-resource protocol: also emit the consolidated turn
-        # terminal so clients sweep zombie state even when the abort
-        # path bypasses _finalize_*. ``cancelled`` here distinguishes
-        # explicit user abort from natural failure.
+        except Exception as exc:
+            logger.debug("_dispatch best-effort block failed: %s", exc)
         await _emit_turn_terminal(
             bus, app_id=app_id, session_id=session_id, user_id=user_id,
             correlation_id=entry.correlation_id, status="cancelled",
@@ -790,11 +699,8 @@ async def dispatch_turn(
         if request is not None:
             try:
                 await _inc_agent_turns(request, -1)
-            except Exception:
-                pass
-
-
-# ─── Error path helpers ────────────────────────────────────────────
+            except Exception as exc:
+                logger.debug("_dispatch best-effort block failed: %s", exc)
 
 
 async def _on_dispatch_exception(
@@ -812,11 +718,11 @@ async def _on_dispatch_exception(
     the appropriate level, emit the matching event (with credential
     promotion), and return the structured outcome.
 
-    ``pre_chat=True`` means the exception came from the pre-flight
+    `pre_chat=True` means the exception came from the pre-flight
     credential resolver (so we know the chat() never started). That
     information surfaces in the outcome so the caller can decide
     whether to retry the same entry on resume vs treat it as a real
-    failure - today the only difference is the ``paused_reason``
+    failure - today the only difference is the `paused_reason`
     string, kept so future call sites can branch on it cleanly.
     """
 
@@ -850,8 +756,8 @@ async def _on_dispatch_exception(
                     "correlation_id": entry.correlation_id,
                 },
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_dispatch best-effort block failed: %s", exc)
         return TurnOutcome(
             status=TurnStatus.PAUSED,
             error_code=code,
@@ -873,8 +779,8 @@ async def _on_dispatch_exception(
                 "correlation_id": entry.correlation_id,
             },
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("_dispatch best-effort block failed: %s", exc)
     return TurnOutcome(
         status=TurnStatus.FAILED,
         error_code=code or "internal",
@@ -895,11 +801,11 @@ async def _flip_queue_row(
 
     Skipped when:
 
-    * ``source == RESUME`` - the resume drain loop owns its own queue
-      flips via ``mark_done`` / ``mark_failed``; if dispatch_turn also
-      flipped, the loop's next ``next_queued`` would skip every other
+    * `source == RESUME` - the resume drain loop owns its own queue
+      flips via `mark_done` / `mark_failed`; if dispatch_turn also
+      flipped, the loop's next `next_queued` would skip every other
       entry.
-    * ``entry.queue_row_id`` is empty - pure fast-path with no DB row
+    * `entry.queue_row_id` is empty - pure fast-path with no DB row
       to flip (no queue infrastructure involved at all).
     """
 
@@ -925,7 +831,7 @@ async def _flip_queue_row(
 async def _resolve_awaiter(
     correlation_id: str, status: TurnStatus, error_code: str,
 ) -> None:
-    """Unblock any ``mode=wait`` POST caller that's awaiting this
+    """Unblock any `mode=wait` POST caller that's awaiting this
     correlation_id. Resolved on COMPLETED / CANCELLED, failed on
     FAILED, no-op on PAUSED (caller still has work to do).
     """
@@ -943,8 +849,8 @@ async def _resolve_awaiter(
                 correlation_id,
                 RuntimeError(error_code or "internal"),
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("_dispatch best-effort block failed: %s", exc)
 
 
 def _schedule_chain(
@@ -959,10 +865,10 @@ def _schedule_chain(
     credential_store: Any,
 ) -> None:
     """If a next queued row was popped by the atomic flip, schedule the
-    next ``dispatch_turn`` as a fire-and-forget task so the chain runs
-    concurrently with the current turn's caller returning. ``source``
-    flips to ``DRAIN`` on the chained call - the new dispatch will own
-    its own ``message_started`` emit, queue flip, and terminal events.
+    next `dispatch_turn` as a fire-and-forget task so the chain runs
+    concurrently with the current turn's caller returning. `source`
+    flips to `DRAIN` on the chained call - the new dispatch will own
+    its own `message_started` emit, queue flip, and terminal events.
     """
 
     if next_entry is None:
@@ -1012,32 +918,32 @@ async def _emit_turn_terminal(
 ) -> None:
     """Emit the daemon-resource-protocol consolidated turn terminal.
 
-    Fires AFTER the existing ``message_done`` / ``message_failed`` /
-    ``message_cancelled`` emissions, regardless of which path ended
+    Fires AFTER the existing `message_done` / `message_failed` /
+    `message_cancelled` emissions, regardless of which path ended
     the turn (success, failure, abort, daemon shutdown). The single
     purpose of this event is to give the client one authoritative
     signal it can use to sweep all of its turn-scoped local state at
-    once: spinner, agent animations, background-task overlays — all
+    once: spinner, agent animations, background-task overlays - all
     flipped to terminal in a single reducer pass.
 
-    Why a separate event rather than overload ``message_done``:
+    Why a separate event rather than overload `message_done`:
       - Decoupled from the chat bubble lifecycle. A future protocol
         revision can change the message events without affecting the
         turn-state sync layer.
       - Idempotent: late events arriving with seq < this event's seq
-        get dropped client-side via ``lastTerminalSeq[turn_id]``.
+        get dropped client-side via `lastTerminalSeq[turn_id]`.
         Putting that semantic on a dedicated event-type makes the
         client guard trivially specific (no need to disambiguate
         across 3 message_* variants).
       - Survives partial cleanup paths. The legacy path emitted
-        ``message_done`` only on success / handled failure. Abort
+        `message_done` only on success / handled failure. Abort
         and daemon-shutdown paths never reached it. We emit
-        ``turn_terminal`` from EVERY terminal branch (including the
-        ``CancelledError`` re-raise and the watchdog fallbacks) so
+        `turn_terminal` from EVERY terminal branch (including the
+        `CancelledError` re-raise and the watchdog fallbacks) so
         the client never has to wonder "did the turn really end?".
 
-    Status codes: ``completed`` | ``failed`` | ``cancelled`` |
-    ``interrupted``. ``correlation_id`` doubles as the turn id (each
+    Status codes: `completed` | `failed` | `cancelled` |
+    `interrupted`. `correlation_id` doubles as the turn id (each
     turn gets a fresh one assigned at message accept time).
     """
     try:
@@ -1052,8 +958,43 @@ async def _emit_turn_terminal(
                 "status": status,
             },
         )
+    except Exception as exc:
+        logger.debug("_dispatch best-effort block failed: %s", exc)
+
+
+async def _persist_turn_error(
+    manager: Any,
+    app_id: str,
+    session_id: str,
+    user_id: str,
+    error_data: dict[str, Any] | None,
+) -> None:
+    """Write the classified turn error onto the canonical session so
+    poll-based clients (dev CLI, plain REST) surface it via summary().
+    SSE clients already receive the live `error` event. Passing None
+    clears the slot after a clean turn. Also feeds the session-metrics
+    error counter, which nothing else was wiring.
+    """
+    if manager is None:
+        return
+    try:
+        sess = await manager.get_session(app_id, session_id, user_id=user_id)
+        if sess is not None:
+            sess.last_error = error_data
     except Exception:
-        pass
+        logger.debug("persist_turn_error: session write failed", exc_info=True)
+    if error_data:
+        try:
+            from digitorn.core.runtime.session_metrics import get_session_metrics
+            msg = str(
+                error_data.get("error")
+                or error_data.get("detail")
+                or error_data.get("code")
+                or "error"
+            )
+            get_session_metrics(app_id, session_id).record_error(msg)
+        except Exception:
+            logger.debug("persist_turn_error: metrics failed", exc_info=True)
 
 
 async def _finalize_failed(
@@ -1074,11 +1015,15 @@ async def _finalize_failed(
     """Order matters here. The race "queued just after turn ends"
     (Bug B) is closed by doing the queue terminal flip FIRST, then
     emitting the spinner-stop event. Otherwise the client receives
-    ``message_done``, immediately POSTs a new message, and the daemon's
-    ``is_turn_running`` is still True because the row hasn't flipped
+    `message_done`, immediately POSTs a new message, and the daemon's
+    `is_turn_running` is still True because the row hasn't flipped
     yet → the new message gets queued and the user sees the QUEUED
     flicker.
     """
+
+    await _persist_turn_error(
+        manager, app_id, session_id, user_id, outcome.error_data,
+    )
 
     next_entry = await _flip_queue_row(
         session_id=session_id, entry=entry, source=source,
@@ -1099,20 +1044,12 @@ async def _finalize_failed(
                 "session_id": session_id,
             },
         )
-    except Exception:
-        pass
-    # Daemon-resource protocol: consolidated turn terminal. Fired
-    # AFTER the legacy message_done so any client still listening to
-    # the old event sees the same ordering it always did, while new
-    # clients use the consolidated turn_terminal as the single sweep
-    # signal for spinner / agents / bg_tasks.
+    except Exception as exc:
+        logger.debug("_dispatch best-effort block failed: %s", exc)
     await _emit_turn_terminal(
         bus, app_id=app_id, session_id=session_id, user_id=user_id,
         correlation_id=entry.correlation_id, status="failed", _OS=_OS,
     )
-    # Schedule the chain BEFORE returning. Fire-and-forget asyncio task
-    # so the caller returns immediately - the next dispatch runs
-    # concurrently with this turn's caller wrapping up.
     _schedule_chain(
         request, app_id, session_id,
         next_entry=next_entry, user_id=user_id,
@@ -1154,6 +1091,9 @@ async def _finalize_terminal(
     COMPLETED and CANCELLED outcomes.
     """
 
+    if status == TurnStatus.COMPLETED:
+        await _persist_turn_error(manager, app_id, session_id, user_id, None)
+
     next_entry = await _flip_queue_row(
         session_id=session_id, entry=entry, source=source,
         terminal_status=queue_terminal,
@@ -1172,11 +1112,8 @@ async def _finalize_terminal(
             op_state=terminal_op_state,
             payload=payload,
         )
-    except Exception:
-        pass
-    # Daemon-resource protocol: consolidated turn terminal. Maps
-    # the structured ``status`` / ``terminal_event`` pair onto a
-    # single string the client can switch on without parsing.
+    except Exception as exc:
+        logger.debug("_dispatch best-effort block failed: %s", exc)
     if interrupted:
         _terminal_status = "interrupted"
     elif terminal_event == "message_cancelled":
@@ -1202,7 +1139,7 @@ async def _finalize_terminal(
 
 
 def _import_op_state() -> Any:
-    """Lazy import of ``OpState`` so this module's top-level imports
+    """Lazy import of `OpState` so this module's top-level imports
     stay tiny - the events package pulls in the pydantic model graph
     which we don't want to drag in at app boot before this function
     is actually called.

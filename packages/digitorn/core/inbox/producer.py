@@ -1,11 +1,4 @@
-"""InboxProducer - background task that materializes bus events into rows.
-
-Runs as a single long-lived coroutine per daemon. Registers one
-handler on the session event bus via ``add_handler()`` and reacts
-to every envelope published, creating inbox rows for the ones that
-matter to the user. Detection logic ("should I create an inbox row
-for this event?") is the only real content of this module.
-"""
+"""InboxProducer - background task that materializes bus events into rows."""
 
 from __future__ import annotations
 
@@ -20,12 +13,6 @@ from digitorn.core.inbox.store import InboxStore
 logger = logging.getLogger(__name__)
 
 
-# Sliding window for the in-memory dedup cache. Two events with the
-# same (user_id, kind, session_id, correlation_id) tuple within this
-# many seconds collapse into a single inbox row. 60 s comfortably
-# covers daemon retries / replay-after-crash for one turn without
-# letting unrelated events with the same correlation (rare) collide
-# across hours of activity.
 _DEDUP_WINDOW_SECONDS = 60.0
 # Hard cap on dedup cache entries to bound memory. LRU eviction kicks
 # in past this. Even a busy daemon emits well under this in 60 s.
@@ -33,7 +20,7 @@ _DEDUP_CACHE_MAX = 4096
 
 
 class InboxProducer:
-    """One producer instance per daemon. Managed by the lifespan."""
+    """One producer instance per daemon."""
 
     def __init__(
         self,
@@ -46,13 +33,6 @@ class InboxProducer:
         self._bus = event_bus
         self._dispatcher = dispatcher  # NotificationDispatcher | None
         self._started = False
-        # In-memory dedup window: maps an idempotency key derived from
-        # (user_id, kind, session_id, correlation_id) to the monotonic
-        # timestamp of the first time we saw the event in the current
-        # process. ``_persist`` looks the key up before INSERT'ing -
-        # if a fresh hit lands within ``_DEDUP_WINDOW_SECONDS`` we drop
-        # the duplicate silently. The cache is best-effort: process
-        # restart wipes it (acceptable, the row is already in DB).
         self._dedup_seen: dict[str, float] = {}
 
     async def start(self) -> None:
@@ -77,7 +57,6 @@ class InboxProducer:
 
     def _evict_dedup(self, now: float) -> None:
         """Drop dedup entries past their window, then enforce cap."""
-        # Window-based eviction. O(n) but n is tiny in practice.
         cutoff = now - _DEDUP_WINDOW_SECONDS
         if self._dedup_seen:
             stale = [
@@ -97,8 +76,7 @@ class InboxProducer:
     async def _on_envelope(
         self, user_id: str, envelope: dict[str, Any],
     ) -> None:
-        """Handler registered on the session bus. Dispatches to
-        the per-kind inbox logic."""
+        """Handler registered on the session bus."""
         try:
             await self._handle_envelope(user_id, envelope)
         except Exception as exc:
@@ -114,44 +92,7 @@ class InboxProducer:
         force: bool = False,
         **item_fields: Any,
     ) -> None:
-        """Persist an inbox row AND fire the dispatcher.
-
-        ``force=True`` bypasses the live-session skip. Used for
-        terminal events (``result``, ``turn_complete``, ``error``)
-        because there is a microsecond race where:
-
-          1. agent emits ``result``
-          2. socket broadcasts to session room
-          3. user's tab is closing - socket may not yet have
-             disconnected, so presence still says "live"
-          4. producer runs, sees presence True, skips
-          5. tab close completes, presence cleared - too late
-
-        Result: terminal event silently lost. By forcing the persist
-        for terminal kinds we accept the cost of an occasional
-        duplicate row (user saw the event live AND has an inbox
-        entry) in exchange for never losing a turn outcome.
-
-        Mid-turn events (``approval_request``) keep the strict
-        presence skip because the modal UI is the canonical surface
-        when the user is live - duplicating it as an inbox row would
-        be redundant noise.
-
-        The dispatcher itself still respects presence: see the
-        ``presence.is_user_in_session`` check at the dispatch layer
-        for push / email - we don't want a mobile push to fire when
-        the user is staring at the desktop session.
-        """
-        # Persist policy: only CRITICAL_KINDS land in the inbox table.
-        # Non-critical events (e.g. session.completed, bg_activation.*)
-        # still fire on the live SocketIO stream via the dispatcher
-        # below, so the user's bell badge updates in real time -- but
-        # they do NOT create a durable row. The actionable inbox stays
-        # tight: if it appears in the bell list it's because the user
-        # has to ACT (failed run, awaiting approval, broken cred, quota).
-        # Rationale: at 1M users the volume of "session completed" rows
-        # would dominate the inbox table for zero functional value
-        # (the chat list already shows completed sessions).
+        """Persist an inbox row AND fire the dispatcher."""
         kind_for_filter = item_fields.get("kind") or ""
         from digitorn.core.inbox.policy import CRITICAL_KINDS
         if kind_for_filter not in CRITICAL_KINDS:
@@ -183,19 +124,11 @@ class InboxProducer:
                     )
                     return
             except Exception as exc:
-                # Presence registry import / read failure must NOT
-                # block notifications - default to "user is not live"
-                # so we lean on the side of delivering rather than
-                # silently swallowing an event.
                 logger.debug(
                     "inbox_presence_check_failed user=%s session=%s: %s",
                     user_id, session_id, exc,
                 )
 
-        # In-memory dedup: collapse repeated events for the same
-        # (user, kind, session, correlation) within the sliding
-        # window. Catches daemon retries, bus replay races, and the
-        # occasional double-emit of ``result`` after reconnect.
         kind_for_dedup = item_fields.get("kind") or ""
         meta = item_fields.get("metadata") or {}
         correlation_id = (
@@ -249,22 +182,7 @@ class InboxProducer:
     async def _handle_envelope(
         self, user_id: str, env: dict[str, Any],
     ) -> None:
-        """Decide whether an envelope becomes an inbox row.
-
-        Strict whitelist (per product contract): only THREE families
-        of events become notifications, and only when the user isn't
-        already watching the session live.
-
-          1. ``error`` events that occur inside a session
-          2. ``approval_request``                  - awaits user input
-          3. ``result`` / ``turn_complete``         - turn finished
-
-        Everything else (tokens, thinking deltas, tool calls, BG
-        activation results, ping, …) is dropped here. The
-        ``_persist`` helper layers the live-session filter on top so
-        even one of the three whitelisted events is silently dropped
-        when the user has the session open in a tab right now.
-        """
+        """Decide whether an envelope becomes an inbox row."""
         raw_type = env.get("type")
         kind = env.get("kind")
         app_id = env.get("app_id")
@@ -274,24 +192,9 @@ class InboxProducer:
         if raw_type == "ping":
             return
 
-        # Notifications are session-scoped by contract: an event
-        # without a session_id can't belong to any session the user
-        # might be live on, and the three notification families above
-        # are all session-bound. Drop anything that lacks one before
-        # doing more work.
         if not session_id:
             return
 
-        # ── Session completed ─────────────────────────────────
-        # The canonical end-of-turn event published by
-        # ``AppManager`` is ``result`` (see manager.py line ~1205).
-        # We also accept ``turn_complete`` as an alias in case the
-        # runtime layer ever starts publishing it directly.
-        #
-        # Guard against duplicates: ``result`` sometimes carries an
-        # error (when the turn failed mid-way). If ``payload.error``
-        # is set, skip here - the dedicated ``error`` event emitted
-        # right after will create the session.failed row.
         if raw_type in ("result", "turn_complete"):
             if payload.get("error") and payload.get("error") != "aborted":
                 return
@@ -318,7 +221,6 @@ class InboxProducer:
             )
             return
 
-        # ── Session failed ────────────────────────────────────
         if raw_type == "error" or kind == "error":
             # Skip CredentialAuthRequired - it's handled as its
             # own kind below.
@@ -361,14 +263,10 @@ class InboxProducer:
             )
             return
 
-        # ── Awaiting approval ─────────────────────────────────
         if raw_type == "approval_request":
             tool = payload.get("tool") or payload.get("tool_name") or "a tool"
             await self._persist(
                 user_id,
-                # Mid-turn: keep the live-session skip. If the user is
-                # in the session the modal already shows; an inbox row
-                # would just be noise. force=False (default).
                 kind=InboxKind.SESSION_AWAITING_APPROVAL,
                 title=_title_for_app(app_id, "Approval needed"),
                 subtitle=f"{tool} is waiting for your approval",
@@ -381,13 +279,6 @@ class InboxProducer:
                 },
             )
             return
-
-        # Anything else: not in the three-family whitelist. Drop
-        # silently - the bus carries dozens of token / thinking /
-        # tool / hook event types per turn and none of them deserves
-        # a "ding". Background activation results
-        # (``notification_result``) used to land here too but the
-        # product scope was tightened to in-session events only.
 
 
 def _title_for_app(app_id: str | None, fallback: str) -> str:

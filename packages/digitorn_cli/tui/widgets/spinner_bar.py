@@ -1,8 +1,4 @@
-"""SpinnerBar - animated spinner using Textual's reactive auto-refresh.
-
-Uses a reactive `_frame` counter incremented by set_interval.
-Each frame change triggers an automatic re-render via render().
-"""
+"""SpinnerBar - animated spinner using Textual's reactive auto-refresh."""
 
 from __future__ import annotations
 

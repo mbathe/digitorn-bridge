@@ -1,18 +1,4 @@
-"""Typed replacements for the four high-value ``dict[str, Any]`` fields.
-
-Phase 2 swaps these dict shapes for proper Pydantic models so the IDE
-auto-completes and typos surface as schema errors:
-
-  - :class:`QuickPrompt`   <- ``AppMeta.quick_prompts``
-  - :class:`SkillEntry`    <- ``AppDefinition.skills``
-  - :class:`SlashCommand`  <- ``AppDefinition.slash_commands``
-  - :class:`AgentPoolConfig` <- ``AgentDefinition.pool``
-
-The remaining dict-typed fields (theme, middleware, behavior.rules,
-constraints) keep their loose shape - either because they're opaque
-client pass-throughs (theme) or because they have their own dedicated
-validators (behavior.rules, constraints).
-"""
+"""Typed replacements for the four high-value `dict[str, Any]` fields."""
 from __future__ import annotations
 
 from typing import Any
@@ -20,14 +6,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
-# ─── QuickPrompt ────────────────────────────────────────────────
-
-
 class QuickPrompt(BaseModel):
-    """A one-click suggested prompt rendered by the client.
-
-    Future-proofed with ``extra: allow`` - the client may consume
-    additional fields (tooltip, accent, ...) without a schema bump."""
+    """A one-click suggested prompt rendered by the client."""
 
     model_config = {"extra": "allow"}
 
@@ -47,15 +27,8 @@ class QuickPrompt(BaseModel):
     )
 
 
-# ─── SkillEntry ─────────────────────────────────────────────────
-
-
 class SkillEntry(BaseModel):
-    """One entry in the app-level ``skills:`` list.
-
-    Skills are reusable command files (.md) the agent can invoke via
-    a slash command. The compiler reads the file at compile time and
-    surfaces the content to the agent via the slash-command palette."""
+    """One entry in the app-level `skills:` list."""
 
     model_config = {"extra": "forbid"}
 
@@ -75,18 +48,8 @@ class SkillEntry(BaseModel):
     )
 
 
-# ─── SlashCommand ───────────────────────────────────────────────
-
-
 class SlashCommand(BaseModel):
-    """One entry in the app-level ``slash_commands:`` list.
-
-    Distinct from ``skills:`` in that slash commands are pure client-side
-    UI: they render in the / palette but DO NOT load a markdown file.
-    The ``template`` is filled with form values and sent to the agent
-    as a normal message.
-
-    Future-proofed with ``extra: allow`` to keep the contract evolvable."""
+    """One entry in the app-level `slash_commands:` list."""
 
     model_config = {"extra": "allow"}
 
@@ -105,15 +68,8 @@ class SlashCommand(BaseModel):
     )
 
 
-# ─── AgentPoolConfig ────────────────────────────────────────────
-
-
 class CoordinationBlock(BaseModel):
-    """Phase 9 grouped orchestration concerns on an agent.
-
-    Replaces the historical scatter (``delegate_to``, ``pool``) with
-    a single sub-block. Both shapes still compile - the legacy fields
-    are aliased into this block at compile time."""
+    """Grouped orchestration concerns on an agent."""
 
     model_config = {"extra": "forbid"}
 
@@ -128,14 +84,7 @@ class CoordinationBlock(BaseModel):
 
 
 class InstructionsBlock(BaseModel):
-    """Phase 9 grouped prompt-extension concerns on an agent.
-
-    Replaces the historical scatter (``specialty``, ``skills``,
-    ``capabilities``) with a single sub-block whose role is clearer:
-    everything here ENRICHES the agent's prompt at runtime.
-
-    Both shapes still compile - the legacy fields are aliased into this
-    block at compile time when the new shape is empty."""
+    """Grouped prompt-extension concerns on an agent."""
 
     model_config = {"extra": "forbid"}
 
@@ -150,7 +99,7 @@ class InstructionsBlock(BaseModel):
         default_factory=list,
         description=(
             "Names of skill files to auto-load from the bundle's "
-            "``./skills/`` directory."
+            "`./skills/` directory."
         ),
     )
     specialty: str = Field(
@@ -164,17 +113,7 @@ class InstructionsBlock(BaseModel):
 
 
 class IncludeBlock(BaseModel):
-    """The optional ``include:`` block that drives fragmentation.
-
-    The compiler resolves these paths BEFORE Pydantic validation - by
-    the time AppDefinition.model_validate runs, the entries here have
-    already been merged into ``agents:`` / ``execution.hooks`` etc and
-    the block has been popped from the raw dict. We still declare it
-    on the schema so editors give autocomplete and the JSON Schema
-    documents the feature.
-
-    Each value is either a path string ('./agents/') or a list of
-    paths (['./roster/triage.yaml', './roster/refund.yaml'])."""
+    """The optional `include:` block that drives fragmentation."""
 
     model_config = {"extra": "forbid"}
 
@@ -182,24 +121,20 @@ class IncludeBlock(BaseModel):
         default=None,
         description=(
             "Path to a directory of agent YAML files or a list of paths. "
-            "Convention auto-loads ``./agents/*.yaml`` even without this entry."
+            "Convention auto-loads `./agents/*.yaml` even without this entry."
         ),
     )
     hooks: str | list[str] | None = Field(
         default=None,
         description=(
             "Path to a directory of hook YAML files or a list of paths. "
-            "Convention auto-loads ``./hooks/*.yaml`` even without this entry."
+            "Convention auto-loads `./hooks/*.yaml` even without this entry."
         ),
     )
 
 
 class AgentPoolConfig(BaseModel):
-    """Pool configuration for coordinator agents that spawn specialists.
-
-    Replaces the old ``dict[str, Any]`` form which used to be validated
-    only by hand in the compiler. The compiler-side check is now a
-    no-op - Pydantic enforces the shape and bounds."""
+    """Pool configuration for coordinator agents that spawn specialists."""
 
     model_config = {"extra": "forbid"}
 

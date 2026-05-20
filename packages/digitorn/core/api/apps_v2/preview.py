@@ -1,8 +1,4 @@
-"""Routes for the preview group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the preview group, extracted from the legacy `apps.py`."""
 
 from __future__ import annotations
 
@@ -105,33 +101,9 @@ from ._shared import (
 router = APIRouter(tags=["apps"])
 
 
-
 @router.get("/{app_id}/preview-bootstrap")
 async def preview_bootstrap(request: Request, app_id: str, session_id: str = ""):
-    """Bootstrap config for an embedded preview iframe.
-
-    Apps that prefer a single round-trip over parsing query params
-    can fetch this at startup. Returns everything needed to wire the
-    Digitorn preview SDK:
-
-    ```json
-    {
-        "app_id": "my-app",
-        "session_id": "abc-123",
-        "base_url": "http://127.0.0.1:8000",
-        "socket_url": "http://127.0.0.1:8000/events",
-        "workspace_url": "/api/apps/my-app/sessions/abc-123/workspace",
-        "capabilities": {
-            "preview_dev_server": true,
-            "preview_static_dist": true,
-            "git": false
-        }
-    }
-    ```
-
-    Query params:
-        session_id: Optional - the iframe's active session.
-    """
+    """Bootstrap config for an embedded preview iframe."""
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     if not deployed:
@@ -155,8 +127,8 @@ async def preview_bootstrap(request: Request, app_id: str, session_id: str = "")
                     Path(install_dir) / "web" / "dist" / "index.html"
                 ).is_file():
                     has_static_dist = True
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("preview best-effort block failed: %s", exc)
 
     has_attachment = False
     try:
@@ -166,8 +138,8 @@ async def preview_bootstrap(request: Request, app_id: str, session_id: str = "")
         )
         if web_preview_mod is not None and session_id:
             has_attachment = bool(web_preview_mod.list_session(session_id))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("preview best-effort block failed: %s", exc)
 
     base_url = str(request.base_url).rstrip("/")
     workspace_url = (
@@ -191,22 +163,7 @@ async def preview_bootstrap(request: Request, app_id: str, session_id: str = "")
 async def web_preview_lookup(
     request: Request, app_id: str, session_id: str, name: str = "default",
 ):
-    """Return the URL the iframe should load for this session's preview.
-
-    The frontend hits this on session join (and as a poll fallback when
-    a Socket.IO ``web_preview:attached`` event was missed). Two flavours:
-
-      - ``proxy`` attachment: ``url`` is the dev-server's direct-connect
-        URL. Browser hits it straight, daemon stays out of the data
-        path.
-      - ``bundled`` attachment: ``url`` points at the daemon's
-        ``/web-static/`` route. The app ships its own ``web/dist/``
-        and uses the @digitorn/preview-sdk - auto-registered at
-        session create.
-
-    Response (200): ``{url, type, name, session_id, port?, host?}``.
-    Response (404): no attachment for this (session, name).
-    """
+    """Return the URL the iframe should load for this session's preview."""
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     if not deployed:
@@ -215,12 +172,6 @@ async def web_preview_lookup(
         deployed.modules.get("web_preview")
         if hasattr(deployed, "modules") else None
     )
-    # ``no preview yet'' is a valid state, NOT an HTTP error. The web
-    # client polls this endpoint every few seconds while the user is
-    # on the workspace tab; returning 404 would flood the browser
-    # console with red ``Failed to load resource`` lines that aren't
-    # real failures. Always 200 — the caller checks ``attached``
-    # and ``url`` to decide what to render.
     if mod is None:
         return {
             "attached": False,
@@ -250,23 +201,7 @@ async def web_preview_lookup(
 async def session_published(
     request: Request, app_id: str, session_id: str, path: str,
 ):
-    """Serve a file from a session's published static build.
-
-    Output of ``PreviewPublish`` (web_preview module): ``vite build``
-    runs once in the session workspace, the resulting ``dist/`` is
-    copied to ``~/.digitorn/published/{app_id}/{session_id}/``, this
-    route serves files from there at a same-origin URL the iframe can
-    load without crossing PNA / COEP / mixed-content barriers.
-
-    Designed for the **cloud deploy** where dev-server-per-session is
-    too expensive. Also useful for shareable snapshots on any deploy
-    (URL survives daemon restart).
-
-    Sandbox: refuses any path that walks outside the published dir.
-    Sandbox-on-empty: returns 404 with a clear message when no
-    publish has been registered yet so the iframe shows the empty
-    state instead of a stack trace.
-    """
+    """Serve a file from a session's published static build."""
     from pathlib import Path as _Path
     from starlette.responses import FileResponse, Response
 
@@ -277,14 +212,6 @@ async def session_published(
     if not deployed:
         _raise_not_deployed(request, app_id)
 
-    # Auth model: this route lives in ``allow_paths`` (RemoteAuth
-    # bypassed) because the iframe can't carry the bearer token on
-    # asset loads. The ``session_id`` in the URL is the capability:
-    # a UUID v4 has ~128 bits of entropy so brute-force enumeration
-    # is infeasible. Anyone who legitimately knows the session_id is
-    # either the owner or someone they shared it with (a future
-    # "Publish & share" UX). Hardening with a crypto-derived URL
-    # token signed at publish time is a v1.1 item.
 
     published_root = (
         _Path.home() / ".digitorn" / "published" / app_id / session_id
@@ -309,9 +236,6 @@ async def session_published(
             return Response(status_code=403)
         if target.is_dir():
             target = target / "index.html"
-        # SPA fallback: any non-existent path returns index.html so
-        # client-side routers (react-router, vue-router) survive a
-        # hard refresh on a sub-route.
         if not target.is_file():
             target = published_root / "index.html"
 
@@ -321,9 +245,6 @@ async def session_published(
     headers: dict[str, str] = {}
     p = str(target).lower()
     if p.endswith(".html") or p.endswith(".htm"):
-        # No caching on HTML so a re-publish is picked up on the
-        # next iframe load. Assets get fingerprinted by Vite so they
-        # cache happily under the default rules.
         headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return FileResponse(str(target), headers=headers)
 
@@ -333,14 +254,7 @@ async def session_published(
     methods=["GET", "HEAD"],
 )
 async def web_static(request: Request, app_id: str, path: str):
-    """Serve a file from the app's bundled ``web/dist/`` directory.
-
-    Used by SDK apps that ship a pre-built UI (e.g. digitorn-builder,
-    digitorn-lovable). The bundle MUST be built with
-    ``base: './'`` so relative URLs resolve under this route.
-
-    Sandbox: refuses any path that walks outside ``install_dir/web/dist``.
-    """
+    """Serve a file from the app's bundled `web/dist/` directory."""
     from pathlib import Path as _Path
     from starlette.responses import FileResponse, Response
 

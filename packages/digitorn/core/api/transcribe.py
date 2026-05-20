@@ -1,33 +1,4 @@
-"""POST /api/transcribe - voice → text for the Flutter mic button.
-
-Contract (frozen client-side, see ``docs/voice_transcription_contract.md``):
-
-    POST /api/transcribe
-    Content-Type: multipart/form-data
-    Authorization: Bearer <jwt>
-
-    audio:    file    (required, .m4a / .webm / .wav, max 25 MB)
-    language: string  (optional, BCP-47; None = auto-detect)
-    app_id:   string  (optional, unused for now)
-
-    200 OK:
-        {"success": true, "data": {"text": "...", "language": "fr",
-                                    "duration_ms": 3200, "confidence": 0.96}}
-    413:  audio too large
-    422:  audio too short / empty / unreadable / transcript empty
-    500:  provider failure
-
-Two providers:
-
-* ``local`` (default) - `faster-whisper` in-process. Needs ffmpeg on
-  PATH. Weights cached on first load. Thread-safe for inference.
-* ``openai`` - calls the OpenAI ``whisper-1`` endpoint. Needs
-  OPENAI_API_KEY.
-
-**Privacy**: the audio file is held in memory + a short-lived tmpfile
-deleted immediately after transcription. We log the user_id, size,
-duration and language - **never the transcript**.
-"""
+"""POST /api/transcribe - voice → text for the chat mic button."""
 
 from __future__ import annotations
 
@@ -48,10 +19,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
 
 
-# BUG-096: only decoders we're confident about. Anything else
-# (image/*, application/*, x-executable, …) is rejected at the gate.
-# The allowlist is narrow on purpose - adding a codec is a conscious
-# decision, not an accident.
+# narrow MIME allowlist; adding a codec is a conscious decision.
 _ALLOWED_MIME = frozenset({
     "audio/webm", "audio/ogg", "audio/opus",
     "audio/mp3", "audio/mpeg",
@@ -59,9 +27,7 @@ _ALLOWED_MIME = frozenset({
     "audio/wav", "audio/x-wav", "audio/wave",
     "audio/flac", "audio/x-flac",
     "audio/aac",
-    # A few HTML5 <input type=file> stacks report
-    # ``application/octet-stream`` for .webm - keep it only when the
-    # extension is one of our audio extensions (enforced below).
+    # Some HTML5 stacks report octet-stream for .webm; the extension check below gates it.
     "application/octet-stream",
 })
 _ALLOWED_EXT = frozenset({
@@ -69,12 +35,7 @@ _ALLOWED_EXT = frozenset({
     ".wav", ".flac", ".aac",
 })
 
-# BUG-088: zip-bomb-style audio bombs. The streamed upload is capped
-# by ``max_audio_bytes`` BEFORE decode, but a valid-looking small file
-# that expands to hundreds of MB after ffmpeg decode can still drown
-# the process. Hard-cap the decoded PCM length via a timeout and the
-# semaphore - but also reject files whose magic bytes don't match a
-# known audio container, since most bombs rely on a spoofed header.
+# magic-byte guard against decompression bombs; bombs typically rely on a spoofed header.
 _AUDIO_MAGIC = (
     b"OggS",         # Ogg / Opus / Vorbis
     b"RIFF",         # WAV
@@ -87,10 +48,9 @@ _AUDIO_MAGIC = (
 
 
 def _looks_like_audio(head: bytes) -> bool:
-    """True when the first ~16 bytes match a known audio container."""
     if not head:
         return False
-    # ``ftyp`` appears at offset 4 in MP4/M4A containers.
+    # `ftyp` appears at offset 4 in MP4/M4A containers.
     if len(head) >= 8 and head[4:8] == b"ftyp":
         return True
     for magic in _AUDIO_MAGIC:
@@ -99,33 +59,20 @@ def _looks_like_audio(head: bytes) -> bool:
     return False
 
 
-# BUG-095: per-user + per-IP rate limit. Sliding window of 60 s.
+# per-user + per-IP sliding-window rate limit; amortized sweep prevents the bucket dict from growing forever.
 _RATE_LIMIT_RPM = 30
 _rate_window: dict[str, list[float]] = {}
 _rate_lock = asyncio.Lock()
-# Amortized sweep: every N rate-limit checks, walk the whole dict
-# and drop entries whose bucket is empty (no timestamps in the last
-# 60s window). Without this, a daemon serving 1000s of unique IPs
-# accumulates a dict entry per (user, ip) FOREVER -- the sliding-
-# window prune only runs on keys we query, so inactive callers'
-# keys never go away. N=200 means a public daemon at 1 req/s
-# pays the sweep cost (~10us per dict entry) once every ~3 min.
 _RATE_SWEEP_EVERY = 200
 _rate_check_count = 0
 
 
 async def _check_rate_limit(user_id: str, ip: str) -> None:
-    """Raise 429 if either the user or the IP exceeded ``_RATE_LIMIT_RPM``
-    requests in the past minute. Both axes are enforced so a bucket
-    burned by a single user doesn't lock the whole IP, and vice-versa.
-    """
+    """Raise 429 if either the user or the IP exceeded `_RATE_LIMIT_RPM`"""
     now = time.monotonic()
     window_start = now - 60.0
     global _rate_check_count
     async with _rate_lock:
-        # Amortized sweep BEFORE the per-request check so a request
-        # that triggers the sweep pays a single bounded cost (rather
-        # than accumulating debt forever). Only runs every Nth call.
         _rate_check_count += 1
         if _rate_check_count >= _RATE_SWEEP_EVERY:
             _rate_check_count = 0
@@ -151,12 +98,8 @@ async def _check_rate_limit(user_id: str, ip: str) -> None:
                     headers={"Retry-After": "60"},
                 )
             _rate_window[key] = pruned
-        # Append current timestamp so this request counts in the window.
         _rate_window[f"u:{user_id}"].append(now)
         _rate_window[f"ip:{ip}"].append(now)
-
-
-# ── Response envelope (matches the rest of the daemon) ────────────────
 
 
 class TranscribeResponse(BaseModel):
@@ -165,14 +108,11 @@ class TranscribeResponse(BaseModel):
     error: str | None = None
 
 
-# ── Lazy model loader (local provider) ────────────────────────────────
-
-
 _model_lock = asyncio.Lock()
 _model: Any = None
 _model_error: Exception | None = None
 # Semaphore guards concurrent inference on the single shared model.
-# Sized from ``transcribe.max_concurrency`` at first use.
+# Sized from `transcribe.max_concurrency` at first use.
 _inference_semaphore: asyncio.Semaphore | None = None
 
 
@@ -185,13 +125,7 @@ def _get_semaphore() -> asyncio.Semaphore:
 
 
 async def preload_model() -> dict[str, Any]:
-    """Eagerly load the Whisper model at daemon startup.
-
-    Called by ``server.py`` lifespan when ``transcribe.preload=true``.
-    Returns a small dict describing the outcome (for logs / telemetry).
-    Never raises - a failed preload leaves the endpoint in lazy-load
-    mode and is reported via ``/api/transcribe/health``.
-    """
+    """Eagerly load the Whisper model at daemon startup."""
     cfg = get_settings().transcribe
     info: dict[str, Any] = {
         "enabled": cfg.enabled,
@@ -224,7 +158,6 @@ async def preload_model() -> dict[str, Any]:
 
 
 async def _get_local_model() -> Any:
-    """Load the faster-whisper model once per process. Thread-safe."""
     global _model, _model_error
     if _model is not None:
         return _model
@@ -267,19 +200,11 @@ async def _get_local_model() -> Any:
 async def _transcribe_local(
     audio_path: str, language: str | None, timeout_s: float,
 ) -> dict[str, Any]:
-    """Run faster-whisper inference on a file, return normalised result.
-
-    Serialises concurrent calls through ``_inference_semaphore`` to match
-    ``transcribe.max_concurrency`` - prevents two requests from stepping
-    on the same model instance when ``shared_instance=true``.
-    """
+    """Run faster-whisper inference on a file, return normalised result."""
     model = await _get_local_model()
     sem = _get_semaphore()
 
     def _run() -> dict[str, Any]:
-        # First pass with VAD: filters out background noise and silence
-        # so the model only transcribes voiced regions. This gives the
-        # cleanest output for normal recordings.
         segments, info = model.transcribe(
             audio_path,
             language=language,
@@ -289,12 +214,6 @@ async def _transcribe_local(
         seg_list = list(segments)
         text = " ".join((s.text or "").strip() for s in seg_list).strip()
 
-        # Fallback: VAD is aggressive and drops short / quiet / accented
-        # utterances entirely. When it returns nothing, retry without
-        # VAD so a real recording isn't reported as empty. The mic
-        # button is push-to-talk - the user pressed record intentionally,
-        # so we want to capture whatever audio is there even if VAD
-        # disagreed that any of it was speech.
         if not text:
             segments, info = model.transcribe(
                 audio_path,
@@ -333,15 +252,7 @@ async def _transcribe_local(
 async def _resolve_openai_api_key(
     request: Request, app_id: str | None = None,
 ) -> str | None:
-    """Fetch the OpenAI API key from the credentials store.
-
-    Resolution order (4-scope + env fallback):
-      1. per_app_per_user → 2. per_user → 3. per_app_shared → 4. system_wide
-      5. ``OPENAI_API_KEY`` env var (final fallback for dev / legacy)
-
-    Returns the key string or None if nothing is configured. The caller
-    raises a 500 / logs an actionable error if None.
-    """
+    """Fetch the OpenAI API key from the credentials store."""
     try:
         from digitorn.core.credentials.store import CredentialStore  # type: ignore
         store: CredentialStore | None = getattr(
@@ -368,7 +279,6 @@ async def _transcribe_openai(
     audio_path: str, language: str | None, timeout_s: float,
     *, api_key: str,
 ) -> dict[str, Any]:
-    """Call OpenAI's whisper-1 endpoint with an explicit API key."""
     try:
         import openai  # type: ignore
     except ImportError as exc:
@@ -405,9 +315,6 @@ async def _transcribe_openai(
     return await asyncio.wait_for(asyncio.to_thread(_run), timeout=timeout_s)
 
 
-# ── Gateway provider (recommended for multi-provider deployments) ───
-
-
 async def _transcribe_gateway(
     audio_path: str,
     language: str | None,
@@ -417,20 +324,7 @@ async def _transcribe_gateway(
     alias: str,
     app_id: str | None = None,
 ) -> dict[str, Any]:
-    """Forward the audio to digitorn-gateway's /v1/audio/transcriptions.
-
-    The gateway then handles:
-      - credential lookup (no need for OPENAI_API_KEY on the daemon)
-      - per-user quota enforcement
-      - cost tracking (writes gateway_usage_events row, kind='transcription')
-      - failover across providers if multiple routes exist for the alias
-      - per-route observability + dashboard analytics
-
-    The daemon's job collapses to forwarding the JWT and the audio
-    bytes. If the gateway is unreachable or the alias has no route,
-    we surface the error rather than silently falling back - operators
-    who flipped to ``gateway`` mode want the chain visible.
-    """
+    """Forward the audio to digitorn-gateway's /v1/audio/transcriptions."""
     try:
         import httpx  # type: ignore
     except ImportError as exc:
@@ -457,9 +351,6 @@ async def _transcribe_gateway(
         # Whisper rejects BCP-47 region suffix ("fr-FR"); strip to ISO-639-1
         form["language"] = language.split("-")[0].lower()
 
-    # Attribution headers: only ``X-Digitorn-App-Id`` is meaningful for
-    # transcription (this is a one-shot REST call from the mic button, not
-    # an agent_turn). The gateway derives user_id from the JWT authoritatively.
     headers: dict[str, str] = {"Authorization": f"Bearer {user_jwt}"}
     if app_id:
         headers["X-Digitorn-App-Id"] = app_id
@@ -497,18 +388,8 @@ async def _transcribe_gateway(
     }
 
 
-# ── Endpoint ──────────────────────────────────────────────────────────
-
-
 def _normalize_language(raw: str | None) -> str | None:
-    """Coerce a BCP-47 / browser locale tag into the ISO-639-1 form
-    Whisper expects. ``navigator.language`` and Flutter's locale fall
-    back to forms like ``fr-FR``, ``en-US``, ``zh-Hans-CN``; OpenAI
-    Whisper rejects anything with a region or script subtag and
-    requires a 2-letter primary tag (``fr``, ``en``). We keep only
-    the primary subtag and lowercase it. Unknown / overly long values
-    fall back to None (auto-detect) so we don't poison the request.
-    """
+    """Coerce a BCP-47 / browser locale tag into the ISO-639-1 form"""
     if not raw:
         return None
     primary = raw.split("-", 1)[0].split("_", 1)[0].strip().lower()
@@ -524,45 +405,26 @@ def _normalize_language(raw: str | None) -> str | None:
 async def transcribe(
     request: Request,
     audio: UploadFile = File(..., description="Audio file (.m4a / .webm / .wav)."),
-    # BUG-097: cap the free-form form fields so a 20 kB ``language``
-    # can't be used as a DoS memory amplifier. ``language`` is a
-    # BCP-47 tag (at most ~10 chars realistically); ``app_id`` is
-    # identifier-safe, also short.
+    # cap form fields so large strings can't be used as DoS memory amplifiers.
     language: str | None = Form(default=None, max_length=64, description="BCP-47 hint (fr, en-US). Auto-detect if omitted."),
     app_id: str | None = Form(default=None, max_length=64, description="Current app_id (for future vocab biasing)."),
 ) -> TranscribeResponse:
-    """Transcribe an uploaded audio blob to text.
-
-    See the module docstring for the full contract and error codes.
-    """
+    """Transcribe an uploaded audio blob to text."""
     cfg = get_settings().transcribe
     if not cfg.enabled:
-        # Treat "disabled" the same as "not implemented" so the client's
-        # 404 fallback path kicks in (attaches audio to next message).
         raise HTTPException(status_code=404, detail="transcription disabled")
 
-    # Normalise the language hint to ISO-639-1 BEFORE any provider
-    # call. The browser sends ``navigator.language`` (BCP-47, e.g.
-    # ``fr-FR``); OpenAI Whisper rejects that with a 400 "Language
-    # parameter must be specified in ISO-639-1 format". Doing this
-    # once here means every provider branch (local / openai /
-    # gateway) gets a clean 2-letter tag.
+    # normalise BCP-47 -> ISO-639-1 once so every provider branch sees a clean 2-letter tag.
     language = _normalize_language(language)
 
-    # BUG-086 follow-up: refuse anonymous callers even though the auth
-    # middleware drops the loopback bypass for this path. Defence-in-
-    # depth: if someone puts the daemon behind a permissive reverse
-    # proxy later, this check still fires.
+    # defence-in-depth refusal of anonymous callers even if a future reverse proxy weakens auth.
     user_id = getattr(request.state, "user_id", None)
     if not user_id or user_id == "anonymous":
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    # BUG-095: rate limit by user_id + by IP. Cheap sliding window.
     client_host = getattr(getattr(request, "client", None), "host", "") or "0.0.0.0"
     await _check_rate_limit(user_id, client_host)
 
-    # BUG-087: an empty filename used to crash at ``os.path.splitext``
-    # with a confusing 500. Reject explicitly.
     raw_filename = (audio.filename or "").strip()
     if not raw_filename:
         raise HTTPException(
@@ -573,8 +435,7 @@ async def transcribe(
             },
         )
 
-    # BUG-096: reject dangerous filenames at the gate - path traversal
-    # and null bytes used to be silently accepted by the tempfile path.
+    # reject path traversal / null bytes at the gate before they reach the tempfile path.
     if (
         "\x00" in raw_filename
         or "/" in raw_filename
@@ -589,9 +450,7 @@ async def transcribe(
             },
         )
 
-    # BUG-096: MIME allowlist. ``content_type`` may be missing or lying
-    # (browsers sometimes send octet-stream), so we verify the file
-    # extension too - either must be in the allowlist.
+    # MIME may be missing or lying; verify the file extension as a second gate.
     ctype = (audio.content_type or "").split(";", 1)[0].strip().lower()
     ext = os.path.splitext(raw_filename)[1].lower()
     if ctype and ctype not in _ALLOWED_MIME:
@@ -637,9 +496,7 @@ async def transcribe(
         )
         raise HTTPException(status_code=422, detail="Audio too short or empty")
 
-    # BUG-088: magic-byte sanity check. Most zip / decompression bombs
-    # present a non-audio header; rejecting them here means ffmpeg
-    # never gets a chance to expand them into hundreds of MB of PCM.
+    # magic-byte guard so ffmpeg never decodes a decompression bomb.
     if not _looks_like_audio(content[:16]):
         logger.info(
             "transcribe_rejected user=%s reason=bad_magic size=%d filename=%r",
@@ -657,8 +514,6 @@ async def transcribe(
             },
         )
 
-    # Preserve the original extension so the decoder picks the right
-    # demuxer (.m4a, .webm, .wav, .mp3, .ogg…).
     filename = raw_filename
     suffix = ext or ".m4a"
 
@@ -669,20 +524,6 @@ async def transcribe(
         tmp.close()
         started = time.monotonic()
         try:
-            # Provider routing for transcription. The matrix:
-            #   local              -> on the user's own machine (faster-whisper)
-            #   gateway / openai*  -> forward to digitorn-gateway with the
-            #                         user's JWT. The gateway handles
-            #                         credentials, quota, cost tracking,
-            #                         failover and attribution. Operators who
-            #                         explicitly want OpenAI direct (no quota
-            #                         tracking) must set runtime.gateway_enabled
-            #                         to False - the rule is "default = via the
-            #                         gateway" for every outbound AI call.
-            #
-            # * The legacy ``provider: openai`` branch silently bypassed the
-            #   gateway. We collapse it onto the gateway path so audio cost
-            #   shows up alongside chat cost in the dashboard.
             from digitorn.core.config import get_settings as _gs
             _gw_enabled = getattr(_gs().runtime, "gateway_enabled", True)
             if cfg.provider in ("gateway", "openai") and _gw_enabled:
@@ -694,10 +535,6 @@ async def transcribe(
                         "the gateway set runtime.gateway_enabled=false.",
                         user_id,
                     )
-                # Forward to the gateway so credentials, quota, cost
-                # tracking and failover happen centrally. Pull the
-                # user's JWT from the inbound request (the auth
-                # middleware already validated it).
                 auth_hdr = request.headers.get("authorization") or ""
                 user_jwt = auth_hdr.removeprefix("Bearer ").removeprefix("bearer ").strip()
                 if not user_jwt:
@@ -711,9 +548,7 @@ async def transcribe(
                     app_id=app_id,
                 )
             elif cfg.provider == "openai":
-                # Operator killed the gateway (gateway_enabled=false). Fall
-                # back to the historical direct-OpenAI path so air-gapped /
-                # local-only deploys still work.
+                # direct-OpenAI fallback when the operator disabled the gateway (air-gapped / local-only deploys).
                 api_key = await _resolve_openai_api_key(request, app_id=app_id)
                 if not api_key:
                     logger.warning(
@@ -748,27 +583,14 @@ async def transcribe(
                 "transcribe_provider_failed user=%s provider=%s: %s",
                 user_id, cfg.provider, exc,
             )
-            # BUG-085: classify the failure so the client gets an
-            # actionable error instead of "RuntimeError". We do NOT
-            # echo arbitrary exception text (could leak paths,
-            # credentials, or internal state) - only a stable
-            # category + a curated human message.
+            # classify the failure with a stable category + curated message; never echo raw exception text (may leak secrets).
             name = type(exc).__name__
             text = str(exc).lower()
 
-            # Gateway path: the ``_transcribe_gateway`` helper wraps
-            # upstream 4xx/5xx as ``RuntimeError("gateway_transcription_failed
-            # status=NNN {...json detail...}")``. Pull the status and the
-            # structured detail back out so the UI sees a real 429
-            # (quota) / 402 (billing) / 401 (auth) instead of a useless
-            # 500 "unexpected error".
             if "gateway_transcription_failed" in text:
                 import re as _re
                 m = _re.search(r"status=(\d{3})", str(exc))
                 upstream_status = int(m.group(1)) if m else 502
-                # Re-extract the dict literal that followed the status.
-                # The wrapper uses ``f"... status={s} {detail!r}"`` so
-                # ``detail`` is a Python repr — safe to eval-via-ast.
                 detail_payload: Any = None
                 m2 = _re.search(r"status=\d{3}\s+(\{.*\})\s*$", str(exc), _re.DOTALL)
                 if m2:
@@ -782,8 +604,6 @@ async def transcribe(
                     if isinstance(detail_payload, dict) and "detail" in detail_payload
                     else detail_payload
                 )
-                # Curated message when the gateway flagged a quota / billing
-                # / auth issue. Fall back to a generic gateway error.
                 code = (
                     inner.get("code") if isinstance(inner, dict) else None
                 ) or ""
@@ -810,9 +630,6 @@ async def transcribe(
                     detail={
                         "error": classified,
                         "message": human,
-                        # Pass the gateway's structured detail through so
-                        # the UI can show retry_after / limits without
-                        # having to guess.
                         "upstream": inner,
                     },
                 )
@@ -844,16 +661,6 @@ async def transcribe(
                 status = 502
             else:
                 classified = "transcription_failed"
-                # Surface the exception type + a truncated message so
-                # the UI can show the actual cause instead of telling
-                # the user "check the daemon logs". We rate-limit the
-                # text length at 200 chars to avoid leaking lengthy
-                # tracebacks but keep enough to be diagnostic
-                # (HTTP errors usually format under 200 chars). The
-                # type prefix matters: a ``ProtocolError`` from httpx,
-                # an ``SSLError``, or an unexpected ``KeyError`` all
-                # used to collapse to the same opaque "unexpected
-                # error" line.
                 truncated = str(exc)[:200]
                 human = (
                     f"Transcription failed ({name}): {truncated}"
@@ -901,17 +708,7 @@ async def transcribe(
 
 @router.get("/health")
 async def transcribe_health(request: Request) -> dict[str, Any]:
-    """Report transcribe subsystem status (probes model availability).
-
-    For ``provider=openai`` the API key is resolved via the credentials
-    store (per-user → per-app → system → env-var fallback). The response
-    does NOT expose the key itself - only whether it's reachable.
-
-    BUG-094: anonymous callers get a minimal ``{enabled, ready}`` view
-    so a drive-by scanner can't fingerprint the provider / model /
-    device / preload state. Authenticated callers keep the full
-    diagnostics view used by the dashboard.
-    """
+    """Report transcribe subsystem status (probes model availability)."""
     cfg = get_settings().transcribe
     uid = getattr(request.state, "user_id", None)
     is_anon = not uid or uid == "anonymous"

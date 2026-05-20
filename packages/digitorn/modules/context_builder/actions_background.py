@@ -1,12 +1,4 @@
-"""Background task actions mixin for ContextBuilderModule.
-
-1 action, 5 modes - dispatch via hidden params:
-  Mode 1: BackgroundRun(name='db.sql', params={...})  → launch bg task
-  Mode 2: BackgroundRun(task_id='abc')                 → status + result
-  Mode 3: BackgroundRun(task_id='abc', cancel=true)    → cancel
-  Mode 4: BackgroundRun(task_id='abc', wait=true)      → wait with timeout
-  Mode 5: BackgroundRun(list_tasks=true)                → list all
-"""
+"""Background task actions mixin for ContextBuilderModule."""
 
 from __future__ import annotations
 
@@ -24,7 +16,6 @@ from digitorn.modules.decorators import action
 logger = logging.getLogger(__name__)
 
 _BG_SETTLE_SECONDS = 0.3
-
 
 @dataclass
 class UniversalBackgroundTask:
@@ -81,7 +72,6 @@ class UniversalBackgroundTask:
         elif self.status == "cancelled":
             data["hint"] = "Task was cancelled."
         return data
-
 
 class BackgroundActionsMixin:
     """Background task actions - 1 tool, 5 modes via hidden params."""
@@ -162,23 +152,18 @@ class BackgroundActionsMixin:
         cli_param='name',
     )
     async def background_run(self, params: BackgroundRunParams) -> ActionResult:
-        # ── Mode 5: list all tasks ──
         if params.list_tasks:
             return await self._bg_list()
 
-        # ── Mode 3: cancel ──
         if params.task_id and params.cancel:
             return await self._bg_cancel(params.task_id)
 
-        # ── Mode 4: wait ──
         if params.task_id and params.wait:
             return await self._bg_wait(params.task_id, params.timeout)
 
-        # ── Mode 2: status check ──
         if params.task_id:
             return await self._bg_status(params.task_id)
 
-        # ── Mode 1: launch ──
         if params.name:
             return await self._bg_launch(params)
 
@@ -189,8 +174,6 @@ class BackgroundActionsMixin:
                 "or list_tasks=true to list all."
             ),
         )
-
-    # ── Mode implementations ────────────────────────────
 
     async def _bg_launch(self, params: BackgroundRunParams) -> ActionResult:
         tool, error = self._resolve_tool(params.name)
@@ -328,13 +311,8 @@ class BackgroundActionsMixin:
             "failed": failed,
         })
 
-    # ── User-initiated cancel (API route) ────────────────
-
     async def cancel_bg_task(self, session_id: str, task_id: str) -> dict[str, Any]:
-        """Cancel a background task (user-initiated via API).
-
-        Sends 'cancelled' notification so the agent knows on next turn.
-        """
+        """Cancel a background task (user-initiated via API)."""
         session_tasks = self._background_tasks.get(session_id, {})
         bg = session_tasks.get(task_id)
         if bg is None:
@@ -364,8 +342,6 @@ class BackgroundActionsMixin:
         })
 
         return {"success": True, "task_id": task_id, "status": "cancelled"}
-
-    # ── Prompt sections ────────────────────────────────
 
     def _prompt_sections_background(self) -> list[dict[str, Any]]:
         return [{

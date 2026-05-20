@@ -1,51 +1,4 @@
-"""Credentials API - the HTTP surface for the universal credentials system.
-
-Every interaction between the Flutter client and the daemon's
-credentials subsystem goes through these routes. No Flutter code
-should touch the old per-app ``/api/apps/{id}/secrets/{key}`` endpoint
-for anything new - that one stays for backwards compat only.
-
-Routes
-------
-
-    GET    /api/apps/{app_id}/credentials/schema
-        Return the declared ``credentials_schema`` of an app +
-        the current fill state for the authenticated user. This is
-        what the Flutter form renders from.
-
-    GET    /api/users/me/credentials/{app_id}/{provider}
-        Fetch one credential's metadata (never plaintext fields) -
-        used by the form to display "filled" / "missing" / masked
-        previews.
-
-    PUT    /api/users/me/credentials/{app_id}/{provider}
-        Create or overwrite the fields of one credential. Runs the
-        handler's ``validate_fields`` before accepting.
-
-    DELETE /api/users/me/credentials/{app_id}/{provider}
-        Delete the user's credential for this provider+app.
-
-    GET    /api/users/me/credentials
-        List every credential owned by the authenticated user
-        across all apps (user-global dashboard).
-
-    POST   /api/users/me/credentials/{app_id}/{provider}/oauth/start
-    GET    /api/users/me/credentials/{app_id}/{provider}/oauth/status
-    POST   /api/users/me/credentials/{app_id}/{provider}/oauth/refresh
-        OAuth flow endpoints. Currently stubbed - full
-        implementation is a follow-up task once the OAuth provider
-        registry is designed.
-
-    POST   /api/users/me/credentials/{app_id}/{provider}/mcp/start
-    POST   /api/users/me/credentials/{app_id}/{provider}/mcp/stop
-    GET    /api/users/me/credentials/{app_id}/{provider}/mcp/status
-        MCP server lifecycle routes. Currently stubbed - they'll
-        delegate to the MCP module's pool once the bridge is wired.
-
-All routes are authenticated via the standard middleware that sets
-``request.state.user_id``. No route lets an unauthenticated client
-read or write any credential.
-"""
+"""Credentials API - the HTTP surface for the universal credentials system."""
 
 from __future__ import annotations
 
@@ -74,22 +27,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["credentials"])
 
 
-# ────────────────────────────────────────────────────────────────────
 # Dependencies
-# ────────────────────────────────────────────────────────────────────
 
 
 def _get_user_id(request: Request) -> str:
-    """Pull the authenticated user id off ``request.state.user_id``.
-
-    The auth middleware always populates this - the ``"anonymous"``
-    fallback covers dev mode where auth is disabled.
-    """
+    """Pull the authenticated user id off `request.state.user_id`."""
     return getattr(request.state, "user_id", None) or "anonymous"
 
 
 def _get_credential_store(request: Request) -> CredentialStore:
-    """Return the singleton CredentialStore stored on app.state."""
     store: CredentialStore | None = getattr(
         request.app.state, "credential_store", None,
     )
@@ -110,13 +56,7 @@ async def _record_user_audit(
     reason: str = "",
     extra: dict[str, Any] | None = None,
 ) -> None:
-    """Append an audit row for a user-initiated credential operation.
-
-    Best-effort: failures are logged but never propagate (the user's
-    operation has already completed by the time we get here). The
-    chain hash + tamper-evidence is enforced by the audit log
-    implementation; we only have to feed it the row.
-    """
+    """Append an audit row for a user-initiated credential operation."""
     audit = getattr(request.app.state, "credential_audit", None)
     if audit is None:
         return
@@ -150,11 +90,7 @@ AuditOutcomeT = Any
 def _get_app_credentials_schema(
     request: Request, app_id: str,
 ) -> tuple[dict[str, Any] | None, Any]:
-    """Return ``(schema_dict, compiled_app)`` for a deployed app.
-
-    Raises 404 if the app is not deployed. Returns ``(None, app)``
-    when the app has no credentials_schema declared.
-    """
+    """Return `(schema_dict, compiled_app)` for a deployed app."""
     manager = _get_manager(request)
     deployed = manager.get(app_id)
     if deployed is None:
@@ -165,9 +101,7 @@ def _get_app_credentials_schema(
     return schema, deployed
 
 
-# ────────────────────────────────────────────────────────────────────
 # Request bodies
-# ────────────────────────────────────────────────────────────────────
 
 
 class CredentialUpsertRequest(BaseModel):
@@ -189,16 +123,8 @@ class CredentialUpsertRequest(BaseModel):
     )
 
 
-# ── New unified model bodies ─────────────────────────────────────────
-
-
 class UserCredentialCreateRequest(BaseModel):
-    """POST /api/credentials body for a user-owned credential.
-
-    Unlike the legacy upsert, this endpoint does NOT attach the
-    credential to an app - the user can later grant it to any app
-    via ``POST /api/credentials/{id}/grants``.
-    """
+    """POST /api/credentials body for a user-owned credential."""
 
     provider_name: str = Field(..., description="Provider identifier (e.g. 'deepseek', 'notion').")
     provider_type: str = Field(default="api_key", description="Handler type: api_key, oauth2, mcp_server, ...")
@@ -248,30 +174,14 @@ class SystemCredentialCreateRequest(BaseModel):
     fields: dict[str, Any]
 
 
-# ────────────────────────────────────────────────────────────────────
 # Routes
-# ────────────────────────────────────────────────────────────────────
 
 
 @router.get("/apps/{app_id}/credentials/manifest", response_model=AppResponse)
 async def get_app_credentials_manifest(
     request: Request, app_id: str,
 ) -> AppResponse:
-    """Return the unified credentials manifest for an app.
-
-    Walks the deployed app's compiled definition, extracts every
-    `credential:` reference, and pairs each with the matching
-    `CredentialSlot` from the consumer module. Adds resolution status
-    against the calling user's vault for each slot.
-
-    The per-app config UI consumes this to render:
-      - "this app needs N credentials"
-      - per slot: handler types accepted, providers accepted, scope
-      - per slot: which credential is bound (if any), and whether it
-        currently resolves (filled / valid / missing / expired)
-      - per slot: list of compatible alternatives in the user's vault
-        (for the picker dropdown)
-    """
+    """Return the unified credentials manifest for an app."""
     from digitorn.core.credentials.compile_credentials import (
         validate_app_credentials,
     )
@@ -283,9 +193,6 @@ async def get_app_credentials_manifest(
             status_code=404, detail=f"App '{app_id}' not deployed",
         )
 
-    # Collect slots from instantiated modules. The compiler accepts
-    # an explicit map; when the daemon has the modules live we skip
-    # the class-instantiation fallback inside the compiler.
     from digitorn.core.credentials.slot import collect_slots_from_modules
     modules_list: list[Any] = []
     for mid, mod in (getattr(deployed, "modules", None) or {}).items():
@@ -293,20 +200,14 @@ async def get_app_credentials_manifest(
             # Stamp module_id on the instance for collect_slots.
             try:
                 setattr(mod, "module_id", mid)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("credentials best-effort block failed: %s", exc)
             modules_list.append(mod)
     slot_pairs = collect_slots_from_modules(modules_list)
     module_slots: dict[str, list[Any]] = {}
     for mid, slot in slot_pairs:
         module_slots.setdefault(mid, []).append(slot)
 
-    # `validate_app_credentials` is duck-typed on `.brain`, `.agents`,
-    # `.modules` with a `.credential` attr. Both AppDefinition (parsed
-    # YAML) and CompiledApp (after my dataclass extension) satisfy the
-    # contract. Prefer the parsed definition when DeployedApp carries
-    # one, fall back to compiled - the new `credential:` field is
-    # carried by both since the compiler recopies it.
     app_def = (
         getattr(deployed, "definition", None)
         or getattr(deployed, "app_def", None)
@@ -333,12 +234,6 @@ async def get_app_credentials_manifest(
             detail=f"credential manifest compile failed: {exc}",
         ) from exc
 
-    # Enrich each entry with resolution status against the caller's
-    # vault. Strict-scope lookup (no fallback cascade) - the YAML's
-    # declared scope is authoritative. All per-entry DB queries run
-    # in parallel so a manifest with N credential refs costs ~one
-    # round-trip instead of N (cold-open speed - chat panel waits on
-    # this fetch before mounting).
     store = _get_credential_store(request)
     user_id = _get_user_id(request)
     manifest.user_id = user_id
@@ -399,11 +294,7 @@ async def get_app_credentials_manifest(
 async def get_app_credentials_schema(
     request: Request, app_id: str,
 ) -> AppResponse:
-    """Return the app's declared credentials schema + current fill state.
-
-    The Flutter form uses this to render the provider cards and tell
-    the user which fields are required, filled, missing, or expired.
-    """
+    """Return the app's declared credentials schema + current fill state."""
     schema, _ = _get_app_credentials_schema(request, app_id)
     if schema is None:
         return AppResponse(
@@ -449,11 +340,7 @@ async def get_app_credentials_schema(
 async def get_credential(
     request: Request, app_id: str, provider_name: str,
 ) -> AppResponse:
-    """Return one credential's metadata for the authenticated user.
-
-    Never returns plaintext field values - only masked previews and
-    status info. Use this to drive the form display.
-    """
+    """Return one credential's metadata for the authenticated user."""
     store = _get_credential_store(request)
     user_id = _get_user_id(request)
     # First try per_app_per_user, then per_user (personal global).
@@ -485,12 +372,7 @@ async def upsert_credential(
     provider_name: str,
     body: CredentialUpsertRequest,
 ) -> AppResponse:
-    """Create or overwrite a credential for the authenticated user + app.
-
-    Validates via the declared handler before storing. Use ``app_id="_global"``
-    to store a per-user credential that is shared across every app the
-    user runs (the per_user scope).
-    """
+    """Create or overwrite a credential for the authenticated user + app."""
     user_id = _get_user_id(request)
     store = _get_credential_store(request)
 
@@ -618,12 +500,7 @@ async def delete_credential(
 
 @router.get("/users/me/credentials", response_model=AppResponse)
 async def list_user_credentials(request: Request) -> AppResponse:
-    """List every credential owned by the authenticated user.
-
-    Used by the "My Credentials" global dashboard - shows every
-    provider the user has configured across every app, with their
-    status and last_updated.
-    """
+    """List every credential owned by the authenticated user."""
     user_id = _get_user_id(request)
     store = _get_credential_store(request)
     creds = await store.list_credentials(user_id=user_id)
@@ -633,26 +510,6 @@ async def list_user_credentials(request: Request) -> AppResponse:
     )
 
 
-# ────────────────────────────────────────────────────────────────────
-# OAuth - real implementation
-# ────────────────────────────────────────────────────────────────────
-#
-# Flow:
-#
-#   1. Client → POST /oauth/start
-#        → daemon creates a PendingFlow with a CSRF state uuid
-#        → daemon returns { auth_url, state }
-#
-#   2. Browser opens auth_url, user consents on the provider's site
-#
-#   3. Provider redirects to the callback URL with ?code=... &state=...
-#      → daemon's /api/oauth/callback route looks up the state,
-#        exchanges the code for tokens, writes the credential, and
-#        marks the flow as "connected"
-#
-#   4. Client polls GET /oauth/status?state=xxx until status == connected
-
-
 @router.post(
     "/users/me/credentials/{app_id}/{provider_name}/oauth/start",
     response_model=AppResponse,
@@ -660,12 +517,7 @@ async def list_user_credentials(request: Request) -> AppResponse:
 async def oauth_start(
     request: Request, app_id: str, provider_name: str,
 ) -> AppResponse:
-    """Begin the OAuth flow - returns ``auth_url`` and a ``state`` uuid.
-
-    The client opens ``auth_url`` in a browser; the user consents;
-    the provider redirects back to the daemon's callback route. The
-    client polls ``oauth/status`` to know when the flow completes.
-    """
+    """Begin the OAuth flow - returns `auth_url` and a `state` uuid."""
     from digitorn.core.credentials.oauth_flow import (
         build_auth_url,
         get_default_flow_store,
@@ -678,12 +530,6 @@ async def oauth_start(
 
     user_id = _get_user_id(request)
 
-    # Read the body once so we can pick up target_name/target_scope
-    # AND an optional inline `oauth_config` block. The latter lets
-    # custom-template OAuth credentials run the flow without first
-    # editing ~/.digitorn/oauth_providers.toml: the user pastes
-    # client_id / client_secret / auth_url / token_url straight in
-    # the form and we honour them for this one flow only (in-memory).
     try:
         body = await request.json()
     except Exception:
@@ -692,11 +538,6 @@ async def oauth_start(
     if isinstance(body, dict) and isinstance(body.get("oauth_config"), dict):
         inline_cfg = body["oauth_config"]
 
-    # Look up the schema to find the oauth_provider name and scopes.
-    # `app_id == "*"` is the user-level wildcard the picker uses when
-    # creating a credential outside of any specific app YAML; in that
-    # case there's no schema to read, just go with the path's
-    # provider_name and the inline_cfg / registry defaults.
     schema_provider: dict[str, Any] = {}
     if app_id != "*":
         schema, _ = _get_app_credentials_schema(request, app_id)
@@ -715,10 +556,6 @@ async def oauth_start(
         elif isinstance(raw, list):
             scopes = [str(s) for s in raw if s]
 
-    # Incremental scope upgrade - if the user already has a cred for
-    # this provider and its granted scopes are a subset of what we
-    # need, expand the auth request to the UNION so we don't lose
-    # previously granted scopes when re-consenting.
     store = _get_credential_store(request)
     try:
         existing = await store.list_user_credentials(
@@ -743,21 +580,11 @@ async def oauth_start(
 
     registry = get_default_registry()
     provider = registry.get(oauth_provider_name)
-    # When the client passes an inline oauth_config we build an
-    # ad-hoc OAuthProviderConfig and skip the registry lookup
-    # entirely - this is the path used by the "Custom OAuth2 app"
-    # template where client_id / secret / urls are stored on the
-    # credential row, not in oauth_providers.toml.
     if provider is None and inline_cfg:
         auth_url_in = str(inline_cfg.get("auth_url") or "").strip()
         token_url_in = str(inline_cfg.get("token_url") or "").strip()
         client_id_in = str(inline_cfg.get("client_id") or "").strip()
         client_secret_in = str(inline_cfg.get("client_secret") or "").strip()
-        # Optional pass-through fields. The frontend forwards these
-        # straight from the catalogue's ProviderOAuth block when the
-        # user is filling in client_id/secret for a known provider
-        # (e.g. Google needs `access_type=offline` + `prompt=consent`
-        # to issue a refresh_token, GitHub doesn't need anything).
         extra_params_in = inline_cfg.get("extra_auth_params") or {}
         if not isinstance(extra_params_in, dict):
             extra_params_in = {}
@@ -777,10 +604,6 @@ async def oauth_start(
                 extra_auth_params={str(k): str(v) for k, v in extra_params_in.items()},
                 revoke_url=revoke_url_in,
             )
-    # Catalogued provider IS in oauth_providers.toml but without
-    # client_id / client_secret (admin started but never finished
-    # setup). Same fix: if the frontend supplies them inline, build
-    # an enriched copy and use it for this flow only.
     if provider is not None and not provider.is_configured() and inline_cfg:
         client_id_in = str(inline_cfg.get("client_id") or "").strip()
         client_secret_in = str(inline_cfg.get("client_secret") or "").strip()
@@ -829,12 +652,6 @@ async def oauth_start(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
-    # When the picker started this flow for a declarative app, the
-    # client passes `target_name` / `target_scope` from the YAML's
-    # `credential:` block so the credential is upserted under the
-    # exact ref the injector will look up. Without this the
-    # callback defaults to `name=provider_name` and the post-OAuth
-    # injection mismatches → CredentialAuthRequired re-emits.
     if isinstance(body, dict):
         tgt_name = body.get("target_name")
         if isinstance(tgt_name, str) and tgt_name.strip():
@@ -862,15 +679,7 @@ async def oauth_start(
 async def oauth_status(
     request: Request, app_id: str, provider_name: str, state: str = "",
 ) -> AppResponse:
-    """Poll the state of an in-progress OAuth flow.
-
-    Returns one of:
-
-        { status: "pending" }                     - still waiting
-        { status: "connected", credential_id }    - done, token stored
-        { status: "error", error }                - failed
-        { status: "expired" }                     - flow TTL elapsed
-    """
+    """Poll the state of an in-progress OAuth flow."""
     if not state:
         raise HTTPException(status_code=400, detail="state query param required")
 
@@ -881,7 +690,6 @@ async def oauth_status(
     if flow is None:
         return AppResponse(success=True, data={"status": "expired"})
 
-    # Defensive: only the user who started the flow can read its status
     if flow.user_id != _get_user_id(request):
         raise HTTPException(status_code=403, detail="state does not belong to caller")
 
@@ -900,13 +708,7 @@ async def oauth_status(
 async def oauth_refresh(
     request: Request, app_id: str, provider_name: str,
 ) -> AppResponse:
-    """Manually trigger a token refresh for an existing OAuth credential.
-
-    Looks up the stored credential, calls the handler's ``refresh``
-    (which hits the provider's /token endpoint with
-    grant_type=refresh_token), and writes the new access_token back
-    to the store.
-    """
+    """Manually trigger a token refresh for an existing OAuth credential."""
     from digitorn.core.credentials import default_registry as handler_registry
 
     store = _get_credential_store(request)
@@ -944,9 +746,6 @@ async def oauth_refresh(
             detail=f"refresh failed: {exc}",
         )
 
-    # Persist the refreshed credential. The handler returns
-    # ``expires_at`` as an ISO 8601 string - the store accepts both
-    # datetime and string and normalises internally.
     from digitorn.core.credentials import Scope, Status
     await store.upsert_credential(
         user_id=user_id,
@@ -969,19 +768,6 @@ async def oauth_refresh(
     )
 
 
-# ────────────────────────────────────────────────────────────────────
-# OAuth callback - PUBLIC endpoint, no auth required
-# ────────────────────────────────────────────────────────────────────
-#
-# The provider redirects the user's browser to this URL with the
-# authorization code + our state uuid. The state uuid IS the auth:
-# only the client that started the flow knows it.
-#
-# This route is mounted on the same router but it is INTENTIONALLY
-# at ``/api/oauth/callback`` (no user/app prefix) because the redirect
-# URL must be a fixed value registered with the provider.
-
-
 oauth_callback_router = APIRouter(prefix="/api/oauth", tags=["oauth"])
 
 
@@ -993,13 +779,7 @@ async def oauth_callback(
     error: str = "",
     error_description: str = "",
 ):
-    """Provider → daemon redirect target. Completes the OAuth flow.
-
-    Returns a minimal HTML page telling the user to close the tab
-    and go back to their app. The real result is tracked in the
-    in-memory flow store and consumed by the client polling
-    ``oauth/status``.
-    """
+    """Provider → daemon redirect target. Completes the OAuth flow."""
     from fastapi.responses import HTMLResponse
     from digitorn.core.credentials.oauth_flow import (
         TokenExchange,
@@ -1095,11 +875,7 @@ async def oauth_callback(
 
 
 def _render_callback_html(*, title: str, message: str, success: bool) -> str:
-    """Tiny self-contained HTML page shown in the OAuth popup/tab.
-
-    No JS, no fonts, no external resources - has to work even when
-    the user's browser is locked down.
-    """
+    """Tiny self-contained HTML page shown in the OAuth popup/tab."""
     color = "#10B981" if success else "#EF4444"
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>{title}</title>
@@ -1127,9 +903,7 @@ def _render_callback_html(*, title: str, message: str, success: bool) -> str:
 </body></html>"""
 
 
-# ────────────────────────────────────────────────────────────────────
 # MCP server control - stub delegating to the module's pool
-# ────────────────────────────────────────────────────────────────────
 
 
 @router.post(
@@ -1139,13 +913,7 @@ def _render_callback_html(*, title: str, message: str, success: bool) -> str:
 async def mcp_start(
     request: Request, app_id: str, provider_name: str,
 ) -> AppResponse:
-    """Start (or restart) an MCP server from a filled credential.
-
-    Looks up the credential (per_app_per_user → per_user), retrieves
-    its schema declaration, and invokes the
-    ``McpServerHandler.on_credential_filled`` hook which talks to the
-    live ``MCPConnectionPool``.
-    """
+    """Start (or restart) an MCP server from a filled credential."""
     from digitorn.core.credentials import default_registry
 
     user_id = _get_user_id(request)
@@ -1198,11 +966,7 @@ async def mcp_start(
 async def mcp_stop(
     request: Request, app_id: str, provider_name: str,
 ) -> AppResponse:
-    """Stop an MCP server without deleting its credential.
-
-    The credential row stays intact so the user can click "Start
-    again" without re-filling the form.
-    """
+    """Stop an MCP server without deleting its credential."""
     ctx = _build_handler_ctx(request)
     pool = getattr(ctx, "mcp_pool", None)
     if pool is None:
@@ -1227,12 +991,7 @@ async def mcp_stop(
 async def mcp_status(
     request: Request, app_id: str, provider_name: str,
 ) -> AppResponse:
-    """Return the current runtime status of an MCP server.
-
-    Shape::
-
-        { provider, running, status, tools_count, last_error }
-    """
+    """Return the current runtime status of an MCP server."""
     ctx = _build_handler_ctx(request)
     pool = getattr(ctx, "mcp_pool", None)
     if pool is None:
@@ -1265,31 +1024,9 @@ async def mcp_status(
     )
 
 
-# ────────────────────────────────────────────────────────────────────
 # Helpers
-# ────────────────────────────────────────────────────────────────────
 
 
-# ════════════════════════════════════════════════════════════════════
-# Unified model routes - user-owned credentials + grants
-# ════════════════════════════════════════════════════════════════════
-#
-# The routes above manage legacy per-app credentials for backwards
-# compat. Everything below is the new grant-based model:
-#
-#     /api/credentials                             list/create user creds
-#     /api/credentials/{id}                        get/update/delete one
-#     /api/credentials/{id}/grants                 list/create grants
-#     /api/credentials/{id}/grants/{app_id}        revoke one grant
-#     /api/credentials/grants                      list every grant of caller
-#     /api/admin/credentials                       admin CRUD for system creds
-#
-# The same ``router`` is used - the prefix is ``/api`` already.
-
-
-# Catalog of well-known credential providers. Used by the
-# "Add credential" modal in the Flutter client so the picker
-# shows icons + correct field hints per provider.
 _PROVIDER_CATALOG: list[dict[str, Any]] = [
     # LLM providers
     {"id": "anthropic", "display_name": "Anthropic", "category": "llm",
@@ -1376,18 +1113,6 @@ _PROVIDER_CATALOG: list[dict[str, Any]] = [
 ]
 
 
-# ════════════════════════════════════════════════════════════════════
-# GitHub Copilot OAuth device flow
-# ════════════════════════════════════════════════════════════════════
-#
-# GitHub closed `/copilot_internal/v2/token` to all OAuth tokens
-# except those issued under VS Code Copilot Chat's client_id. The
-# only practical way for a digitorn user to authenticate against
-# Copilot is to run the OAuth 2.0 device flow against that client_id.
-# These two endpoints expose that flow over HTTP so the web/Flutter
-# clients can drive it without shelling out to a CLI script.
-
-
 class CopilotDeviceStartRequest(BaseModel):
     """POST /credentials/copilot/device/start body."""
 
@@ -1399,18 +1124,7 @@ class CopilotDeviceStartRequest(BaseModel):
 async def copilot_device_start(
     request: Request, body: CopilotDeviceStartRequest,
 ) -> AppResponse:
-    """Initiate a GitHub Copilot OAuth device flow.
-
-    Returns the public ``user_code`` + ``verification_uri`` + ``state``
-    for the client to display. The opaque ``device_code`` stays on the
-    server. The client then polls ``/copilot/device/status?state=...``
-    every few seconds until ``status == "connected"``.
-
-    Body (JSON, optional fields):
-      - ``target_name``: name to write the credential under once the
-        flow completes. Defaults to ``"github_copilot"``.
-      - ``target_scope``: ``per_user`` (default) or ``per_app_per_user``.
-    """
+    """Initiate a GitHub Copilot OAuth device flow."""
     from digitorn.core.credentials.copilot_device_flow import (
         get_default_store as _get_copilot_store,
     )
@@ -1434,13 +1148,7 @@ async def copilot_device_start(
 async def copilot_device_status(
     request: Request, state: str,
 ) -> AppResponse:
-    """Poll the device flow identified by ``state``.
-
-    The first call after the user authorizes in their browser sees
-    GitHub return an access_token; the daemon then writes a credential
-    row under ``flow.target_name`` and reports ``status: "connected"``
-    with the new ``credential_id``.
-    """
+    """Poll the device flow identified by `state`."""
     from digitorn.core.credentials.copilot_device_flow import (
         get_default_store as _get_copilot_store,
     )
@@ -1459,16 +1167,9 @@ async def copilot_device_status(
             detail="This device-flow belongs to a different user.",
         )
 
-    # Persist callback: when GitHub returns a token, we upsert a
-    # `github_copilot` credential under the user's vault so the
-    # llm_provider can pick it up at session-time.
     cred_store = _get_credential_store(request)
 
     async def _persist(flow_obj: Any, access_token: str) -> str:
-        # Upsert by (user_id, provider_name, label) - the store keys
-        # uniqueness on those three. We pre-look up an existing row
-        # under the same target_name so the upsert pins the same id
-        # (the cipher writes a fresh ciphertext but the row id stays).
         existing = await cred_store.list_user_credentials(
             user_id=user_id, provider_name="github_copilot",
         )
@@ -1522,17 +1223,7 @@ async def copilot_device_status(
 async def copilot_models(
     request: Request, credential_id: str | None = None,
 ) -> AppResponse:
-    """List the LLM models the user's Copilot subscription gives access to.
-
-    Hits ``GET https://api.githubcopilot.com/models`` after exchanging
-    the user's GitHub OAuth token for a Copilot session token. Cached
-    for 5 minutes per credential id - the model list rarely changes
-    intra-day.
-
-    Query params:
-      - ``credential_id``: which github_copilot credential to use.
-        Defaults to the user's first ``github_copilot`` row if absent.
-    """
+    """List the LLM models the user's Copilot subscription gives access to."""
     user_id = _get_user_id(request)
     cred_store = _get_credential_store(request)
 
@@ -1569,10 +1260,6 @@ async def copilot_models(
         )
     gh_token = str(full["fields"]["api_key"])
 
-    # Build a transient provider just for the list_models call. We
-    # don't reuse the live llm_provider instance to avoid a session
-    # dependency - this endpoint should work even when no session is
-    # active.
     from digitorn.modules.llm_provider.providers.github_copilot import (
         GitHubCopilotProvider,
     )
@@ -1647,30 +1334,7 @@ async def copilot_models(
 
 @router.get("/credentials/providers", response_model=AppResponse)
 async def list_credential_providers(request: Request) -> AppResponse:
-    """Return the catalog of well-known credential providers.
-
-    Returns both the legacy static list (kept for older clients) AND
-    the new TOML-driven catalog templates. The new entries carry a
-    full ``fields`` schema (FieldSpec list with type, required,
-    placeholder, prefix_check) so the picker can render a proper
-    dynamic form per provider.
-
-    Shape per entry::
-
-        {
-          "id": "anthropic",
-          "display_name": "Anthropic",
-          "category": "llm",
-          "type": "api_key",
-          "icon": "anthropic",
-          "fields": [
-            {"name": "api_key", "label": "API key",
-             "type": "password", "required": true, ...}
-          ],
-          "verify": {"endpoint": "...", "method": "GET", ...},
-          "docs_url": "https://...",
-        }
-    """
+    """Return the catalog of well-known credential providers."""
     # Combine: new TOML catalog (preferred) + legacy static entries
     # for any provider id not yet covered by a TOML template.
     try:
@@ -1733,11 +1397,7 @@ async def list_credential_providers(request: Request) -> AppResponse:
 async def list_my_credentials(
     request: Request, provider: str = "",
 ) -> AppResponse:
-    """List every credential owned by the authenticated user.
-
-    Optional ``?provider=deepseek`` narrows to one provider - this
-    is what the picker dialog uses to show candidates on first-use.
-    """
+    """List every credential owned by the authenticated user."""
     store = _get_credential_store(request)
     user_id = _get_user_id(request)
     creds = await store.list_user_credentials(
@@ -1754,12 +1414,7 @@ async def list_my_credentials(
 async def create_my_credential(
     request: Request, body: UserCredentialCreateRequest,
 ) -> AppResponse:
-    """Create a new user-owned credential.
-
-    Validates via the declared handler before storing. The credential
-    is NOT attached to any app - the user authorizes specific apps
-    later via ``POST /api/credentials/{id}/grants``.
-    """
+    """Create a new user-owned credential."""
     from digitorn.core.credentials.audit import AuditAction, AuditOutcome
 
     store = _get_credential_store(request)
@@ -1928,17 +1583,7 @@ async def list_credential_grants(
 async def refresh_credential_by_id(
     request: Request, credential_id: str,
 ) -> AppResponse:
-    """Refresh a credential by id, regardless of provider type.
-
-    For OAuth: hits the provider's `/token` endpoint with the stored
-    refresh_token and rotates `access_token` + `expires_at` in place.
-    For api_key / multi_field / static handlers: re-runs
-    `test_live_connection` and bumps `last_validated_at`.
-
-    Symmetrical with `/credentials/{id}/test` - both let the user
-    operate on a single credential row from the settings page
-    without knowing which app the credential is bound to.
-    """
+    """Refresh a credential by id, regardless of provider type."""
     from digitorn.core.credentials import default_registry as handler_registry
 
     store = _get_credential_store(request)
@@ -1947,9 +1592,6 @@ async def refresh_credential_by_id(
     cred = await store.get_credential_by_id(credential_id, decrypt=True)
     if cred is None:
         raise HTTPException(status_code=404, detail="Credential not found")
-    # Owner check: a user can only refresh their own credentials.
-    # System credentials are admin-managed and refresh is a no-op
-    # from this surface (the bg validator handles them).
     if cred.get("user_id") != user_id and cred.get("owner_type") != OwnerType.SYSTEM:
         raise HTTPException(
             status_code=403,
@@ -1959,9 +1601,6 @@ async def refresh_credential_by_id(
     handler_type = cred.get("provider_type") or "api_key"
     handler = handler_registry.get(handler_type)
 
-    # Build a minimal schema_provider from the catalogue so the
-    # handler's refresh recipe (verify endpoint, oauth /token URL)
-    # is available. Same translation as the test endpoint.
     schema_provider: dict[str, Any] = {}
     provider_name = cred.get("provider_name") or ""
     if provider_name:
@@ -2030,24 +1669,7 @@ async def test_credential_fields(
     request: Request,
     body: UserCredentialCreateRequest,
 ) -> AppResponse:
-    """Run the provider's `verify` recipe against the supplied
-    fields without persisting anything.
-
-    The picker calls this after the user fills the create form so
-    a mistyped key is caught BEFORE Save / Allow, instead of having
-    the agent crash mid-turn against the real API.
-
-    Resolves the handler from `provider_type`, looks up the catalogue
-    entry's `verify` block for the test recipe (endpoint / method /
-    auth template / success codes), and calls
-    `handler.test_live_connection(fields, schema_provider)`.
-
-    Returns `{ok: bool, detail: str, latency_ms: int}`. `ok=true`
-    when the recipe succeeded; `detail` carries the HTTP status or
-    network error otherwise. Falls through to `ok=true` (best-effort)
-    when the catalogue ships no recipe for this provider so the user
-    isn't blocked by an undeclared verify path.
-    """
+    """Run the provider's `verify` recipe against the supplied"""
     import time as _time
     from dataclasses import asdict, is_dataclass
     from digitorn.core.credentials.handler import default_registry
@@ -2072,10 +1694,6 @@ async def test_credential_fields(
             data={"ok": False, "detail": str(exc)},
         )
 
-    # Translate the catalogue's `verify` block into the shape
-    # the handler's `test_live_connection` expects (`{test: {...}}`)
-    # so the recipe declared once at the TOML level is honoured by
-    # every code path (form test + post-save refresh + bg validator).
     schema_provider: dict[str, Any] = {}
     if default_catalog is not None and body.provider_name:
         try:
@@ -2132,7 +1750,7 @@ async def test_credential_fields(
 async def create_credential_grant_singular(
     request: Request, credential_id: str, body: CreateGrantRequest,
 ) -> AppResponse:
-    """Alias for ``POST /credentials/{id}/grants`` - singular form."""
+    """Alias for `POST /credentials/{id}/grants` - singular form."""
     return await create_credential_grant(request, credential_id, body)
 
 
@@ -2140,16 +1758,7 @@ async def create_credential_grant_singular(
 async def create_credential_grant(
     request: Request, credential_id: str, body: CreateGrantRequest,
 ) -> AppResponse:
-    """Authorize an app to use this credential.
-
-    This is the endpoint the picker dialog calls when the user clicks
-    "Use this key" - it posts the credential_id + app_id, and from
-    then on the app can read the credential without prompting.
-
-    Side effect: when the credential is an ``mcp_server``, this also
-    fires the handler's spawn hook so the subprocess is ready by the
-    time the first agent turn hits the MCP tool.
-    """
+    """Authorize an app to use this credential."""
     store = _get_credential_store(request)
     user_id = _get_user_id(request)
     try:
@@ -2166,9 +1775,6 @@ async def create_credential_grant(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # Fire MCP spawn hook if applicable. The credential has the type
-    # metadata; we look up the schema declaration on the target app
-    # to pass to on_credential_filled (transport, command, env_template).
     try:
         cred_full = await store.get_credential_by_id(credential_id, decrypt=True)
         if cred_full and cred_full.get("provider_type") == "mcp_server":
@@ -2200,11 +1806,7 @@ async def create_credential_grant(
 async def revoke_credential_grant(
     request: Request, credential_id: str, app_id: str,
 ) -> AppResponse:
-    """Revoke an app's access to a credential.
-
-    Soft delete - the grant row stays with ``revoked_at`` set for
-    audit. Use ``?hard=true`` to actually remove the row.
-    """
+    """Revoke an app's access to a credential."""
     store = _get_credential_store(request)
     user_id = _get_user_id(request)
     hard = request.query_params.get("hard", "").lower() in ("1", "true", "yes")
@@ -2219,11 +1821,7 @@ async def revoke_credential_grant(
 
 @router.get("/credentials-grants", response_model=AppResponse)
 async def list_all_my_grants(request: Request) -> AppResponse:
-    """List every active grant of the authenticated user.
-
-    Settings screen calls this to show "Apps that can see my
-    credentials" - grouped by app_id on the client side.
-    """
+    """List every active grant of the authenticated user."""
     store = _get_credential_store(request)
     user_id = _get_user_id(request)
     grants = await store.list_grants(user_id=user_id)
@@ -2233,16 +1831,8 @@ async def list_all_my_grants(request: Request) -> AppResponse:
     )
 
 
-# ── Admin: system credentials ────────────────────────────────────────
-
-
 def _require_admin(request: Request) -> None:
-    """Block non-admin callers from touching system credentials.
-
-    Uses ``request.state.permissions`` populated by the auth
-    middleware. In dev mode the middleware grants ``["*"]`` so this
-    is effectively a no-op; in production it enforces real RBAC.
-    """
+    """Block non-admin callers from touching system credentials."""
     perms = getattr(request.state, "permissions", [])
     if "*" in perms or "credentials.admin" in perms:
         return
@@ -2272,15 +1862,7 @@ async def admin_list_system_credentials(
 async def admin_create_system_credential(
     request: Request, body: SystemCredentialCreateRequest,
 ) -> AppResponse:
-    """Create a system-owned credential.
-
-    When ``app_id`` is set the credential is restricted to that app
-    (enterprise "shared key for this one app" case). When ``app_id``
-    is None the credential is visible to every app on the daemon.
-
-    No grants are needed - system credentials are implicitly
-    available to the apps they cover.
-    """
+    """Create a system-owned credential."""
     _require_admin(request)
     store = _get_credential_store(request)
 
@@ -2319,9 +1901,6 @@ async def admin_delete_system_credential(
     return AppResponse(success=True, data={"deleted": ok})
 
 
-# ── Credential audit log (admin-only viewer + chain verifier) ──────
-
-
 @router.get("/admin/credentials/audit", response_model=AppResponse)
 async def admin_credential_audit_list(
     request: Request,
@@ -2329,17 +1908,7 @@ async def admin_credential_audit_list(
     user_id: str = "",
     limit: int = 200,
 ) -> AppResponse:
-    """Return recent credential audit events.
-
-    Filter by ``credential_id`` to scope to one credential's lifecycle,
-    or by ``user_id`` to see every action a user performed. With no
-    filter set, returns the most recent ``limit`` events across the
-    entire log.
-
-    Each row is a snapshot - the underlying chain (`prev_hash` /
-    `this_hash`) is hidden from the API; use
-    ``/admin/credentials/audit/verify`` to revalidate integrity.
-    """
+    """Return recent credential audit events."""
     _require_admin(request)
     audit = getattr(request.app.state, "credential_audit", None)
     if audit is None:
@@ -2390,16 +1959,7 @@ async def admin_credential_audit_list(
 
 @router.get("/credentials-health", response_model=AppResponse)
 async def credentials_subsystem_health(request: Request) -> AppResponse:
-    """Report the health of the credential subsystem.
-
-    Returns the status of every component:
-      - master_key:        KMS / env / file provider reachable?
-      - cipher:            encrypt+decrypt round-trip works?
-      - audit:             chain head readable?
-      - oauth_registry:    configured providers count
-      - oauth_refresh_loop: running?
-    Used by the admin dashboard to surface broken pieces immediately.
-    """
+    """Report the health of the credential subsystem."""
     out: dict[str, Any] = {}
 
     # KMS provider
@@ -2469,13 +2029,7 @@ async def credentials_subsystem_health(request: Request) -> AppResponse:
 
 @router.post("/admin/credentials/audit/verify", response_model=AppResponse)
 async def admin_credential_audit_verify(request: Request) -> AppResponse:
-    """Walk the credential audit hash chain from genesis and report
-    any inconsistency.
-
-    Returns ``{"intact": true}`` when the chain validates cleanly.
-    Returns ``{"intact": false, "broken_at": "..."}`` on first
-    breakage. Heavy operation - schedule rather than poll.
-    """
+    """Walk the credential audit hash chain from genesis and report"""
     _require_admin(request)
     audit = getattr(request.app.state, "credential_audit", None)
     if audit is None:
@@ -2497,18 +2051,11 @@ async def admin_credential_audit_verify(request: Request) -> AppResponse:
     )
 
 
-# ════════════════════════════════════════════════════════════════════
 # Legacy helpers below - kept untouched
-# ════════════════════════════════════════════════════════════════════
 
 
 def _build_handler_ctx(request: Request) -> Any:
-    """Build the opaque context dict handlers receive in lifecycle hooks.
-
-    Currently exposes ``mcp_pool`` if the MCP module is running on
-    the daemon. Handlers dig into this duck-typed ctx; they're
-    defensive about missing attributes so a minimal ctx is fine.
-    """
+    """Build the opaque context dict handlers receive in lifecycle hooks."""
 
     class _HandlerCtx:
         pass

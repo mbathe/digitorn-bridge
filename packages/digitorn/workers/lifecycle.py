@@ -1,42 +1,4 @@
-"""Worker subprocess lifecycle for the daemon's lifespan.
-
-The daemon's FastAPI lifespan calls:
-
-  * ``start_workers_if_enabled(app, settings)`` -- once during startup,
-    after the rest of the daemon is ready. Reads
-    ``settings.workers``; if empty / disabled, no-op. Otherwise
-    spawns one ``digitorn-worker`` subprocess per declared worker,
-    each bound to its configured port with its hosted-modules list
-    passed via env. Returns a ``WorkerLifecycle`` handle.
-  * ``WorkerLifecycle.stop()`` -- once during shutdown. Sends
-    terminate to each worker, waits up to 10s, kills survivors.
-
-Each worker is monitored by an asyncio task that:
-  * polls ``GET /health`` every 5s,
-  * restarts the worker on N consecutive failures (default 5 = 25s
-    of unresponsiveness),
-  * applies exponential backoff (2s, 5s, 15s, 30s, 60s capped).
-
-When ``workers.enabled`` is False (default), this module does
-nothing and the daemon runs as today.
-
-Design notes
-============
-
-* Shared secret: the daemon reads / generates
-  ``~/.digitorn/.workers-secret`` once at startup and exports it as
-  ``DIGITORN_WORKERS_SECRET`` when spawning each worker. Both ends
-  agree on the bearer token without further coordination.
-
-* Logs: each worker's stdout / stderr is piped to a ring buffer +
-  mirrored to the daemon's stderr with a ``[worker:<id>]`` prefix
-  so a single ``tail -f`` sees the full picture.
-
-* Cross-platform: uses ``asyncio.create_subprocess_exec`` rather
-  than ``subprocess.Popen`` so the spawn itself never blocks the
-  main loop. Termination via ``proc.terminate()`` works on both
-  POSIX (SIGTERM) and Windows (TerminateProcess).
-"""
+"""Worker subprocess lifecycle for the daemon's lifespan."""
 from __future__ import annotations
 
 import asyncio
@@ -55,14 +17,12 @@ from .config import WorkerConfig, WorkersConfig
 
 logger = logging.getLogger(__name__)
 
-
 _HEALTH_INTERVAL_S = 5.0
 _HEALTH_TIMEOUT_S = 3.0
 _HEALTH_FAIL_LIMIT = 5
 _RESTART_BACKOFF_S = [2.0, 5.0, 15.0, 30.0, 60.0]
 _STOP_GRACE_S = 10.0
 _STDOUT_RING_SIZE = 200
-
 
 @dataclass
 class _RunningWorker:
@@ -74,14 +34,8 @@ class _RunningWorker:
     consecutive_failures: int = 0
     stdout_ring: deque[str] = field(default_factory=lambda: deque(maxlen=_STDOUT_RING_SIZE))
 
-
 class WorkerLifecycle:
-    """Owns the set of running worker subprocesses.
-
-    One instance per daemon. ``start()`` spawns + monitors;
-    ``stop()`` terminates everything cleanly. Re-entrant only in the
-    sense of being idempotent: a second ``stop()`` call is a no-op.
-    """
+    """Owns the set of running worker subprocesses."""
 
     def __init__(
         self,
@@ -94,18 +48,8 @@ class WorkerLifecycle:
         self._running: dict[str, _RunningWorker] = {}
         self._stop_requested = False
         self._stopped = False
-        # Shared httpx client for /health probes. Built lazily ONCE
-        # (in a thread, so the cert-store load doesn't stall the
-        # daemon loop) and reused across every probe of every worker.
-        #
-        # Why this matters: ``httpx.AsyncClient()`` on Windows loads
-        # the system cert store synchronously inside the constructor
-        # (`ssl.create_default_context` → `Cert::EnumCertificates`
-        # syscall, ~200ms-3s). Creating one client per probe ×
-        # N workers × every 5s = the main event loop is essentially
-        # always blocked. Caching collapses that to a one-time cost
-        # at first probe, after which each healthcheck is a plain
-        # connection-pool reuse on loopback (sub-millisecond).
+        # Shared httpx client built lazily so the Windows cert-store
+        # load happens once instead of on every health probe.
         self._health_client: Any = None
         self._health_client_lock = asyncio.Lock()
 
@@ -132,21 +76,7 @@ class WorkerLifecycle:
                 )
 
     async def wait_ready(self, *, timeout: float = 15.0) -> dict[str, bool]:
-        """Poll ``/health`` on every spawned worker until it responds OK
-        or ``timeout`` elapses. Returns ``{worker_id: ready_bool}``.
-
-        Why this exists: ``start()`` only kicks off subprocess spawns
-        and returns immediately. The worker FastAPI app still needs
-        1-3s (more on cold Windows) to import modules, bind its port,
-        and accept the first connection. The daemon lifespan was
-        proceeding to ``reload_from_db()`` / ``auto_index`` before
-        workers were ready, producing the
-        ``worker transport error after 3 attempts: All connection
-        attempts failed`` storm at every boot. This method bridges
-        that gap without blocking forever: workers that never come
-        up get logged loud and the daemon keeps booting (with that
-        worker's modules unavailable, fail-open behaviour).
-        """
+        """Poll `/health` on every spawned worker until it responds OK."""
         if not self._running:
             return {}
         import time as _time
@@ -255,22 +185,10 @@ class WorkerLifecycle:
         )
         self._running.clear()
 
-    # ── Internals ────────────────────────────────────────────────
-
     async def _spawn_worker(self, wcfg: WorkerConfig) -> None:
-        """Launch one ``digitorn-worker`` subprocess + start its
-        monitor and stdout drain tasks.
-        """
-        # Prefer the installed CLI script (``digitorn-worker``) when
-        # available -- it picks up the project's venv automatically.
-        # Fallback to ``python -m digitorn.workers.app run`` so a
-        # source-tree user without pip install -e still works.
-        # NB: no "run" subcommand on the command line. Typer auto-
-        # elides the single command's name (workers/app.py exposes
-        # only ``run``), so passing "run" makes typer reject it with
-        # "Got unexpected extra argument (run)". If we later add a
-        # second command on the worker CLI, typer stops eliding and
-        # we'll need to put "run" back here.
+        # Prefer `digitorn-worker` (picks up the project venv); fall
+        # back to `python -m digitorn.workers.app` for source-tree
+        # users. Typer elides the single command name, so no `run`.
         digitorn_worker = shutil.which("digitorn-worker")
         if digitorn_worker:
             cmd = [
@@ -294,13 +212,8 @@ class WorkerLifecycle:
         # Propagate the shared secret so the worker validates the
         # daemon's bearer token without reading the file again.
         env["DIGITORN_WORKERS_SECRET"] = self._shared_secret
-        # Marker the spawned worker can read to know it is running
-        # inside a worker process (vs the daemon). Modules that need
-        # to behave differently daemon-side vs worker-side (e.g.
-        # ``cron`` which must NOT acquire the leader lock daemon-side
-        # but MUST acquire it inside the worker that hosts it) check
-        # this env. Comma-separated list of modules this worker
-        # hosts so the module can also verify its identity.
+        # `DIGITORN_INSIDE_WORKER` lets modules behave differently
+        # in a worker than in the daemon (cron leader-lock, etc.).
         env["DIGITORN_INSIDE_WORKER"] = wcfg.id
         env["DIGITORN_WORKER_HOSTED_MODULES"] = ",".join(wcfg.modules)
 
@@ -328,10 +241,6 @@ class WorkerLifecycle:
         )
 
     async def _drain_stdout(self, rw: _RunningWorker) -> None:
-        """Pipe worker stdout to the daemon's stderr (prefixed) + a
-        ring buffer for incident captures. Async iteration => no
-        blocking on the main loop.
-        """
         assert rw.proc.stdout is not None
         try:
             async for raw in rw.proc.stdout:
@@ -350,9 +259,6 @@ class WorkerLifecycle:
             logger.debug("worker_drain_failed id=%s err=%s", rw.cfg.id, exc)
 
     async def _monitor(self, rw: _RunningWorker) -> None:
-        """Poll the worker's /health every ``_HEALTH_INTERVAL_S`` and
-        decide when to restart. Backoff on repeated restarts.
-        """
         # Tiny grace period so we don't immediately probe a worker
         # that hasn't bound its port yet.
         await asyncio.sleep(1.0)
@@ -385,12 +291,6 @@ class WorkerLifecycle:
             await asyncio.sleep(_HEALTH_INTERVAL_S)
 
     async def _probe_health(self, rw: _RunningWorker) -> bool:
-        """``GET /health`` -- True on 200, False otherwise.
-
-        Uses a single shared ``httpx.AsyncClient`` (see
-        ``_get_health_client``) so the SSL cert-store load is paid
-        ONCE for the daemon's life rather than per probe per worker.
-        """
         try:
             client = await self._get_health_client()
             resp = await client.get(
@@ -402,11 +302,6 @@ class WorkerLifecycle:
             return False
 
     async def _get_health_client(self) -> Any:
-        """Return the shared probe ``httpx.AsyncClient``, building it
-        on first call. The constructor is offloaded to a thread so
-        the synchronous Windows cert-store load (~200ms-3s in
-        ``ssl.create_default_context``) doesn't stall the daemon loop.
-        """
         if self._health_client is not None:
             return self._health_client
         async with self._health_client_lock:
@@ -416,7 +311,7 @@ class WorkerLifecycle:
 
             def _build() -> Any:
                 # Long-lived timeout per call comes from the
-                # ``client.get(timeout=...)`` override. The constructor
+                # `client.get(timeout=...)` override. The constructor
                 # only needs reasonable defaults.
                 return httpx.AsyncClient(timeout=_HEALTH_TIMEOUT_S)
 
@@ -424,7 +319,6 @@ class WorkerLifecycle:
             return self._health_client
 
     async def _restart(self, rw: _RunningWorker, *, reason: str) -> None:
-        """Kill (if needed) and re-spawn one worker."""
         if self._stop_requested:
             return
 
@@ -432,15 +326,15 @@ class WorkerLifecycle:
         if rw.proc.returncode is None:
             try:
                 rw.proc.terminate()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("lifecycle best-effort block failed: %s", exc)
             try:
                 await asyncio.wait_for(rw.proc.wait(), timeout=5.0)
             except asyncio.TimeoutError:
                 try:
                     rw.proc.kill()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("lifecycle best-effort block failed: %s", exc)
                 try:
                     await asyncio.wait_for(rw.proc.wait(), timeout=2.0)
                 except asyncio.TimeoutError:
@@ -491,26 +385,13 @@ class WorkerLifecycle:
             },
         }
 
-
-# ── Module-level lifecycle owner -------------------------------------
-
-
 _DEFAULT_LIFECYCLE: WorkerLifecycle | None = None
-
 
 def get_default_lifecycle() -> WorkerLifecycle | None:
     return _DEFAULT_LIFECYCLE
 
-
 async def start_workers_if_enabled(app: Any, settings: Any) -> WorkerLifecycle | None:
-    """Daemon-side entry point. Called once during FastAPI startup.
-
-    Returns the running ``WorkerLifecycle`` handle (or ``None`` when
-    workers are disabled). The handle is also stored as
-    ``app.state.worker_lifecycle`` so other components can introspect.
-
-    Safe to call multiple times: idempotent via module-level singleton.
-    """
+    """Daemon-side entry point. Called once during FastAPI startup."""
     global _DEFAULT_LIFECYCLE
 
     if _DEFAULT_LIFECYCLE is not None and _DEFAULT_LIFECYCLE.is_running:
@@ -537,16 +418,9 @@ async def start_workers_if_enabled(app: Any, settings: Any) -> WorkerLifecycle |
 
     try:
         app.state.worker_lifecycle = lifecycle
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("lifecycle best-effort block failed: %s", exc)
 
-    # Wait for workers to actually accept connections before returning.
-    # Without this, ``reload_from_db()`` and ``auto_index`` proceed
-    # immediately after spawn() returns but workers need 1-3s (more
-    # on cold Windows) to bind their ports. Every per-app auto-index
-    # would hit ``All connection attempts failed`` on a cold boot and
-    # the workspace was never indexed. Wait_ready is fail-open: if a
-    # worker takes longer than the timeout, we log loud and continue.
     try:
         readiness = await lifecycle.wait_ready(timeout=15.0)
         ready_ids = [wid for wid, ok in readiness.items() if ok]
@@ -572,7 +446,6 @@ async def start_workers_if_enabled(app: Any, settings: Any) -> WorkerLifecycle |
     )
     return lifecycle
 
-
 async def stop_workers_if_running() -> None:
     """Daemon-side shutdown hook. Idempotent."""
     global _DEFAULT_LIFECYCLE
@@ -585,11 +458,7 @@ async def stop_workers_if_running() -> None:
     finally:
         _DEFAULT_LIFECYCLE = None
 
-
 def _ensure_shared_secret() -> str:
-    """Read or generate the daemon/worker shared secret. Same file
-    the worker reads at startup via ``app._load_shared_secret``.
-    """
     secret_path = Path.home() / ".digitorn" / ".workers-secret"
     if secret_path.exists():
         try:

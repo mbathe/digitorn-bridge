@@ -1,14 +1,4 @@
-"""Pluggable STT providers for voice backends.
-
-Each provider transcribes audio bytes to text. Adding a new provider:
-1. Subclass STTProvider
-2. Register in get_stt_provider()
-3. Configure in YAML: backend_config.stt.provider: your_provider
-
-For local/self-hosted models (Whisper, faster-whisper, Vosk, etc.),
-use the 'http' provider pointing at any endpoint that accepts audio
-and returns text.
-"""
+"""Pluggable STT providers for voice backends."""
 
 from __future__ import annotations
 
@@ -18,7 +8,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
 class STTProvider(ABC):
     @abstractmethod
     async def transcribe(self, audio: bytes, language: str) -> str:
@@ -27,7 +16,6 @@ class STTProvider(ABC):
 
     async def close(self) -> None:
         pass
-
 
 class DeepgramSTT(STTProvider):
     """Deepgram Nova STT via REST API."""
@@ -70,7 +58,6 @@ class DeepgramSTT(STTProvider):
         if self._session and not self._session.closed:
             await self._session.close()
 
-
 class OpenAIWhisperSTT(STTProvider):
     """OpenAI Whisper API (or any compatible endpoint)."""
 
@@ -112,15 +99,8 @@ class OpenAIWhisperSTT(STTProvider):
         if self._session and not self._session.closed:
             await self._session.close()
 
-
 class HttpSTT(STTProvider):
-    """Generic HTTP STT - call any REST endpoint.
-
-    Works with local models (faster-whisper, Vosk, Kaldi, etc.)
-    via a simple HTTP server.
-
-    Expected endpoint: POST audio bytes → {"text": "transcription"}
-    """
+    """Generic HTTP STT - call any REST endpoint."""
 
     def __init__(self, config: dict[str, Any]) -> None:
         self._url: str = config.get("url", "http://localhost:9000/asr")
@@ -151,7 +131,6 @@ class HttpSTT(STTProvider):
         if self._session and not self._session.closed:
             await self._session.close()
 
-
 class BrowserSTT(STTProvider):
     """No-op: STT handled client-side by browser Web Speech API."""
 
@@ -161,14 +140,12 @@ class BrowserSTT(STTProvider):
     async def transcribe(self, audio: bytes, language: str) -> str:
         return ""
 
-
 _PROVIDERS: dict[str, type[STTProvider]] = {
     "deepgram": DeepgramSTT,
     "openai": OpenAIWhisperSTT,
     "http": HttpSTT,
     "browser": BrowserSTT,
 }
-
 
 def get_stt_provider(config: dict[str, Any]) -> STTProvider:
     provider = config.get("provider", "browser")
@@ -177,7 +154,6 @@ def get_stt_provider(config: dict[str, Any]) -> STTProvider:
         logger.warning("unknown_stt_provider=%s available=%s", provider, sorted(_PROVIDERS.keys()))
         return BrowserSTT(config)
     return cls(config)
-
 
 def list_stt_providers() -> list[str]:
     return sorted(_PROVIDERS.keys())

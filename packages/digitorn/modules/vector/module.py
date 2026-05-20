@@ -1,8 +1,4 @@
-"""Vector module - RAG-native vector collections for user documents.
-
-Agents create collections, embed documents, and perform semantic or hybrid
-search. Shares the FastEmbed model singleton with context_builder.
-"""
+"""Vector module - RAG-native vector collections for user documents."""
 
 from __future__ import annotations
 
@@ -47,12 +43,7 @@ QdrantClient: Any = None
 models: Any = None
 _HAS_QDRANT: bool | None = None  # None = not checked yet
 
-
 def _ensure_qdrant() -> bool:
-    """Lazily import qdrant_client on first use. Cached after first call.
-
-    Returns True if qdrant_client is available, False otherwise.
-    """
     global QdrantClient, models, _HAS_QDRANT
     if _HAS_QDRANT is not None:
         return _HAS_QDRANT
@@ -65,13 +56,7 @@ def _ensure_qdrant() -> bool:
         _HAS_QDRANT = False
     return _HAS_QDRANT
 
-
 _VECTOR_DIM = 384
-
-
-# ---------------------------------------------------------------------------
-# Config model - compile-time validation via CONFIG_MODEL
-# ---------------------------------------------------------------------------
 
 class VectorConfig(BaseModel):
     """Pydantic config for the vector module (validated at compile time)."""
@@ -89,11 +74,6 @@ class VectorConfig(BaseModel):
     default_chunk_size: int = PydanticField(500, ge=50, le=10000)
     default_overlap: int = PydanticField(50, ge=0, le=500)
     persistence_dir: str | None = None
-
-
-# ---------------------------------------------------------------------------
-# Internal collection metadata
-# ---------------------------------------------------------------------------
 
 class _CollectionMeta:
     """Internal metadata for a collection."""
@@ -115,7 +95,6 @@ class _CollectionMeta:
             "doc_count": self.doc_count,
             "created_at": self.created_at,
         }
-
 
 class VectorModule(BaseModule):
     MODULE_ID = "vector"
@@ -190,19 +169,13 @@ class VectorModule(BaseModule):
             self._client = None
         self._collections.clear()
 
-    # ------------------------------------------------------------------
-    # Constraint helpers (same pattern as filesystem module)
-    # ------------------------------------------------------------------
-
     def _constraints(self) -> dict[str, Any]:
-        """Return active constraints from the execution context."""
         ctx = getattr(self, "_context", None)
         if ctx is not None and ctx.constraints:
             return ctx.constraints
         return {}
 
     def _check_path(self, path: Path) -> str | None:
-        """Return an error if *path* is outside allowed paths, else None."""
         allowed = self._constraints().get("paths")
         if not allowed:
             return None
@@ -213,7 +186,6 @@ class VectorModule(BaseModule):
         return f"Path '{path}' is outside allowed paths: {allowed}"
 
     def _check_collection(self, name: str) -> str | None:
-        """Return an error if *name* is not in allowed collections, else None."""
         allowed = self._constraints().get("allowed_collections")
         if not allowed:
             return None
@@ -222,7 +194,6 @@ class VectorModule(BaseModule):
         return None
 
     def _check_doc_limit(self, adding: int = 0) -> str | None:
-        """Return an error if adding docs would exceed max_documents, else None."""
         limit = self._constraints().get("max_documents")
         if not limit:
             return None
@@ -231,12 +202,7 @@ class VectorModule(BaseModule):
             return f"Document limit exceeded: {total} > {limit} (max_documents constraint)"
         return None
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     def _get_embedder(self) -> Any:
-        """Get the shared FastEmbed model from context_builder."""
         try:
             from digitorn.modules.context_builder.embeddings import _get_model
             return _get_model()
@@ -257,10 +223,6 @@ class VectorModule(BaseModule):
         pid = self._next_point_id
         self._next_point_id += 1
         return pid
-
-    # ------------------------------------------------------------------
-    # Actions
-    # ------------------------------------------------------------------
 
     @action(
         description="Create a new vector collection for storing and searching embedded documents.",
@@ -304,8 +266,8 @@ class VectorModule(BaseModule):
         coll_name = self._collection_name(params.name)
         try:
             self._client.delete_collection(coll_name)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("module best-effort block failed: %s", exc)
         self._collections.pop(params.name, None)
         return ActionResult(success=True, data={"collection": params.name, "deleted": True})
 
@@ -425,8 +387,8 @@ class VectorModule(BaseModule):
                         )
                     ),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
 
         chunks = chunk_text(text, strategy=params.chunk_strategy, size=params.chunk_size, overlap=params.overlap)
         if not chunks:
@@ -729,10 +691,6 @@ class VectorModule(BaseModule):
         except Exception as exc:
             return ActionResult(success=False, error=str(exc))
 
-    # ------------------------------------------------------------------
-    # New actions: add_directory, search_multi
-    # ------------------------------------------------------------------
-
     @action(
         description="Index all files in a directory - walks the tree, chunks each file, embeds, and stores. Skips unchanged files (dedup).",
         params_model=AddDirectoryParams,
@@ -803,8 +761,8 @@ class VectorModule(BaseModule):
                             )
                         ),
                     )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("module best-effort block failed: %s", exc)
 
             chunks = chunk_text(text, strategy=params.chunk_strategy, size=params.chunk_size, overlap=params.overlap)
             if not chunks:
@@ -901,10 +859,6 @@ class VectorModule(BaseModule):
             "results": hits,
             "count": len(hits),
         })
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
 
     def state_snapshot(self) -> dict[str, Any]:
         collections = {}

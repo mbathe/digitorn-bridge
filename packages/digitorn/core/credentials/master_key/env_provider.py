@@ -1,13 +1,4 @@
-"""EnvKeyProvider - master key from `DIGITORN_MASTER_KEY` env var.
-
-The simplest provider: the orchestrator (Docker, k8s, systemd, ...)
-exposes the key via an env var, the daemon reads it once at boot and
-keeps it in memory for the lifetime of the process.
-
-Operates in **direct mode** (no envelope encryption): the same key is
-used for every credential. Acceptable for dev / single-tenant setups.
-For production multi-tenant, use a KMS provider instead.
-"""
+"""EnvKeyProvider - master key from `DIGITORN_MASTER_KEY` env var."""
 
 from __future__ import annotations
 
@@ -31,16 +22,7 @@ KEY_LEN = 32
 
 
 class EnvKeyProvider:
-    """Implements `MasterKeyProvider`. Reads `DIGITORN_MASTER_KEY` at
-    init, base64-decodes, validates length. Holds the key in memory.
-
-    Raises `ValueError` at init when:
-      - The env var is not set.
-      - The decoded length is wrong.
-
-    The caller (factory / boot path) is responsible for catching this
-    and falling back to `FileKeyProvider` or refusing to start.
-    """
+    """Implements `MasterKeyProvider`. Reads `DIGITORN_MASTER_KEY` at"""
 
     def __init__(self, env_var: str = ENV_VAR_NAME) -> None:
         raw_b64 = os.environ.get(env_var, "").strip()
@@ -109,14 +91,7 @@ class EnvKeyProvider:
             return False
 
     async def close(self) -> None:
-        # Best-effort zeroization of the in-memory key. CPython's
-        # immutable bytes can't be overwritten reliably (the GC may
-        # already have copies), but this signals intent and limits
-        # the window where the key is in fresh allocations.
         try:
-            # This is purely cosmetic - bytes are immutable. A real
-            # zeroize would require a `bytearray` and explicit
-            # overwrite; future improvement.
             self._key = b""
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("env_provider best-effort block failed: %s", exc)

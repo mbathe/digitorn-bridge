@@ -1,13 +1,11 @@
-"""Search overlay - Ctrl+F to search in chat messages.
-
-  Type to search → highlights matches in real-time
-  Enter / ↓      → next match
-  Shift+Enter / ↑ → previous match
-  Esc            → close search
-"""
+"""Search overlay - Ctrl+F to search in chat messages."""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -75,8 +73,8 @@ class SearchBar(Static):
             inp = self.query_one("#search-input", Input)
             inp.value = ""
             inp.focus()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("search best-effort block failed: %s", exc)
 
     def close(self) -> None:
         self.remove_class("visible")
@@ -122,5 +120,5 @@ class SearchBar(Static):
                 label.update(Text("No matches", style="#ef4444"))
             else:
                 label.update("")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("search best-effort block failed: %s", exc)

@@ -1,15 +1,4 @@
-"""Image Store - disk-backed storage for multimodal images.
-
-Images are stored on disk and referenced by lightweight ImageRef objects.
-Base64 encoding is deferred to the moment of LLM injection (on-demand).
-
-Usage::
-
-    store = ImageStore()
-    ref = await store.store(png_bytes, "image/png", session_id="abc")
-    base64 = await store.get_base64(ref.image_id, session_id="abc")
-    await store.cleanup_session("abc")
-"""
+"""Image Store - disk-backed storage for multimodal images."""
 
 from __future__ import annotations
 
@@ -160,7 +149,7 @@ class ImageStore:
         turn: int = 0,
     ) -> ImageRef:
         """Store a base64-encoded image. Decode happens off-loop
-        because ``base64.b64decode`` of a multi-MB string holds the
+        because `base64.b64decode` of a multi-MB string holds the
         GIL through the entire pure-Python decode loop -- enough to
         stall HTTP / Socket.IO traffic for hundreds of ms on big
         clipboard / drag-drop image pastes."""
@@ -217,22 +206,22 @@ class ImageStore:
         return list(self._refs.get(session_id, {}).values())
 
     def cleanup_session(self, session_id: str) -> int:
-        """Delete all images for a session. Returns count deleted."""
+        """Delete all images for a session."""
         refs = self._refs.pop(session_id, {})
         count = 0
         for ref in refs.values():
             try:
                 Path(ref.path).unlink(missing_ok=True)
                 count += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("image_store best-effort block failed: %s", exc)
         # Remove session dir if empty
         session_dir = self._base_dir / session_id
         try:
             if session_dir.exists() and not any(session_dir.iterdir()):
                 session_dir.rmdir()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("image_store best-effort block failed: %s", exc)
         return count
 
     def _get_ref(self, image_id: str, session_id: str) -> ImageRef | None:
@@ -255,8 +244,6 @@ class ImageStore:
                 return ref
         return None
 
-
-# ── Singleton ─────────────────────────────────────────────────────
 
 _store: ImageStore | None = None
 

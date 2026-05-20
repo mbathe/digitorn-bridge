@@ -1,8 +1,4 @@
-"""CRAGStrategy - Corrective RAG with quality evaluation and fallback.
-
-Evaluates retrieved documents for relevance. If quality is below threshold,
-triggers a broader query or alternative retrieval path.
-"""
+"""CRAGStrategy - Corrective RAG with quality evaluation and fallback."""
 
 from __future__ import annotations
 
@@ -20,7 +16,6 @@ _EVAL_PROMPT = (
     "Document:\n{document}\n\n"
     "Rate relevance from 0.0 to 1.0. Return ONLY the number."
 )
-
 
 class CRAGStrategy(RetrievalStrategy):
 

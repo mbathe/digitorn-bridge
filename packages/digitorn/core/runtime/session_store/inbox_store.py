@@ -1,18 +1,4 @@
-"""File-backed inbox store: per-user notifications on local disk.
-
-Replaces the ``inbox_items`` Postgres table for local-mode runtime
-and single-machine deployments. Each item is a small JSON file under
-``~/.digitorn/inbox/<user_id>/<item_id>.json`` so per-item state
-(read_at, archived_at) updates atomically without rewriting a shared
-log.
-
-Schema mirrors the DB table fields: id, user_id, kind, title,
-subtitle, app_id, session_id, activation_id, credential_provider,
-metadata, created_at, read_at, archived_at.
-
-Atomicity: all writes go via tmp + ``os.replace``. List operations
-tolerate corrupt files by skipping them with a warning.
-"""
+"""File-backed inbox store: per-user notifications on local disk."""
 
 from __future__ import annotations
 

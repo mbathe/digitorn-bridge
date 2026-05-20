@@ -1,8 +1,4 @@
-"""Routes for the secrets group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the secrets group, extracted from the legacy `apps.py`."""
 
 from __future__ import annotations
 
@@ -105,48 +101,12 @@ from ._shared import (
 router = APIRouter(tags=["apps"])
 
 
-
 @router.get("/{app_id}/required-secrets", response_model=AppResponse)
 async def required_secrets(request: Request, app_id: str) -> AppResponse:
-    """List the secrets the app's YAML REQUIRES and their current status.
-
-    Returns everything the UI needs to render a "manage credentials"
-    screen for an app with multiple providers:
-
-    - ``key``       : the secret name (e.g. ``ANTHROPIC_API_KEY``)
-    - ``used_by``   : list of dotted YAML paths where the secret is
-                      referenced - so the UI can group by agent/module
-                      or at least show "this key is used in 2 places"
-    - ``is_set``    : ``true`` if the secret is already defined in
-                      ``SecretStore`` or matches an env var on the daemon
-    - ``reference_type``: ``"env"`` or ``"secret"`` depending on the
-                      template style (``{{env.X}}`` vs ``{{secret.X}}``)
-
-    The response also includes:
-
-    - ``missing_count`` : how many required secrets have no value yet
-    - ``unused_keys``   : secrets stored in SecretStore that are NOT
-                         referenced by the current YAML (orphans from
-                         an old version of the app - the UI can offer
-                         to clean them up)
-
-    This route reads from the app's **current bundle** on disk - so the
-    list reflects the deployed version, not the live memory state (they
-    should match, but if someone fiddled with secrets manually the
-    ``is_set`` column will reveal the drift).
-    """
+    """List the secrets the app's YAML REQUIRES and their current status."""
     _validate_id(app_id)
-    # No permission gate: this route returns only secret KEY NAMES + is_set
-    # flags, never values. Aligned with GET /api/apps and GET /api/apps/{id}
-    # which are also open to any authenticated user. Cloud users go through
-    # the gateway with internal tokens, so `is_set` for shared / env-sourced
-    # keys reveals no exploitable surface (all AI traffic is mediated).
-    # Mutation routes (PUT/DELETE secrets) remain gated by `apps:write`.
     manager = _get_manager(request)
 
-    # Resolve the raw YAML the app was deployed with. Prefer the
-    # install_dir on disk (canonical) and fall back to
-    # Application.yaml_content for content-only deploys.
     raw_yaml: str | None = None
     try:
         from sqlalchemy import select as _select
@@ -197,9 +157,6 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
             ),
         )
 
-    # Parse YAML and walk it for secret references. Even if the YAML is
-    # malformed we still want to run the regex over the raw text as a
-    # fallback - the user NEEDS to know what keys the app expects.
     try:
         from digitorn.core.app.yaml_loader import safe_load_strict
         parsed = safe_load_strict(raw_yaml)
@@ -232,12 +189,6 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
     # Cross-reference with what's actually in the store.
     stored_keys = set(await manager.list_secrets(app_id))
 
-    # Also consult the (new) credentials DB for each inferred provider:
-    # a secret is considered "set" if the calling user has a granted
-    # credential for the same provider this app references. Without
-    # this check the pre-session gate would keep reporting a secret
-    # as missing even after the user created and granted it, because
-    # ``list_secrets`` only sees the legacy per-app ``SecretStore``.
     _uid = getattr(request.state, "user_id", None) or "local"
     _cred_store = getattr(request.app.state, "credential_store", None)
 
@@ -259,11 +210,6 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
             return False
         return row is not None
 
-    # Pre-compute per-key metadata, then fan out the credential vault
-    # checks in parallel - cold-open speed: the chat panel waits on
-    # this fetch before mounting. Sequential awaits used to cost
-    # N * Postgres latency (~50-100 ms each) for an app with several
-    # secrets.
     sorted_keys = sorted(hits.keys())
     key_meta: list[tuple[str, dict[str, Any], list[str], list[str], str | None, str | None]] = []
     for key in sorted_keys:
@@ -298,14 +244,8 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
                 else ("secret_store" if is_set_in_store
                       else ("daemon_env" if is_set_in_env else None))
             ),
-            # Canonical provider name the credential should be stored
-            # under - matches what ``session_resolver`` will look up
-            # at turn time. Never the internal ``{agent}_brain`` id.
             "provider": primary_provider,
             "providers": providers_list,
-            # Owning agent id(s), for UX grouping - the same secret
-            # can legitimately be used by several agents sharing one
-            # provider.
             "agent_id": primary_agent,
             "agent_ids": agents_list,
         })
@@ -354,16 +294,7 @@ async def set_secrets_bulk(
     body: SecretsBulkSetRequest,
     reload: bool = True,
 ) -> AppResponse:
-    """Set many secrets in one request, then optionally hot-reload.
-
-    This is the convenience endpoint to use when rotating several keys
-    at the same time. It writes each secret through ``SecretStore``
-    (same code path as the per-key PUT) and then, if ``reload=true``
-    (the default), triggers a single ``reload_app`` so every new value
-    takes effect together. Without bulk, rotating N keys would cost N
-    reloads which is wasteful and can momentarily break the app between
-    two updates.
-    """
+    """Set many secrets in one request, then optionally hot-reload."""
     _require_permission(request, "apps:write")
     _validate_id(app_id)
     manager = _get_manager(request)
@@ -425,15 +356,7 @@ async def set_secret(
     body: SecretSetRequest,
     reload: bool = True,
 ) -> AppResponse:
-    """Set (or update) an encrypted secret for an app.
-
-    By default the running app is **hot-reloaded** immediately so the
-    new value takes effect without a daemon restart - the typical use
-    case is rotating an API key and wanting the next request to use it.
-    Pass ``?reload=false`` when you want to stage multiple secret
-    updates and trigger a single reload at the end via
-    ``POST /api/apps/{app_id}/reload`` or the bulk ``PUT /secrets``.
-    """
+    """Set (or update) an encrypted secret for an app."""
     _require_permission(request, "apps:write")
     _validate_id(app_id)
     manager = _get_manager(request)

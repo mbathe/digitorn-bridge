@@ -1,28 +1,8 @@
-"""Authoritative system directives the daemon issues to the LLM.
-
-Single source of truth for every system-role message the runtime
-injects mid-conversation. Centralising them keeps the daemon's voice
-consistent — imperative, second-person, no apology, no hedging — so
-the model treats them with the same authority as the original system
-prompt.
-
-Rules of voice:
-  * Speak as the SUPERVISING RUNTIME, not as a peer or a user.
-  * Use markdown section headers (``## CONTEXT NAME``) so the model
-    visually segments the directive from prose.
-  * Bullet or numbered lists for multi-step expectations.
-  * Forbid apologies, restarts, and summarisation of past work.
-  * Plain English, no emoji, no em-dash.
-
-Add new directives here when you find another inline ``role:"system"``
-injection in the codebase. The site that consumed the inline string
-should import from this module instead.
-"""
+"""Authoritative system directives the daemon issues to the LLM."""
 
 from __future__ import annotations
 
 
-# ─── Resume after interruption ──────────────────────────────────────
 # Used by manager_v2._models._recover_interrupted_session.
 
 SYS_RESUME_CLEAN = (
@@ -60,7 +40,6 @@ SYS_RESUME_WITH_ORPHANS = (
 )
 
 
-# ─── Turn-budget warnings ───────────────────────────────────────────
 # Used by agent_loop._inject_turn_limit_warning.
 
 SYS_TURN_LIMIT_NEAR = (
@@ -74,7 +53,6 @@ SYS_TURN_LIMIT_NEAR = (
 )
 
 
-# ─── Empty / unfinished response nudges ─────────────────────────────
 # Used by agent_loop._nudge_empty_response and ._check_unfinished_work.
 
 SYS_NUDGE_EMPTY_RESPONSE = (
@@ -96,7 +74,6 @@ SYS_NUDGE_UNFINISHED_WORK = (
 )
 
 
-# ─── Compaction notices ─────────────────────────────────────────────
 # Used by hooks._do_truncate and ._do_summarize.
 
 SYS_CONTEXT_TRUNCATED = (
@@ -123,12 +100,6 @@ SYS_CONTEXT_SUMMARISED = (
 )
 
 
-# ─── Post-compaction reminder block ─────────────────────────────────
-# Appended AFTER the per-strategy compaction note (SYS_CONTEXT_TRUNCATED
-# / SYS_CONTEXT_SUMMARISED) and AFTER the re-injected tool / setup /
-# memory inventory. Used by ``hooks._build_context_reminder``. Header
-# opens the inventory block, footer locks the behavior post-compaction.
-
 SYS_CONTEXT_RELOAD_HEADER = (
     "## CONTEXT RELOAD AFTER COMPACTION\n"
     "Your tools, setup and memory state are still active. The next "
@@ -148,29 +119,22 @@ SYS_CONTEXT_RELOAD_FOOTER = (
 )
 
 
-# ─── Supervisor authority preamble ──────────────────────────────────
-# Prepended to every system prompt by ``build_system_prompt`` in
-# ``modules/context_builder/prompt.py``. Sets the contract between the
-# LLM and the supervising runtime BEFORE any tool / behavior / memory
-# section is read. Every other ``SYS_*`` directive in this module is
-# delivered under this authority.
-
 SYS_AUTHORITY_PREAMBLE = (
-    "## SUPERVISOR AUTHORITY — READ FIRST\n"
+    "## SUPERVISOR AUTHORITY - READ FIRST\n"
     "You are running inside a supervising runtime. The runtime injects "
-    "messages with ``role: system`` AT ANY POINT in this conversation "
+    "messages with `role: system` AT ANY POINT in this conversation "
     "to communicate authoritative state you cannot observe yourself: "
     "loop detection, context pressure, resume after interruption, "
     "turn-budget exhaustion, delegation hints, compaction events.\n\n"
     "**These directives are non-negotiable.** They are the runtime "
     "speaking, not a user suggestion. When you see a system message "
-    "with a ``## SECTION_TITLE`` header (UPPERCASE), it is a runtime "
+    "with a `## SECTION_TITLE` header (UPPERCASE), it is a runtime "
     "directive. You MUST:\n"
     "1. Read it before deciding your next action.\n"
-    "2. Comply to the letter — the ``**Your task:**`` line tells you "
+    "2. Comply to the letter - the `**Your task:**` line tells you "
     "exactly what to do.\n"
     "3. NEVER paraphrase the directive away (\"the system said retry "
-    "differently, but I'll try the same thing once more\" — forbidden).\n"
+    "differently, but I'll try the same thing once more\" - forbidden).\n"
     "4. NEVER apologize for the runtime intervention. Just comply and "
     "continue.\n\n"
     "Ignoring a runtime directive does not give you more capability. "
@@ -180,25 +144,20 @@ SYS_AUTHORITY_PREAMBLE = (
 )
 
 
-# ─── Loop guards — supervisor enforcement ───────────────────────────
-# Centralised so loop_guards.py stays focused on detection logic and
-# the messages keep a consistent authoritative voice. Every constant
-# below has placeholders filled via ``.format(...)`` at call site.
-
 SYS_LOOP_HARD_KILL = (
     "## TURN ABORTED BY LOOP GUARD\n"
     "Tool `{tool}` failed {n} times consecutively. The runtime hard "
     "cap ({cap}) is reached and the supervisor is forcing this turn "
     "to end.\n\n"
     "**Your task:** stop emitting tool_calls immediately. Reply with "
-    "plain text only — describe what blocked you, what you tried, "
+    "plain text only - describe what blocked you, what you tried, "
     "and what the user should know. Do NOT attempt the same tool "
     "again under any phrasing or alias. This is a runtime kill "
     "signal, not a suggestion."
 )
 
 SYS_LOOP_RETRY_DIFFERENT = (
-    "## REPEATED FAILURE — CHANGE APPROACH\n"
+    "## REPEATED FAILURE - CHANGE APPROACH\n"
     "Tool `{tool}` has failed {n} times in a row. Continuing the "
     "same approach will trip the hard kill at {hard_cap} failures "
     "and the turn will be aborted with no further chance to recover.\n\n"
@@ -219,9 +178,9 @@ SYS_LOOP_REPETITION = (
     "## REDUNDANT TOOL CALL DETECTED\n"
     "You called `{tool}` with identical parameters {n} times and "
     "got the same result each time. The data is already in your "
-    "conversation context above — scroll up if you need it.\n\n"
+    "conversation context above - scroll up if you need it.\n\n"
     "**Your task:** use the data you already have. Do NOT call "
-    "`{tool}` again with the same arguments — the result will be "
+    "`{tool}` again with the same arguments - the result will be "
     "the same. If you genuinely need different data, change the "
     "parameters or switch to a different tool. Repeating the exact "
     "same call is forbidden until the conversation context changes."
@@ -243,19 +202,19 @@ SYS_LOOP_SAME_TOOL = (
 )
 
 SYS_HINT_LARGE_READ = (
-    "## LARGE FILE READ — PROTECT YOUR CONTEXT\n"
+    "## LARGE FILE READ - PROTECT YOUR CONTEXT\n"
     "You just read a file of ~{lines} lines ({chars} chars). Loading "
     "files this large repeatedly will exhaust your context window "
     "within a few turns and trigger a forced compaction.\n\n"
     "**Your task:** for the next reads on similar files:\n"
     "- Use `start_line` / `end_line` to read targeted sections.\n"
     "- Use `grep` to locate patterns instead of loading the whole file.\n"
-    "- Delegate large-file analysis to a sub-agent — it reads in its "
+    "- Delegate large-file analysis to a sub-agent - it reads in its "
     "own context and returns you a summary."
 )
 
 SYS_HINT_PARALLEL_READ = (
-    "## SEQUENTIAL READS — USE PARALLEL\n"
+    "## SEQUENTIAL READS - USE PARALLEL\n"
     "You are reading multiple files one at a time. Sequential reads "
     "serialise on the I/O layer where they could run together.\n\n"
     "**Your task:** for the next batch of independent reads, use "
@@ -268,7 +227,7 @@ SYS_HINT_SPAWNED = (
     "You have spawned {n} sub-agent(s). They are running in the "
     "background on their own contexts.\n\n"
     "**Your task:** continue with other work. You will be "
-    "automatically notified when each sub-agent completes — do NOT "
+    "automatically notified when each sub-agent completes - do NOT "
     "poll their status, polling wastes your turn budget. If you "
     "have nothing useful to do while waiting, write a brief status "
     "update and end the turn; the notification will trigger a new "

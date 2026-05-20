@@ -1,31 +1,4 @@
-"""Tool call display metadata - single source of truth for client rendering.
-
-Every ``tool_call`` / ``tool_start`` SSE event carries a ``display`` dict
-built here. Clients read ``display.*`` and never parse the technical
-``name`` field to decide rendering.
-
-Resolution cascade for ``build_display(name, params, action_spec=None)``:
-
-  1. If ``action_spec.display_verb`` is set → use the ActionSpec
-     ``display_*`` fields directly. Module authors annotated their
-     actions with explicit display metadata.
-  2. Else → call legacy ``tool_label(name, params)`` from
-     ``cli/ui/labels.py`` to get ``(verb, detail)``. This is the
-     hardcoded fallback table that already covers every built-in
-     tool (200+ entries).
-  3. Apply regex fallback patterns from ``DISPLAY_DEFAULTS.fallbacks``
-     to fill ``channel`` / ``hidden`` when the ActionSpec didn't set
-     them. Patterns match against the bare action name (post-FQN
-     stripping).
-  4. Fill remaining defaults: ``channel="chat"``, ``hidden=False``,
-     ``category="action"``, empty strings for the rest.
-
-The client fetches ``DISPLAY_DEFAULTS`` once via
-``GET /api/ui/tool_display_defaults`` for icon → Material icon
-mapping, channel → panel mapping, and the fallback patterns (used
-only for tools emitted without a ``display`` block, e.g. by an
-older daemon version).
-"""
+"""Tool call display metadata - single source of truth for client rendering."""
 
 from __future__ import annotations
 
@@ -35,8 +8,6 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
-# ── Default catalog served via /api/ui/tool_display_defaults ──────────
 
 DISPLAY_DEFAULTS: dict[str, Any] = {
     "version": 2,
@@ -81,12 +52,7 @@ DISPLAY_DEFAULTS: dict[str, Any] = {
             {"match": r"^(set_goal|remember)$",
              "channel": "memory",  "hidden": True,  "icon": "memory",    "category": "memory"},
 
-            # Agent lifecycle - legacy split-action FQNs only.
-            # The unified bare ``agent`` action (the 8-mode entrypoint)
-            # is intentionally NOT matched here; its hidden flag is
-            # decided at build time from params (see step 2.6 of
-            # build_display). The previous regex `^(spawn|wait|agent)_?(...)?$`
-            # accepted bare `agent` too and force-hid every spawn call.
+            # legacy split-action FQNs only; bare `agent` is decided in build_display step 2.6 from params.
             {"match": r"^(spawn_agent|agent_(wait|wait_all|result|status|cancel|list))$",
              "channel": "agents",  "hidden": True,  "icon": "agent",     "category": "control_flow"},
             {"match": r"^reassign_agent$",
@@ -120,37 +86,16 @@ DISPLAY_DEFAULTS: dict[str, Any] = {
 }
 
 
-# ── Static per-action overrides ──────────────────────────────────────
-#
-# Central table mapping FQN → display fields. Consulted between
-# ActionSpec and the legacy tool_label fallback, so module authors
-# don't have to edit every @action decorator: hiding or re-routing
-# a tool is a one-line change here.
-#
-# Resolution priority:
-#   1. Explicit ActionSpec.display_* on the decorator
-#   2. STATIC_OVERRIDES[fqn]                     ← this table
-#   3. STATIC_OVERRIDES[bare_name]               ← fallback by short name
-#   4. Legacy tool_label() for verb/detail
-#   5. Regex fallbacks (DISPLAY_DEFAULTS.fallbacks.patterns)
-#   6. Hard defaults
-#
-# Entries are partial - any missing field falls through to the next
-# step. So ``{"hidden": True, "channel": "memory"}`` is a complete
-# override for "hide this from chat, route to memory panel" and
-# leaves verb/detail/icon to be resolved from the labels table.
+# Central FQN → display field table. Resolution: ActionSpec → STATIC_OVERRIDES[fqn] → [bare_name] → labels → regex → defaults.
+# Partial entries fall through field-by-field.
 
-_H = True   # shorthand for hidden=True - keeps the table readable
+_H = True
 
 STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
 
     # ══ agent_spawn - lifecycle ops, panel: agents ══════════════════
     "agent_spawn.spawn_agent":    {"channel": "agents", "icon": "agent", "category": "control_flow"},
-    # `agent_spawn.agent` is the unified 8-mode entrypoint - hidden is
-    # decided per-call in build_display() based on params.{prompt,
-    # agent_id, list_agents, cancel, ...}. Spawning is visible (real
-    # branching action), plumbing modes (status/cancel/wait/list) are
-    # hidden. See the dedicated refinement block below.
+    # agent_spawn.agent is the 8-mode entrypoint - hidden is decided per-call in build_display from params.
     "agent_spawn.agent":          {"channel": "agents", "icon": "agent", "category": "control_flow"},
     "agent_spawn.agent_wait":     {"channel": "agents", "hidden": _H, "icon": "agent", "category": "control_flow"},
     "agent_spawn.agent_wait_all": {"channel": "agents", "hidden": _H, "icon": "agent", "category": "control_flow"},
@@ -375,7 +320,7 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     "channels.pause_provider":    {"hidden": _H, "category": "plumbing"},
     "channels.resume_provider":   {"hidden": _H, "category": "plumbing"},
 
-    # ══ cron_native - 3 ultra-powerful actions ═════════════════
+    # ══ cron_native - 3 actions ═════════════════
     "cron_native.schedule":         {"icon": "tool", "group": "cron", "verb": "Schedule"},
     "cron_native.cancel_schedule":  {"icon": "tool", "group": "cron", "verb": "Cancel schedule"},
     "cron_native.remind":           {"icon": "tool", "group": "cron", "verb": "Remind me"},
@@ -401,13 +346,7 @@ def _get_fallback_regexes() -> list[tuple[re.Pattern[str], dict[str, Any]]]:
 
 
 def _bare_action(name: str) -> str:
-    """Return the bare action name from a qualified / short tool name.
-
-    ``filesystem.write`` → ``write``
-    ``filesystem__write`` → ``write``
-    ``Write`` → ``write`` (lowercased bare form so regexes stay simple)
-    ``execute_tool`` → ``execute_tool``
-    """
+    """Return the bare action name from a qualified / short tool name."""
     if not name:
         return ""
     if "." in name:
@@ -429,24 +368,7 @@ def build_display(
     params: dict[str, Any] | None,
     action_spec: Any | None = None,
 ) -> dict[str, Any]:
-    """Compute the ``display`` dict for a single tool call.
-
-    Never returns ``None`` - every tool call gets a display dict,
-    even if every resolution step returns nothing (the final
-    default is ``{"verb": "Tool", "channel": "chat", "hidden": false,
-    "category": "action"}``).
-
-    Args:
-        name:        Tool name as emitted by the agent loop. Can be
-                     the short form (``Write``), the FQN
-                     (``filesystem.write``), or the legacy
-                     double-underscore form (``filesystem__write``).
-        params:      Raw params dict passed to the tool. Used to
-                     extract the ``detail`` field.
-        action_spec: Optional ``ActionSpec`` for this action. When
-                     provided, its ``display_*`` fields take priority
-                     over every fallback.
-    """
+    """Compute the `display` dict for a single tool call."""
     params = params or {}
     display: dict[str, Any] = {
         "verb": "",
@@ -459,7 +381,6 @@ def build_display(
         "visible_params": None,
     }
 
-    # ── 1. ActionSpec - explicit annotations win ────────────────────
     if action_spec is not None:
         if getattr(action_spec, "display_verb", ""):
             display["verb"] = action_spec.display_verb
@@ -490,7 +411,6 @@ def build_display(
                     if isinstance(v, dict) and not v.get("hidden")
                 ]
 
-    # ── 2. STATIC_OVERRIDES - per-FQN / per-bare-name table ─────────
     fqn = name
     if name and "__" in name:
         fqn = name.replace("__", ".", 1)
@@ -501,29 +421,18 @@ def build_display(
             resolved_fqn = _to_fqn(name)
             if resolved_fqn != name:
                 override = STATIC_OVERRIDES.get(resolved_fqn)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("tool_display best-effort block failed: %s", exc)
     if override is None:
         override = STATIC_OVERRIDES.get(_bare_action(name))
     if override:
         for field in ("verb", "detail", "icon", "channel", "category", "group"):
             if not display.get(field) and override.get(field):
                 display[field] = override[field]
-        # ``hidden`` from the override wins when the decorator didn't
-        # already set it (hidden=True can only be promoted, never
-        # silently demoted by a later cascade step).
         if override.get("hidden") and not display["hidden"]:
             display["hidden"] = True
 
-    # ── 2.5 shell.bash mode refinement ──────────────────────────────
-    # The unified ``shell.bash`` action multiplexes across 8 modes via
-    # params (sync, async, stream, wait, kill, stdin, status, ...). The
-    # default verb "Bash" + detail=command is right for execution but
-    # misleading for plumbing modes - a status check on a vanished
-    # task_id still rendered as ``Bash <task_id> failed`` in red,
-    # making the user think a shell command had blown up. Override the
-    # verb (and detail) explicitly when params indicate a control-mode
-    # so the chat shows ``Bash status fa99…`` etc.
+    # shell.bash multiplexes 8 modes - override verb/detail on plumbing modes so a status check doesn't render as a failed command.
     fqn_resolved = name
     if name and "__" in name:
         fqn_resolved = name.replace("__", ".", 1)
@@ -541,44 +450,11 @@ def build_display(
             display["detail"] = _truncate(tid)
             display["category"] = display["category"] or "plumbing"
         else:
-            # Execution mode (no task_id, real command). The default
-            # detail = ``command`` is good for copy/paste but the chip
-            # header is single-line and 60-char-truncated, so a long
-            # ``powershell -Command "..."`` reads as a wall of flags
-            # the user can't parse at a glance. Prefer the LLM-supplied
-            # ``description`` (natural-language intent) when present so
-            # the chip says WHAT it does ("Free port 8767 if needed")
-            # while the full command stays one click away in the
-            # expanded body. Fall back to the command when no
-            # description was provided.
+            # prefer description over command for the chip header - the 60-char truncation makes long commands unreadable.
             desc = params.get("description")
             if isinstance(desc, str) and desc.strip():
                 display["detail"] = _truncate(desc.strip())
 
-    # ── 2.6 agent_spawn.agent mode refinement ───────────────────────
-    # The unified ``Agent`` action multiplexes across 8 modes via
-    # params (spawn / spawn-blocking / status / wait-one / wait-many /
-    # cancel / reassign / list). EVERY mode is hidden from the chat
-    # bubble layer because the ``AgentGroup`` widget (driven by the
-    # ``spawn_agent`` / ``agent_progress`` / ``agent_result`` SSE
-    # events) is already the canonical visualization for sub-agent
-    # activity - it groups, sorts failures-first, shows status / task
-    # / tool count / duration / preview / errors, and auto-bundles
-    # consecutive sub-agent events.
-    #
-    # Surfacing the tool-call bubble in addition to AgentGroup caused
-    # two problems the user flagged:
-    #   1. Plumbing calls (cancel, list, status) created chat noise
-    #      even though they convey nothing the user needs to see.
-    #   2. Several sequential spawns interleaved tool-call bubbles
-    #      between agentEvent blocks, breaking AgentGroup's
-    #      consecutive-block scan and producing N tiny single-row
-    #      groups instead of one bundle of N rows.
-    #
-    # We still set a precise verb so logs / observability stay
-    # readable, but ``display.hidden`` is forced True so the chat
-    # render gate (`_isToolHiddenFromChat` / `_isHiddenTool`) drops
-    # the bubble. AgentGroup remains the single source of truth.
     if fqn_resolved == "agent_spawn.agent" or _bare_action(name) == "agent":
         prompt = params.get("prompt")
         agent_id = params.get("agent_id")
@@ -613,7 +489,6 @@ def build_display(
         display["hidden"] = True
         display["category"] = "control_flow"
 
-    # ── 3. Legacy labels.py fallback for verb/detail ────────────────
     if not display["verb"] or not display["detail"]:
         try:
             from digitorn.core.cli.ui.labels import tool_label
@@ -625,7 +500,6 @@ def build_display(
         except Exception as exc:
             logger.debug("tool_label fallback failed for %s: %s", name, exc)
 
-    # ── 4. Regex fallback patterns for channel / icon / hidden ──────
     bare = _bare_action(name)
     for pat, meta in _get_fallback_regexes():
         if not pat.search(bare):
@@ -637,7 +511,6 @@ def build_display(
             display["hidden"] = True
         break
 
-    # ── 5. Final defaults ───────────────────────────────────────────
     if not display["verb"]:
         display["verb"] = bare.replace("_", " ").title() or "Tool"
     if not display["channel"]:

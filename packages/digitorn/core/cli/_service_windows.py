@@ -1,10 +1,4 @@
-"""Windows Service backend - pywin32 ServiceFramework.
-
-Installs Digitorn as a Windows Service that:
-  - Starts automatically (Delayed Start) on boot
-  - Restarts on failure (3 attempts, 5s delay)
-  - Runs the daemon with --no-interactive flag
-"""
+"""Windows Service backend."""
 
 from __future__ import annotations
 
@@ -52,7 +46,7 @@ def install() -> None:
     # Create the service using sc.exe for simplicity and reliability
     cmd = [
         "sc", "create", SERVICE_NAME,
-        f"binPath= {exe} start --no-interactive",
+        f"binPath= {exe} start",
         f"DisplayName= {SERVICE_DISPLAY}",
         "start= delayed-auto",
     ]

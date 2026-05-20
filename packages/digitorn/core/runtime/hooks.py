@@ -1,27 +1,4 @@
-"""Internal hooks - condition→action pairs evaluated during the agent loop.
-
-Hooks fire at specific points in the agent loop (turn_end, turn_start)
-and execute actions when their conditions are met.
-
-Built-in conditions:
-    - context_pressure: fires when estimated token usage exceeds a threshold
-    - turn_count: fires when a turn threshold is reached
-    - tool_calls: fires when tool call count exceeds a threshold
-    - always: fires every time
-
-Built-in actions:
-    - compact_context: intelligently compact the message history
-    - inject_message: inject a system/user message into the history
-    - module_action: call any module action via context_builder
-
-The system is extensible via registries - users and modules can register
-custom conditions and actions.
-
-Usage::
-
-    runner = HookRunner(hooks, provider=provider, context_builder=cb)
-    await runner.run("turn_end", state)
-"""
+"""Internal hooks - condition/action pairs evaluated during the agent loop."""
 
 from __future__ import annotations
 
@@ -38,12 +15,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TurnState:
-    """Snapshot of the agent loop state at hook evaluation time.
-
-    Hooks can read any field. Actions that modify ``messages`` mutate
-    the live list (the agent loop sees changes on the next iteration).
-    """
-
     messages: list[dict[str, Any]]
     turn: int
     max_turns: int
@@ -62,12 +33,6 @@ class TurnState:
 
     @property
     def estimated_tokens(self) -> int:
-        """Token estimate: ~3 chars/token for text + 150 tokens per tool call.
-
-        More accurate than the naive ``len(str) // 4`` heuristic:
-        - Text content: ÷3 (closer to real tokenizer for EN/FR mixed text)
-        - Tool calls: +150 tokens each (JSON schema overhead, name, arguments)
-        """
         if self._estimated_tokens is None:
             text_chars = 0
             n_tool_calls = 0
@@ -86,21 +51,15 @@ class TurnState:
                         fn = tc.get("function", {})
                         args = fn.get("arguments", "")
                         text_chars += len(args) if isinstance(args, str) else len(str(args))
-            # RT8: 4 chars/token is the conservative average (English ~3.5,
-            # code ~3.2, CJK ~1.3). Using 3 was too aggressive - caused
-            # premature compaction in English-heavy conversations.
-            # Use ceil division to over-estimate slightly (safer).
             self._estimated_tokens = (text_chars + 3) // 4 + n_tool_calls * 150
         return self._estimated_tokens
 
     @property
     def effective_max_tokens(self) -> int:
-        """Usable context tokens (max - output_reserved)."""
         return max(self.max_context_tokens - self.output_reserved, 1)
 
     @property
     def token_pressure(self) -> float:
-        """Token usage ratio (0.0 to 1.0+) against effective max."""
         return self.estimated_tokens / self.effective_max_tokens
 
     @property
@@ -110,45 +69,33 @@ class TurnState:
 
 @dataclass
 class HookCondition:
-    """A condition that determines whether a hook fires."""
-
     type: str
     params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class HookAction:
-    """An action to execute when a hook fires."""
-
     type: str
     params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class Hook:
-    """A single hook: condition → action, evaluated at a specific event."""
-
     id: str
     on: str = "turn_end"
     condition: HookCondition = field(default_factory=lambda: HookCondition(type="always"))
     action: HookAction = field(default_factory=lambda: HookAction(type="inject_message"))
     cooldown: float = 0.0
-    max_fires: int = 0          # 0 = unlimited
-    priority: int = 100         # lower = earlier; stable among equals
-    enabled: bool = True        # feature flag
+    max_fires: int = 0
+    priority: int = 100
+    enabled: bool = True
     tags: list[str] = field(default_factory=list)
-    agent_id: str | None = None  # None = app-wide; set for per-agent hooks
-    # Hard wall on action runtime - protects the event loop from a
-    # runaway hook (catastrophic regex, infinite loop in
-    # transform_params, stuck shell, …). Default 30s = enough for
-    # compaction; lower this in YAML for cheap hooks.
+    agent_id: str | None = None
     timeout: float = 30.0
 
 
 @dataclass
 class RuntimeHook:
-    """A hook with runtime state (last fired time, fire count)."""
-
     hook: Hook
     last_fired: float = 0.0
     fire_count: int = 0
@@ -178,16 +125,6 @@ def register_condition(
     name: str,
     params: dict[str, str] | None = None,
 ) -> Callable[[ConditionFn], ConditionFn]:
-    """Decorator to register a condition evaluator.
-
-    Args:
-        name: Registered condition name (used as ``condition.type`` in YAML).
-        params: Optional param schema ``{param_name: "required"|"optional"}``.
-                The compiler validates YAML against this schema - unknown
-                params raise a compile error, required missing params
-                raise too.
-    """
-
     def decorator(fn: ConditionFn) -> ConditionFn:
         _CONDITION_REGISTRY[name] = fn
         if params is not None:
@@ -198,12 +135,10 @@ def register_condition(
 
 
 def get_condition(name: str) -> ConditionFn | None:
-    """Get a registered condition by name."""
     return _CONDITION_REGISTRY.get(name)
 
 
 def get_condition_params(name: str) -> dict[str, str] | None:
-    """Return the param schema for a condition, or None if not declared."""
     return _CONDITION_PARAMS.get(name)
 
 
@@ -213,26 +148,12 @@ def all_condition_names() -> list[str]:
 
 @register_condition("context_pressure", params={"threshold": "optional"})
 def _eval_context_pressure(state: TurnState, params: dict[str, Any]) -> bool:
-    """Fire when estimated token usage exceeds a threshold.
-
-    Uses the real model limits from TurnState (set via AgentContext).
-    Params can override for testing.
-
-    Params:
-        threshold (float): Pressure ratio (0.0-1.0). Default: 0.75
-    """
     threshold = params.get("threshold", 0.75)
     return state.token_pressure >= threshold
 
 
 @register_condition("turn_count", params={"threshold": "required", "every": "optional"})
 def _eval_turn_count(state: TurnState, params: dict[str, Any]) -> bool:
-    """Fire when the turn count reaches a threshold.
-
-    Params:
-        threshold (int): Turn number to fire at. Default: 10
-        every (int): Fire every N turns. Default: 0 (disabled)
-    """
     threshold = params.get("threshold", 10)
     every = params.get("every", 0)
 
@@ -244,46 +165,27 @@ def _eval_turn_count(state: TurnState, params: dict[str, Any]) -> bool:
 
 @register_condition("tool_calls", params={"threshold": "required"})
 def _eval_tool_calls(state: TurnState, params: dict[str, Any]) -> bool:
-    """Fire when tool call count exceeds a threshold.
-
-    Params:
-        threshold (int): Tool call count to trigger. Default: 20
-    """
     threshold = params.get("threshold", 20)
     return state.tool_calls_count >= threshold
 
 
 @register_condition("message_count", params={"threshold": "required"})
 def _eval_message_count(state: TurnState, params: dict[str, Any]) -> bool:
-    """Fire when message count exceeds a threshold.
-
-    Params:
-        threshold (int): Message count. Default: 50
-    """
     threshold = params.get("threshold", 50)
     return state.message_count >= threshold
 
 
 @register_condition("always", params={})
 def _eval_always(state: TurnState, params: dict[str, Any]) -> bool:
-    """Always fire. Useful with cooldown for periodic actions."""
     return True
 
 
 @register_condition("never", params={})
 def _eval_never(state: TurnState, params: dict[str, Any]) -> bool:
-    """Never fire. Useful as a temporary kill-switch from YAML without
-    removing a hook definition."""
     return False
 
 
 def _eval_nested(state: TurnState, cond: dict[str, Any]) -> bool:
-    """Evaluate a single condition dict of the form ``{type, ...params}``.
-
-    Used by composite conditions (``all_of`` / ``any_of`` / ``not``) to
-    recursively dispatch into the condition registry. Returns False on
-    unknown type or evaluator exceptions - safer than silent True.
-    """
     t = cond.get("type")
     if not t:
         return False
@@ -301,18 +203,6 @@ def _eval_nested(state: TurnState, cond: dict[str, Any]) -> bool:
 
 @register_condition("all_of", params={"conditions": "required"})
 def _eval_all_of(state: TurnState, params: dict[str, Any]) -> bool:
-    """Logical AND over a list of inner conditions. Short-circuits on
-    the first False. Empty list returns True.
-
-    YAML::
-
-        condition:
-          type: all_of
-          conditions:
-            - {type: tool_name, match: "filesystem.*"}
-            - {type: tool_failed}
-            - {type: turn_count, threshold: 5}
-    """
     inner = params.get("conditions") or []
     if not isinstance(inner, list):
         return False
@@ -324,17 +214,6 @@ def _eval_all_of(state: TurnState, params: dict[str, Any]) -> bool:
 
 @register_condition("any_of", params={"conditions": "required"})
 def _eval_any_of(state: TurnState, params: dict[str, Any]) -> bool:
-    """Logical OR over a list of inner conditions. Short-circuits on
-    the first True. Empty list returns False.
-
-    YAML::
-
-        condition:
-          type: any_of
-          conditions:
-            - {type: context_pressure, threshold: 0.9}
-            - {type: tool_failed}
-    """
     inner = params.get("conditions") or []
     if not isinstance(inner, list):
         return False
@@ -346,14 +225,6 @@ def _eval_any_of(state: TurnState, params: dict[str, Any]) -> bool:
 
 @register_condition("not", params={"condition": "required"})
 def _eval_not(state: TurnState, params: dict[str, Any]) -> bool:
-    """Logical NOT of a single inner condition.
-
-    YAML::
-
-        condition:
-          type: not
-          condition: {type: tool_name, match: "memory.*"}
-    """
     cond = params.get("condition")
     if not isinstance(cond, dict):
         return False
@@ -370,13 +241,6 @@ def register_action(
     name: str,
     params: dict[str, str] | None = None,
 ) -> Callable[[ActionFn], ActionFn]:
-    """Decorator to register an action executor.
-
-    Args:
-        name: Registered action name (used as ``action.type`` in YAML).
-        params: Optional param schema ``{param_name: "required"|"optional"}``.
-    """
-
     def decorator(fn: ActionFn) -> ActionFn:
         _ACTION_REGISTRY[name] = fn
         if params is not None:
@@ -387,12 +251,10 @@ def register_action(
 
 
 def get_action(name: str) -> ActionFn | None:
-    """Get a registered action by name."""
     return _ACTION_REGISTRY.get(name)
 
 
 def get_action_params(name: str) -> dict[str, str] | None:
-    """Return the param schema for an action, or None if not declared."""
     return _ACTION_PARAMS.get(name)
 
 
@@ -416,22 +278,6 @@ async def _exec_compact_context(
     provider: Any = None,
     context_builder: Any = None,
 ) -> None:
-    """Compact the message history to reduce token usage.
-
-    After compaction, re-injects a context reminder so the model
-    retains awareness of its tools and capabilities.
-
-    Strategies:
-        - truncate: Keep system + last N messages (fast, no LLM call)
-        - summarize: Use LLM to summarize older messages (smart, 1 LLM call)
-
-    Params:
-        strategy (str): "truncate" or "summarize". Default: "summarize"
-        keep_recent (int): Number of recent messages to preserve. Default: 10
-        summary_max_tokens (int): Max tokens for the summary. Default: 1024
-        summary_prompt (str): Custom prompt for summarization.
-        target_pressure (float): Compact until below this pressure. Default: 0.5
-    """
     strategy = params.get("strategy", "summarize")
     keep_recent = params.get("keep_recent", params.get("keep_last", 10))
     summary_max_tokens = params.get("summary_max_tokens", 1024)
@@ -450,9 +296,6 @@ async def _exec_compact_context(
     if len(messages) <= keep_recent + 1:
         return
 
-    # Fire `pre_compact` so apps can inspect / veto via gate before the
-    # actual compaction runs. Reuses the same state + runner; caller is
-    # attached on ``state._agent_context`` so we can reach the runner.
     try:
         agent_ctx = getattr(state, "_agent_context", None)
         cb = getattr(agent_ctx, "context_builder", None) if agent_ctx else None
@@ -485,7 +328,7 @@ async def _exec_compact_context(
     )
 
     tokens_before = state.estimated_tokens
-    recent_messages_before = list(to_keep)  # freeze for tool-example extraction
+    recent_messages_before = list(to_keep)
 
     summary_text: str = ""
     full_injected_note: str = ""
@@ -503,10 +346,6 @@ async def _exec_compact_context(
             context_reminder=context_reminder,
         )
 
-    # Persist the post-compaction system note as a durable event so it
-    # survives daemon restart with the canonical seq. The local mutation
-    # was already done by _do_truncate / _do_summarize; we only emit the
-    # event here for the timeline.
     if full_injected_note:
         await inject_system_directive(
             state._agent_context,
@@ -542,18 +381,7 @@ async def _exec_compact_context(
         strategy, len(to_compact), len(to_keep), new_pressure * 100,
     )
 
-    # ── Durable persistence + metric counter ──────────────────────────
-    # Without this block the in-memory ``messages`` list shrinks but
-    # the SessionStore projection (built from ``user_message`` /
-    # ``assistant_message`` events) never drops. Next turn loads
-    # ``persisted_messages`` from the store, fills ``session.messages``
-    # back with the FULL history, and the same hook fires + compacts
-    # again — for the LLM call only, with zero durable effect. Mirror
-    # the trim into the store exactly like the reactive overflow
-    # path in ``agent_loop.py::agent_turn`` after
-    # ``emergency_compact``. Also bump the session metric counter so
-    # ``/context-breakdown`` reflects the work that happened instead
-    # of staying stuck at zero.
+    # mirror the trim into SessionStore - otherwise the projection keeps the full history and we re-compact every turn.
     agent_ctx = state._agent_context
     if agent_ctx is not None:
         try:
@@ -592,8 +420,8 @@ async def _exec_compact_context(
                     _app_id, sid_for_compact or "default", _agent_id,
                 )
                 _sm.context.compactions += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("hook_compact: metrics update failed: %s", exc)
         except Exception as exc:
             logger.warning(
                 "hook_compact: durable persist failed (%s); LLM call "
@@ -602,10 +430,6 @@ async def _exec_compact_context(
                 exc,
             )
 
-    # Durable persistence: emit the compaction event with the full
-    # snapshot payload so a later rebuild can resume from here without
-    # replaying the compacted portion of the history. Non-blocking on
-    # failure - in-memory mutation remains authoritative for this turn.
     if state._agent_context is not None:
         from digitorn.core.runtime.compaction_persistence import (
             emit_compaction_event,
@@ -629,23 +453,6 @@ def _build_context_reminder(
     agent_context: Any | None = None,
     recent_messages: list[dict[str, Any]] | None = None,
 ) -> str:
-    """Build a context reminder for re-injection after compaction.
-
-    Adapts to the tool injection mode:
-    - **direct**: re-lists all tools with descriptions (the model calls them by name)
-    - **discovery**: summarizes categories and reminds of meta-tool workflow
-
-    Also re-injects:
-    - Setup summary (module config, connections, workspace) from AgentContext
-    - Examples for the most-used tools in the recent conversation
-
-    Args:
-        context_builder: The live ContextBuilderModule instance.
-        tool_injection: "direct" or "discovery" (from AgentContext).
-        memory_module: Optional memory module for re-injecting memory state.
-        agent_context: Optional AgentContext for setup_summary re-injection.
-        recent_messages: Recent messages to extract most-used tool examples.
-    """
     if context_builder is None:
         return ""
 
@@ -686,7 +493,6 @@ def _build_context_reminder(
             "execute_tool, list_categories, browse_category can be called directly."
         )
 
-    # Re-inject setup summary (module config, connections, workspace)
     if agent_context is not None:
         setup = agent_context.setup_summary if agent_context else None
         if setup:
@@ -695,7 +501,6 @@ def _build_context_reminder(
             for entry in setup:
                 parts.append(f"- {entry}")
 
-    # Re-inject examples for most-used tools in recent conversation
     if recent_messages and index:
         tool_usage: dict[str, int] = {}
         for msg in recent_messages:
@@ -777,12 +582,6 @@ def _build_context_reminder(
 
 
 def _find_safe_split_point(conversation: list[dict[str, Any]], keep_recent: int) -> int:
-    """Find a split point that doesn't break tool call sequences.
-
-    Tool messages must follow their assistant message. If the split point
-    falls inside a tool call sequence, extend keep_recent to include
-    the full sequence.
-    """
     if keep_recent >= len(conversation):
         return len(conversation)
 
@@ -807,14 +606,6 @@ def _do_truncate(
     to_keep: list[dict[str, Any]],
     context_reminder: str = "",
 ) -> tuple[str, str]:
-    """Truncate strategy: drop old messages, inject a note + context reminder.
-
-    Returns ``(summary_note, full_injected_note)``: the bare summary is
-    used by the durable ``compaction`` event payload; the full string
-    (summary + context_reminder) is the exact text appended to the
-    chat as a system message and is persisted separately as a
-    ``system_message`` event so the directive lands at a canonical seq.
-    """
     new_messages = []
     if system_msg:
         new_messages.append(system_msg)
@@ -851,15 +642,6 @@ async def _do_summarize(
     summary_prompt: str | None = None,
     context_reminder: str = "",
 ) -> tuple[str, str]:
-    """Summarize strategy: use LLM to compress old messages.
-
-    Returns ``(summary_text, full_injected_note)``: the bare summary is
-    used by the durable ``compaction`` event payload; the full string
-    (summary + context_reminder) is the exact text appended to the
-    chat as a system message and is persisted separately as a
-    ``system_message`` event. On LLM failure falls back to
-    :func:`_do_truncate`.
-    """
     if provider is None:
         logger.warning("hook_compact: no provider for summarize, falling back to truncate")
         return _do_truncate(messages, system_msg, to_compact, to_keep, context_reminder)
@@ -958,23 +740,6 @@ async def _exec_inject_message(
     params: dict[str, Any],
     **kwargs: Any,
 ) -> None:
-    """Inject content into the conversation that the LLM WILL see.
-
-    Three strategies (auto-selected for provider compatibility):
-    - "append_to_system": Appends to the system prompt (safest, all providers)
-    - "append_to_last_user": Appends to the last user message (visible in conversation)
-    - "new_message": Creates a new message (may break user/assistant alternation)
-
-    Params:
-        content (str): Content to inject. Required.
-        strategy (str): "auto" (default), "system", "user", or "new_message".
-            - "auto": appends to last user message (most compatible)
-            - "system": appends to system prompt
-            - "user": appends to last user message
-            - "new_message": creates a separate message (may not work with all providers)
-        role (str): Only used with strategy="new_message". Default: "user".
-        position (str): Only used with strategy="new_message". "before_last" or "end".
-    """
     content = params.get("content")
     strategy = params.get("strategy", "auto")
     role = params.get("role", "user")
@@ -987,25 +752,18 @@ async def _exec_inject_message(
     ctx = getattr(state, "_agent_context", None)
 
     if strategy in ("auto", "user"):
-        # Append to the last user message - guaranteed visible to the LLM
         for i in range(len(state.messages) - 1, -1, -1):
             msg = state.messages[i]
             if msg.get("role") == "user" and isinstance(msg.get("content"), str):
                 msg["content"] = msg["content"] + f"\n\n[System note: {content}]"
                 logger.debug("hook_inject: appended to last user message")
                 return
-        # No user message found - fall through to system
         strategy = "system"
 
     if strategy == "system":
-        # Append to system prompt (first system message)
         for msg in state.messages:
             if msg.get("role") == "system" and isinstance(msg.get("content"), str):
                 msg["content"] = msg["content"] + f"\n\n{content}"
-                # Persist the NEW content as a separate system_message event
-                # so the directive survives daemon restart. On replay the
-                # injection appears as its own message in seq order rather
-                # than as an opaque mutation of an unpersisted base prompt.
                 await inject_system_directive(
                     ctx,
                     content=content,
@@ -1014,7 +772,6 @@ async def _exec_inject_message(
                 )
                 logger.debug("hook_inject: appended to system prompt")
                 return
-        # No system message - create one at the start
         await inject_system_directive(
             ctx,
             content=content,
@@ -1026,7 +783,6 @@ async def _exec_inject_message(
         logger.debug("hook_inject: created new system message")
         return
 
-    # strategy == "new_message" - raw insert (may break alternation)
     if role == "system":
         position_kind = "append" if position == "end" else "insert_before_last"
         await inject_system_directive(
@@ -1048,14 +804,6 @@ async def _exec_inject_message(
 
 
 def _walk_path(obj: Any, path: str) -> Any:
-    """Walk a dot-separated path on a nested object. Numeric segments are
-    treated as list indices. Returns ``None`` on any missing step.
-
-    Examples:
-        _walk_path({"a": {"b": [10, 20]}}, "a.b.1") -> 20
-        _walk_path({"user": {"login": "alice"}}, "user.login") -> "alice"
-        _walk_path({}, "missing.key") -> None
-    """
     cur = obj
     for segment in path.split("."):
         if cur is None:
@@ -1072,21 +820,6 @@ def _walk_path(obj: Any, path: str) -> Any:
 
 
 def _render_tool_templates(value: Any, state: "TurnState") -> Any:
-    """Replace ``{{tool.*}}`` placeholders in any string / nested structure.
-
-    Variables resolved (all optional - missing paths render as empty string):
-
-        {{tool.name}}          - the current tool's short name
-        {{tool.fqn}}           - its fully-qualified name (module.action)
-        {{tool.error}}         - the tool's error string (None → "")
-        {{tool.params.X}}      - params[X] - supports dotted paths
-                                  and numeric indices (tool.params.items.0)
-        {{tool.result.X}}      - output field - same syntax as params
-        {{tool.result}}        - the whole result serialized as JSON
-
-    Non-string values pass through unchanged. Lists and dicts are walked
-    recursively so nested templates work inside ``action_params`` trees.
-    """
     if isinstance(value, list):
         return [_render_tool_templates(v, state) for v in value]
     if isinstance(value, dict):
@@ -1103,7 +836,6 @@ def _render_tool_templates(value: Any, state: "TurnState") -> Any:
     tool_result = getattr(tool_ctx, "tool_result", None)
     tool_error = getattr(tool_ctx, "tool_error", None)
 
-    # Regex finds all {{ ... }} placeholders (non-greedy).
     import re as _re
     pattern = _re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 
@@ -1129,7 +861,7 @@ def _render_tool_templates(value: Any, state: "TurnState") -> Any:
             path = ref[len("tool.result."):]
             val = _walk_path(tool_result, path) if tool_result is not None else None
             return "" if val is None else str(val)
-        return match.group(0)  # unknown placeholder - leave as-is
+        return match.group(0)
 
     return pattern.sub(_resolve, value)
 
@@ -1142,14 +874,6 @@ async def _exec_module_action(
     context_builder: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Execute a module action via context_builder.
-
-    Params (accept any of the following shapes - the schema declares
-    ``module`` + ``action`` but older YAML used a single ``name``):
-        module (str) + action (str): split form - preferred.
-        name (str): "module.action" legacy shorthand.
-        action_params (dict) OR params (dict): tool params.
-    """
     name = params.get("name")
     if not name:
         mod = params.get("module")
@@ -1173,11 +897,6 @@ async def _exec_module_action(
         logger.warning("hook_module_action: no context_builder available")
         return
 
-    # Resolve {{tool.params.*}}, {{tool.result.*}}, {{tool.name}},
-    # {{tool.error}} placeholders. Works for ANY tool type - native
-    # modules and MCP tools alike, since both flow through the same
-    # tool_context shape. Supports nested paths (e.g. "user.login")
-    # and array indices (e.g. "items.0.id").
     action_params = _render_tool_templates(action_params, state)
 
     try:
@@ -1197,20 +916,6 @@ async def _exec_module_action_inject(
     context_builder: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Execute a module action and inject its result into the conversation.
-
-    Like ``module_action`` but the result is injected as a system message
-    so the agent sees it immediately. Designed for real-time feedback loops
-    like LSP diagnostics after file edits.
-
-    Params:
-        name (str): Tool name in "module.action" format. Required.
-        action_params (dict): Parameters for the action. Default: {}
-        format (str): How to format the result. Default: "auto"
-            - "auto": only inject if there are errors/warnings
-            - "always": always inject the result
-        prefix (str): Text prefix for the injected message. Default: ""
-    """
     name = params.get("name")
     if not name:
         mod = params.get("module")
@@ -1233,9 +938,6 @@ async def _exec_module_action_inject(
         logger.warning("hook_module_action_inject: no context_builder available")
         return
 
-    # Resolve {{tool.*}} placeholders - full set (params, result, name,
-    # error) including nested paths + array indices. Same semantics as
-    # `module_action` and `pipe`.
     action_params = _render_tool_templates(action_params, state)
 
     try:
@@ -1251,13 +953,10 @@ async def _exec_module_action_inject(
         if data is None:
             return
 
-        # Format the result for injection
         message_text = _format_action_result_for_injection(name, data, fmt, prefix)
         if message_text is None:
-            return  # Nothing to inject (no errors in "auto" mode)
+            return
 
-        # Inject as system message before the last message. Persist as
-        # a ``system_message`` event so the diagnostics survive restart.
         await inject_system_directive(
             getattr(state, "_agent_context", None),
             content=message_text,
@@ -1276,26 +975,21 @@ async def _exec_module_action_inject(
 def _format_action_result_for_injection(
     name: str, data: Any, fmt: str, prefix: str
 ) -> str | None:
-    """Format action result data into a string for message injection.
-
-    Returns None if fmt="auto" and there's nothing noteworthy to report.
-    """
     if isinstance(data, dict):
-        # LSP diagnostics format
         errors = data.get("errors", 0)
         warnings = data.get("warnings", 0)
         diagnostics = data.get("diagnostics", [])
         path = data.get("path", "")
 
         if fmt == "auto" and errors == 0 and warnings == 0:
-            return None  # No issues - don't clutter the conversation
+            return None
 
         if diagnostics:
             lines = []
             if prefix:
                 lines.append(prefix)
             lines.append(f"[LSP] {path}: {errors} error(s), {warnings} warning(s)")
-            for d in diagnostics[:10]:  # Cap at 10 to avoid flooding
+            for d in diagnostics[:10]:
                 sev = d.get("severity", "info")
                 msg = d.get("message", "")
                 line = d.get("line", "?")
@@ -1314,10 +1008,9 @@ def _format_action_result_for_injection(
 
         return None
 
-    # Generic fallback: convert to string
     text = str(data)
     if fmt == "auto" and len(text) < 5:
-        return None  # Too short to be useful
+        return None
     return f"{prefix}{text}" if prefix else text
 
 
@@ -1327,12 +1020,6 @@ async def _exec_log(
     params: dict[str, Any],
     **kwargs: Any,
 ) -> None:
-    """Log a message. Useful for debugging hooks.
-
-    Params:
-        message (str): Log message template. Supports {turn}, {tokens}, {tools}, {messages}.
-        level (str): Log level. Default: "info"
-    """
     template = params.get("message", "Hook fired: turn={turn} tokens={tokens}")
     level = params.get("level", "info")
 
@@ -1347,39 +1034,8 @@ async def _exec_log(
     getattr(logger, level, logger.info)("hook_log: %s", message)
 
 
-# ═══════════════════════════════════════════════════════════════════
-# HOOKS V2 - Advanced conditions, actions, and events
-# ═══════════════════════════════════════════════════════════════════
-#
-# Events (15 total):
-#   turn_start, turn_end           - Agent loop turns
-#   tool_start, tool_end           - Individual tool executions
-#   pre_tool_use, post_tool_use    - Can MODIFY params/results
-#   session_start, session_end     - Session lifecycle
-#   pre_compact                    - Before context compaction
-#   user_prompt                    - When user sends a message
-#   error                          - When an error occurs
-#   approval_request               - When approval is needed
-#   agent_spawn, agent_complete    - Sub-agent lifecycle
-#   activation                     - Background trigger fired
-#
-# Power features:
-#   - shell: Execute shell commands as hook actions
-#   - transform: Modify tool params before execution
-#   - gate: Block tool execution conditionally
-#   - chain: Run multiple actions in sequence
-# ═══════════════════════════════════════════════════════════════════
-
-
-# ── New Conditions ──────────────────────────────────────────────────
-
 @register_condition("tool_name", params={"match": "required"})
 def _eval_tool_name(state: TurnState, params: dict[str, Any]) -> bool:
-    """Fire when the current tool matches a pattern.
-
-    Params:
-        match (str|list): Tool name(s) to match. Supports wildcards: "filesystem.*", "Write|Edit"
-    """
     tool_ctx = getattr(state, "tool_context", None)
     if tool_ctx is None:
         return False
@@ -1419,7 +1075,6 @@ def _eval_tool_name(state: TurnState, params: dict[str, Any]) -> bool:
 
 @register_condition("tool_failed", params={})
 def _eval_tool_failed(state: TurnState, params: dict[str, Any]) -> bool:
-    """Fire when the last tool execution failed."""
     tool_ctx = getattr(state, "tool_context", None)
     if tool_ctx is None:
         return False
@@ -1431,11 +1086,6 @@ def _eval_tool_failed(state: TurnState, params: dict[str, Any]) -> bool:
 
 @register_condition("content_contains", params={"keyword": "required"})
 def _eval_content_contains(state: TurnState, params: dict[str, Any]) -> bool:
-    """Fire when message content contains a keyword.
-
-    Params:
-        keyword (str): Text to search for (case-insensitive)
-    """
     keyword = params.get("keyword", "").lower()
     if not keyword:
         return False
@@ -1448,14 +1098,6 @@ def _eval_content_contains(state: TurnState, params: dict[str, Any]) -> bool:
 
 @register_condition("error_type", params={"match": "required"})
 def _eval_error_type(state: TurnState, params: dict[str, Any]) -> bool:
-    """Fire when a specific error type occurs.
-
-    Params:
-        match (str): Error code pattern. E.g. "rate_limited", "auth_*"
-    """
-    # Two sources - legacy `error_context` object (still kept for
-    # backward compat) + new `_error_code` attribute populated by the
-    # agent_loop on the `error` event.
     error_code = getattr(state, "_error_code", "") or ""
     if not error_code:
         error_ctx = getattr(state, "error_context", None)
@@ -1470,11 +1112,6 @@ def _eval_error_type(state: TurnState, params: dict[str, Any]) -> bool:
 
 @register_condition("expression", params={"expr": "required"})
 def _eval_expression(state: TurnState, params: dict[str, Any]) -> bool:
-    """Fire when a Python expression evaluates to True.
-
-    Params:
-        expr (str): Python expression. Available vars: turn, tools, messages, pressure, tokens
-    """
     expr = params.get("expr", "")
     if not expr:
         return False
@@ -1491,8 +1128,6 @@ def _eval_expression(state: TurnState, params: dict[str, Any]) -> bool:
         return False
 
 
-# ── New Actions ─────────────────────────────────────────────────────
-
 @register_action("shell", params={"command": "required", "cwd": "optional", "timeout": "optional", "on_error": "optional"})
 async def _exec_shell(
     state: TurnState,
@@ -1501,25 +1136,6 @@ async def _exec_shell(
     context_builder: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Execute a shell command - routed through the `shell.bash` module
-    action so it INHERITS THE APP'S SECURITY PROFILE: requires the shell
-    module to be declared + granted, respects `shell.blocked_commands`,
-    runs under the workspace sandbox, honors max_risk_level.
-
-    Previously this action ran `asyncio.create_subprocess_shell()` directly
-    with no sandbox, no grant check, no path restriction - any app could
-    exfiltrate data, touch system files, or run arbitrary commands just
-    by adding a YAML hook. That was a configuration-driven sandbox
-    escape. Fixed by delegating to `shell.bash` through
-    `context_builder.execute_tool`, which enforces
-    `SecurityProfile.module_grants` + `ActionSpec.policy_decision`.
-
-    Params:
-        command (str): Shell command to execute. Supports {{tool.*}}.
-        timeout (float): Command timeout in seconds. Default: 30
-        inject_result (bool): Inject stdout as system message. Default: false
-        on_error (str): "ignore" or "inject". Default: "ignore"
-    """
     command = params.get("command", "")
     timeout = params.get("timeout", 30.0)
     inject = params.get("inject_result", False)
@@ -1535,10 +1151,7 @@ async def _exec_shell(
     logger.info("hook_shell: %s", command[:100])
 
     if context_builder is None:
-        logger.warning(
-            "hook_shell refused: no context_builder available. The hook "
-            "system must dispatch shell through shell.bash for safety.",
-        )
+        logger.warning("hook_shell refused: no context_builder available")
         return
 
     try:
@@ -1554,12 +1167,7 @@ async def _exec_shell(
         return
 
     if not result.success:
-        logger.info(
-            "hook_shell blocked by security profile (%s). This is the "
-            "DESIGNED behavior - the hook cannot run shell commands that "
-            "the app's grants don't authorize.",
-            result.error,
-        )
+        logger.info("hook_shell blocked: %s", result.error)
         if on_error == "inject":
             await inject_system_directive(
                 getattr(state, "_agent_context", None),
@@ -1606,16 +1214,7 @@ async def _exec_gate(
     params: dict[str, Any],
     **kwargs: Any,
 ) -> None:
-    """Block tool execution. Only works with pre_tool_use event.
-
-    When this fires, the tool is NOT executed and the agent receives
-    an error message explaining why.
-
-    Params:
-        reason (str): Why the tool was blocked.
-    """
     reason = params.get("reason", "Blocked by hook policy")
-    # Set a flag on state that the agent loop checks
     state._gate_blocked = True
     state._gate_reason = reason
     logger.info("hook_gate: blocked tool - %s", reason)
@@ -1627,14 +1226,6 @@ async def _exec_transform_params(
     params: dict[str, Any],
     **kwargs: Any,
 ) -> None:
-    """Modify tool parameters before execution. Only works with pre_tool_use.
-
-    Params:
-        transformation (dict): {"set": {...}, "remove": [...]} - the
-            documented YAML form.
-        set (dict): Flat alias for ``transformation.set`` (back-compat).
-        remove (list): Flat alias for ``transformation.remove``.
-    """
     tool_ctx = getattr(state, "tool_context", None)
     if tool_ctx is None:
         return
@@ -1642,11 +1233,6 @@ async def _exec_transform_params(
     if not isinstance(tool_params, dict):
         return
 
-    # Support both the documented ``transformation: {set: ..., remove: ...}``
-    # nested form and the legacy flat ``set: ..., remove: ...`` form.
-    # Without the nested-form support the documented YAML was a silent
-    # no-op: ``params.get("set")`` returned ``None`` whenever the user
-    # wrapped it in ``transformation:``.
     nested = params.get("transformation") or {}
     if not isinstance(nested, dict):
         nested = {}
@@ -1672,17 +1258,6 @@ async def _exec_transform_result(
     params: dict[str, Any],
     **kwargs: Any,
 ) -> None:
-    """Modify tool result after execution. Only works with post_tool_use.
-
-    Params:
-        transformation (dict): {"append_to_result": ..., "inject_note": ...}
-            - the documented YAML form.
-        append_to_result (str): Flat alias for ``transformation.append_to_result``.
-        inject_note (str): Flat alias for ``transformation.inject_note``.
-    """
-    # Support both the documented ``transformation: {...}`` nested form
-    # and the legacy flat form. Without nested-form support the
-    # documented YAML was a silent no-op.
     nested = params.get("transformation") or {}
     if not isinstance(nested, dict):
         nested = {}
@@ -1710,23 +1285,11 @@ async def _exec_chain(
     params: dict[str, Any],
     **kwargs: Any,
 ) -> None:
-    """Execute multiple actions in sequence.
-
-    Params:
-        actions (list): List of {type, params} action definitions.
-    """
     actions = params.get("actions", [])
     stop_on_failure = bool(params.get("stop_on_failure", False))
     failed_actions: list[str] = []
     for action_def in actions:
         action_type = action_def.get("type")
-        # The documented YAML form puts action params siblings of ``type``
-        # (``{type: shell, command: "..."}``), not nested under a
-        # ``params`` key. Without this, a chain entry like
-        # ``{type: log, message: "..."}`` ran with an empty params dict
-        # and the action was a silent no-op. Support both forms: nested
-        # ``params:`` (legacy) wins when present, otherwise pass the
-        # action_def itself as the params with ``type`` stripped.
         if "params" in action_def and isinstance(action_def["params"], dict):
             action_params = action_def["params"]
         else:
@@ -1745,16 +1308,11 @@ async def _exec_chain(
         try:
             await action_fn(state, action_params, **kwargs)
         except Exception as exc:
-            # Log at WARNING with traceback so users can debug their hooks.
-            # Failed actions in a chain are tracked so subsequent actions
-            # can know there was a partial failure (via state metadata).
             logger.warning(
                 "hook_chain: action '%s' failed: %s",
                 action_type, exc, exc_info=True,
             )
             failed_actions.append(action_type)
-            # Mark state as having partial hook failure - agent loop or other
-            # actions can check state.metadata for this.
             try:
                 if not hasattr(state, "metadata") or state.metadata is None:
                     state.metadata = {}
@@ -1762,8 +1320,8 @@ async def _exec_chain(
                     "action": action_type,
                     "error": str(exc),
                 })
-            except Exception:
-                pass
+            except Exception as meta_exc:
+                logger.debug("hook_chain: metadata failure record failed: %s", meta_exc)
             if stop_on_failure:
                 logger.warning(
                     "hook_chain: stopping after %d failed action(s) due to stop_on_failure",
@@ -1778,18 +1336,10 @@ async def _exec_notify(
     params: dict[str, Any],
     **kwargs: Any,
 ) -> None:
-    """Send a notification to the client via SSE.
-
-    Params:
-        title (str): Notification title.
-        message (str): Notification body.
-        level (str): "info", "warning", "error". Default: "info"
-    """
     title = params.get("title", "Hook notification")
     message = params.get("message", "")
     level = params.get("level", "info")
 
-    # Emit via event bus if available on the agent context
     agent_ctx = getattr(state, "_agent_context", None)
     event_bus = getattr(agent_ctx, "_event_bus", None) if agent_ctx else None
     bus_key = getattr(agent_ctx, "_bus_key", None) if agent_ctx else None
@@ -1800,11 +1350,6 @@ async def _exec_notify(
                 SessionEvent as _SE, OpType as _OT, OpState as _OS,
                 gen_op_id,
             )
-            # Hook notifications are user-facing toasts - they come
-            # from the SYSTEM op family since they're not part of any
-            # agent turn lifecycle. State is WARNING/ERROR → FAILED,
-            # everything else → COMPLETED (the notification was
-            # successfully delivered).
             _op_state = _OS.FAILED if level in ("error", "warning") else _OS.COMPLETED
             _app_id = getattr(agent_ctx, "app_id", "") or ""
             _session_id = getattr(agent_ctx, "session_id", "") or ""
@@ -1817,8 +1362,8 @@ async def _exec_notify(
                     op_type=_OT.SYSTEM, op_state=_op_state,
                     payload={"title": title, "message": message, "level": level},
                 ))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("hook_notify: event_bus emit failed: %s", exc)
 
     logger.info("hook_notify: [%s] %s - %s", level, title, message[:100])
 
@@ -1831,59 +1376,6 @@ async def _exec_pipe(
     context_builder: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Chain the current tool's output into another tool.
-
-    The **primitive** for building tool pipelines in YAML. Works for any
-    writer: native modules, MCP tools, custom modules - as long as the
-    trigger hook is on a tool_start / tool_end event (so the upstream
-    tool's ``tool_context`` is available).
-
-    Params:
-        to            str - destination tool name (``module.action`` or MCP
-                       tool id). Required.
-        map           dict - destination param name → template reference.
-                       Values are rendered with the same ``{{tool.*}}``
-                       placeholders as ``module_action``.
-        extra         dict - literal params merged into the destination
-                       call (no templating). Useful for static flags.
-        on_error      "ignore" (default) | "log" | "raise". Controls what
-                       happens when the downstream tool fails.
-
-    Example - pipe a GitHub fetch into Slack with field extraction::
-
-        hooks:
-          - event: tool_end
-            condition:
-              type: tool_name
-              value: ["mcp.github.get_pull_request"]
-            action:
-              type: pipe
-              to: mcp.slack.send_message
-              map:
-                channel: "#dev"
-                text: "PR #{{tool.result.number}} - {{tool.result.title}} by {{tool.result.user.login}}"
-              extra:
-                as_user: true
-
-    Example - run LSP on any MCP file write::
-
-        hooks:
-          - event: tool_end
-            condition:
-              type: tool_name
-              value: ["mcp.github.create_or_update_file"]
-            action:
-              type: pipe
-              to: lsp.notify_change
-              map:
-                path: "{{tool.params.path}}"
-                content: "{{tool.params.content}}"
-
-    Example - extract a nested array element::
-
-        map:
-          user_id: "{{tool.result.hits.0.user.id}}"
-    """
     if context_builder is None:
         return
     to_tool = params.get("to")
@@ -1924,62 +1416,11 @@ async def _exec_lsp_diagnose(
     context_builder: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Universal post-write LSP trigger - agnostic of which tool wrote
-    the file. Meant to be wired on ``tool_end`` so **any** module
-    (filesystem, workspace, a custom one, or an MCP server tool) gets
-    free diagnostics without code changes.
-
-    How it resolves (path, content) - in this order:
-
-    1. ``tool_params[path_field[i]]`` - try each configured key name in
-       order. Default list covers Digitorn + common MCP conventions:
-       ``["file_path", "path", "filepath", "filename", "file"]``.
-    2. ``tool_params[content_field[i]]`` - same cascade. Default:
-       ``["content", "contents", "body", "text", "data"]``.
-    3. If content wasn't in params (e.g. the tool used ``old_string`` /
-       ``new_string`` for an edit) AND ``read_from_disk=true`` (default),
-       the action reads the current file content from disk - resolves
-       relative paths against the session workspace.
-
-    Params:
-        path_field       str | list[str] - param keys holding the path.
-        content_field    str | list[str] - param keys holding content.
-        read_from_disk   bool (default True) - fall back to reading the
-                          file from disk when content isn't in params.
-                          Critical for MCP tools that only return a
-                          success status without echoing the content.
-        publish          bool (default True) - push the result to the
-                          ``diagnostics`` preview channel for clients.
-        inject_result    bool (default False) - rewrite the tool's
-                          ``tool_result`` so the agent's next turn sees
-                          ``lint``, ``errors``, ``warnings`` fields on
-                          the same response the MCP tool returned.
-                          Enables the same self-correction loop the
-                          workspace / filesystem modules give for free.
-
-    Example (MCP GitHub tool that writes a file)::
-
-        hooks:
-          - event: tool_end
-            condition:
-              type: tool_name
-              value: ["mcp.github.create_or_update_file"]
-            action:
-              type: lsp_diagnose
-              path_field: ["path", "file_path"]
-              content_field: ["content"]
-              inject_result: true
-
-    The action is a **no-op** when the tool doesn't match a write
-    pattern (no path found) - safe to register on broad conditions.
-    """
     tool_ctx = getattr(state, "tool_context", None)
     if tool_ctx is None or context_builder is None:
         return
 
     tool_params = getattr(tool_ctx, "tool_params", {}) or {}
-    # Expanded defaults covering Digitorn + typical MCP tool schemas
-    # (github, gitlab, filesystem, gdrive, notion, linear, slack…)
     path_fields = params.get("path_field") or [
         "file_path", "path", "filepath", "filename", "file",
     ]
@@ -2008,11 +1449,8 @@ async def _exec_lsp_diagnose(
             break
 
     if not path:
-        return  # tool wasn't a write - nothing to diagnose
+        return
 
-    # For edits, `tool_params.content` is typically absent (we have
-    # `old_string`/`new_string` instead). Try the tool result first,
-    # then fall back to reading from disk if allowed.
     if content is None:
         tool_result = getattr(tool_ctx, "tool_result", None)
         if isinstance(tool_result, dict):
@@ -2024,9 +1462,6 @@ async def _exec_lsp_diagnose(
         try_path = path
         if not _os.path.isabs(try_path) and ws:
             try_path = _os.path.join(ws, path)
-        # Off-loop: this hook fires on every Write/Edit. A multi-KB source
-        # file read on the loop adds 5-50ms of synchronous block per call,
-        # adding up under burst-edit workflows.
         def _read_disk(p: str) -> str | None:
             try:
                 with open(p, "r", encoding="utf-8", errors="replace") as f:
@@ -2034,12 +1469,7 @@ async def _exec_lsp_diagnose(
             except Exception:
                 return None
         content = await asyncio.to_thread(_read_disk, try_path)
-        # disk unreadable - LSP can still run with None content (servers
-        # that support incremental sync will use their cached state)
 
-    # Run lsp.notify_change. The lsp module already knows how to pick
-    # a protocol for the extension and fall back to no-op when nothing
-    # is wired - no extra error-handling needed here.
     try:
         lsp_result = await context_builder.execute(
             "execute_tool",
@@ -2055,15 +1485,10 @@ async def _exec_lsp_diagnose(
         logger.debug("hook_lsp_diagnose: notify_change failed: %s", exc)
         return
 
-    # Pull the flat items once - used both for publish + inject_result.
     flat_items: list[dict[str, Any]] = []
     if getattr(lsp_result, "success", False) and getattr(lsp_result, "data", None):
         flat_items = lsp_result.data.get("diagnostics") or []
 
-    # Inject into the tool's own result so the agent sees the errors
-    # on its next turn - same self-correction loop the workspace /
-    # filesystem modules already give. Supports both dict and string
-    # tool_result shapes (MCP tools often return strings).
     if inject_result and flat_items:
         errors = [d for d in flat_items if d.get("severity") == "error"]
         warnings = [d for d in flat_items if d.get("severity") not in (None, "error")]
@@ -2097,7 +1522,6 @@ async def _exec_lsp_diagnose(
     items = flat_items
     severity_max = None
     if flat_items:
-        # Normalise to LSP range shape via Diagnostic.to_lsp_dict.
         try:
             from digitorn.modules.lsp.parsers import Diagnostic as _Diag
             lsp_items: list[dict[str, Any]] = []
@@ -2118,15 +1542,9 @@ async def _exec_lsp_diagnose(
             order = ("error", "warning", "info", "hint")
             severity_max = next((s for s in order if s in severities), None)
             items = lsp_items
-        except Exception:
-            pass  # keep items flat - client can still render line/col
+        except Exception as exc:
+            logger.debug("lsp_diagnose: items conversion failed: %s", exc)
 
-    # Publish to preview.diagnostics - reuses the same channel as the
-    # workspace / filesystem modules so clients see a single source of
-    # truth regardless of who triggered the write. We use the preview
-    # module directly (not context_builder) because set_resource is
-    # internal=True - invisible to the LLM and blocked from generic
-    # tool-execute paths.
     agent_ctx = getattr(state, "_agent_context", None)
     preview_module = getattr(agent_ctx, "preview_module", None) if agent_ctx else None
     if preview_module is None:
@@ -2150,10 +1568,6 @@ async def _exec_lsp_diagnose(
 
 
 def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
-    """Cheap structural checks before the real compile - targets the
-    mistakes LLMs make most often so they get targeted hints instead
-    of a generic Pydantic traceback.
-    """
     errors: list[dict[str, str]] = []
     try:
         from digitorn.core.app.yaml_loader import safe_load_strict
@@ -2175,8 +1589,6 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
 
     app = parsed.get("app")
     if not isinstance(app, dict):
-        # Common pattern: agent puts metadata (name/description/version/icon)
-        # at ROOT instead of under `app:`. Detect and give a precise hint.
         stray = [k for k in ("name", "description", "version", "icon", "color", "author", "tags", "category") if k in parsed]
         if stray:
             errors.append({
@@ -2207,8 +1619,6 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
                 "message": f"Fields {stray_in_app} are not valid under 'app:' - belong under 'execution:'.",
                 "hint": "execution:\\n  mode: conversation\\n  entry_agent: <id>\\n  max_turns: 20",
             })
-        # Common hallucinations: the reasoner keeps nesting top-level
-        # blocks under app. These have to live at the root.
         misnested = {
             "agents": "agents (top-level LIST)",
             "modules": "modules (top-level DICT keyed by module_id)",
@@ -2469,48 +1879,6 @@ async def _exec_compile_yaml(
     context_builder: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Post-write Digitorn-YAML validator - non-skippable compile loop.
-
-    Wired on ``tool_end`` after a write tool (typically ``workspace.write``
-    or ``workspace.edit`` on ``app.yaml``). Runs the daemon's
-    ``dev_tools.app(compile_yaml=true)`` with the content the agent just
-    wrote and, when ``inject_result`` is set, merges any compile errors
-    back into the write tool's ``tool_result`` so the agent is forced
-    to see them before proceeding.
-
-    The Builder prompt already says "compile after every write". In
-    practice LLMs skip it. This hook turns a discipline rule into a
-    mechanical one: the agent physically cannot receive a "write ok"
-    response for ``app.yaml`` without also seeing the compile verdict.
-
-    Params:
-        path_field       str | list[str] - param keys holding the path.
-                          Default: ``["path", "file_path"]``.
-        content_field    str | list[str] - param keys holding content.
-                          Default: ``["content"]``.
-        only_path        str - when set, the hook is a no-op unless the
-                          written path matches. Use ``"app.yaml"`` on a
-                          builder-style app to scope tightly.
-        inject_result    bool (default True) - rewrite the write tool's
-                          ``tool_result`` so the agent's next turn sees
-                          ``compile.success`` / ``compile.errors``.
-
-    Example (in a builder app yaml)::
-
-        hooks:
-          - id: compile_on_app_yaml_write
-            on: tool_end
-            condition:
-              all_of:
-                - type: tool_name
-                  value: ["workspace.write", "workspace.edit"]
-                - type: tool_failed
-                  negate: true
-            action:
-              type: compile_yaml
-              only_path: "app.yaml"
-              inject_result: true
-    """
     tool_ctx = getattr(state, "tool_context", None)
     if tool_ctx is None or context_builder is None:
         return
@@ -2532,10 +1900,9 @@ async def _exec_compile_yaml(
             path = str(v)
             break
     if not path:
-        return  # not a write-by-path call - skip
+        return
 
     if only_path:
-        # Match by basename OR exact path (users usually pass "app.yaml")
         import os as _os
         base = _os.path.basename(path)
         if only_path not in (path, base):
@@ -2548,17 +1915,11 @@ async def _exec_compile_yaml(
             content = str(v)
             break
 
-    # For workspace.edit (old_string/new_string), content is not in
-    # params - read it back from the tool's own result which the
-    # workspace module exposes, or from disk as a last resort.
     if content is None:
         tool_result = getattr(tool_ctx, "tool_result", None)
         if isinstance(tool_result, dict):
             content = tool_result.get("content")
     if content is None:
-        # Read the newly-written file from the session workspace. Off-loop
-        # because compile_yaml hooks fire on every YAML write and a few
-        # tens of milliseconds of sync read per fire adds up under burst.
         agent_ctx = getattr(state, "_agent_context", None)
         ws = getattr(agent_ctx, "workspace", "") if agent_ctx else ""
         import os as _os
@@ -2575,13 +1936,10 @@ async def _exec_compile_yaml(
         content = await asyncio.to_thread(_read_disk, try_path)
 
     if not content:
-        return  # nothing to compile
+        return
 
     pre_errors = _yaml_pre_validate(content)
 
-    # Run the compile via dev_tools.app. The tool already encapsulates
-    # the correct daemon endpoint, so this works regardless of how the
-    # daemon is reached (port, auth, loopback bypass).
     try:
         compile_res = await context_builder.execute(
             "execute_tool",
@@ -2599,13 +1957,11 @@ async def _exec_compile_yaml(
 
     ok = bool(getattr(compile_res, "success", False))
     data = getattr(compile_res, "data", None) or {}
-    # ``compile_yaml`` returns {error, errors, compiled?, ...}. Normalise.
     errors: list[Any] = []
     if isinstance(data, dict):
         raw_errs = data.get("errors") or []
         if isinstance(raw_errs, list):
             errors = raw_errs
-        # Some paths put a single string in ``error``.
         single = data.get("error")
         if single and not errors:
             errors = [str(single)]
@@ -2617,9 +1973,6 @@ async def _exec_compile_yaml(
         "pre_error_count": len(pre_errors),
     }
 
-    # Inject into the write tool's own result - same self-correction
-    # loop as lsp_diagnose. The agent sees the compile verdict on the
-    # same message as the WsWrite success.
     if inject_result:
         try:
             current = getattr(tool_ctx, "tool_result", None)
@@ -2629,7 +1982,7 @@ async def _exec_compile_yaml(
                 if not verdict["success"]:
                     merged["compile_failed"] = True
                     merged["next_step_hint"] = (
-                        "Fix the errors listed under ``compile.errors`` "
+                        "Fix the errors listed under `compile.errors` "
                         "with WsEdit, then WsWrite the corrected YAML - "
                         "the post-write hook will recompile automatically."
                     )
@@ -2645,9 +1998,6 @@ async def _exec_compile_yaml(
         except Exception as exc:
             logger.debug("hook_compile_yaml: inject failed: %s", exc)
 
-    # Additionally persist a light state file for the preview's
-    # ReadyDashboard + CompileStatus - the agent can also read this
-    # on subsequent turns to avoid re-running compile unnecessarily.
     agent_ctx = getattr(state, "_agent_context", None)
     ws_mod = getattr(agent_ctx, "workspace_module", None) if agent_ctx else None
     if ws_mod is None:
@@ -2685,14 +2035,6 @@ async def _exec_auto_test_deploy(
     context_builder: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Post-deploy mandatory smoke test - makes Phase 6 non-skippable.
-
-    Wired on ``tool_end`` after ``dev_tools.app`` with ``deploy_draft_id``
-    set and a successful result. Sends a canonical smoke message through
-    ``dev_tools.chat`` (watch mode), writes ``_state/deploy.json`` and
-    appends the outcome to ``_state/tests.json`` - the preview's auto-test
-    strip and readiness dashboard read both files to flip green.
-    """
     tool_ctx = getattr(state, "tool_context", None)
     if tool_ctx is None or context_builder is None:
         return
@@ -2826,7 +2168,6 @@ async def _exec_auto_test_deploy(
                 read_res = await ws_mod.read(ReadParams(path="_state/tests.json"))
                 if getattr(read_res, "success", False):
                     raw = (getattr(read_res, "data", None) or {}).get("content") or ""
-                    # ws_mod.read returns cat -n format; strip prefixes.
                     stripped = "\n".join(
                         line.split("\t", 1)[1] if "\t" in line else line
                         for line in raw.split("\n")
@@ -2835,8 +2176,8 @@ async def _exec_auto_test_deploy(
                         parsed = _json.loads(stripped)
                         if isinstance(parsed, dict):
                             existing = parsed
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("test history read parse failed: %s", exc)
             tests = existing.get("tests") or []
             if not isinstance(tests, list):
                 tests = []
@@ -2859,7 +2200,7 @@ async def _exec_auto_test_deploy(
                     merged["auto_test_failed"] = True
                     merged["next_step_hint"] = (
                         "The post-deploy smoke test failed. Read "
-                        "``_state/tests.json`` for details, fix the app "
+                        "`_state/tests.json` for details, fix the app "
                         "YAML or UI files, recompile and redeploy."
                     )
                 tool_ctx.tool_result = merged
@@ -2885,10 +2226,6 @@ async def _exec_prefetch_ground_truth(
     context_builder: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Turn-0 single-shot: preload modules/triggers/templates + a few
-    canonical RAG examples into the conversation so the agent cannot
-    skip Phase 0 discovery. Runs once per session.
-    """
     if context_builder is None:
         return
     if state.turn != 0:
@@ -2900,13 +2237,6 @@ async def _exec_prefetch_ground_truth(
     if getattr(runtime, "_ground_truth_prefetched", False):
         return
 
-    # Skip the (expensive) 14KB ground-truth dump for messages that
-    # clearly aren't a build request. Greetings / meta questions /
-    # short pleasantries should not force the reasoner to chew through
-    # every module + trigger + template + RAG example. Heuristic:
-    # prefetch when the user message contains a build intent keyword OR
-    # is longer than 40 chars (a real brief). Saves ~5min of reasoner
-    # thinking on trivial turns.
     build_keywords = (
         "build", "create", "make", "generate", "deploy", "compile",
         "agent", "chatbot", "app", "tool", "automation", "workflow",
@@ -3016,11 +2346,6 @@ async def _exec_enforce_phase6(
     params: dict[str, Any],
     **kwargs: Any,
 ) -> None:
-    """Turn-end guard: if a deploy happened but no successful smoke test
-    exists, append a system note to the last user message so the next
-    turn re-fires Phase 6. Silently no-ops if the workspace module is
-    absent or both files are missing.
-    """
     agent_ctx = getattr(state, "_agent_context", None)
     ws_mod = getattr(agent_ctx, "workspace_module", None) if agent_ctx else None
     if ws_mod is None:
@@ -3065,17 +2390,17 @@ async def _exec_enforce_phase6(
     runtime = getattr(state, "runtime", None)
     if runtime is None:
         return
-    store = getattr(runtime, "_phase6_reminders", None)
+    store = getattr(runtime, "_smoke_test_reminders", None)
     if store is None:
-        runtime._phase6_reminders = 0
+        runtime._smoke_test_reminders = 0
         store = 0
     if store >= max_reminders:
         return
-    runtime._phase6_reminders = store + 1
+    runtime._smoke_test_reminders = store + 1
 
     app_id_tested = deploy.get("app_id") or "<app_id>"
     reminder = (
-        f"Phase 6 not complete: you deployed '{app_id_tested}' but "
+        f"Smoke test not complete: you deployed '{app_id_tested}' but "
         f"_state/tests.json has no entry with success=true. "
         f"Immediately run Chat(app_id='{app_id_tested}', "
         f"message='<smoke prompt>', watch=true) and stop only when the "
@@ -3097,14 +2422,6 @@ async def _exec_enforce_compile_fix(
     params: dict[str, Any],
     **kwargs: Any,
 ) -> None:
-    """Turn-end guard: if ``_state/compile.json`` shows errors AND no
-    newer YAML write happened this turn, append a system note so the
-    next turn is forced to iterate the YAML fix. Prevents the agent from
-    giving up on a half-broken app.yaml (the `compile_on_app_yaml_write`
-    hook already injects errors into the write-tool result; this hook
-    catches the case where the agent sees them and then stops responding
-    without correcting).
-    """
     agent_ctx = getattr(state, "_agent_context", None)
     ws_mod = getattr(agent_ctx, "workspace_module", None) if agent_ctx else None
     if ws_mod is None:
@@ -3163,12 +2480,6 @@ async def _exec_enforce_compile_fix(
 
 
 class HookRunner:
-    """Evaluates hooks and executes actions when conditions are met.
-
-    Created once per app run, lives for the duration of the execution.
-    Tracks cooldowns and fire counts across turns.
-    """
-
     def __init__(
         self,
         hooks: list[Hook],
@@ -3178,8 +2489,6 @@ class HookRunner:
         context_builder: Any = None,
         on_hook_event: Callable[..., Awaitable[None]] | None = None,
     ) -> None:
-        # Stable-sort by priority (lower = earlier). Python's sort is
-        # stable so YAML order is preserved for equal priorities.
         self._hooks = [
             RuntimeHook(hook=h)
             for h in sorted(hooks, key=lambda x: x.priority)
@@ -3202,7 +2511,6 @@ class HookRunner:
         self._on_hook_event = value
 
     async def _emit(self, hook_id: str, action_type: str, phase: str, details: dict[str, Any] | None = None) -> None:
-        """Emit a hook event to the registered callback."""
         if self._on_hook_event is None:
             return
         from digitorn.core.runtime.types import HookEvent
@@ -3217,10 +2525,6 @@ class HookRunner:
         except Exception as exc:
             logger.warning("hook_event_emit_error: %s", exc)
 
-    # Aliases - let user-facing names resolve to the canonical event
-    # emitted by the runtime. Keeps YAML semantics close to the LSP /
-    # Claude Code vocabulary ("pre_tool_use") while the engine keeps
-    # a single emit point per moment.
     _EVENT_ALIASES = {
         "pre_tool_use": "tool_start",
         "post_tool_use": "tool_end",
@@ -3228,23 +2532,8 @@ class HookRunner:
     }
 
     async def run(self, event: str, state: TurnState) -> list[str]:
-        """Evaluate all hooks for the given event and fire matching ones.
-
-        Args:
-            event: The event name (e.g. "turn_end", "tool_start",
-                   "session_start", "error", …). Aliases (``pre_tool_use``,
-                   ``post_tool_use``, ``user_prompt``) are resolved to
-                   their canonical emission event.
-            state: Current turn state.
-
-        Returns:
-            List of hook IDs that fired.
-        """
         fired: list[str] = []
 
-        # Agent-scope filter: hooks bound to a specific agent only fire
-        # when the current turn belongs to that agent. State carries the
-        # active agent_id; if absent, we treat the hook as app-wide.
         current_agent = getattr(state, "agent_id", None)
 
         for rh in self._hooks:
@@ -3253,7 +2542,6 @@ class HookRunner:
             if canonical != event and declared_on != event:
                 continue
 
-            # Per-agent filter: skip hooks bound to a different agent
             scope_agent = rh.hook.agent_id
             if scope_agent is not None and scope_agent != current_agent:
                 continue
@@ -3302,22 +2590,8 @@ class HookRunner:
                 if rh.hook.action.type == "compact_context" and self._summary_provider is not None:
                     action_provider = self._summary_provider
 
-                # Hard timeout on every hook action. Without this a
-                # runaway hook (catastrophic regex in transform_params,
-                # infinite loop in a custom shell action, stuck LLM call
-                # in compact_context) would block the agent loop forever
-                # and the Socket.IO client would drop. The timeout is
-                # per-hook (YAML field, default 30s).
                 _hook_timeout = rh.hook.timeout if rh.hook.timeout > 0 else 30.0
 
-                # Snapshot ``state.messages`` BEFORE running compaction,
-                # so a partial compact (some messages dropped, summary
-                # half-written) that hits the timeout doesn't leave
-                # ``messages`` in an inconsistent state. We restore the
-                # snapshot on timeout. The snapshot is a shallow list
-                # copy: cheap (tens of µs for 100 message refs) and
-                # adequate because individual message dicts aren't
-                # mutated by the compaction algorithm.
                 _is_compact = rh.hook.action.type == "compact_context"
                 _msg_snapshot: list[dict[str, Any]] | None = None
                 if _is_compact:
@@ -3340,20 +2614,13 @@ class HookRunner:
                     logger.warning(
                         "hook_timeout: hook '%s' (action=%s) exceeded "
                         "%.1fs and was cancelled. Adjust the hook's "
-                        "``timeout`` field if this is expected.",
+                        "`timeout` field if this is expected.",
                         rh.hook.id, rh.hook.action.type, _hook_timeout,
                     )
-                    # Compaction half-completed: restore the pre-hook
-                    # snapshot so the next turn doesn't see a corrupted
-                    # message list (e.g. orphan tool_call without its
-                    # tool_result, or a ``[Compaction summary: ...``
-                    # placeholder without the messages it summarized).
                     if _is_compact and _msg_snapshot is not None:
                         try:
                             state.messages.clear()
                             state.messages.extend(_msg_snapshot)
-                            # Reset the cached token estimate so the
-                            # next pressure check sees fresh numbers.
                             state._estimated_tokens = None  # type: ignore[attr-defined]
                             logger.warning(
                                 "hook_timeout: restored %d messages from "
@@ -3411,7 +2678,6 @@ class HookRunner:
                     rh.hook.action.type, rh.hook.id, exc,
                 )
 
-        # Emit context_status after every hook evaluation so the UI can show pressure
         try:
             await self._emit(
                 "_system", "context_status", "update",
@@ -3424,21 +2690,13 @@ class HookRunner:
                     "messages": state.message_count,
                 },
             )
-        except Exception:
-            pass  # Never break hook flow for UI status
+        except Exception as exc:
+            logger.debug("context_pressure event emit failed: %s", exc)
 
         return fired
 
 
 def compile_hooks(compiled_hooks: list[Any]) -> list[Hook]:
-    """Convert compiled hook definitions into runtime Hook objects.
-
-    Args:
-        compiled_hooks: List of CompiledHook dataclasses from the compiler.
-
-    Returns:
-        List of Hook objects ready for HookRunner.
-    """
     hooks: list[Hook] = []
 
     for ch in compiled_hooks:
@@ -3473,7 +2731,6 @@ def build_hook_runner(
     context_builder: Any = None,
     on_hook_event: Callable[..., Awaitable[None]] | None = None,
 ) -> HookRunner | None:
-    """Build a HookRunner from compiled hooks. Returns None if no hooks."""
     if not compiled_hooks:
         return None
 

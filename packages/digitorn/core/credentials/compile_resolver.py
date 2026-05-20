@@ -1,32 +1,4 @@
-"""Compile-time secret resolver using the new CredentialStore.
-
-The existing compiler in ``core/app/compiler.py`` takes a pre-built
-``secrets: dict[str, str]`` when it invokes ``variables._lookup``
-for ``{{secret.X}}`` references. This module builds that dict from
-the new ``CredentialStore`` by walking the scopes that are valid at
-compile time:
-
-- ``system_wide``  - daemon-level config, always shared
-- ``per_app_shared`` - credentials scoped to this specific app
-
-Per-user scopes (``per_user``, ``per_app_per_user``) are **not**
-resolved at compile time because the compile has no user context.
-Those are resolved at runtime via
-``runtime_resolve_secret(store, user_id, app_id, key)``.
-
-Both resolvers go through the same store, so the user never has to
-think about "which resolver reads which scope" - the store's
-``resolve_field`` walks the full 4-level hierarchy.
-
-Legacy ``secret_store`` per-app shim
-------------------------------------
-
-The previous daemon had a separate per-app secret store
-(``manager._secret_store``). During migration we keep writing to it
-AND to the new store, and this module reads from both. Once every
-app has been migrated, the old store can be removed without
-touching any runtime code - this resolver is the single seam.
-"""
+"""Compile-time secret resolver using the new CredentialStore."""
 
 from __future__ import annotations
 
@@ -44,26 +16,7 @@ async def build_compile_secrets(
     app_id: str,
     legacy_secrets: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Build a flat ``{key: value}`` dict of secrets visible at compile time.
-
-    Walks ``per_app_shared`` and ``system_wide`` scopes on the new
-    store, merges with the legacy per-app secret dict (for apps that
-    haven't been migrated yet), and returns the result.
-
-    The compiler then passes this dict to ``variables._resolve_string``
-    and everything in YAML that uses ``{{secret.X}}`` resolves as it
-    did before - except now ``X`` can come from the new store.
-
-    Args:
-        store: The live CredentialStore, or None to skip new-store lookup.
-        app_id: The app being compiled.
-        legacy_secrets: The existing per-app secret dict from
-            ``manager._secret_store`` (shim during migration).
-
-    Returns:
-        A flat dict. Legacy values win on conflict (to avoid
-        breaking apps that set their secret via the old route).
-    """
+    """Build a flat `{key: value}` dict of secrets visible at compile time."""
     merged: dict[str, str] = {}
 
     if store is not None:
@@ -88,9 +41,6 @@ async def build_compile_secrets(
                 app_id, exc,
             )
 
-    # Legacy secrets win because apps that had old secret_store entries
-    # may reference them with their historical keys. Migration will
-    # eventually drop this merge step.
     if legacy_secrets:
         merged.update(legacy_secrets)
 
@@ -102,20 +52,7 @@ async def _flatten_credential_into(
     row: dict[str, Any],
     target: dict[str, str],
 ) -> None:
-    """Decrypt a credential row and inject its fields into ``target``.
-
-    The naming convention for the flat dict keys:
-
-    - If a credential has a **single field**, it lands under its
-      provider_name (so ``provider: OPENAI_API_KEY`` with a single
-      ``api_key`` field → ``target["OPENAI_API_KEY"] = <value>``).
-      This preserves the legacy flat-secret-name convention.
-
-    - If a credential has **multiple fields**, each lands under
-      ``<provider>.<field>`` (so Slack's bot_token becomes
-      ``target["slack.bot_token"]``). The YAML references the same
-      way: ``{{secret.slack.bot_token}}``.
-    """
+    """Decrypt a credential row and inject its fields into `target`."""
     try:
         full = await store.get_credential(
             user_id=row.get("user_id"),
@@ -155,22 +92,7 @@ async def runtime_resolve_secret(
     user_id: str,
     app_id: str,
 ) -> str | None:
-    """Resolve a single secret key at runtime for a specific user.
-
-    Used by runtime template renderers (channels pipeline, module
-    params rendering) that have a user context and want to resolve
-    ``{{secret.X}}`` expressions left as passthrough by the compile.
-
-    Walks the full 4-scope hierarchy via ``store.resolve_field``:
-
-    1. per_app_per_user
-    2. per_user
-    3. per_app_shared
-    4. system_wide
-
-    Returns ``None`` if nothing matched - the caller decides whether
-    to raise or log.
-    """
+    """Resolve a single secret key at runtime for a specific user."""
     if store is None:
         return None
     try:

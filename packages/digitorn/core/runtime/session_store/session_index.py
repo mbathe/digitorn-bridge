@@ -1,18 +1,4 @@
-"""Cross-session index: query sessions by user, app, time range.
-
-The SessionStore + jsonfile/blob layers handle ONE session at a time
-in O(1). They don't answer ``what are this user's last 20 chats?``
-without walking every directory. This module fills that gap with a
-tiny indexed view over the per-session metadata.
-
-Default backend: SQLite (stdlib only, no async DB driver). Sync calls
-are wrapped in ``asyncio.to_thread`` so the event loop is never
-blocked. ~150 bytes per row -> 100k sessions = ~15 MB on disk.
-
-Index is **derived state** -- the source of truth is the per-session
-``meta.json`` + ``snapshot.json``. If the index is wiped, it can be
-rebuilt by walking the sessions root and upserting each summary.
-"""
+"""Cross-session index: query sessions by user, app, time range."""
 
 from __future__ import annotations
 
@@ -29,8 +15,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SessionSummary:
-    """The light row stored in the index. Mirrors ``state.summary()``
-    plus a few fields useful for the dashboard."""
+    """The light row stored in the index. Mirrors `state.summary()`"""
 
     session_id: str
     app_id: str
@@ -168,13 +153,7 @@ def _row_to_summary(row: sqlite3.Row) -> SessionSummary:
 
 
 class SqliteSessionIndex:
-    """SQLite-backed cross-session index. Stdlib only.
-
-    Concurrency: SQLite holds a process-wide single-writer-at-a-time
-    lock; multiple async readers are fine. All ops go through
-    ``asyncio.to_thread`` so the event loop is never blocked even
-    on a slow disk.
-    """
+    """SQLite-backed cross-session index. Stdlib only."""
 
     def __init__(self, *, db_path: Path) -> None:
         self._db_path = Path(db_path)
@@ -377,9 +356,7 @@ class SqliteSessionIndex:
     async def rebuild_from_summaries(
         self, summaries: list[SessionSummary],
     ) -> int:
-        """Wipe + re-populate. Used to recover the index from the
-        per-session ``meta.json`` files when the SQLite file is lost
-        or corrupted."""
+        """Wipe + re-populate. Used to recover the index from the"""
         return await asyncio.to_thread(
             self._rebuild_sync, summaries,
         )

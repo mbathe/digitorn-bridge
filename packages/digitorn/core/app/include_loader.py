@@ -1,47 +1,4 @@
-"""Fragmentation loader - compose an AppDefinition from a directory tree.
-
-A real Digitorn app is rarely a single 1000-line YAML. The expected
-layout is::
-
-    my-app/
-      app.yaml              # main manifest
-      agents/
-        triage.yaml         # one agent per file
-        refund.yaml
-      hooks/
-        audit.yaml          # list of hooks
-      behavior/
-        rules.yaml          # behavior config slice
-      prompts/
-        triage.md           # referenced via agents[].skills
-      skills/
-        runbook.md          # referenced via skills[]
-
-The ``IncludeLoader`` walks this tree and merges every fragment into a
-single dict that the compiler then passes to ``AppDefinition.model_validate``.
-
-Two composition modes coexist (validated with the user 2026-05-01):
-
-  - **Convention auto-load**: fragments in ``./agents``, ``./hooks``,
-    ``./behavior`` are picked up automatically when the directory exists.
-  - **Explicit override**: an ``include:`` block in app.yaml lists the
-    files or directories to load instead of (or in addition to) the
-    convention.
-
-Composition rules:
-
-  - List fields (``agents``, ``hooks``, ``skills``) are CONCATENATED
-    with inline entries in app.yaml first, then fragments in
-    alphabetical filename order.
-  - Dict fields (``modules``, ``behavior``) are MERGED, inline winning
-    on key conflict.
-  - Duplicate ids (e.g. two agents with id ``foo``) fail at compile via
-    the existing ``_validate_dependency_graph`` pass.
-
-This module is intentionally pure and stateless - it returns a merged
-dict and does not touch the compiler's state. The compiler decides
-whether to run it based on whether ``source_dir`` is set.
-"""
+"""Fragmentation loader - compose an AppDefinition from a directory tree."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -52,31 +9,20 @@ import yaml
 from digitorn.core.app.yaml_loader import safe_load_strict
 
 
-# ─── Directory conventions ──────────────────────────────────────
-
-
 CONVENTION_DIRS: dict[str, str] = {
     "agents": "agents",       # list of agent definitions
     "hooks": "hooks",         # list of hook configs (under execution.hooks)
 }
 
-# Single-file conventions: filename → top-level YAML field. The loader
-# reads the file (if present), parses either a bare list or a mapping
-# `{<field>: [...]}`, and concatenates with any inline entry from the
-# main app.yaml (inline first).
 CONVENTION_FILES: dict[str, str] = {
     "templates": "templates.yaml",
 }
 
 
-# A reader callable: (relative_path: str) -> file content string OR None.
-# Lets us swap between filesystem reads (compile_file) and bundle asset
-# reads (compile_string + asset_loader) without changing the merge logic.
 ReadFn = Callable[[str], Optional[str]]
 
 
 def _make_filesystem_reader(source_dir: Path) -> ReadFn:
-    """Return a reader that reads from ``source_dir`` on disk."""
     def _read(rel_path: str) -> Optional[str]:
         path = (source_dir / rel_path).resolve()
         try:
@@ -94,10 +40,7 @@ def _make_filesystem_reader(source_dir: Path) -> ReadFn:
 
 
 def _list_yaml_files_filesystem(source_dir: Path, rel_dir: str) -> list[str]:
-    """Discover .yaml/.yml files in ``source_dir / rel_dir``.
-
-    Returns relative paths (forward-slash) sorted alphabetically. Empty
-    when the directory does not exist or has no YAML files."""
+    """Discover .yaml/.yml files in `source_dir / rel_dir`."""
     target = source_dir / rel_dir
     if not target.is_dir():
         return []
@@ -115,21 +58,13 @@ def _list_yaml_files_filesystem(source_dir: Path, rel_dir: str) -> list[str]:
 
 def _parse(content: str, label: str) -> Any:
     try:
-        # YAML 1.2 strict bool resolver: bareword on/off/yes/no stay
-        # strings instead of being silently coerced to booleans.
-        # Centralised in ``yaml_loader.py`` so every Digitorn YAML
-        # path has the same behaviour.
         return safe_load_strict(content)
     except yaml.YAMLError as exc:
         raise ValueError(f"YAML parse error in {label}: {exc}") from exc
 
 
-# ─── Per-section merge logic ────────────────────────────────────
-
-
 def _coerce_to_list(parsed: Any, label: str) -> list[Any]:
-    """A fragment file may hold either a single mapping (one agent) or
-    a list (multiple hooks). Normalise to a list of mappings."""
+    """A fragment file may hold either a single mapping (one agent) or"""
     if parsed is None:
         return []
     if isinstance(parsed, list):
@@ -150,7 +85,6 @@ def _merge_list_section(
     *,
     source_label: str,
 ) -> list[Any]:
-    """Inline entries first, then concatenated fragments in path order."""
     out = list(inline or [])
     for rel in rel_paths:
         content = read(rel)
@@ -165,9 +99,6 @@ def _merge_list_section(
     return out
 
 
-# ─── Resolution of explicit include: spec ───────────────────────
-
-
 def _resolve_include_paths(
     spec: Any,
     source_dir: Path | None,
@@ -175,16 +106,7 @@ def _resolve_include_paths(
     errors: list[str],
     list_dir: Callable[[str], list[str]],
 ) -> list[str]:
-    """Turn an ``include[section]`` spec into a list of relative YAML paths.
-
-    Spec can be:
-      - A string path to a directory: every ``*.yaml``/``*.yml`` is loaded.
-      - A string path to a file: that file is loaded.
-      - A list of any of the above.
-
-    ``list_dir`` is the directory enumeration callable - filesystem-based
-    when source_dir is set, asset-loader-based when reading from a bundle.
-    """
+    """Turn an `include[section]` spec into a list of relative YAML paths."""
     if spec is None:
         return []
     if isinstance(spec, str):
@@ -220,9 +142,6 @@ def _resolve_include_paths(
     return out
 
 
-# ─── Public API ─────────────────────────────────────────────────
-
-
 def apply_includes(
     raw: dict[str, Any],
     source_dir: Path | None,
@@ -231,25 +150,7 @@ def apply_includes(
     list_dir: Callable[[str], list[str]] | None = None,
     collected_assets: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Compose the raw YAML dict with auto-loaded conventions and any
-    explicit ``include:`` directives.
-
-    Two modes:
-
-      - **Source-tree mode** (``source_dir`` provided): fragments are read
-        from disk; if ``collected_assets`` is given, every fragment that
-        gets merged is also recorded so the bundle stores it alongside
-        the main YAML. This is what compile_file uses.
-
-      - **Bundle mode** (``asset_loader`` + ``list_dir`` provided): fragments
-        are read through the asset loader, no filesystem access. Used by
-        compile_string when reloading from a packaged bundle.
-
-    Returns the merged dict and a list of error strings.
-
-    No-op when neither mode is wired (e.g. compile_string from a literal
-    string with no source path). Subsequent code paths still see a
-    well-formed dict, just without fragments."""
+    """Compose the raw YAML dict with auto-loaded conventions and any"""
     if not isinstance(raw, dict):
         return raw, []
 
@@ -290,8 +191,7 @@ def apply_includes(
             merged["dev"] = new_dev
 
     def _record(rel_paths: list[str]) -> None:
-        """Persist the fragment content into the bundle's asset map so
-        a later bundle reload via asset_loader can find it."""
+        """Persist the fragment content into the bundle's asset map so"""
         if collected_assets is None or read is None:
             return
         for rel in rel_paths:
@@ -317,10 +217,6 @@ def apply_includes(
     if "hooks" not in overridden:
         rels = enumerate_dir(CONVENTION_DIRS["hooks"])
         if rels:
-            # The canonical home for hooks is `runtime.hooks` since v2.
-            # The pre-Pydantic schema_aliases pass already lifted any
-            # legacy `execution.hooks` into `runtime.hooks`, so we
-            # write directly to the canonical location here.
             rt = dict(merged.get("runtime") or {})
             rt["hooks"] = _merge_list_section(
                 rt.get("hooks"), rels, read, errors, source_label="hooks",
@@ -328,10 +224,6 @@ def apply_includes(
             merged["runtime"] = rt
             _record(rels)
 
-    # Single-file conventions (templates.yaml). The fragment can be
-    # either a bare list of entries OR a mapping `{<field>: [...]}`.
-    # Inline entries from the main app.yaml come first; the fragment
-    # appends, matching how directory-based conventions merge.
     for field_name, filename in CONVENTION_FILES.items():
         if field_name in overridden:
             continue

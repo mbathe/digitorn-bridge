@@ -1,8 +1,4 @@
-"""Routes for the messages group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the messages group."""
 
 from __future__ import annotations
 
@@ -103,15 +99,10 @@ from ._shared import (
     InjectOAuthTokenRequest
 )
 
-# Hard cap on the extracted text we keep on a FileRef for the
-# direct-mode prepend path. Big contracts / books exceed this; the
-# workspace channel still holds the full content for the tool-mode
-# WsRead path. 200 KB of UTF-8 text is ~50k tokens.
 _FULL_INJECT_CACHE_CAP = 200_000
 
 
 router = APIRouter(tags=["apps"])
-
 
 
 @router.post("/{app_id}/sessions/{session_id}/messages")
@@ -121,44 +112,12 @@ async def session_send_message(
     session_id: str,
     body: SessionMessageRequest,
 ) -> AppResponse:
-    """Send a message to a session. Events arrive via Socket.IO.
-
-    **Queueing (Phase 3 - per-session FIFO queue)**
-
-    When a turn is already running on this session, the message is
-    enqueued instead of failing with ``session_busy``. The dispatcher
-    picks the head of the queue as soon as the running turn finishes.
-    The queue is persisted across daemon restarts.
-
-    ``queue_mode`` controls the response:
-
-    - ``async`` (default, recommended) - returns 202 immediately with
-      ``{correlation_id, position, queue_depth}``. The client tracks the
-      message via SSE events ``message_queued``, ``message_started``,
-      ``message_done`` / ``message_cancelled``.
-    - ``wait`` - legacy: block until the turn finishes, return the
-      message data. Equivalent to the pre-queue behaviour for simple
-      clients.
-
-    Over-capacity (``session.queue.max_depth``) returns 429 + a
-    ``queue_full`` event.
-    """
+    """Send a message to a session. Events arrive via Socket.IO."""
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     manager = _get_manager(request)
 
-    # Per-user sliding-window rate limit BEFORE any DB / session
-    # creation work. Without this, a misbehaving client (or a stolen
-    # token) can fire thousands of POST /messages per second; each
-    # call pre-creates a session row, enqueues a message, kicks the
-    # drain, and saturates the per-app queue. The RateLimiter is
-    # already wired on app.state but was never called on this path.
-    # Limit is per-(app, user) via the existing default quota; users
-    # who legitimately need higher throughput get their per-(app,user)
-    # quota raised via ``set_user_quota``. Anonymous / pre-auth
-    # callers are skipped here because the auth middleware already
-    # rejects them upstream; the check is cheap (one INCR) and pure
-    # in-memory or Redis depending on backend.
+    # Per-(app, user) rate limit before any DB / session work.
     _rl_user_id = getattr(request.state, "user_id", None) or None
     try:
         _limiter = _get_rate_limiter(request)
@@ -187,11 +146,7 @@ async def session_send_message(
                 },
             ) from exc
 
-    # Strong deploy check - not only does the manager know the app,
-    # the DeployedApp must have a usable entry_context + modules. Apps
-    # that survived a bootstrap crash can linger in `_deployed` with
-    # a half-built state ("ghost apps"); POST /messages used to return
-    # 200 for these but the dispatcher silently dropped everything.
+    # Strong deploy check: reject ghost apps where `entry_context` is missing.
     if not _is_deployed(request, app_id):
         _raise_not_deployed(request, app_id)
     _deployed_check = _get_deployed(request, app_id)
@@ -203,17 +158,10 @@ async def session_send_message(
                 f"not fully initialized. Re-deploy to recover."
             ),
         )
-    # BUG-072: reject cross-user message injection. New sessions still
-    # pass (the handler creates them bound to the caller).
+    # reject cross-user message injection; new sessions still pass (handler creates them bound to the caller).
     _existing_session = await _require_session_create_or_owner(request, app_id, session_id)
 
-    # Workdir liveness guard. For an existing session whose workdir
-    # was deleted on disk (manual ``rm -rf``, future explicit project
-    # delete, OS-level event), refuse to send new messages so the
-    # agent doesn't end up writing into a non-existent cwd or, worse,
-    # silently recreate the dir and lose the user's perception of
-    # what was on disk. 410 Gone is the structured signal the web
-    # client surfaces inline in the drawer.
+    # refuse new messages when the session's workdir vanished on disk; 410 lets the web client surface the gap inline.
     if _existing_session is not None:
         _wd = getattr(_existing_session, "workdir", "") or getattr(_existing_session, "workspace", "") or ""
         if _wd:
@@ -244,31 +192,17 @@ async def session_send_message(
             app_id, session_id, _active_mode,
         )
 
-    # Pre-create the session row when the caller is sending the first
-    # message on a brand-new sid. The contract is "POST /messages on a
-    # fresh sid creates the session on the fly" - but the in-line create
-    # in ``manager.chat()`` only fires when ``chat()`` is actually
-    # invoked. Pre-chat PAUSED paths (credential_required gate, quota
-    # rejected, exception thrown before ``manager.chat`` runs) skip
-    # ``manager.chat`` entirely, leaving a phantom session_id: the POST
-    # returned 200, the message was accepted, but a follow-up GET
-    # returned 404 forever. Pre-creating here closes that gap.
+    # pre-create the session row so PAUSED paths (credential_required, quota) don't leave a phantom sid that GET 404s.
     if _existing_session is None:
         try:
             from digitorn.core.app.sessions import ConversationSession
             from pathlib import Path as _Path
-            # Mirror POST /sessions: every session gets a daemon-private
-            # workspace under ~/.digitorn/workspaces/{app_id}/{sid}/ so the
-            # agent's tools (Bash, Write, Read) always have a valid cwd.
-            # Without this, the lazy-create path leaves ws/workdir empty,
-            # shell._check_cwd's ctx fallback fails (ExecutionContext has
-            # no app_id), and adapter.resolve_cwd rejects the call with
-            # "No workspace resolved" before the bash command even runs.
+            # every session gets a daemon-private workspace so the agent's tools always have a valid cwd.
             _daemon_ws = _Path.home() / ".digitorn" / "workspaces" / app_id / session_id
             try:
                 _daemon_ws.mkdir(parents=True, exist_ok=True)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("messages best-effort block failed: %s", exc)
             _ws_str = str(_daemon_ws)
             _new_session = ConversationSession(
                 session_id=session_id,
@@ -300,12 +234,7 @@ async def session_send_message(
             store = get_image_store()
             for img in body.images[:10]:  # Max 10 images
                 mime = img.get("mime", "image/png")
-                # BUG-092: some clients posted audio blobs through the
-                # ``images`` field expecting the daemon to figure it
-                # out. The blob then got stored as an ``image_ref``
-                # with an audio MIME, which downstream vision
-                # providers happily forwarded as a broken image. Refuse
-                # non-image MIMEs here so the mistake surfaces.
+                # refuse non-image MIMEs so audio/etc. don't get smuggled into the vision pipeline.
                 if mime and not mime.lower().startswith("image/"):
                     raise HTTPException(
                         status_code=415,
@@ -313,10 +242,10 @@ async def session_send_message(
                             "error": "non_image_in_images_field",
                             "got": mime,
                             "message": (
-                                "The ``images`` field only accepts "
+                                "The `images` field only accepts "
                                 "image/* blobs. For audio, POST to "
                                 "/api/transcribe first and include "
-                                "the returned text in ``message``."
+                                "the returned text in `message`."
                             ),
                         },
                     )
@@ -332,21 +261,6 @@ async def session_send_message(
         except Exception as exc:
             logger.warning("image_upload_failed: %s", exc)
 
-    # Process non-image attachments (PDF / DOCX / CSV / code / …).
-    # Two modes, picked by ``app.attachments_mode``:
-    #
-    #   * ``direct`` (default): extract the text and let the
-    #     dispatch layer prepend it to the user message. Agent sees
-    #     the content immediately, no tool call needed.
-    #   * ``tool``: extract the text and mirror it into the
-    #     workspace under ``attachments/<name>`` so the agent can
-    #     call WsRead. The dispatch layer ONLY emits a manifest -
-    #     the agent never sees the content until it asks for it.
-    #
-    # RAG indexing is intentionally NOT done here. Chat attachments
-    # are a per-session concern, not a knowledge base. Apps that
-    # want vector retrieval over a corpus load the rag module
-    # explicitly and call its actions themselves.
     _file_refs: list[dict[str, Any]] = []
     if body.files:
         try:
@@ -375,10 +289,6 @@ async def session_send_message(
                     app_id=app_id,
                 )
 
-                # Sniff format from the bytes (magic-byte priority +
-                # filename hint as tiebreaker). Persisted on the ref
-                # so downstream callers (dispatch, /files endpoint)
-                # use a single canonical answer.
                 fmt = sniff_format(ref.path, filename_hint=name)
                 file_store.update_index_status(
                     ref.file_id, session_id, format=fmt,
@@ -396,9 +306,6 @@ async def session_send_message(
                     _file_refs.append(ref.to_dict())
                     continue
 
-                # Cache the extracted text on the ref for the
-                # direct-mode prepend path. Hard-capped to keep
-                # RAM bounded for huge contracts / books.
                 cached_text = raw_text
                 if len(cached_text) > _FULL_INJECT_CACHE_CAP:
                     cached_text = ""
@@ -410,15 +317,6 @@ async def session_send_message(
                     extracted_text=cached_text,
                 )
 
-                # Mirror into the workspace under attachments/ so
-                # the agent can call WsRead / WsGlob / WsGrep on
-                # it. Required for tool mode, harmless for direct
-                # mode (the agent simply won't need to call WsRead
-                # because the text is already in its prompt). We
-                # push ``raw_text`` (not the capped variant): the
-                # workspace channel is the single source of truth
-                # for tool-mode reads and WsRead's offset/limit
-                # lets the agent paginate huge docs.
                 if ws_mod is not None and raw_text:
                     try:
                         await ws_mod.register_attachment(
@@ -438,20 +336,8 @@ async def session_send_message(
         except Exception as exc:
             logger.warning("file_upload_failed: %s", exc)
 
-    # ── Template attachment (one-turn system addendum + seed copy) ────
-    #
-    # When the user picked a template in the chat client's gallery and
-    # attached it to this message, ``body.template_id`` carries the id.
-    # We:
-    #   1. Resolve the template entry from the app's compiled YAML.
-    #   2. Copy ``install_dir/<seed_dir>/*`` into the session workspace
-    #      (the agent will run ``npm install && npm run dev`` against
-    #      the freshly-seeded project on its first turn).
-    #   3. Stash ``template.system_prompt`` in ``_template_system_prompt``
-    #      so the dispatcher passes it to ``manager.chat()`` and the
-    #      agent loop prepends it as a ``role: system`` for this turn
-    #      only. ``ctx`` is per-turn, so the directive doesn't leak to
-    #      follow-up turns.
+    # Template attachment: seed the workspace and inject the template's
+    # system prompt for this turn only.
     _template_system_prompt: str = ""
     if body.template_id:
         deployed_for_tpl = _get_deployed(request, app_id)
@@ -469,14 +355,11 @@ async def session_send_message(
                 status_code=404,
                 detail=(
                     f"Template '{body.template_id}' not declared by app "
-                    f"'{app_id}'. Add it under ``templates:`` in the "
+                    f"'{app_id}'. Add it under `templates:` in the "
                     f"app YAML."
                 ),
             )
 
-        # Resolve install_dir for the seed-source lookup. Same pattern
-        # as ``apps_v2/templates.py``: prefer ``source_path`` parent
-        # then fall back to the package registry resolver.
         from pathlib import Path as _Path
         from digitorn.core.packages.resolver import resolve_app_install_dir
 
@@ -510,10 +393,6 @@ async def session_send_message(
                 ),
             )
 
-        # Resolve the session workspace. Mirrors ``manager._chat``'s
-        # auto-default so the seeds land where the agent actually
-        # operates. ``workspace_mode: auto`` defaults to
-        # ``~/.digitorn/workspaces/<app_id>/<sid>/`` per the manager.
         _ws_mode = "auto"
         _yaml_ws = ""
         try:
@@ -521,8 +400,8 @@ async def session_send_message(
             if _exec is not None:
                 _ws_mode = getattr(_exec, "workspace_mode", "auto") or "auto"
                 _yaml_ws = getattr(_exec, "workspace", "") or ""
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("messages best-effort block failed: %s", exc)
         _persisted_ws = ""
         try:
             _existing = await _require_session_create_or_owner(
@@ -532,8 +411,8 @@ async def session_send_message(
                 _persisted_ws = getattr(_existing, "workspace", "") or ""
         except HTTPException:
             raise
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("messages best-effort block failed: %s", exc)
 
         _resolved_ws: _Path
         if _ws_mode == "fixed" and _yaml_ws:
@@ -606,16 +485,6 @@ async def session_send_message(
         if not _workspace:
             _workspace = str(_resolved_ws)
 
-        # ── Auto-register a ``template_preview`` attachment ────────────
-        # Each lovable template ships a pre-built ``dist/`` alongside
-        # its ``files/``. The agent will eventually re-publish from
-        # the (customised) session workspace via ``PreviewPublish``,
-        # but that takes 30-90 s on the first run. Meanwhile, point
-        # the iframe at the pristine template snapshot so the user
-        # sees something the moment they pick a card in the gallery
-        # — no waiting on the agent's first turn. The agent's
-        # ``published`` attachment will take priority once it lands
-        # (see ``get_attachment`` resolution order).
         try:
             web_preview_mod = (
                 deployed_for_tpl.modules.get("web_preview")
@@ -650,26 +519,6 @@ async def session_send_message(
                 app_id, session_id, body.template_id, exc,
             )
 
-    # ── /use_skill <name> <prompt> parser ─────────────────────────────
-    #
-    # User-facing skill invocation. Distinct from the agent-facing
-    # ``use_skill`` tool: there the LLM decides when to load a skill;
-    # here the user picks one from the composer and the daemon
-    # forces the agent to follow its instructions for THIS turn.
-    #
-    # Resolution order:
-    #   1. ``user_skills`` table (per-user, per-app) when the app
-    #      has ``dev.allow_user_skills: true``. User-authored skills
-    #      take precedence over app-declared ones so a user can
-    #      override an app skill with their own variant.
-    #   2. ``compiled.skills`` (app-declared, .md-backed).
-    #
-    # Found → strip the ``/use_skill <name>`` prefix from
-    # ``body.message`` and concat the skill instructions into the
-    # turn-scoped system prompt (same slot as ``template_id``). Not
-    # found → 404 ``skill_not_found`` so the client surfaces a clean
-    # error instead of letting the LLM silently mis-handle the
-    # literal text.
     import re as _re
     _skill_match = _re.match(
         r"^\s*/use_skill\s+/?([a-zA-Z0-9_-]+)(?:\s+([\s\S]*))?$",
@@ -729,27 +578,19 @@ async def session_send_message(
                 status_code=404,
                 detail=(
                     f"Skill '/{_skill_name}' not found for app '{app_id}'. "
-                    f"Check ``GET /api/apps/{app_id}/skills`` for the "
+                    f"Check `GET /api/apps/{app_id}/skills` for the "
                     f"available list."
                 ),
             )
 
-        # Wrap the skill body in a MANDATORY framing so the LLM treats
-        # it as authoritative for this turn. The framing line is the
-        # same regardless of source - the agent never needs to know
-        # whether a skill came from YAML or the user table.
         _skill_directive = (
-            f"# MANDATORY DIRECTIVE — Skill: /{_skill_name}\n\n"
+            f"# MANDATORY DIRECTIVE - Skill: /{_skill_name}\n\n"
             "Follow the instructions below to handle the user's next "
             "message. They take precedence over your default behaviour "
             "for this turn only.\n\n"
             "---\n\n"
             f"{_skill_body.strip()}"
         )
-        # Concat with any pre-existing template_id directive. Template
-        # comes first (template seeds + ambient instructions), skill
-        # second (specific behaviour override). Separator matches the
-        # framing convention.
         if _template_system_prompt:
             _template_system_prompt = (
                 _template_system_prompt.rstrip()
@@ -759,24 +600,14 @@ async def session_send_message(
         else:
             _template_system_prompt = _skill_directive
 
-        # Strip the slash prefix so what the agent (and chat history)
-        # actually sees is the user's real prompt, not the dispatch
-        # command. Mutates the request body in place — ``extra="allow"``
-        # on ``SessionMessageRequest`` keeps Pydantic from complaining.
         body.message = _skill_prompt
         logger.info(
             "skill_invoked app=%s sid=%s name=%s source=%s prompt_len=%d",
             app_id, session_id, _skill_name, _skill_source, len(_skill_prompt),
         )
 
-    # ── Client-supplied turn addendum ────────────────────────────────────
-    # The preview SDK (``useTurnEnricher`` / ``usePendingHints``) collects
-    # ephemeral context from the iframe at send time — "user just added X
-    # via the sidebar", "current selection is page 12", etc. — and ships
-    # it as ``body.system_addendum``. We append it to the same one-turn
-    # system slot as template / skill directives. Cleared after the turn
-    # because ``_template_system_prompt`` is dispatch-scoped, not session-
-    # persistent. Length already capped at 16 KiB by the Pydantic field.
+    # Client-supplied turn addendum: appended to the same one-turn
+    # system slot as template / skill directives.
     if body.system_addendum:
         _addendum = body.system_addendum.strip()
         if _addendum:
@@ -784,7 +615,7 @@ async def session_send_message(
                 "# Client-side context (one-turn)\n\n"
                 "The iframe surfaces this signal because it observed state "
                 "the user can't easily restate. Honour it for THIS turn "
-                "only — do not echo it back unless the user asks.\n\n"
+                "only - do not echo it back unless the user asks.\n\n"
                 "---\n\n"
                 f"{_addendum}"
             )
@@ -797,23 +628,6 @@ async def session_send_message(
             else:
                 _template_system_prompt = _framed
 
-    # ── Builtin slash-command pre-dispatch (no-loop) ──────────────────
-    # Runs AFTER ``/use_skill`` (so a user-authored ``/use_skill`` skill
-    # never collides with a builtin) and BEFORE the queue. If
-    # ``body.message`` starts with ``/<word>`` AND the app declared a
-    # matching slash_commands entry with ``action: {type: builtin,
-    # name: ...}``, the handler runs at HTTP level and emits a
-    # synthetic user_message + assistant_message pair via the event
-    # bus. No LLM call, no turn, no queue row — return 200 right away.
-    #
-    # Apps without a matching action fall through: ``/<word>`` is then
-    # treated as a regular user message (the YAML ``slash_commands``
-    # entry without ``action`` is pure client-side UI sugar that just
-    # rendered a template into the textarea before this POST).
-    #
-    # Forward-compat: ``action.type`` values other than ``builtin``
-    # (e.g. future ``module_action`` routed via the hooks engine) are
-    # ignored here — that integration lives in a follow-up PR.
     from digitorn.core.api.apps_v2.slash_dispatch import (
         SLASH_CMD_RE as _SLASH_CMD_RE,
         lookup_slash_action as _lookup_slash_action,
@@ -834,7 +648,7 @@ async def session_send_message(
 
                 _slash_corr = f"slash-{_uuid_slash.uuid4().hex[:12]}"
 
-                # Synthetic user_message — render the slash bubble in
+                # Synthetic user_message - render the slash bubble in
                 # the chat so the user sees what they typed.
                 try:
                     await manager.event_bus.emit(_turn_event(
@@ -865,16 +679,6 @@ async def session_send_message(
                     manager=manager,
                 )
 
-                # Mimic the live-turn protocol the web client speaks:
-                # ``message_started`` opens the assistant slot,
-                # ``token`` streams the body (one event with the full
-                # content; the client merges via the standard delta
-                # path), and ``message_done`` finalises. The chat
-                # store has no handler for the standalone
-                # ``assistant_message`` event — it tracks bubble
-                # creation through ``token`` exclusively — so emitting
-                # ``assistant_message`` alone leaves the bubble
-                # invisible and the spinner stuck until timeout.
                 try:
                     await manager.event_bus.emit(_turn_event(
                         "message_started",
@@ -900,9 +704,6 @@ async def session_send_message(
                         payload={
                             "session_id": session_id,
                             "correlation_id": _slash_corr,
-                            # ``delta`` is what the web reducer reads
-                            # for streaming text; we ship the whole
-                            # synthetic body in one shot.
                             "delta": _slash_result.message,
                             "count": len(_slash_result.message),
                             "slash_synthetic": True,
@@ -927,11 +728,8 @@ async def session_send_message(
                 except Exception as exc:
                     logger.debug("slash message_done emit failed: %s", exc)
 
-                # Close the synthetic turn. The client uses
-                # ``turn_terminal`` as the single signal that flips
-                # ``isSending`` back to false → spinner stops, send
-                # button re-enables. Without this the spinner spins
-                # forever even though the dispatch already replied.
+                # Close the synthetic turn; the client uses
+                # `turn_terminal` to flip `isSending` off.
                 try:
                     await manager.event_bus.emit(_turn_event(
                         "turn_terminal",
@@ -964,16 +762,6 @@ async def session_send_message(
                     },
                 )
 
-    # ── Phase 3: per-session message queue ────────────────────────────
-    #
-    # Strategy:
-    #   1. Always persist the message to the queue - gives us FIFO,
-    #      crash-recovery, and cancellation for free.
-    #   2. When the session has nothing in-flight, dispatch immediately.
-    #      When it does, a post-turn hook drains the next queued msg
-    #      (see _drain_queue_next below).
-    #   3. ``queue_mode`` controls only the HTTP response shape:
-    #      async = 202 with correlation_id, wait = block on awaiter.
     from digitorn.core.app import message_queue as _mq
     from digitorn.core.config import get_settings as _get_settings
 
@@ -987,12 +775,8 @@ async def session_send_message(
     if _qcfg.enabled:
         _qdepth = await _mq.depth_for_session(session_id)
         _turn_running = await manager.is_turn_running(app_id, session_id)
-        # A session with an approval pending still holds the turn's
-        # future - `is_turn_running` returns False (the coroutine is
-        # awaiting) but fast-pathing a new message would race with the
-        # blocked turn and re-execute earlier logic. Treat pending
-        # approvals as equivalent to a running turn so the new message
-        # queues behind them.
+        # Treat pending approvals as a running turn so the new message
+        # queues behind them (the awaiting turn would otherwise race).
         _has_pending_approval = False
         try:
             deployed_for_check = _get_deployed(request, app_id)
@@ -1002,17 +786,8 @@ async def session_send_message(
                     if r.get("session_id") == session_id:
                         _has_pending_approval = True
                         break
-        except Exception:
-            pass
-        # Orphan-queue watchdog: when the session has queued messages
-        # AND nothing's running AND no approval is holding - the drain
-        # chain previously died (daemon crash mid-turn, task cancelled,
-        # exception escaping the ``finally: _drain_queue_next``). Left
-        # alone the queue sits forever and every new ``send_message``
-        # appends to a stuck pile. We kick off a fresh drain task here
-        # so the existing queue starts flowing again; the new message
-        # this caller is about to enqueue will be picked up by the
-        # same drain chain once those older entries finish.
+        except Exception as exc:
+            logger.debug("messages best-effort block failed: %s", exc)
         if (
             _qdepth > 0
             and not _turn_running
@@ -1039,29 +814,9 @@ async def session_send_message(
         else:
             _skip_queue = False
 
-    # Authoritative seq attached to the user_message event when (and ONLY
-    # when) the message is dispatched, NOT when it is queued. The chat
-    # bubble on every client renders against this number; clients refuse
-    # to add a user bubble to the chat without it (see the Flutter +
-    # web composer logic). Stays ``0`` for queued (pending) messages -
-    # those live only in the queue panel until the daemon dispatches
-    # them, at which point a follow-up user_message event over the SSE
-    # stream carries the canonical seq.
     _active_user_seq: int = 0
 
     if _qcfg.enabled and not _skip_queue:
-        # Three enqueue strategies - the mode picks which helper runs.
-        #
-        # replace_last: if the tail of the queue is still queued,
-        #   overwrite it with this new message in place. Client UX:
-        #   "oops wrong message, use this one instead".
-        #
-        # auto_merge (config-driven): if a recent queued message from
-        #   the same user is < auto_merge_window_s old, fold the new
-        #   content into it - saves an LLM call when the user fires
-        #   rapid follow-ups.
-        #
-        # default: plain append.
         merged = False
         replaced = False
         try:
@@ -1096,9 +851,6 @@ async def session_send_message(
         except _mq.QueueFullError as exc:
             try:
                 from digitorn.core.events.envelope import OpState as _OS
-                # queue_full rejects a NEW message before it ever gets
-                # a correlation_id - so the event is keyed by a fresh
-                # synthetic op_id (there's no turn to correlate to).
                 await manager.event_bus.emit(_turn_event(
                     "queue_full",
                     app_id=app_id, session_id=session_id,
@@ -1110,8 +862,8 @@ async def session_send_message(
                         "session_id": session_id,
                     },
                 ))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("messages best-effort block failed: %s", exc)
             raise HTTPException(
                 status_code=429,
                 detail=(
@@ -1120,29 +872,18 @@ async def session_send_message(
                 ),
             )
 
-        # Stash the inbound JWT alongside the row so the drain worker
-        # can re-publish it before a queued/replayed turn calls the
-        # gateway. Without this, queued turns lose ``Authorization``.
         try:
             from digitorn.core.runtime.request_context import get_inbound_user_jwt
             _mq.attach_jwt(entry.id, get_inbound_user_jwt())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("messages best-effort block failed: %s", exc)
 
-        # ── Decide BEFORE emitting any event whether the message will
-        #    actually wait in the queue, or whether it'll dispatch in
-        #    < 1 ms (because the previous turn finished between our
-        #    initial check and now). Re-checking here lets us emit the
-        #    right event in either case, instead of always emitting a
-        #    "queued" PENDING that the client briefly displays even when
-        #    no real wait happens.
+        # Re-check before emitting so we send PENDING only when the message
+        # actually waits, not when the prior turn already finished.
         _turn_active = await manager.is_turn_running(app_id, session_id)
         from digitorn.core.events.envelope import OpState as _OS
 
         if _turn_active:
-            # ── True queue: emit PENDING events; client shows the queued
-            #    badge until the running turn finishes and the drain
-            #    chain emits ``message_started``.
             try:
                 current_depth = await _mq.depth_for_session(session_id)
                 if merged:
@@ -1191,19 +932,9 @@ async def session_send_message(
                             "pending": True,
                         },
                     ))
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("messages best-effort block failed: %s", exc)
 
-            # ── Final drain-kick safety (UNCONDITIONAL). The
-            #    turn-active check at line 359 may return a stale
-            #    True even after the previous turn completed (the
-            #    flag isn't always cleared synchronously, especially
-            #    with the persist-in-bg change). _drain_queue_next is
-            #    idempotent: it pops the head atomically and returns
-            #    immediately if the queue is empty or another task
-            #    already grabbed it. Calling it after every enqueue
-            #    closes the warm-path gap where messages could sit
-            #    queued forever.
             try:
                 await _drain_queue_next(request, app_id, session_id, _uid)
             except Exception as exc:
@@ -1236,12 +967,8 @@ async def session_send_message(
                 },
             )
 
-        # ── Fast-dispatch path: the row was just enqueued, but no turn
-        #    is running anymore (the previous one finished between our
-        #    initial check and this re-check, or our depth check tripped
-        #    on an orphan row that was just drained). Pop the head and
-        #    fall through to ``_run_turn`` - emit RUNNING events so the
-        #    client UX matches the original fast-path (no queued flash).
+        # Fast-dispatch path: queued but the prior turn finished mid-check.
+        # Pop the head and emit RUNNING events for a clean fast-path UX.
         _head = await _mq.next_queued(session_id)
         if _head is None:
             # Rare race: the head was cancelled between our checks.
@@ -1260,9 +987,6 @@ async def session_send_message(
             body.message = _head.message
             _image_refs = list(_head.image_refs or [])
 
-        # Tell the client about merge/replace mutations even on the
-        # fast-dispatch path so the existing message bubble updates in
-        # place. RUNNING op_state because the dispatch is starting now.
         if merged or replaced:
             try:
                 _evt = "message_merged" if merged else "message_replaced"
@@ -1279,8 +1003,8 @@ async def session_send_message(
                         "replaced": replaced,
                     },
                 ))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("messages best-effort block failed: %s", exc)
 
         # Fresh-enqueue (not merged/replaced) → emit user_message RUNNING
         # mirroring the original fast-path branch below.
@@ -1306,13 +1030,9 @@ async def session_send_message(
                         "pending": False,
                     },
                 )) or 0
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("messages best-effort block failed: %s", exc)
 
-        # `message_started` is now emitted exclusively by
-        # `dispatch_turn` (single source of truth). The position is
-        # surfaced via the TurnEntry so the event payload still carries
-        # the queue head's index when relevant.
         _active_position = _head.position
     else:
         import uuid as _uuid
@@ -1342,15 +1062,12 @@ async def session_send_message(
                     "pending": False,
                 },
             )) or 0
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("messages best-effort block failed: %s", exc)
 
     async def _run_turn():
-        # Single source of truth for "run a chat turn end-to-end":
-        # cred check, heartbeat, manager.chat(), event emission, error
-        # classification all live inside `dispatch_turn`. We just hand
-        # it the entry, await the outcome, then handle queue terminal
-        # bookkeeping (chain to next, mark row done/failed/paused).
+        # `dispatch_turn` owns the end-to-end run; we only chain the
+        # queue terminal bookkeeping (next entry, row status).
         from ._dispatch import (
             dispatch_turn, TurnEntry, TurnSource, TurnStatus,
         )
@@ -1370,11 +1087,8 @@ async def session_send_message(
             user_id=_user_id or "local",
             source=TurnSource.FAST,
         )
-        # PAUSED: credential gate hit. Mark the row terminal with
-        # `credential_required` so `is_turn_running` returns False;
-        # otherwise the user's RETRY queues behind a stuck row. The
-        # client already sees `credential_required` on the bubble; the
-        # next dispatch happens when they click RETRY (fresh POST).
+        # PAUSED (credential gate): mark the row terminal so retries
+        # aren't queued behind a stuck row.
         if outcome.status == TurnStatus.PAUSED:
             if _active_queue_row_id:
                 try:
@@ -1382,14 +1096,10 @@ async def session_send_message(
                         _active_queue_row_id,
                         error_code="credential_required",
                     )
-                except Exception:
-                    pass
-            # The pre-chat credential gate raised before ``manager.chat()``
-            # ran, so its ``finally:`` never discarded the active key
-            # we set via ``reserve_session``. Without this explicit
-            # release, ``is_session_active`` keeps returning True forever
-            # and ``abort`` cannot unstick the session (its ``task.cancel``
-            # is a no-op when no task was ever registered).
+                except Exception as exc:
+                    logger.debug("messages best-effort block failed: %s", exc)
+            # Explicit release: `manager.chat()` never ran so its
+            # `finally` did not drop the `reserve_session` key.
             if _reserved:
                 try:
                     manager.release_session(app_id, session_id)
@@ -1398,16 +1108,10 @@ async def session_send_message(
                         "paused_release_session_failed", exc_info=True,
                     )
             return
-        # COMPLETED / FAILED / CANCELLED: dispatch_turn already flipped
-        # the queue row + scheduled the next chain dispatch internally
-        # (Step 6 ordering: flip BEFORE emitting message_done so the
-        # next POST sees a clean daemon). Nothing more for us to do.
+        # COMPLETED / FAILED / CANCELLED: `dispatch_turn` already
+        # flipped the queue row + scheduled the next chain dispatch.
 
-    # ── Dispatch agent turn to a worker thread ────────────────────────
-    # The turn runs in its own event loop inside a thread from the worker
-    # pool. The main event loop stays free for HTTP/SSE at all times.
-    # A semaphore caps concurrency - beyond _MAX_CONCURRENT_TURNS the
-    # endpoint returns 503 immediately instead of starving the daemon.
+    # caps concurrency so the daemon returns 503 instead of starving.
     if _turn_semaphore.locked() and _turn_semaphore._value == 0:
         if _reserved:
             manager.release_session(app_id, session_id)
@@ -1434,10 +1138,6 @@ async def session_send_message(
 
     task.add_done_callback(_on_turn_done)
 
-    # Embed the authoritative state envelope in the POST response so
-    # the client doesn't have to wait for the first SSE event to know
-    # "a turn is running". Eliminates the race where a client misses
-    # ``message_started`` and never animates the send button.
     try:
         state_envelope = await manager.build_state_envelope(
             app_id, session_id, _uid,
@@ -1453,14 +1153,8 @@ async def session_send_message(
             "status": "accepted",
             "correlation_id": _active_correlation_id or None,
             "client_message_id": body.client_message_id,
-            # Authoritative chat seq for the user_message just emitted.
-            # Non-zero ONLY when the message was dispatched immediately
-            # (fast-path or queue-head fresh-enqueue). For pure-queued
-            # messages it stays ``null``: clients must NOT add a chat
-            # bubble in that case - the seq arrives later via the SSE
-            # ``user_message`` event when the daemon dispatches the
-            # message from the queue. Single source of truth for
-            # ordering and persistence.
+            # Non-zero only for immediately-dispatched messages;
+            # queued messages get their seq via the SSE event later.
             "seq": _active_user_seq if _active_user_seq > 0 else None,
             "state": state_envelope,
         },

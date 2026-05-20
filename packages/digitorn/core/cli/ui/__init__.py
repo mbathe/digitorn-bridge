@@ -1,9 +1,4 @@
-"""CLI UI utilities - labels and tool name formatting.
-
-The visual rendering is handled by the Textual TUI (cli/tui/).
-This package only exports label utilities used by the daemon
-for event formatting (tool_label, result_status).
-"""
+"""CLI UI utilities - labels and tool name formatting."""
 
 from __future__ import annotations
 

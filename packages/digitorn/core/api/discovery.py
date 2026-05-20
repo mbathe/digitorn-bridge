@@ -1,29 +1,4 @@
-"""Discovery API - meta-routes for the App Builder agent.
-
-These routes expose the daemon's *self-knowledge* in a machine-readable
-format so an agent (the App Builder) can build, validate, and reason
-about Digitorn apps without hallucinating module names or YAML fields.
-
-The six routes are :
-
-| Method | Path                              | Purpose                            |
-|--------|-----------------------------------|------------------------------------|
-| GET    | /api/discovery/modules            | List every loaded module           |
-| GET    | /api/discovery/modules/{id}       | Detail one module + its actions    |
-| GET    | /api/discovery/triggers           | List every supported trigger type  |
-| GET    | /api/discovery/templates          | List every starter template        |
-| GET    | /api/discovery/templates/{id}     | Raw YAML of one template           |
-| POST   | /api/discovery/compile            | Compile YAML without deploying     |
-
-The whole point of this surface is to give the builder agent a tight
-feedback loop: it generates YAML, calls ``/compile``, reads the
-errors, fixes them, and converges to a valid app - exactly the same
-loop a human dev would run from the CLI, exposed to an LLM.
-
-These routes are read-only (except ``/compile``, which is also
-side-effect free - it never persists anything). They are safe to grant
-broadly to any builder app.
-"""
+"""Discovery API - meta-routes for the App Builder agent."""
 
 from __future__ import annotations
 
@@ -42,17 +17,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/discovery", tags=["discovery"])
 
 
-# Templates live in ``knowledge_base/examples/`` at the repo root.
-# We resolve this lazily so the path works whether the daemon runs
-# from the repo or from an installed site-packages location.
 def _templates_dir() -> Path:
-    """Locate the ``knowledge_base/examples`` directory.
-
-    Walks up from this file's path looking for a sibling
-    ``knowledge_base`` directory. Returns the resolved path even if
-    the directory is missing - the route handlers raise a 404 in that
-    case, which is more useful than crashing at import time.
-    """
+    """Locate the `knowledge_base/examples` directory."""
     here = Path(__file__).resolve()
     for parent in here.parents:
         candidate = parent / "knowledge_base" / "examples"
@@ -62,18 +28,11 @@ def _templates_dir() -> Path:
     return here.parents[4] / "knowledge_base" / "examples"
 
 
-# ────────────────────────────────────────────────────────────────────
 # Dependencies
-# ────────────────────────────────────────────────────────────────────
 
 
 def _get_registry(request: Request):
-    """Pull the live ``ModuleRegistry`` off ``app.state``.
-
-    The registry is populated at daemon startup in
-    ``server.py`` (``app.state.registry = registry``). Discovery
-    routes need it to introspect modules and recompile YAML in-place.
-    """
+    """Pull the live `ModuleRegistry` off `app.state`."""
     registry = getattr(request.app.state, "registry", None)
     if registry is None:
         raise HTTPException(
@@ -83,13 +42,10 @@ def _get_registry(request: Request):
     return registry
 
 
-# ────────────────────────────────────────────────────────────────────
 # /modules + /modules/{id}
-# ────────────────────────────────────────────────────────────────────
 
 
 def _module_summary(module_id: str, manifest: Any) -> dict[str, Any]:
-    """Render a module manifest as a compact dict for the listing route."""
     actions_attr = getattr(manifest, "actions", None) or []
     if isinstance(actions_attr, dict):
         actions_list = list(actions_attr.values())
@@ -109,7 +65,6 @@ def _module_summary(module_id: str, manifest: Any) -> dict[str, Any]:
 
 
 def _action_detail(spec: Any) -> dict[str, Any]:
-    """Render one ActionSpec as a JSON-friendly dict."""
     params = []
     for p in (getattr(spec, "params", None) or []):
         params.append({
@@ -137,12 +92,7 @@ def _action_detail(spec: Any) -> dict[str, Any]:
 
 @router.get("/modules", response_model=AppResponse)
 async def list_modules(request: Request) -> AppResponse:
-    """List every loaded module with a short summary.
-
-    Used by the builder agent to enumerate what's available before
-    composing a YAML. Excludes failed-to-load modules - they would
-    only confuse the LLM with names it can't actually use.
-    """
+    """List every loaded module with a short summary."""
     registry = _get_registry(request)
 
     list_available = (
@@ -167,13 +117,7 @@ async def list_modules(request: Request) -> AppResponse:
 
 @router.get("/modules/{module_id}", response_model=AppResponse)
 async def get_module(request: Request, module_id: str) -> AppResponse:
-    """Return the full action surface of one module.
-
-    Includes every visible (non-internal) ``@action`` with its params,
-    permissions, risk level, and tool prompt. This is what the builder
-    agent consults when it needs to know "exactly which params does
-    ``database.sql`` take?".
-    """
+    """Return the full action surface of one module."""
     registry = _get_registry(request)
     try:
         manifest = registry.get_manifest(module_id)
@@ -211,15 +155,9 @@ async def get_module(request: Request, module_id: str) -> AppResponse:
     )
 
 
-# ────────────────────────────────────────────────────────────────────
 # /triggers
-# ────────────────────────────────────────────────────────────────────
 
 
-# These descriptions mirror what the docs say. We surface them
-# verbatim so the builder doesn't have to query its RAG just to learn
-# "what can I put in execution.triggers[].type". Keep this in sync
-# with docs/app-language/09-triggers.md when new triggers ship.
 _TRIGGER_TYPES: list[dict[str, Any]] = [
     {
         "name": "cron",
@@ -377,13 +315,7 @@ _TRIGGER_TYPES: list[dict[str, Any]] = [
 
 @router.get("/triggers", response_model=AppResponse)
 async def list_triggers(request: Request) -> AppResponse:
-    """Return every supported trigger type with its category and key fields.
-
-    The builder consults this to pick the right trigger before
-    composing the YAML. Categorised as ``scheduler`` (cron-like),
-    ``channel`` (chat/email/voice), ``http`` (webhook), and ``system``
-    (queue, log).
-    """
+    """Return every supported trigger type with its category and key fields."""
     return AppResponse(
         success=True,
         data={
@@ -396,15 +328,7 @@ async def list_triggers(request: Request) -> AppResponse:
 
 @router.get("/triggers/configured", response_model=AppResponse)
 async def list_configured_triggers(request: Request) -> AppResponse:
-    """Return every trigger declared by a currently-deployed app.
-
-    Complements ``GET /api/discovery/triggers`` (which lists trigger
-    *types*). The dashboard uses this route to render "Automations
-    actives" across every app without having to fan-out one
-    ``GET /api/apps/{id}/triggers`` per app.
-
-    Each entry: ``{app_id, trigger_id, type, schedule?, path?, method?}``.
-    """
+    """Return every trigger declared by a currently-deployed app."""
     manager = getattr(request.app.state, "manager", None)
     if manager is None:
         return AppResponse(success=True, data={"triggers": [], "count": 0})
@@ -453,18 +377,11 @@ async def list_configured_triggers(request: Request) -> AppResponse:
     )
 
 
-# ────────────────────────────────────────────────────────────────────
 # /templates + /templates/{id}
-# ────────────────────────────────────────────────────────────────────
 
 
 def _parse_template_metadata(yaml_text: str) -> dict[str, str]:
-    """Best-effort extraction of `app:` metadata from a raw YAML string.
-
-    We deliberately don't import yaml here - a regex is enough for
-    the few fields we need and avoids a hard dep on a parser when
-    the registry doesn't even need to be loaded for this route.
-    """
+    """Best-effort extraction of `app:` metadata from a raw YAML string."""
     import re
 
     fields: dict[str, str] = {}
@@ -481,12 +398,7 @@ def _parse_template_metadata(yaml_text: str) -> dict[str, str]:
 
 @router.get("/templates", response_model=AppResponse)
 async def list_templates(request: Request) -> AppResponse:
-    """List every starter template available in ``knowledge_base/examples``.
-
-    The builder consults this BEFORE generating from scratch - if a
-    template matches the user's intent, it adapts the template
-    instead, which is dramatically more reliable.
-    """
+    """List every starter template available in `knowledge_base/examples`."""
     tdir = _templates_dir()
     if not tdir.is_dir():
         return AppResponse(
@@ -494,11 +406,6 @@ async def list_templates(request: Request) -> AppResponse:
             data={"templates": [], "count": 0},
         )
 
-    # File glob + per-file read happens off the main loop. ``glob`` is
-    # sync stat-bound and ``read_text`` is sync I/O; both release the
-    # GIL during the syscall but only outside the asyncio scheduler.
-    # ``to_thread`` ensures HTTP / SSE / Socket.IO traffic keeps
-    # flowing while N template YAMLs are read in series.
     def _read_all_templates() -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for path in sorted(tdir.glob("*.yaml")):
@@ -534,12 +441,7 @@ async def list_templates(request: Request) -> AppResponse:
 
 @router.get("/templates/{template_id}", response_model=AppResponse)
 async def get_template(request: Request, template_id: str) -> AppResponse:
-    """Return the raw YAML of one template by id.
-
-    The builder copies this YAML and then mutates it (replaces
-    fields, swaps modules, edits the system prompt) before passing it
-    back to ``/compile`` for validation.
-    """
+    """Return the raw YAML of one template by id."""
     # Sanitise - only allow filename-safe characters
     if not template_id.replace("-", "").replace("_", "").isalnum():
         raise HTTPException(status_code=400, detail="Invalid template id")
@@ -571,9 +473,7 @@ async def get_template(request: Request, template_id: str) -> AppResponse:
     )
 
 
-# ────────────────────────────────────────────────────────────────────
 # /compile  ←  THE feedback-loop tool for the builder agent
-# ────────────────────────────────────────────────────────────────────
 
 
 class CompileRequest(BaseModel):
@@ -608,36 +508,13 @@ class GeneratePackageManifestRequest(BaseModel):
 
 
 def _extract_graph(compiled: Any) -> dict[str, Any]:
-    """Walk a ``CompiledApp`` and return ``{nodes, edges}`` for the canvas.
-
-    The Flutter canvas uses this to render the live app structure as
-    an n8n-like graph: trigger nodes on the left, agents in the
-    middle, modules on the right, with edges showing what fires what
-    and which agent uses which module.
-
-    Node id convention::
-
-        trigger:<id>
-        agent:<id>
-        module:<id>
-
-    Edge labels::
-
-        "fires"    - trigger → entry agent
-        "uses"     - agent   → module
-        "spawns"   - agent   → agent (when agent_spawn module is granted)
-
-    The function is best-effort and never raises - if some attribute
-    is missing on the compiled object, we just skip that node/edge.
-    A tiny graph is always more useful than no graph.
-    """
+    """Walk a `CompiledApp` and return `{nodes, edges}` for the canvas."""
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
 
     try:
         execution = compiled.execution
 
-        # ── Triggers (legacy execution.triggers + channel providers) ──
         trigger_ids: list[str] = []
         for t in (getattr(execution, "triggers", []) or []):
             tid = getattr(t, "id", "") or "trigger"
@@ -674,10 +551,9 @@ def _extract_graph(compiled: Any) -> dict[str, Any]:
                     "label": f"{adapter} ({prov_name})",
                 })
                 trigger_ids.append(node_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("discovery best-effort block failed: %s", exc)
 
-        # ── Agents ──
         agent_ids: list[str] = []
         for a in (getattr(compiled, "agents", []) or []):
             aid = getattr(a, "agent_id", None) or getattr(a, "id", None) or "agent"
@@ -692,7 +568,6 @@ def _extract_graph(compiled: Any) -> dict[str, Any]:
             })
             agent_ids.append(node_id)
 
-        # ── Modules (only those granted in capabilities) ──
         module_ids_in_app = list((getattr(compiled, "modules", {}) or {}).keys())
         # Filter out the always-loaded plumbing modules - they exist
         # for every app and just create visual noise.
@@ -707,7 +582,6 @@ def _extract_graph(compiled: Any) -> dict[str, Any]:
                 "label": mid,
             })
 
-        # ── Edges ──
         # 1. trigger → entry_agent
         entry_agent = getattr(execution, "entry_agent", "") or ""
         entry_node = f"agent:{entry_agent}" if entry_agent else (
@@ -721,12 +595,6 @@ def _extract_graph(compiled: Any) -> dict[str, Any]:
                     "label": "fires",
                 })
 
-        # 2. agent → module (every granted module)
-        # We approximate by attaching every granted module to every
-        # agent. The compiler doesn't expose per-agent capability
-        # filtering on CompiledExecution, so the best-effort answer is
-        # "all agents see all granted modules". The canvas can render
-        # this as a global "modules used by this app" cluster.
         for agent_node in agent_ids:
             for mid in module_ids_in_app:
                 if mid in _SILENT_MODULES:
@@ -737,9 +605,6 @@ def _extract_graph(compiled: Any) -> dict[str, Any]:
                     "label": "uses",
                 })
 
-        # 3. agent → agent (when agent_spawn is granted, multiple
-        # agents likely spawn each other - we surface the set of
-        # potential spawn relationships as edges from the entry agent).
         if "agent_spawn" in module_ids_in_app and entry_node and len(agent_ids) > 1:
             for other in agent_ids:
                 if other == entry_node:
@@ -759,44 +624,7 @@ def _extract_graph(compiled: Any) -> dict[str, Any]:
 
 @router.post("/compile", response_model=AppResponse)
 async def compile_yaml(request: Request, body: CompileRequest) -> AppResponse:
-    """Compile a YAML app definition without deploying it.
-
-    This is the **single most important tool** for the App Builder
-    agent. The builder loops:
-
-        1. generate YAML
-        2. POST /compile
-        3. read errors
-        4. fix and re-POST
-        5. converge or give up
-
-    Return shape:
-
-    ```json
-    {
-      "success": true,                  // overall HTTP status
-      "data": {
-        "valid": true,                  // does it compile?
-        "errors": ["..."],              // list of compile errors
-        "warnings": ["..."],
-        "summary": {                    // present iff valid==true
-          "app_id": "...",
-          "name": "...",
-          "mode": "...",
-          "agents": 3,
-          "modules": ["filesystem", "memory"],
-          "trigger_types": ["cron"],
-          "session_mode": "mono",
-          "has_payload_schema": false
-        }
-      }
-    }
-    ```
-
-    This route is **side-effect free** - it never persists, deploys,
-    or touches the disk. It's safe to call hundreds of times during a
-    builder iteration loop.
-    """
+    """Compile a YAML app definition without deploying it."""
     registry = _get_registry(request)
 
     # Local import - keeps module-load overhead off the daemon's hot
@@ -869,18 +697,11 @@ async def compile_yaml(request: Request, body: CompileRequest) -> AppResponse:
     )
 
 
-# ────────────────────────────────────────────────────────────────────
 # /generate-package-manifest - auto-generate package.toml from a YAML
-# ────────────────────────────────────────────────────────────────────
 
 
 class PromptPreviewRequest(BaseModel):
-    """POST /api/discovery/prompt-preview body.
-
-    Either ``bundle_dir`` (to preview a prompt from an existing
-    bundle on disk) OR ``content`` (inline prompt text) must be
-    provided. When both are passed, ``content`` wins.
-    """
+    """POST /api/discovery/prompt-preview body."""
 
     bundle_dir: str | None = Field(
         default=None,
@@ -912,28 +733,7 @@ class PromptPreviewRequest(BaseModel):
 async def prompt_preview(
     request: Request, body: PromptPreviewRequest,
 ) -> AppResponse:
-    """Compile a single prompt without deploying an app.
-
-    Used by the Builder agent and IDE tooling to iterate on
-    prompts live: the client POSTs a bundle path + prompt name
-    (or inline content), the daemon resolves every template
-    namespace against the bundle, runs the markdown rewrite,
-    and returns the final text + token estimate + list of
-    referenced variables / assets.
-
-    Response shape::
-
-        {
-            "compiled_text": "You are an agent...",
-            "token_estimate": 187,
-            "referenced_variables": ["app.name", "user_locale"],
-            "referenced_assets": ["/api/apps/_preview/assets/logo.png"],
-            "referenced_prompts": [],
-            "referenced_skills": [],
-            "frontmatter": { "version": 2, ... },
-            "warnings": []
-        }
-    """
+    """Compile a single prompt without deploying an app."""
     from pathlib import Path
     from digitorn.core.app.variables import (
         bundle_context,
@@ -977,19 +777,10 @@ async def prompt_preview(
                 template,
                 variables=body.variables,
             )
-            # MUST read frontmatter INSIDE the with block - the
-            # ContextVar storing the collected metadata is reset
-            # when the context manager exits.
             frontmatter = collected_prompt_metadata()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # Real token count via litellm (handles every model's tokenizer:
-    # tiktoken for OpenAI / DeepSeek, the Anthropic offline tokenizer
-    # for Claude 3+, HuggingFace for Mistral / Llama / Qwen / Gemini).
-    # Falls back to char/4 only when litellm fails or the model is
-    # unknown - the caller may not pass a model hint, in which case
-    # we can't pick a tokenizer.
     _model_hint = body.model if hasattr(body, "model") and body.model else None
     token_estimate = max(1, len(compiled_text) // 4)
     if _model_hint:
@@ -1027,19 +818,7 @@ async def prompt_preview(
 async def generate_package_manifest_route(
     request: Request, body: GeneratePackageManifestRequest,
 ) -> AppResponse:
-    """Compile a YAML and emit a best-effort ``package.toml``.
-
-    Used by the App Builder agent when a user finishes building an
-    app and wants to wrap it into an installable package, and by
-    the ``digitorn package init`` CLI command.
-
-    Returns the rendered TOML text + the structured manifest +
-    a list of human-readable warnings (e.g. "no license declared,
-    required for hub publication").
-
-    The route runs the same compile path as ``/compile`` so any
-    YAML errors are surfaced the same way (in ``errors`` field).
-    """
+    """Compile a YAML and emit a best-effort `package.toml`."""
     registry = _get_registry(request)
 
     # Local import to avoid circular dep at module load time

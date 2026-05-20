@@ -1,12 +1,4 @@
-"""Anthropic native SDK provider.
-
-Uses the ``anthropic`` async client for Claude models.
-Supports streaming, tool use, vision, and extended thinking.
-
-Supports Claude Code OAuth tokens for testing:
-  - Set api_key to "claude-code" to auto-read from ~/.claude/.credentials.json
-  - Or pass the OAuth token directly (sk-ant-oat*)
-"""
+"""Anthropic native SDK provider."""
 
 from __future__ import annotations
 
@@ -28,18 +20,14 @@ from digitorn.modules.llm_provider.providers.base import (
 
 _logger = logging.getLogger(__name__)
 
-
 def _recover_tool_json(raw: str) -> dict | None:
-    """Try to recover a dict from truncated JSON (e.g. huge write content)."""
     import re
     s = raw.strip()
-    # Try closing braces
     for suffix in ['"}', '"}}', '"}]', '}']:
         try:
             return json.loads(s + suffix)
         except (json.JSONDecodeError, ValueError):
             continue
-    # Extract key-value pairs with regex
     result = {}
     for m in re.finditer(r'"(\w+)"\s*:\s*"((?:[^"\\]|\\.)*)(?:"|$)', s):
         key, val = m.group(1), m.group(2)
@@ -49,27 +37,15 @@ def _recover_tool_json(raw: str) -> dict | None:
             result[key] = val
     return result or None
 
-# Cache the token to avoid re-reading the file on every call
 _cached_token: str | None = None
 _cached_token_expires: float = 0.0
 
-
 def _load_claude_code_token() -> str | None:
-    """Load OAuth token from Claude Code's credentials file.
-
-    Reads ~/.claude/.credentials.json which is written by Claude Code
-    when you authenticate with your Claude Max/Pro subscription.
-
-    The token is cached in memory and refreshed when it expires.
-    This is intended for LOCAL TESTING ONLY - do not use in production.
-    """
     global _cached_token, _cached_token_expires
 
-    # Return cached token if still valid (with 5 min buffer)
     if _cached_token and time.time() < (_cached_token_expires - 300):
         return _cached_token
 
-    # Try multiple locations
     candidates = [
         Path.home() / ".claude" / ".credentials.json",
         Path.home() / ".claude" / "credentials.json",
@@ -85,7 +61,6 @@ def _load_claude_code_token() -> str | None:
             if not token:
                 continue
 
-            # Check expiry (milliseconds timestamp)
             expires_at = oauth.get("expiresAt", 0)
             if isinstance(expires_at, (int, float)) and expires_at > 0:
                 expires_sec = expires_at / 1000.0
@@ -97,7 +72,6 @@ def _load_claude_code_token() -> str | None:
                     continue
                 _cached_token_expires = expires_sec
             else:
-                # Unknown expiry - assume 1 hour from now
                 _cached_token_expires = time.time() + 3600
 
             _cached_token = token
@@ -114,7 +88,6 @@ def _load_claude_code_token() -> str | None:
             continue
 
     return None
-
 
 _ANTHROPIC_MODELS: dict[str, ProviderCapabilities] = {
     "claude-opus-4-20250514": ProviderCapabilities(
@@ -140,9 +113,7 @@ _DEFAULT_CAPABILITIES = ProviderCapabilities(
     system_message=True, max_context_window=200_000, max_output_tokens=8_192,
 )
 
-
 def _capabilities_for(model: str) -> ProviderCapabilities:
-    """Resolve capabilities for a model, with prefix matching."""
     if model in _ANTHROPIC_MODELS:
         return _ANTHROPIC_MODELS[model]
     for known, caps in _ANTHROPIC_MODELS.items():
@@ -150,14 +121,12 @@ def _capabilities_for(model: str) -> ProviderCapabilities:
             return caps
     return _DEFAULT_CAPABILITIES
 
-
 class AnthropicProvider(BaseLLMProvider):
     """Anthropic native SDK provider for Claude models."""
 
     BACKEND = "anthropic"
 
-    # Optional callback set by the TUI backend to notify spinner during rate limits.
-    # Signature: on_rate_limit(attempt: int, max_attempts: int, wait: float) -> None
+    # Optional spinner callback: on_rate_limit(attempt, max_attempts, wait).
     on_rate_limit: Any = None
 
     async def initialize(self) -> None:
@@ -171,15 +140,12 @@ class AnthropicProvider(BaseLLMProvider):
         api_key = self.api_key
         auth_token = None
 
-        # Support Claude Code OAuth tokens (sk-ant-oat*) and "claude-code" magic key
         if api_key == "claude-code" or (not api_key and not self.base_url):
-            # Try to read OAuth token from Claude Code credentials
             token = _load_claude_code_token()
             if token:
                 auth_token = token
                 api_key = None
         elif api_key and api_key.startswith("sk-ant-oat"):
-            # Direct OAuth token passed as api_key
             auth_token = api_key
             api_key = None
 
@@ -190,15 +156,13 @@ class AnthropicProvider(BaseLLMProvider):
         }
 
         if auth_token:
-            # OAuth mode - mimic Claude Code's exact headers so the API accepts the token.
-            # Required: x-app, User-Agent, X-Claude-Code-Session-Id, anthropic-beta.
-            # Also increase max_retries to 10 (same as Claude Code) because OAuth
-            # tokens share rate limits with other Claude Code sessions.
+            # OAuth tokens share rate limits across CLI sessions; mimic
+            # the CLI's headers + bump retries/timeout.
             import uuid as _uuid
             _session = str(_uuid.uuid4())
             client_kwargs["auth_token"] = auth_token
-            client_kwargs["max_retries"] = 10  # Claude Code uses 10
-            client_kwargs["timeout"] = max(self.timeout or 120.0, 300.0)  # 5 min min
+            client_kwargs["max_retries"] = 10
+            client_kwargs["timeout"] = max(self.timeout or 120.0, 300.0)
             client_kwargs["default_headers"] = {
                 "x-app": "cli",
                 "User-Agent": "claude-cli/1.0.34 (external, cli)",
@@ -216,22 +180,14 @@ class AnthropicProvider(BaseLLMProvider):
         self._client = anthropic.AsyncAnthropic(**client_kwargs)
 
     async def _retry_on_rate_limit(self, coro_fn, max_attempts: int = 15):
-        """Retry a coroutine on 429 RateLimitError with exponential backoff.
-
-        Also handles 401 AuthenticationError by refreshing the OAuth token.
-        This is needed because OAuth tokens share rate limits with other
-        Claude Code sessions. The SDK's built-in retry may not be enough
-        when another session is actively streaming.
-        """
         import asyncio as _aio
         try:
             from anthropic import RateLimitError as _RLE
             from anthropic import AuthenticationError as _AE
         except ImportError:
             _RLE = Exception
-            _AE = type(None)  # Never matches
+            _AE = type(None)
 
-        # Also catch network errors (connection refused, DNS, timeout)
         try:
             import anthropic as _anth
             _NETWORK_ERRORS = (_anth.APIConnectionError, _anth.APITimeoutError)
@@ -243,7 +199,6 @@ class AnthropicProvider(BaseLLMProvider):
             try:
                 return await coro_fn()
             except _AE:
-                # 401 - try refreshing OAuth token once
                 if _auth_retried:
                     raise
                 _auth_retried = True
@@ -258,17 +213,8 @@ class AnthropicProvider(BaseLLMProvider):
                     continue
                 raise
             except _RLE as exc:
-                # Distinguish a transient anthropic rate-limit (retry-OK)
-                # from the digitorn-gateway's structured ``quota_exceeded``
-                # 429 (retry futile - the user is over their plan budget,
-                # not throttled by the upstream provider). The gateway
-                # serialises this as ``detail.code == "quota_exceeded"``.
-                # Bypass the retry loop so the runtime gets the real
-                # error in <100ms instead of after 15 backed-off retries.
-                # Body recovery: try the typed `exc.body` first, then
-                # fall back to parsing the literal dict tail of
-                # ``str(exc)`` — some SDK wrappers strip the typed
-                # body and bake it into the message.
+                # gateway quota_exceeded 429 is not retriable; bypass
+                # the backoff loop and surface a typed error.
                 from digitorn.modules.llm_provider.errors import (
                     parse_quota_exceeded,
                 )
@@ -307,11 +253,10 @@ class AnthropicProvider(BaseLLMProvider):
                 if self.on_rate_limit is not None:
                     try:
                         self.on_rate_limit(attempt + 1, max_attempts, wait)
-                    except Exception:
-                        pass
+                    except Exception as cb_exc:
+                        _logger.debug("on_rate_limit callback failed: %s", cb_exc)
                 await _aio.sleep(wait)
             except _NETWORK_ERRORS as exc:
-                # Network errors - retry with backoff
                 if attempt >= max_attempts - 1:
                     raise
                 wait = min(2 ** attempt, 16)
@@ -322,8 +267,8 @@ class AnthropicProvider(BaseLLMProvider):
                 if self.on_rate_limit is not None:
                     try:
                         self.on_rate_limit(attempt + 1, max_attempts, wait)
-                    except Exception:
-                        pass
+                    except Exception as cb_exc:
+                        _logger.debug("on_rate_limit callback failed: %s", cb_exc)
                 await _aio.sleep(wait)
         raise RuntimeError("Max retries exceeded")
 
@@ -357,18 +302,14 @@ class AnthropicProvider(BaseLLMProvider):
                 "If using api_key: 'claude-code', the OAuth token may be missing or expired."
             )
 
-        # Inject the per-request identity headers (run_id, agent_id, …)
-        # if the agent loop set a RequestContext. The SDK forwards
-        # ``extra_headers`` to the underlying httpx call. No-op when
-        # the call is issued outside an ``agent_turn`` scope.
         try:
             from digitorn.core.runtime.request_context import get_request_headers
             _digitorn_headers = get_request_headers()
             if _digitorn_headers:
                 _existing = params.get("extra_headers") or {}
                 params["extra_headers"] = {**_existing, **_digitorn_headers}
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.debug("digitorn request header injection failed: %s", exc)
 
         response = await self._retry_on_rate_limit(
             lambda: self._client.messages.create(**params)
@@ -407,17 +348,15 @@ class AnthropicProvider(BaseLLMProvider):
             extra=extra,
         )
 
-        # Inject the per-request identity headers (see chat() above).
         try:
             from digitorn.core.runtime.request_context import get_request_headers
             _digitorn_headers = get_request_headers()
             if _digitorn_headers:
                 _existing = params.get("extra_headers") or {}
                 params["extra_headers"] = {**_existing, **_digitorn_headers}
-        except Exception:
-            pass
+        except Exception as exc:
+            _logger.debug("digitorn request header injection failed: %s", exc)
 
-        # Retry on rate limit / auth error before starting stream
         import asyncio as _aio
         try:
             from anthropic import RateLimitError as _RLE
@@ -447,9 +386,6 @@ class AnthropicProvider(BaseLLMProvider):
                     continue
                 raise
             except _RLE as _rle_exc:
-                # Distinguish gateway quota_exceeded from a real upstream
-                # rate limit (see chat() for the same pattern). String
-                # fallback for SDK wrappers that strip the typed body.
                 from digitorn.modules.llm_provider.errors import (
                     parse_quota_exceeded,
                 )
@@ -484,15 +420,15 @@ class AnthropicProvider(BaseLLMProvider):
                 if self.on_rate_limit is not None:
                     try:
                         self.on_rate_limit(_attempt + 1, 15, wait)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        _logger.debug("anthropic best-effort block failed: %s", exc)
                 await _aio.sleep(wait)
         if stream_ctx is None:
             raise RuntimeError("Rate limit: could not start stream after 15 attempts")
 
-        # Track tool input JSON fragments - SDK may fail to reconstruct large inputs
-        _tool_json_acc: dict[int, list[str]] = {}  # block_index → [json_fragments]
-        _tool_meta: dict[int, dict] = {}  # block_index → {"id": ..., "name": ...}
+        # SDK occasionally fails to reconstruct large tool inputs.
+        _tool_json_acc: dict[int, list[str]] = {}
+        _tool_meta: dict[int, dict] = {}
         _current_block_index = -1
 
         async with stream_ctx as stream:
@@ -571,7 +507,6 @@ class AnthropicProvider(BaseLLMProvider):
               if block.type == "tool_use":
                   tool_input = block.input or {}
 
-                  # Check if we have accumulated fragments that might be more complete
                   if i in _tool_json_acc and _tool_json_acc[i]:
                       raw_json = "".join(_tool_json_acc[i])
                       if raw_json.strip():
@@ -613,9 +548,6 @@ class AnthropicProvider(BaseLLMProvider):
           if tool_calls:
               final_chunk.tool_calls = tool_calls
 
-          # Diag: persist authoritative final usage so the truthfulness
-          # test can compare daemon-reported numbers against the provider
-          # billed numbers byte-exact. Zero-cost when env var is absent.
           import os as _os
           if _os.environ.get("DIGITORN_DIAG_WIRE_PAYLOAD"):
               try:
@@ -631,8 +563,8 @@ class AnthropicProvider(BaseLLMProvider):
                       }),
                       encoding="utf-8",
                   )
-              except Exception:
-                  pass
+              except Exception as exc:
+                  _logger.debug("anthropic best-effort block failed: %s", exc)
 
           yield final_chunk
 
@@ -651,13 +583,11 @@ class AnthropicProvider(BaseLLMProvider):
             await self._client.close()
         self._client = None
 
-
     def _build_params(
         self,
         messages: list[ChatMessage],
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """Build Anthropic API params from messages and overrides."""
         merged = self._merge_params(**kwargs)
         extra = merged.pop("extra", None) or {}
 
@@ -696,9 +626,7 @@ class AnthropicProvider(BaseLLMProvider):
                     }],
                 })
             else:
-                # Support multimodal content blocks (text + images)
                 if isinstance(msg.content, list):
-                    # Content blocks - pass through, converting image_url to Anthropic format
                     blocks = []
                     for block in msg.content:
                         if not isinstance(block, dict):
@@ -706,13 +634,10 @@ class AnthropicProvider(BaseLLMProvider):
                         elif block.get("type") == "text":
                             blocks.append(block)
                         elif block.get("type") == "image":
-                            # Already in Anthropic format
                             blocks.append(block)
                         elif block.get("type") == "image_url":
-                            # OpenAI format → convert to Anthropic
                             url = block.get("image_url", {}).get("url", "")
                             if url.startswith("data:"):
-                                # data:image/png;base64,iVBOR...
                                 header, _, data = url.partition(",")
                                 mime = header.split(":")[1].split(";")[0] if ":" in header else "image/png"
                                 blocks.append({
@@ -722,7 +647,6 @@ class AnthropicProvider(BaseLLMProvider):
                             else:
                                 blocks.append({"type": "image", "source": {"type": "url", "url": url}})
                         elif block.get("type") == "image_ref":
-                            # Unresolved ref - should have been resolved before reaching provider
                             alt = block.get("alt_text", "image")
                             blocks.append({"type": "text", "text": f"[Image: {alt}]"})
                         else:
@@ -751,7 +675,7 @@ class AnthropicProvider(BaseLLMProvider):
         if merged.get("tool_choice"):
             converted = self._convert_tool_choice(merged["tool_choice"])
             if converted is None:
-                # LP1: tool_choice="none" → drop tools entirely
+                # Anthropic doesn't support "none"; drop tools instead.
                 params.pop("tools", None)
             else:
                 params["tool_choice"] = converted
@@ -760,7 +684,6 @@ class AnthropicProvider(BaseLLMProvider):
         return params
 
     def _parse_response(self, response: Any) -> ChatResponse:
-        """Parse Anthropic API response into ChatResponse."""
         content_parts: list[str] = []
         tool_calls: list[dict[str, Any]] = []
 
@@ -794,7 +717,6 @@ class AnthropicProvider(BaseLLMProvider):
 
     @staticmethod
     def _convert_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Convert OpenAI-style tool definitions to Anthropic format."""
         converted = []
         for tool in tools:
             if "function" in tool:
@@ -810,16 +732,9 @@ class AnthropicProvider(BaseLLMProvider):
 
     @staticmethod
     def _convert_tool_choice(choice: str | dict) -> dict[str, Any] | None:
-        """Convert tool_choice to Anthropic format.
-
-        LP1: Anthropic doesn't support "none" - to disable tools, the
-        caller must not pass tools at all. Returning None signals "drop
-        tool_choice and tools entirely". Previously this returned auto
-        which caused the model to make unwanted tool calls.
-        """
         if isinstance(choice, str):
             if choice == "none":
-                return None  # Caller must skip tools entirely
+                return None
             mapping = {
                 "auto": {"type": "auto"},
                 "required": {"type": "any"},

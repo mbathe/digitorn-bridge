@@ -1,21 +1,4 @@
-"""ConnectionStringHandler - databases, caches, message queues.
-
-Handles credentials that are *URL-shaped*:
-
-    postgres://user:pass@host:5432/db
-    mongodb://user:pass@host:27017/db?authSource=admin
-    redis://:password@host:6379/0
-    mysql://user:pass@host:3306/db
-
-The full URL is one field. The handler parses it to extract the
-driver name (for routing), validates it's a proper URL, and can
-optionally run a ``test_query`` declared in the schema (like
-``SELECT 1`` for postgres) to check the connection before saving.
-
-Like ``ApiKeyHandler``, the live test is opt-in: without a
-``test_query`` in the schema, the handler trusts the URL and just
-checks it parses.
-"""
+"""ConnectionStringHandler - databases, caches, message queues."""
 
 from __future__ import annotations
 
@@ -33,10 +16,6 @@ logger = logging.getLogger(__name__)
 
 class ConnectionStringHandler(CredentialHandler):
     provider_type = "connection_string"
-    # DBs are typically shared resources - per_app_shared is the
-    # natural scope for an app's primary database. system_wide for
-    # admin-managed clusters. per_user is rare but valid (a user's
-    # personal Mongo Atlas).
     allowed_scopes = (
         "system_wide",
         "per_app_shared",
@@ -90,13 +69,7 @@ class ConnectionStringHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Attempt a real connection to the database.
-
-        Best-effort across drivers: tries asyncpg / aiomysql / motor /
-        redis.asyncio depending on the URL scheme. Falls back to a
-        URL-parseability smoke test when the matching driver isn't
-        installed (so the user still gets useful feedback).
-        """
+        """Attempt a real connection to the database."""
         url = self._extract_url(fields, schema_provider)
         if not url:
             return False, "no URL to test"
@@ -141,12 +114,7 @@ class ConnectionStringHandler(CredentialHandler):
 
 
 async def _probe_db(scheme: str, url: str) -> tuple[bool, str | None]:
-    """Open a quick connection through the appropriate driver.
-
-    Each branch only imports the driver lazily so a missing driver
-    just falls back to the URL-parseability smoke test rather than
-    breaking the daemon. Connection is closed immediately after.
-    """
+    """Open a quick connection through the appropriate driver."""
     import asyncio
     timeout = 8.0
     try:

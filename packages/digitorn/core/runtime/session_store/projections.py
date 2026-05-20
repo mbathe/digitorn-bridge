@@ -1,16 +1,4 @@
-"""Apply an Event to a SessionState's live projections.
-
-Critical invariants:
-
-  * The ``events`` journal is updated by ``InMemorySessionStore``
-    BEFORE ``apply_projection`` is called. Projections are derived
-    views; the journal is the source of truth.
-  * No event type is filtered out of the journal. Some types simply
-    have no projection effect (token, thinking_delta, heartbeat) and
-    fall through here as no-ops.
-  * Projections are idempotent under replay: rebuilding from
-    ``events.jsonl`` from seq=0 produces the same final state.
-"""
+"""Apply an Event to a SessionState's live projections."""
 
 from __future__ import annotations
 
@@ -29,9 +17,6 @@ from digitorn.core.runtime.session_store.types import (
 )
 
 
-# Event types that are journal-only, no projection update needed.
-# Streaming deltas and lifecycle markers fall here. Listed
-# explicitly so a typo in event.type doesn't silently no-op.
 _NO_PROJECTION_TYPES = frozenset({
     "token",
     "thinking_delta",
@@ -57,36 +42,13 @@ _NO_PROJECTION_TYPES = frozenset({
 
 
 def apply_projection(state: SessionState, ev: Event) -> None:
-    """Mutate ``state``'s live projections to reflect ``ev``.
-
-    Runs inline with the ``events.append(ev)`` so callers see a
-    consistent snapshot. Single-writer per session is the contract.
-    """
+    """Mutate `state`'s live projections to reflect `ev`."""
     t = ev.type
 
     if t in _NO_PROJECTION_TYPES:
         return
 
     if t == "user_message":
-        # Two emitters land a ``user_message`` event on the same
-        # session: the SessionBus wire path (``kind="event"``,
-        # broadcast to clients in real time) AND the persistence
-        # path ``save_messages`` (``kind="message"``, durable row).
-        # Both share ``type == "user_message"``, so projecting on
-        # type alone duplicates the message in ``state.messages``
-        # and the LLM ends up seeing every user turn twice on
-        # resume. Architectural intent (documented in
-        # ``api/apps_v2/sessions.py:1733`` for the read-side filter)
-        # is that ``kind="event"`` is wire-only and ``kind="message"``
-        # is the canonical message row. Apply the same filter here so
-        # only the durable kind updates the message projection.
-        #
-        # We still update the title from kind="event" because at that
-        # moment the wire row is the FIRST signal that the user typed
-        # something, and the UI list reads ``state.title`` immediately.
-        # The interrupted-flag clear also reacts to either kind for the
-        # same reason: the user is back, the session is live, regardless
-        # of which row landed first.
         msg_text = ev.content or str(ev.payload.get("content", "") or "")
         if ev.kind == "message":
             state.messages.append(Message(
@@ -102,13 +64,6 @@ def apply_projection(state: SessionState, ev: Event) -> None:
             state.interrupted = False
             state.interrupted_at = None
     elif t == "assistant_message":
-        # Same wire-vs-canonical split as ``user_message``: the
-        # SessionBus emits ``kind="event"`` for live delivery, the
-        # persistence layer emits ``kind="message"`` for the durable
-        # row. Project ONLY the canonical row to avoid duplicating
-        # assistant turns in ``state.messages`` AND double-counting
-        # tokens / cost on every turn (both emitters carry the same
-        # usage numbers in their payload).
         if ev.kind == "message":
             msg_text = ev.content or str(ev.payload.get("content", "") or "")
             state.messages.append(Message(
@@ -126,52 +81,22 @@ def apply_projection(state: SessionState, ev: Event) -> None:
             if isinstance(_slot, int):
                 state.streaming_partials.pop(_slot, None)
     elif t == "assistant_message_partial":
-        # Crash-recovery snapshot of an in-flight assistant stream.
-        # The agent loop fires these via ``upsert_streaming_assistant``
-        # roughly once per chunk batch; each one carries the FULL
-        # text streamed so far for the agent-slot seq. Cleared when
-        # the final ``assistant_message`` event lands for the same
-        # slot. NOT appended to ``state.messages`` -- the live view
-        # already shows the stream via tokens on the bus; the buffer
-        # only matters when the daemon dies before the final flush.
         _slot = ev.payload.get("agent_seq")
         _partial = ev.content or str(ev.payload.get("content", "") or "")
         if isinstance(_slot, int):
             state.streaming_partials[_slot] = _partial
     elif t == "turn_terminal":
-        # Phase 1 projection: ``turn_terminal`` is the canonical
-        # end-of-turn signal in the new event-sourced flow. Fires on
-        # success AND on abort/error so ``turn_count`` reflects every
-        # attempted turn (matches the legacy
-        # ConversationSession.turn_count++ semantics in manager_v2).
-        # ``assistant_message`` is the legacy bus event -- we
-        # intentionally do NOT increment there to avoid double-counting
-        # when both are emitted in the same turn.
         state.turn_count += 1
     elif t == "session_title":
-        # Phase 1: explicit title-set event (used by
-        # ``maybe_update_session_title`` once it migrates off the
-        # old SessionStore.put path). Idempotent.
+        # Explicit title-set event; idempotent.
         new_title = str(ev.payload.get("title", "") or ev.content or "").strip()
         if new_title:
             state.title = new_title[:200]
     elif t == "abort":
-        # Phase 1 projection: abort marks the session interrupted so
-        # the resume path can synthesise "interrupted" tool_results
-        # for orphan tool_calls. Cleared on the next user_message.
         state.interrupted = True
         state.interrupted_at = ev.ts
-        # The aborted turn's streaming buffer is no longer recoverable
-        # via the normal assistant_message path; clear it so it does
-        # not accumulate forever (one stale entry per abort over the
-        # session lifetime). Replay path: ``upsert_streaming_assistant``
-        # only writes to HistoryLog on abort finalization; the partial
-        # text is still on disk for forensic recovery if needed.
         state.streaming_partials.clear()
     elif t == "session_workspace":
-        # Phase 1: explicit workspace/workdir set event emitted at
-        # session create. Harmless when absent (legacy sessions
-        # filled them via the OLD SessionStore.put path).
         ws = str(ev.payload.get("workspace", "") or "")
         wd = str(ev.payload.get("workdir", "") or "")
         if ws:
@@ -251,12 +176,6 @@ def apply_projection(state: SessionState, ev: Event) -> None:
         key = str(ev.payload.get("key", ""))
         if key:
             state.memory_facts.pop(key, None)
-    # ── Working-memory + semantic events ─────────────────────────
-    # New ``memory_*`` family, one event per atomic mutation of the
-    # MemoryStore. Each handler updates the corresponding state field
-    # so ``_state_to_conv_session`` can rebuild the nested snapshot
-    # MemoryStore.restore_from_dict expects (working.goal,
-    # working.todos, semantic.facts).
     elif t == "memory_goal_set":
         state.goal = str(ev.payload.get("goal", ""))
     elif t == "memory_task_create":

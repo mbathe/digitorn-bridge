@@ -2,6 +2,28 @@
 # Digitorn — .gitignore
 # ═══════════════════════════════════════════════════════
 
+# ── AI / editor session artifacts ─────────────────────
+# Never commit AI-assistant session memory, instructions, or local
+# editor caches. ``CLAUDE.md`` lives at the repo root for local AI
+# tooling but stays out of the public history.
+.claude/
+.cursor/
+.aider*
+.github-copilot/
+/CLAUDE.md
+
+# ── Live-test leftovers at the repo root ──────────────
+# These can accumulate when running the dev CLI manually against the
+# daemon (LaTeX scratch, tiny scripts, event dumps).
+/events.ndjson
+/hello.py
+/main.log
+/main.pdf
+/main.tex
+/main.aux
+/main.toc
+/main.out
+
 # ── Python ────────────────────────────────────────────
 __pycache__/
 *.py[codz]
@@ -135,6 +157,7 @@ docs/_build/
 /site
 
 # ── Digitorn runtime data ─────────────────────────────
+.digitorn/
 .digitorn/apps/*/sessions/
 .digitorn/state/
 .digitorn/models/
@@ -149,6 +172,13 @@ tests/live/route_audit/route_audit_results.csv
 tests/live/route_audit/routes_manifest.json
 tests/live/route_audit/coach_trace.log
 tests/live/route_audit/*.txt
+
+# ── Internal / scratch (not for OSS) ──────────────────
+olds_doc/
+tools/_*.txt
+tools/_*_result.txt
+tools/*_result.json
+tools/_seq_log.txt
 
 # ── Generated API specs ──────────────────────────────
 docs/openapi.json

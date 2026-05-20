@@ -1,19 +1,4 @@
-"""Postgres backend for cloud mode.
-
-Writes to the v2 schema (``agent_runs``, ``agent_run_events``,
-``session_agents``). Implementation mirrors the previous inline
-tracker, with three differences:
-
-  1. Sequence is supplied by the worker (no SELECT MAX needed).
-  2. user_sessions is get-or-created here too (race-safe vs
-     persist_worker which writes the same row asynchronously).
-  3. session_agents is upserted via INSERT ON CONFLICT so two
-     concurrent runs of the same specialist don't race.
-
-The runtime hot path NEVER calls this directly - it goes through the
-worker queue. Errors here are logged by the worker; we don't try to
-swallow them inside the backend.
-"""
+"""Postgres backend for cloud mode."""
 
 from __future__ import annotations
 
@@ -36,8 +21,7 @@ def _parse_iso(s: str) -> datetime:
 
 
 class PostgresBackend:
-    """Default cloud backend. Writes go through the daemon's main
-    async session factory."""
+    """Default cloud backend. Writes go through the daemon's main"""
 
     def __init__(self, **_: Any) -> None:
         # Nothing to configure: the engine is owned by
@@ -45,15 +29,11 @@ class PostgresBackend:
         pass
 
     async def setup(self) -> None:
-        # The daemon's init_db runs before the tracker's worker, so
-        # by the time setup() fires the engine is already up. We do
-        # nothing extra.
         return
 
     async def teardown(self) -> None:
         return
 
-    # ── start_run ────────────────────────────────────────────────
 
     async def start_run(
         self,
@@ -73,10 +53,6 @@ class PostgresBackend:
 
         factory = get_session_factory()
         async with factory() as db:
-            # 1. Resolve session_pk - get-or-create.
-            #    The persist_worker may write this same row asynchronously;
-            #    we accept the race and rely on the unique index on
-            #    (app_id, external_sid) to keep duplicates out.
             session_pk = (await db.execute(
                 select(UserSession.id).where(
                     UserSession.app_id == app_id,
@@ -143,7 +119,6 @@ class PostgresBackend:
             db.add(run)
             await db.commit()
 
-    # ── complete_run ─────────────────────────────────────────────
 
     async def complete_run(
         self,
@@ -186,7 +161,6 @@ class PostgresBackend:
                 """), {"run_id": run_id})
             await db.commit()
 
-    # ── emit_event ──────────────────────────────────────────────
 
     async def emit_event(
         self,
@@ -201,10 +175,6 @@ class PostgresBackend:
 
         factory = get_session_factory()
         async with factory() as db:
-            # elapsed_ms = emitted_at - run.started_at, computed in SQL.
-            # Each parameter is cast explicitly because asyncpg can't infer
-            # types when the same name is bound to multiple expression
-            # contexts (e.g., once as comparison RHS, once as INSERT VALUE).
             await db.execute(text("""
                 INSERT INTO agent_run_events
                     (run_id, sequence, event_type, data, elapsed_ms, created_at)
@@ -236,7 +206,6 @@ class PostgresBackend:
             )
             await db.commit()
 
-    # ── counters ────────────────────────────────────────────────
 
     async def increment_turns(self, *, run_id: str) -> None:
         factory = get_session_factory()

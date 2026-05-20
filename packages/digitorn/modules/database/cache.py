@@ -1,26 +1,10 @@
-"""Database module - Schema cache with TTL for fast introspection.
-
-Avoids hitting the database on every `list_tables`, `introspect`, `describe`
-call. The LLM can call these actions at near-zero cost after the first load.
-
-Cache invalidation:
-  - Automatic TTL expiry (default 300s / 5 minutes).
-  - Manual invalidation via `invalidate()` - called automatically when DDL
-    statements (CREATE, ALTER, DROP, TRUNCATE) are executed.
-  - Per-connection caching - each connection has its own cache entry.
-
-YAML-configurable via the connection policy or module config::
-
-    database:
-      schema_cache_ttl: 300
-"""
+"""Database module - Schema cache with TTL for fast introspection."""
 
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
 from typing import Any
-
 
 @dataclass
 class _CacheEntry:
@@ -38,22 +22,8 @@ class _CacheEntry:
             return True
         return (time.monotonic() - self.created_at) > ttl
 
-
 class SchemaCache:
-    """Per-connection schema cache with configurable TTL.
-
-    Usage::
-
-        cache = SchemaCache(ttl=300)
-
-        if not cache.has("main"):
-            tables = await adapter.list_tables()
-            cache.store("main", tables=tables)
-
-        tables = cache.get_tables("main")
-
-        cache.invalidate("main")
-    """
+    """Per-connection schema cache with configurable TTL."""
 
     def __init__(self, ttl: float = 300.0) -> None:
         self._ttl = ttl
@@ -67,7 +37,6 @@ class SchemaCache:
     def ttl(self, value: float) -> None:
         self._ttl = value
 
-
     def has(self, connection_id: str) -> bool:
         """Check if we have a valid (non-expired) cache for this connection."""
         entry = self._entries.get(connection_id)
@@ -77,7 +46,6 @@ class SchemaCache:
             del self._entries[connection_id]
             return False
         return True
-
 
     def store(
         self,
@@ -102,7 +70,6 @@ class SchemaCache:
         entry = self._entries.get(connection_id)
         if entry and not entry.is_expired(self._ttl):
             entry.stats_map[table] = stats
-
 
     def get_tables(self, connection_id: str) -> list[Any] | None:
         """Get cached tables list, or None if not cached/expired."""
@@ -139,7 +106,6 @@ class SchemaCache:
             return None
         return entry.stats_map.get(table)
 
-
     def invalidate(self, connection_id: str) -> None:
         """Invalidate cache for a connection (e.g. after DDL)."""
         self._entries.pop(connection_id, None)
@@ -147,7 +113,6 @@ class SchemaCache:
     def invalidate_all(self) -> None:
         """Clear all cached schemas."""
         self._entries.clear()
-
 
     def info(self) -> dict[str, Any]:
         """Cache stats for debugging/dashboard."""

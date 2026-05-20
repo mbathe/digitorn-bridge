@@ -1,34 +1,4 @@
-"""Cross-platform process group / job management for the daemon.
-
-Goal: when the daemon process dies for ANY reason (clean shutdown,
-Ctrl+C, terminal close, crash, kill -9), every child it ever spawned
-(Vite dev servers, npm install, taskkill subprocesses, sandbox workers,
-preview managers, MCP servers, ...) dies with it. **No orphans.**
-
-Three platforms, three mechanisms - same public API.
-
-Windows
--------
-A **Job Object** with the ``JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`` flag.
-The daemon assigns itself to a fresh job at startup. When the daemon
-process exits, Windows automatically terminates every other process
-in the job. Children spawned via ``subprocess.Popen`` inherit the job
-by default (since Windows 8).
-
-Linux
------
-``os.setsid()`` puts the daemon in its own session and process group.
-``prctl(PR_SET_PDEATHSIG, SIGKILL)`` on each child arranges for the
-kernel to send SIGKILL to the child the moment its parent (the
-daemon) dies. As a backstop, on shutdown the daemon also sends
-``SIGTERM`` to the entire process group via ``os.killpg``.
-
-macOS
------
-Same as Linux except ``PR_SET_PDEATHSIG`` does not exist. We rely on
-``setsid()`` + the shutdown-time ``killpg`` plus a small reaper that
-walks ``psutil`` children if available.
-"""
+"""Cross-platform process group / job management for the daemon."""
 
 from __future__ import annotations
 
@@ -46,11 +16,7 @@ _job_handle: Any = None
 
 
 def install() -> None:
-    """Set up the OS-level process group for the running daemon.
-
-    Idempotent. Safe to call multiple times. Must be called BEFORE any
-    ``subprocess.Popen`` so the children inherit the group/job.
-    """
+    """Set up the OS-level process group for the running daemon (idempotent)."""
     global _initialized
     if _initialized:
         return
@@ -67,7 +33,6 @@ def install() -> None:
 
 
 def _install_windows_job() -> None:
-    """Create a Job Object that kills children when the daemon dies."""
     global _job_handle
     try:
         import ctypes
@@ -165,7 +130,6 @@ def _install_windows_job() -> None:
 
 
 def _install_unix_session() -> None:
-    """Put the daemon in its own session/process group."""
     try:
         if os.getpgrp() != os.getpid():
             os.setpgrp()
@@ -179,19 +143,12 @@ def _install_unix_session() -> None:
 
 
 def _install_signal_handlers() -> None:
-    """Trap shutdown signals and trigger a clean child kill before exit."""
     handled = (signal.SIGTERM, signal.SIGINT)
     if not sys.platform.startswith("win"):
         handled = handled + (signal.SIGHUP,)
 
     def _handler(signum, _frame):
-        # CRITICAL: reset to default handler BEFORE calling _kill_children.
-        # _kill_children does ``os.killpg(pgid, SIGTERM)`` which sends the
-        # signal to every member of our process group - INCLUDING us. If
-        # the handler is still installed when that signal hits, we re-enter
-        # _handler → _kill_children → killpg → infinite recursion until
-        # ``RecursionError`` exhausts the stack and the process dies with
-        # exit 3 ("NOTIMPLEMENTED" in systemd's tongue).
+        # reset to default BEFORE _kill_children to avoid killpg signal recursion
         signal.signal(signum, signal.SIG_DFL)
         logger.info("process_group: signal %s received - killing children", signum)
         _kill_children()
@@ -208,15 +165,7 @@ def _install_signal_handlers() -> None:
 
 
 def _cleanup_at_exit() -> None:
-    """Atexit hook - fires on clean Python shutdown.
-
-    Reset the SIGTERM/SIGINT/SIGHUP handlers to default BEFORE calling
-    ``_kill_children``. Same recursion safety as ``_handler`` above:
-    ``killpg`` sends signals to ourselves and we don't want to re-enter
-    a now-defunct interpreter via the still-installed handlers (this
-    used to manifest as 30+ frames of ``_handler → _kill_children``
-    spam in the journal followed by ``RecursionError`` - exit 3).
-    """
+    # reset SIGTERM/SIGINT/SIGHUP handlers before _kill_children (recursion safety)
     if not sys.platform.startswith("win"):
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             try:
@@ -227,13 +176,6 @@ def _cleanup_at_exit() -> None:
 
 
 def _kill_children() -> None:
-    """Best-effort kill of every child process spawned by this daemon.
-
-    On Windows the Job Object handles this automatically when the
-    process exits, so we just close the handle. On Unix we send SIGTERM
-    to the process group, then a brief grace period, then SIGKILL.
-    Falls back to walking ``psutil`` children when available.
-    """
     if sys.platform.startswith("win"):
         _close_windows_job()
         return
@@ -265,8 +207,8 @@ def _kill_children() -> None:
                 "process_group: psutil reaped %d direct/indirect children",
                 len(children),
             )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("process_group best-effort block failed: %s", exc)
 
 
 def _close_windows_job() -> None:
@@ -285,13 +227,7 @@ def _close_windows_job() -> None:
 
 
 def set_pdeathsig_on_child(popen_kwargs: dict[str, Any]) -> dict[str, Any]:
-    """Add ``preexec_fn`` to a subprocess.Popen kwargs dict so that
-    each child gets ``SIGKILL`` from the kernel when its parent dies.
-
-    Linux only - on Windows the Job Object handles this. On macOS
-    PR_SET_PDEATHSIG does not exist; the child relies on the
-    daemon's shutdown-time killpg.
-    """
+    """Add preexec_fn so the child gets SIGKILL when parent dies (Linux only)."""
     if sys.platform != "linux":
         return popen_kwargs
 
@@ -301,8 +237,8 @@ def set_pdeathsig_on_child(popen_kwargs: dict[str, Any]) -> dict[str, Any]:
             libc = ctypes.CDLL("libc.so.6", use_errno=True)
             PR_SET_PDEATHSIG = 1
             libc.prctl(PR_SET_PDEATHSIG, signal.SIGKILL, 0, 0, 0)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("process_group best-effort block failed: %s", exc)
 
     existing = popen_kwargs.get("preexec_fn")
     if existing is None:

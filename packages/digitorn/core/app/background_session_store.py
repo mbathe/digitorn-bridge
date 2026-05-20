@@ -1,24 +1,4 @@
-"""Background Session Store - manages background sessions per user.
-
-Handles session lifecycle (create, list, get, pause, resume, delete)
-and the routing index for trigger dispatch.
-
-Mono mode:  1 session per user, auto-created on first trigger.
-Multi mode: N sessions per user, created via API with custom params.
-
-Routing index:
-    For each app, maintains a mapping:
-        trigger_type → routing_key_value → session_id
-    This allows O(1) lookup when a routed trigger fires.
-
-Session payload (scheduled user input):
-    Every background session can carry a "payload" the user pre-fills
-    at session creation time - typically a prompt + uploaded files
-    (CV, spreadsheet, image, etc.) + free-form metadata. The daemon
-    injects this payload into every scheduled activation as if the
-    user had typed it live. See ``set_payload`` / ``get_payload`` /
-    ``add_payload_file`` / ``list_payload_files``.
-"""
+"""Background Session Store - manages background sessions per user."""
 
 from __future__ import annotations
 
@@ -34,19 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def _payload_files_dir(app_id: str, session_id: str) -> Path:
-    """Resolve the on-disk directory holding a session's uploaded files.
-
-    Layout::
-
-        ~/.digitorn/apps/<app_id>/sessions/<session_id>/payload/
-            cv.pdf
-            preferences.json
-            screenshot.png
-
-    Agents read these files via the normal ``filesystem.read`` tool -
-    the path is just surfaced in the activation message so the agent
-    knows where to look.
-    """
+    """Resolve the on-disk directory holding a session's uploaded files."""
     # Safety: reject path traversal at the segment level.
     for name in (app_id, session_id):
         if not name or "/" in name or "\\" in name or ".." in name:
@@ -105,10 +73,7 @@ class BackgroundSessionStore:
         app_id: str,
         user_id: str,
     ) -> dict[str, Any]:
-        """Get the mono session for a user, or create it if missing.
-
-        In mono mode, each user has exactly one session per app.
-        """
+        """Get the mono session for a user, or create it if missing."""
         from digitorn.core.models import BackgroundSession
 
         async with self._session_factory() as db:
@@ -219,7 +184,6 @@ class BackgroundSessionStore:
             await db.commit()
             return result.rowcount or 0
 
-    # ── Routing Index ──────────────────────────────────────────
 
     async def resolve_routing(
         self,
@@ -227,16 +191,7 @@ class BackgroundSessionStore:
         trigger_routing: str,
         routing_key_value: str,
     ) -> list[dict[str, Any]]:
-        """Resolve a routing key to target sessions.
-
-        Args:
-            app_id: The app ID.
-            trigger_routing: 'broadcast', 'user', or 'session'.
-            routing_key_value: The extracted routing key from the event.
-
-        Returns:
-            List of session dicts to activate.
-        """
+        """Resolve a routing key to target sessions."""
         from digitorn.core.models import BackgroundSession
 
         async with self._session_factory() as db:
@@ -292,17 +247,6 @@ class BackgroundSessionStore:
 
         return []
 
-    # ── Payload (user-provided scheduled input) ────────────────────
-    #
-    # The payload is stored in two places on purpose:
-    # - DB (``BackgroundSession.params``): small structured data
-    #   (prompt text, metadata, per-file entries with {name, path}).
-    #   Used by the background runtime at trigger firing time.
-    # - Disk (``~/.digitorn/apps/<id>/sessions/<sid>/payload/``): the
-    #   actual file bytes. The agent reads these via ``filesystem.read``.
-    #
-    # Both are wrapped by the helpers below so routes and the injection
-    # layer share the same code path.
 
     _PAYLOAD_KEY = "_payload"
 
@@ -313,15 +257,7 @@ class BackgroundSessionStore:
         prompt: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Create or update the prompt + metadata part of a session payload.
-
-        Does NOT touch the attached files - use ``add_payload_file``
-        for those. Returns the full updated payload dict.
-
-        The payload is merged into ``BackgroundSession.params`` under
-        the ``_payload`` key, so legacy consumers that already use
-        ``params`` for other fields keep working.
-        """
+        """Create or update the prompt + metadata part of a session payload."""
         from digitorn.core.models import BackgroundSession
 
         async with self._session_factory() as db:
@@ -339,7 +275,7 @@ class BackgroundSessionStore:
                 payload["prompt"] = str(prompt)
             if metadata is not None:
                 # Shallow merge - callers pass the subset they want to
-                # change, existing keys not in ``metadata`` are kept.
+                # change, existing keys not in `metadata` are kept.
                 meta = dict(payload.get("metadata") or {})
                 meta.update(metadata)
                 payload["metadata"] = meta
@@ -357,12 +293,7 @@ class BackgroundSessionStore:
             return payload
 
     async def get_payload(self, session_id: str) -> dict[str, Any]:
-        """Return the session's payload dict (prompt + metadata + files).
-
-        Returns an empty shape ``{prompt: '', metadata: {}, files: []}``
-        when no payload has been set yet, so callers can always index
-        the same keys without None checks.
-        """
+        """Return the session's payload dict (prompt + metadata + files)."""
         from digitorn.core.models import BackgroundSession
 
         async with self._session_factory() as db:
@@ -389,19 +320,7 @@ class BackgroundSessionStore:
         content: bytes,
         mime_type: str | None = None,
     ) -> dict[str, Any]:
-        """Persist a file on disk and record it in the session payload.
-
-        Writes bytes to
-        ``~/.digitorn/apps/<app_id>/sessions/<session_id>/payload/<safe_filename>``
-        and appends a ``{name, path, mime_type, size_bytes}`` entry to
-        the session payload's ``files`` list. Returns the updated
-        payload dict.
-
-        The filename is sanitised to a single basename (no directories,
-        no traversal). If a file with the same name already exists it is
-        overwritten - the caller can use ``remove_payload_file`` first
-        if they want history.
-        """
+        """Persist a file on disk and record it in the session payload."""
         from digitorn.core.models import BackgroundSession
 
         # Fetch session row to learn its app_id (we need it for the path)
@@ -461,10 +380,7 @@ class BackgroundSessionStore:
     async def remove_payload_file(
         self, session_id: str, filename: str,
     ) -> bool:
-        """Delete a file from disk and remove its entry from the payload.
-
-        Returns True if anything was actually removed.
-        """
+        """Delete a file from disk and remove its entry from the payload."""
         from digitorn.core.models import BackgroundSession
 
         async with self._session_factory() as db:
@@ -508,11 +424,7 @@ class BackgroundSessionStore:
         return removed
 
     async def clear_payload(self, session_id: str) -> bool:
-        """Delete every payload file + wipe the payload from the DB row.
-
-        Used when a session is deleted or the user clicks "clear all" in
-        the dashboard.
-        """
+        """Delete every payload file + wipe the payload from the DB row."""
         from digitorn.core.models import BackgroundSession
 
         async with self._session_factory() as db:
@@ -533,8 +445,8 @@ class BackgroundSessionStore:
 
         try:
             shutil.rmtree(_payload_files_dir(app_id, session_id), ignore_errors=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("background_session_store best-effort block failed: %s", exc)
         return True
 
     @staticmethod

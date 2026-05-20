@@ -1,11 +1,4 @@
-"""Conversation mode - interactive readline loop.
-
-The user sends messages, the agent responds, history persists.
-
-Background task notifications are delivered automatically:
-when a background task completes while waiting for user input,
-a new agent turn is triggered without user intervention.
-"""
+"""Conversation mode - interactive readline loop."""
 
 from __future__ import annotations
 
@@ -114,17 +107,7 @@ async def _get_next_input(
     existing_input_task: asyncio.Task[str | None] | None,
     **turn_kwargs: Any,
 ) -> str | None:
-    """Wait for user input while delivering background notifications proactively.
-
-    Key design: we NEVER cancel the input task. Blocking input() in a thread
-    cannot be interrupted by asyncio cancellation. Instead, we keep the same
-    input task alive and reuse it across notification handling cycles.
-
-    Returns:
-        - User input string (normal case)
-        - "" if a notification-triggered turn was handled (caller loops back)
-        - None if the user wants to exit (EOF/Ctrl-C)
-    """
+    """Wait for user input while delivering background notifications proactively."""
     if cb is None or not hasattr(cb, "drain_bg_notifications"):
         logger.debug("_get_next_input: no context_builder, simple input")
         try:
@@ -182,7 +165,6 @@ async def _handle_bg_notifications(
     output_fn: Any,
     **turn_kwargs: Any,
 ) -> None:
-    """Inject background/watcher notifications and trigger a new agent turn."""
     from digitorn.core.runtime.agent_loop import (
         _format_bg_task_notification,
         _format_watcher_notification,
@@ -213,7 +195,6 @@ async def _handle_bg_notifications(
 
 
 async def _safe_input(input_fn: Any, prompt: str) -> str | None:
-    """Wrap input_fn to return None on EOF/KeyboardInterrupt."""
     try:
         return await input_fn(prompt)
     except (EOFError, KeyboardInterrupt):
@@ -221,11 +202,9 @@ async def _safe_input(input_fn: Any, prompt: str) -> str | None:
 
 
 async def _default_input(prompt: str) -> str:
-    """Default input function using builtin input()."""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, lambda: input(prompt))
 
 
 def _default_output(text: str) -> None:
-    """Default output function."""
     print(text, flush=True)

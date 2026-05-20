@@ -1,35 +1,4 @@
-"""RuntimeApp - pre-computed, immutable app state for zero-overhead execution.
-
-After the compiler validates and the bootstrapper executes, the RuntimeApp
-captures everything the execution layer needs in a single, frozen object:
-
-    - SecurityProfile          (already resolved, no DB query needed)
-    - Per-module constraints   (already validated, ready to enforce)
-    - Per-module config        (already applied, kept for reference)
-    - Action policy cache      (pre-resolved for every module:action pair)
-    - Module references        (direct pointers, no registry lookup)
-
-At runtime, the execution path is::
-
-    request(app_id, module_id, action, params)
-        → store.get(app_id)
-        → runtime_app.get_policy(mid, a) # O(1) dict lookup
-        → runtime_app.get_module(mid)
-        → module.execute(action, params) # direct call
-
-Zero reflection. Zero DB queries. Zero lazy loading.
-
-Usage::
-
-    from digitorn.core.app.runtime import AppRuntimeStore
-
-    store = AppRuntimeStore(registry)
-    runtime = store.register(compiled_app)
-
-    runtime = store.get("my-app")
-    policy = runtime.action_policy("database", "execute_query")
-    constraints = runtime.module_constraints("database")
-"""
+"""RuntimeApp - pre-computed, immutable app state for zero-overhead execution."""
 
 from __future__ import annotations
 
@@ -45,11 +14,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ActionPolicyEntry:
-    """Pre-resolved policy for a single module:action pair.
-
-    Computed once at registration time so the runtime never
-    calls resolve_action_policy() on the hot path.
-    """
+    """Pre-resolved policy for a single module:action pair."""
 
     module_id: str
     action: str
@@ -61,11 +26,7 @@ class ActionPolicyEntry:
 
 @dataclass(frozen=True)
 class RuntimeApp:
-    """Immutable, pre-computed app state. Created once, read many times.
-
-    Everything the execution layer needs is here - no reflection,
-    no DB queries, no lazy loading.
-    """
+    """Immutable, pre-computed app state. Created once, read many times."""
 
     app_id: str
     security_profile: SecurityProfile
@@ -84,11 +45,7 @@ class RuntimeApp:
 
 
     def action_policy(self, module_id: str, action: str) -> str:
-        """Get the pre-resolved policy for a module:action pair.
-
-        Returns "approve" as fallback if the pair wasn't pre-computed
-        (shouldn't happen for well-formed apps).
-        """
+        """Get the pre-resolved policy for a module:action pair."""
         entry = self._action_policies.get((module_id, action))
         if entry is not None:
             return entry.policy
@@ -130,12 +87,7 @@ def build_runtime_app(
     compiled: CompiledApp,
     registry: "ModuleRegistry",
 ) -> RuntimeApp:
-    """Build a RuntimeApp by pre-computing all action policies.
-
-    Walks every module and every action, resolves the policy once,
-    and freezes the result. After this, the runtime never needs to
-    call resolve_action_policy() again.
-    """
+    """Build a RuntimeApp by pre-computing all action policies."""
     action_policies: dict[tuple[str, str], ActionPolicyEntry] = {}
     visible_actions: dict[str, list[str]] = {}
     constraints: dict[str, dict[str, Any]] = {}
@@ -196,29 +148,14 @@ def build_runtime_app(
 
 
 class AppRuntimeStore:
-    """In-memory store of active RuntimeApps. O(1) lookup by app_id.
-
-    Singleton per daemon process. Holds all bootstrapped apps ready
-    for zero-overhead execution.
-
-    Usage::
-
-        store = AppRuntimeStore(registry)
-        store.register(compiled_app)
-
-        runtime = store.get("my-app")
-        policy = runtime.action_policy("database", "execute_query")
-    """
+    """In-memory store of active RuntimeApps. O(1) lookup by app_id."""
 
     def __init__(self, registry: "ModuleRegistry") -> None:
         self._registry = registry
         self._apps: dict[str, RuntimeApp] = {}
 
     def register(self, compiled: CompiledApp) -> RuntimeApp:
-        """Build and store a RuntimeApp from a CompiledApp.
-
-        Replaces any existing entry for the same app_id (for re-sync).
-        """
+        """Build and store a RuntimeApp from a CompiledApp."""
         runtime = build_runtime_app(compiled, self._registry)
         self._apps[compiled.app_id] = runtime
         return runtime

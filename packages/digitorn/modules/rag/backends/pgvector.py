@@ -1,8 +1,4 @@
-"""pgvector backend - PostgreSQL with vector extension.
-
-Requires: pip install asyncpg pgvector
-Uses the database module's connection via ServiceBus, or a direct DSN.
-"""
+"""pgvector backend - PostgreSQL with vector extension."""
 
 from __future__ import annotations
 
@@ -14,7 +10,6 @@ from typing import Any
 from .base import CollectionInfo, Document, SearchResult, VectorBackend
 
 logger = logging.getLogger(__name__)
-
 
 class PgvectorBackend(VectorBackend):
 

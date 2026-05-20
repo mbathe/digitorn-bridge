@@ -1,18 +1,4 @@
-"""Shell module - 1 ultra-powerful bash action with 4 execution modes.
-
-bash - execute shell commands with 4 modes:
-  1. Sync execution: normal commands (wait for result)
-  2. Async execution: long-running commands (return task_id immediately)
-  3. Status checking: check running task status and output
-  4. Task management: kill running tasks
-
-Security (all platforms):
-  - Platform-specific command blacklist checked before every execution.
-  - Workspace path confinement: absolute paths outside workspace are blocked.
-  - Output sanitization: API keys, passwords, tokens are redacted.
-  - Timeout enforced on every subprocess call.
-  - Audit log: every command recorded with command, cwd, exit code, timestamp.
-"""
+"""Shell module - 1 bash action with 4 execution modes."""
 
 from __future__ import annotations
 
@@ -46,20 +32,6 @@ _SYSTEM = _platform.system().lower()
 _IS_WINDOWS = _SYSTEM == "windows"
 _BG_MAX_LINES = 10_000
 
-
-# ── Hang detection ──────────────────────────────────────────────
-#
-# CLIs that try to read user input from stdin will, with stdin=DEVNULL,
-# usually see EOF and exit with an error. But some tools print a prompt
-# THEN sit waiting on /dev/tty (sudo, ssh keyboard-interactive) or
-# loop on read with retries (custom scripts), or expect a TTY for the
-# OAuth callback wait (gh/vercel login).
-#
-# When that happens, the user-visible symptom is "command runs to the
-# 5-minute hard timeout, then errors with 'timed out'" — which leaves
-# the agent guessing what to do. The hang detector watches the output
-# for prompt-like text and, when it sees one + silence, kills early
-# and returns a STRUCTURED directive telling the agent the exact fix.
 _PROMPT_PATTERN_HINTS: list[tuple[re.Pattern[str], str]] = [
     # npm/npx
     (re.compile(r"need to install the following packages", re.I),
@@ -79,11 +51,8 @@ _PROMPT_PATTERN_HINTS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"are you sure\?|confirm:", re.I),
      "CLI wants confirmation. Use the tool's non-interactive flag or "
      "stdin_text='yes\\n'."),
-    # auth
-    # ``password`` and ``passphrase`` may have arbitrary text between
-    # the keyword and the trailing ``:`` (e.g. ``Enter passphrase for
-    # key '/home/.../id_rsa':``). Match the keyword + any chars until
-    # a ``:`` or end-of-line.
+    # auth: `password` / `passphrase` may have arbitrary text up
+    # to the trailing `:` (e.g. `Enter passphrase for key 'X':`).
     (re.compile(r"(?:password|passphrase)\b[^\n:]{0,120}:", re.I),
      "CLI is asking for a password / passphrase. Cannot prompt over "
      "non-TTY. Use SSH keys, .netrc, env vars (e.g. PGPASSWORD), or "
@@ -109,22 +78,11 @@ _PROMPT_PATTERN_HINTS: list[tuple[re.Pattern[str], str]] = [
      "keep_stdin_open=true, or use the tool's non-interactive flag."),
 ]
 
-
 def _detect_hang_directive(stdout_tail: str, stderr_tail: str) -> str | None:
-    """Return a human-readable directive when a prompt pattern is found
-    in recent stdout/stderr, ``None`` otherwise.
-
-    Scans the last ~600 chars of each stream for known prompt patterns
-    and returns the first matching hint with the literal prompt line
-    that triggered it (so the agent knows exactly which CLI prompt to
-    address).
-    """
     for stream_label, content in (("stdout", stdout_tail), ("stderr", stderr_tail)):
         if not content:
             continue
-        # Only inspect the tail — prompts are always near the end of
-        # output (they're the LAST thing the CLI printed before sitting
-        # waiting for a reply).
+        # Only inspect the tail; prompts are always at the end.
         tail = content[-600:]
         for pattern, hint in _PROMPT_PATTERN_HINTS:
             m = pattern.search(tail)
@@ -140,10 +98,6 @@ def _detect_hang_directive(stdout_tail: str, stderr_tail: str) -> str | None:
                     f"{prompt_line!r}. {hint}"
                 )
     return None
-
-
-# ── Background task tracking ────────────────────────────────────
-
 
 @dataclass
 class BackgroundTask:
@@ -173,10 +127,6 @@ class BackgroundTask:
         end = datetime.fromisoformat(self.finished_at) if self.finished_at else datetime.now(timezone.utc)
         return (end - start).total_seconds()
 
-
-# ── Audit logging ───────────────────────────────────────────────
-
-
 def _audit(action_name: str, command: str, cwd: str, exit_code: int | None, error: str | None) -> None:
     logger.info(
         "shell_audit action=%s command=%r cwd=%s exit_code=%s error=%s ts=%s",
@@ -184,12 +134,7 @@ def _audit(action_name: str, command: str, cwd: str, exit_code: int | None, erro
         datetime.now(timezone.utc).isoformat(),
     )
 
-
-# ── Output sanitization ────────────────────────────────────────
-
-
 def _sanitize_output(text: str, extra_patterns: list[str] | None = None) -> str:
-    """Redact sensitive environment variable values from command output."""
     all_patterns = list(SENSITIVE_ENV_KEYS) + (extra_patterns or [])
     for key, value in os.environ.items():
         if not value or len(value) < 8:
@@ -197,10 +142,6 @@ def _sanitize_output(text: str, extra_patterns: list[str] | None = None) -> str:
         if any(f in key.lower() for f in all_patterns):
             text = text.replace(value, "***REDACTED***")
     return text
-
-
-# ── Config model ────────────────────────────────────────────────
-
 
 class ShellConfig(BaseModel):
     """Shell module configuration."""
@@ -222,16 +163,11 @@ class ShellConfig(BaseModel):
     large_output_threshold: int = PydanticField(30_000, ge=1000, description="Bytes threshold for disk persistence")
     max_persisted_bytes: int = PydanticField(64_000_000, ge=100_000, description="Max bytes to persist to disk (64MB)")
 
-
-# Redundant ``cd <basename> &&`` rewrite: LLMs trained on stateless
-# shell sessions reprefix ``cd web && ...`` every turn even though our
-# shell module persists cwd between calls. Once we're already inside
-# ``web/``, the next ``cd web`` looks for ``web/web/`` and fails. We
-# detect ``cd <X>`` (unquoted, single-segment, relative) when the
-# basename of cwd matches X, and strip that prefix. Multi-level cds
-# (``cd a/b``) and absolute cds (``cd /foo`` / ``cd C:/foo``) are
-# left alone - we only handle the exact "agent forgot the cwd
-# persists" pattern.
+# Strip redundant `cd <basename> &&` prefixes: LLMs trained on
+# stateless shells re-emit `cd web && ...` every turn even though
+# our cwd persists, which would land them in `web/web/` on the next
+# call. Only single-segment, relative `cd` targets matching the cwd
+# basename are stripped.
 _LEADING_CD_PATTERN = re.compile(
     r"""^\s*cd\s+
         (?:                  # the cd target -- one of:
@@ -239,23 +175,12 @@ _LEADING_CD_PATTERN = re.compile(
             | '([^'\\]+)'     #   single-quoted
             | (\S+)           #   bare token (no whitespace)
         )
-        \s*&&\s*             # mandatory ``&&`` separator
+        \s*&&\s*             # mandatory `&&` separator
     """,
     re.VERBOSE,
 )
 
-
 def _strip_redundant_cd(command: str, cwd: str) -> str:
-    """Strip ``cd <X> &&`` from the front of ``command`` when cwd's
-    basename already matches ``X``.
-
-    Returns the command unchanged when:
-      - it does not start with ``cd <X> && ...``
-      - ``X`` contains a path separator (``cd a/b``) - multi-level
-      - ``X`` is absolute (``cd /foo`` or ``C:/foo``)
-      - ``X`` resolves to ``..`` (``cd ../web``)
-      - the current cwd's basename does not match ``X``
-    """
     if not cwd:
         return command
     m = _LEADING_CD_PATTERN.match(command)
@@ -269,19 +194,16 @@ def _strip_redundant_cd(command: str, cwd: str) -> str:
         return command
     if target.startswith(".") or target == "~":
         return command
-    # Compare cwd's basename. Normalise to forward slashes + lowercase
-    # because Windows is case-insensitive and the user reported the
-    # symptom on Windows (``cd web`` from ``...\test_workspace_2\web``).
+    # Compare cwd's basename case-insensitively (Windows quirk).
     cwd_base = os.path.basename(cwd.rstrip("/\\")).lower()
     if cwd_base != target.lower():
         return command
     rewritten = command[m.end():].lstrip()
     if not rewritten:
-        # The whole command was just ``cd <X>`` - turn it into a no-op
+        # The whole command was just `cd <X>` - turn it into a no-op
         # rather than returning empty (which the shell might error on).
         return "true"
     return rewritten
-
 
 # Sleep detection - block bare sleep >2s (like Claude Code)
 _SLEEP_PATTERN = re.compile(r"^\s*sleep\s+(\d+(?:\.\d+)?)\s*$")
@@ -293,10 +215,6 @@ _SED_I_PATTERN = re.compile(r"""sed\s+-i(?:\s+|=['"])""")
 _BASE64_IMAGE_PREFIX = re.compile(r"data:image/(png|jpeg|gif|webp);base64,")
 _RAW_PNG_B64 = "iVBORw0KGgo"
 _RAW_JPEG_B64 = "/9j/"
-
-
-# ── Module ──────────────────────────────────────────────────────
-
 
 class ShellModule(BaseModule):
     MODULE_ID = "shell"
@@ -331,25 +249,17 @@ class ShellModule(BaseModule):
         super().__init__()
         self._adapter = get_adapter()
         self._workspace: str | None = None
-        # Reference to the workspace module - injected by bootstrap so
-        # `_check_cwd` can fall back to the workspace module's
-        # `_resolve_sync_dir()` when ``ctx.workspace`` is missing. Keeps
-        # WsWrite and Bash on the same workspace root regardless of how
-        # the UI propagates the per-message workspace.
+        # Injected by bootstrap so `_check_cwd` can fall back to
+        # `workspace._resolve_sync_dir()` when `ctx.workspace` is missing.
         self._workspace_module: Any | None = None
         self._tasks: dict[str, BackgroundTask] = {}
-        # Per-session tracking of task_ids - used by cleanup_session to kill
-        # the right background tasks when a session ends.
         self._session_tasks: dict[str, set[str]] = {}
-        # Lock for atomic track + cleanup operations on _session_tasks
         import threading
         self._session_tasks_lock = threading.RLock()
         self._sanitize: bool = True
         self._extra_sensitive: list[str] = []
-        # Per-session persisted cwd - `cd` in session A must never leak
-        # into session B. The shell module is a shared singleton, so a
-        # single instance-wide attribute was causing `cd foo` in an
-        # earlier session to poison later sessions with a fantasy cwd.
+        # Per-session persisted cwd: this module is a shared singleton
+        # so a single attribute would leak `cd foo` across sessions.
         self._persisted_cwd_by_session: dict[str, str] = {}
 
     @property
@@ -365,30 +275,20 @@ class ShellModule(BaseModule):
             self._persisted_cwd_by_session[sid] = value
 
     def _current_session_id(self) -> str:
-        """Resolve the current session_id from execution context."""
         try:
             ctx = self._context_var.get()
             if ctx is not None and getattr(ctx, "session_id", None):
                 return ctx.session_id
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("module best-effort block failed: %s", exc)
         return "_default"
 
     def _track_session_task(self, task_id: str) -> None:
-        """Associate a background task with the current session.
-
-        Atomic against cleanup_session via _session_tasks_lock.
-        """
         sid = self._current_session_id()
         with self._session_tasks_lock:
             self._session_tasks.setdefault(sid, set()).add(task_id)
 
     def _cleanup_old_finished_tasks(self, max_age_seconds: float = 3600) -> int:
-        """Remove finished tasks older than max_age_seconds.
-
-        Called from _bash_status_mode to opportunistically clean up the _tasks dict.
-        Prevents unbounded growth from forgotten background tasks.
-        """
         from datetime import datetime as _dt
         now = _dt.now(timezone.utc)
         removed = 0
@@ -414,23 +314,6 @@ class ShellModule(BaseModule):
         return removed
 
     def _task_gone_result(self, task_id: str | None, mode: str) -> ActionResult:
-        """Uniform response when an agent queries a background task that
-        no longer exists in ``self._tasks``.
-
-        Two distinct cases collapse here:
-
-        - The task ran, finished, and was popped by the >1h cleanup or
-          a session cleanup (abort, app re-deploy).
-        - The daemon was restarted, wiping the in-RAM task table while
-          the conversation history (which still names the task_id) was
-          rehydrated from the DB.
-
-        The previous error string ("Task 'X' not found. Active tasks:
-        (none)") looked alarming in the chat AND tempted the LLM to
-        retry the lookup with the same id. This message is explicit
-        about what happened and tells the agent to STOP querying that
-        id (the task_id will never come back).
-        """
         active = list(self._tasks.keys())
         if active:
             tail = (
@@ -459,12 +342,7 @@ class ShellModule(BaseModule):
         )
 
     async def cleanup_session(self, session_id: str) -> None:
-        """Kill all background tasks for a session and remove tracking.
-
-        Atomic against _track_session_task via _session_tasks_lock.
-        Sends a 'cancelled' notification for each killed task so the agent
-        is aware on the next turn (e.g. after abort + resume).
-        """
+        """Kill all background tasks for a session and remove tracking."""
         with self._session_tasks_lock:
             task_ids = self._session_tasks.pop(session_id, set())
         for tid in task_ids:
@@ -484,12 +362,9 @@ class ShellModule(BaseModule):
                     task._progress_task.cancel()
                 if task._reader_task and not task._reader_task.done():
                     task._reader_task.cancel()
-                # Notify agent so it knows the task was cancelled.
-                # session_id stamped explicitly so push_module_notification
-                # routes to the right per-session queue (the shared shell
-                # module has no contextvar set at session-cleanup time -
-                # without this the notification lands in "_standalone"
-                # and the poller drops it on the floor).
+                # Stamp `session_id` explicitly: no contextvar is set
+                # at cleanup time, otherwise the notification falls into
+                # the `_standalone` queue and is dropped.
                 if was_running:
                     self._notify_bg({
                         "task_id": tid,
@@ -511,11 +386,7 @@ class ShellModule(BaseModule):
         task_id: str,
         user_id: str | None = None,
     ) -> dict[str, Any]:
-        """Cancel a specific background task (user-initiated).
-
-        Returns a dict with cancel result. Sends notification to agent.
-        Called from API route when user clicks cancel on a bg task.
-        """
+        """Cancel a specific background task (user-initiated)."""
         task = self._tasks.get(task_id)
         if task is None:
             return {"success": False, "error": f"Task '{task_id}' not found."}
@@ -538,14 +409,9 @@ class ShellModule(BaseModule):
         if task._progress_task and not task._progress_task.done():
             task._progress_task.cancel()
 
-        # Notify agent that user cancelled this task. Stamp session_id +
-        # user_id explicitly: this method is invoked from a plain HTTP
-        # request (no ExecutionContext on the contextvar), so without
-        # them push_module_notification falls back to "_standalone" and
-        # the notification poller skips that queue - the agent would
-        # never get woken up. The shared shell module has no per-session
-        # state to lean on either, so the routing keys must come from
-        # the caller.
+        # Stamp `session_id` + `user_id` explicitly: this HTTP entry
+        # has no contextvar so the queue would otherwise fall back to
+        # `_standalone` and the poller would drop it.
         notification: dict[str, Any] = {
             "task_id": task_id,
             "tool_name": "shell.bash",
@@ -662,14 +528,9 @@ class ShellModule(BaseModule):
             ])
         return "\n".join(lines)
 
-    # ── Security checks ──────────────────────────────────────
-
     def _check_forbidden(self, command: str, action_name: str) -> ActionResult | None:
-        # BUG-077 + BUG-083: catch command lines that reference the
-        # daemon-private files (signing keys, master key, DB) and
-        # refuse them at the shell layer. This is a second wall of
-        # defence - the admin gate on /api/modules/execute (BUG-061)
-        # is the first, the filesystem-module denylist is the third.
+        # Reject command lines that reference daemon-private files (signing keys,
+        # master key, DB). Second wall after the admin gate, before the FS denylist.
         _sensitive_keywords = (
             ".digitorn/jwt.key", ".digitorn\\jwt.key",
             ".digitorn/master.key", ".digitorn\\master.key",
@@ -698,10 +559,8 @@ class ShellModule(BaseModule):
             _audit(action_name, command, "", None, f"forbidden:{match}")
             return ActionResult(success=False, error=f"Command rejected: forbidden pattern '{match}'.")
 
-        # Defence-in-depth: catch infinite-wait patterns that LLMs invent
-        # when "wait until X" is in their head but they pick the wrong
-        # primitive (tail -f /dev/null, sleep infinity, etc.). The agent's
-        # intent is legitimate; the implementation freezes the turn.
+        # Catch infinite-wait patterns (`tail -f /dev/null`, `sleep
+        # infinity`...) that freeze the turn.
         wait_hint = self._adapter.infinite_wait_hint(command)
         if wait_hint:
             _audit(action_name, command, "", None, f"infinite_wait:{command[:80]}")
@@ -727,18 +586,8 @@ class ShellModule(BaseModule):
         ctx = self._context_var.get()
         ctx_ws = ctx.workspace if ctx else None
         ws = ctx_ws or self.workspace or self._workspace
-        # When the per-message body omits ``workspace`` (some UI flows
-        # only set it on session creation, not every send), ctx.workspace
-        # is None and ``ws`` resolves to the daemon's startup cwd. The
-        # agent then issues ``cd <subdir>`` and hits ENOENT because the
-        # daemon dir has no such subdir, while ``WsWrite`` happily wrote
-        # to the user-picked dir via the workspace module's own
-        # ``_resolve_sync_dir`` chain (which checks
-        # ``preview._session_workspaces[sid]`` first).
-        # Bridge that gap: when the workspace module is wired in and
-        # ctx.workspace is missing, ask it for the canonical session
-        # sync dir. Mirrors workspace's resolution exactly so WsWrite
-        # and Bash always agree on the workspace root.
+        # `ctx.workspace` missing: ask the workspace module for the
+        # canonical session sync dir so Bash and WsWrite agree.
         if not ctx_ws:
             ws_mod = getattr(self, "_workspace_module", None)
             if ws_mod is not None:
@@ -748,17 +597,8 @@ class ShellModule(BaseModule):
                     resolved = None
                 if resolved:
                     ws = resolved
-        # Final safety net: when ctx.workspace AND the workspace module
-        # both fall through (workspace module's shared singleton has a
-        # stale or empty ctx, no user-picked workspace, etc.), construct
-        # the canonical per-session path directly from our OWN ctx —
-        # which the runtime guarantees is set during action execution.
-        # Without this, ``adapter.resolve_cwd`` would fall back to
-        # ``Path.cwd()`` = the daemon's startup directory (whatever
-        # folder the user launched ``digitorn start`` from), and the
-        # agent ends up running ``npm install`` inside the daemon's
-        # source tree. That's the root cause of "the agent is editing
-        # files inside digitorn-bridge" — fixed here.
+        # Last resort: build the per-session path from this action's
+        # ctx so `resolve_cwd` never lands on the daemon's cwd.
         if not ws and ctx is not None:
             ctx_app = getattr(ctx, "app_id", "") or ""
             ctx_sid = getattr(ctx, "session_id", "") or ""
@@ -773,10 +613,8 @@ class ShellModule(BaseModule):
                 except OSError:
                     pass
         if requested and ws:
-            # When a workdir-scoped policy is in scope, defer to it so
-            # the cwd check uses the same allowed_paths / unrestricted
-            # semantics as every other path input. Otherwise fall back
-            # to "requested must be under workspace" (legacy behaviour).
+            # Defer to the workdir policy when present; otherwise the
+            # legacy "requested must be under workspace" check.
             policy = getattr(ctx, "path_policy", None) if ctx else None
             if policy is not None:
                 if not policy.is_allowed(Path(requested)):
@@ -800,12 +638,8 @@ class ShellModule(BaseModule):
             env.setdefault("PYTHONUTF8", "1")
             env.setdefault("PYTHONIOENCODING", "utf-8")
             env.setdefault("LANG", "en_US.UTF-8")
-        # Prepend the workspace to PYTHONPATH so `python -c "from src.foo
-        # import ..."` works regardless of any parent pytest.ini /
-        # pyproject.toml that would otherwise hijack sys.path. We intentionally
-        # ignore the _BLOCKED_SESSION_ENV list here because that list
-        # protects against user-injected PYTHONPATH, not our own safe
-        # workspace-prefix default.
+        # Prepend the workspace to `PYTHONPATH` so `python -c` finds
+        # the agent's source regardless of any parent pytest.ini.
         ws = self.workspace or self._workspace
         if ws:
             try:
@@ -832,20 +666,6 @@ class ShellModule(BaseModule):
     })
 
     def _check_command_paths(self, command: str, action_name: str) -> ActionResult | None:
-        """Block commands with absolute paths outside the agent sandbox.
-
-        Routes the per-token check through the workdir-scoped
-        ``PathPolicy`` on the current execution context. The policy
-        knows the workdir, the YAML-declared extras, and the global
-        ``unrestricted`` escape hatch — one source of truth for
-        every agent-facing module.
-
-        Legacy fallback (no policy in scope): keeps the historical
-        loose check (workspace + ~ + /tmp + allowed_paths) so admin /
-        CLI callers that don't flow through ``apply_workspace_override``
-        don't break. Agent sessions ALWAYS get a policy; the legacy
-        branch only fires for module-API admin paths and tests.
-        """
         import shlex
 
         ctx = getattr(self, "_context", None)
@@ -896,11 +716,10 @@ class ShellModule(BaseModule):
                     return ActionResult(success=False, error=(
                         f"Path '{token}' is outside the agent workspace. "
                         "Use a relative path or declare "
-                        "``constraints.allowed_paths`` in the app YAML."
+                        "`constraints.allowed_paths` in the app YAML."
                     ))
             return None
 
-        # ── Legacy fallback (no PathPolicy in scope) ─────────────────
         workspace = Path(self.workspace).resolve() if self.workspace else None
         extra_paths = constraints.get("allowed_paths", [])
         allowed_roots: list[Path] = []
@@ -929,21 +748,10 @@ class ShellModule(BaseModule):
     async def _check_port_available_for_command(
         self, command: str,
     ) -> ActionResult | None:
-        """Pre-flight check: when ``command`` clearly binds a TCP port,
-        refuse if that port is already in use.
-
-        Why: Python's ``http.server`` on Windows may silently share
-        the port with a zombie from a previous session via SO_REUSEADDR
-        - the second process appears to start fine but requests are
-        served from the wrong cwd, leading to mysterious 404s. Same
-        story for some webpack-dev-server / vite versions that swallow
-        the OSError. Catching it here is cheaper than debugging it
-        downstream.
-        """
         import re as _re
         # Extract port from common patterns. Order matters - the more
         # specific patterns first so we don't false-match things like
-        # ``--config 8000.cfg``.
+        # `--config 8000.cfg`.
         port: int | None = None
         # python -m http.server PORT (positional)
         m = _re.search(
@@ -973,8 +781,8 @@ class ShellModule(BaseModule):
             writer.close()
             try:
                 await writer.wait_closed()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
         except (ConnectionRefusedError, OSError, asyncio.TimeoutError):
             # Nothing listening - good, we can bind.
             return None
@@ -1002,8 +810,6 @@ class ShellModule(BaseModule):
         if not self._sanitize:
             return text
         return _sanitize_output(text, self._extra_sensitive)
-
-    # ── bash ─────────────────────────────────────────────────
 
     @action(
         description="Execute shell commands: sync, async, status check, or kill.",
@@ -1059,7 +865,6 @@ class ShellModule(BaseModule):
         cli_output_lines=5,
     )
     async def bash(self, params: BashParams) -> ActionResult:
-        # ── Mode dispatch ────────────────────────────────────────
 
         # Mode 6: Wait for background task to complete (task_id + wait=true)
         if params.task_id and params.wait:
@@ -1093,14 +898,10 @@ class ShellModule(BaseModule):
             )
         return await self._bash_sync_mode(params)
 
-    # ── Mode handlers (internal methods, not @action) ──
-
     async def _bash_sync_mode(self, params: BashParams) -> ActionResult:
-        """Synchronous execution: run command, wait for result."""
         command = params.command
         assert command is not None
 
-        # ── Sleep detection (like Claude Code) ──────────────────
         sleep_match = _SLEEP_PATTERN.match(command.strip())
         if sleep_match:
             duration = float(sleep_match.group(1))
@@ -1114,7 +915,6 @@ class ShellModule(BaseModule):
                     ),
                 )
 
-        # ── Sed -i interception (like Claude Code) ──────────────
         if _SED_I_PATTERN.search(command):
             return ActionResult(
                 success=False,
@@ -1133,17 +933,6 @@ class ShellModule(BaseModule):
         if cwd_err:
             return cwd_err
 
-        # Defensive: strip a leading ``cd <basename> &&`` when the cwd
-        # is ALREADY inside <basename>. The shell module persists cwd
-        # across calls, but LLMs trained on stateless shell sessions
-        # repeatedly prefix ``cd web && ...`` even after a previous
-        # ``cd web`` succeeded. The follow-up then resolves to
-        # ``cwd/web/web`` which doesn't exist, and the command fails
-        # with ``cd: web: No such file or directory``. We rewrite to
-        # the equivalent command that runs in the current cwd. Same
-        # outcome, no behaviour change for callers that genuinely
-        # want to descend further (multi-level ``cd a/b`` is left
-        # alone, and absolute ``cd /foo`` is left alone).
         command = _strip_redundant_cd(command, cwd)
 
         env = self._build_env()
@@ -1159,33 +948,20 @@ class ShellModule(BaseModule):
             )
         except asyncio.TimeoutError:
             _audit("bash", command, cwd, None, "timeout")
-            # Best-effort prompt detection on whatever output the proc
-            # managed to flush before the hard timeout. The adapter's
-            # run_command buffers via communicate(), so on TimeoutError
-            # we don't have direct access to the partial output here.
-            # Return the standard timeout error with a hint pointing to
-            # the structured-output mechanism via run_in_background +
-            # stdout polling, which DOES expose partial output and
-            # triggers proactive hang detection in the bg watcher.
             return ActionResult(
                 success=False,
                 error=(
                     f"Timed out after {params.timeout}s. If the command may "
                     f"be waiting on an interactive prompt, re-run with "
-                    f"`run_in_background=true` — the background watcher "
+                    f"`run_in_background=true` - the background watcher "
                     f"detects prompts proactively and returns an "
                     f"actionable directive within ~30s instead of waiting "
                     f"for the full timeout."
                 ),
             )
         except Exception as exc:
-            # Always surface SOMETHING to the agent - some exceptions
-            # have an empty ``str()`` (notably ``NotImplementedError()``
-            # raised by asyncio's SelectorEventLoop on Windows when it
-            # can't spawn subprocesses). Without the type-name fallback
-            # the LLM sees ``error=""`` and can't react. The event loop
-            # policy is force-set at server.py import time, but this
-            # belt-and-braces protects against future regressions.
+            # Fall back to the type name when `str(exc)` is empty
+            # (e.g. `NotImplementedError()` on the wrong loop).
             _msg = str(exc) or f"{type(exc).__name__}"
             _audit("bash", command, cwd, None, _msg)
             return ActionResult(success=False, error=_msg)
@@ -1207,12 +983,8 @@ class ShellModule(BaseModule):
             "platform": self._adapter.platform_name,
             "shell": self._adapter.default_shell,
         }
-        # Hang-on-prompt directive: if the command was trying to read
-        # an interactive prompt and got EOF (which is the universal
-        # outcome with stdin=DEVNULL), the exit code is non-zero and
-        # the LAST line of output is the prompt itself. Surface a
-        # concrete fix the agent can apply immediately, rather than
-        # leaving it to grep cryptic exit codes.
+        # Surface a fix directive when the failure tail looks like an
+        # interactive prompt the agent can short-circuit.
         if exit_code != 0:
             directive = _detect_hang_directive(stdout, stderr)
             if directive:
@@ -1268,10 +1040,8 @@ class ShellModule(BaseModule):
                         "`pytest.ini` in the workspace to anchor the root."
                     )
 
-            # pytest exit 4 - "found no collectors" / import errors from
-            # a parent pytest.ini that hijacks pythonpath. This variant
-            # errors before printing the "rootdir:" banner so the check
-            # above doesn't catch it.
+            # `pytest` exit 4 with import errors before any banner;
+            # surface a separate hint.
             if "pytest" in cmd_low and exit_code == 4 and (
                 "found no collectors" in merged
                 or "no module named" in merged.lower()
@@ -1286,18 +1056,15 @@ class ShellModule(BaseModule):
                     "(3) invoke tests directly with `python -c 'from module import fn; assert ...'`."
                 )
 
-        # ── Image detection in output ───────────────────────────
         if _is_image_output(stdout):
             result_data["is_image"] = True
 
-        # ── Large output persistence (like Claude Code >30KB → disk) ──
         persist_cfg = isinstance(self._config, ShellConfig) and self._config.persist_large_output
         threshold = self._config.large_output_threshold if isinstance(self._config, ShellConfig) else 30_000
         max_persist = self._config.max_persisted_bytes if isinstance(self._config, ShellConfig) else 64_000_000
 
         if persist_cfg and len(stdout.encode("utf-8", errors="replace")) > threshold:
-            # Disk write off-loop: 30 KB+ stdout dumped synchronously can
-            # stall the loop on slow disks long enough to drop Socket.IO.
+            # Off-load the disk write so Socket.IO keeps flowing.
             persisted_path = await asyncio.to_thread(
                 self._persist_output, stdout, command, max_persist,
             )
@@ -1314,7 +1081,6 @@ class ShellModule(BaseModule):
                         f"full output saved to {persisted_path}) ...\n\n{tail}"
                     )
 
-        # ── Semantic exit code interpretation ───────────────────
         interpretation = _interpret_exit_code(exit_code, command, stderr)
         if interpretation:
             result_data["exit_code_meaning"] = interpretation
@@ -1330,14 +1096,9 @@ class ShellModule(BaseModule):
                 parts.append(stdout.strip()[:2000])
             error_msg = "\n".join(parts)
 
-        # Disk → workspace sync. Any external tool the agent invoked
-        # (npm install, npm create, cargo build, git clone, …) drops
-        # files on disk that the workspace module never saw — without
-        # this step, the IDE's Monaco view stays empty even though
-        # the agent successfully scaffolded a whole project. We run
-        # the sync after EVERY bash command (cheap when nothing
-        # changed: walk tree + mtime compare), reporting the deltas
-        # so the agent can confirm what landed in the IDE view.
+        # Disk → workspace sync after every bash command so files
+        # dropped by external tools (npm, cargo, git, …) show up in
+        # the IDE. Cheap when nothing changed (walk + mtime compare).
         ws_mod = getattr(self, "_workspace_module", None)
         if ws_mod is not None and hasattr(ws_mod, "_sync_from_disk"):
             try:
@@ -1354,7 +1115,6 @@ class ShellModule(BaseModule):
         )
 
     async def _bash_async_mode(self, params: BashParams) -> ActionResult:
-        """Asynchronous execution: launch subprocess, return task_id immediately."""
         command = params.command
         assert command is not None
 
@@ -1366,18 +1126,13 @@ class ShellModule(BaseModule):
         if cwd_err:
             return cwd_err
 
-        # Pre-check: when the command binds a TCP port (python http.server,
-        # vite/next dev --port, uvicorn/gunicorn --port, etc.), refuse
-        # if the port is already in use. Catches the silent-bind-fail
-        # cases where Python's http.server on Windows may silently share
-        # the port with a zombie from a previous session, leading to
-        # the iframe being served from the wrong cwd.
+        # Refuse when the command binds an in-use TCP port; catches
+        # the silent-bind-fail case where `http.server` on Windows
+        # shares the port with a zombie listener.
         port_check = await self._check_port_available_for_command(command)
         if port_check is not None:
             _audit("bash", command, cwd, None, port_check.error or "")
             return port_check
-        # Same redundant ``cd <X> &&`` strip as sync mode - see the
-        # docstring on ``_strip_redundant_cd``.
         command = _strip_redundant_cd(command, cwd)
         env = self._build_env()
         # Inject CI / non-interactive defaults so npm/yarn/git/apt/pip
@@ -1387,13 +1142,9 @@ class ShellModule(BaseModule):
         )
         env = inject_non_interactive_env(env)
 
-        # stdin handling: if the agent opted into ``keep_stdin_open``,
-        # we keep a writable PIPE so a later ``stdin_text`` call can
-        # send input (interactive REPL / scripted password / Y/N
-        # prompts the agent wants to drive). Otherwise we close stdin
-        # IMMEDIATELY after spawn — child sees EOF, abort prompts
-        # gracefully, no infinite hang on ``npm create``,
-        # ``apt install`` confirmation, or ``git clone`` over auth.
+        # When `keep_stdin_open` is on we keep a writable PIPE for a
+        # later `stdin_text`; otherwise stdin is closed right after
+        # spawn so prompts abort on EOF instead of hanging.
         keep_stdin_open = bool(getattr(params, "keep_stdin_open", False))
 
         try:
@@ -1436,21 +1187,16 @@ class ShellModule(BaseModule):
                     env=env,
                 )
 
-            # Close stdin immediately unless explicitly keeping it
-            # open. Sends EOF to the child. ``proc.stdin`` is
-            # ``StreamWriter`` here; ``.close()`` is non-blocking and
-            # safe even before the child reads.
+            # Close stdin unless `keep_stdin_open`; sends EOF to the
+            # child. `StreamWriter.close()` is non-blocking.
             if not keep_stdin_open and proc.stdin is not None:
                 try:
                     proc.stdin.close()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("module best-effort block failed: %s", exc)
         except NotImplementedError as exc:
-            # Windows: subprocess only works on ProactorEventLoop. The
-            # caller is on a SelectorEventLoop (sub-agent thread, ad-hoc
-            # worker without policy). ``str(NotImplementedError())`` is
-            # empty, so the agent would otherwise see ``error=""`` and
-            # give up. Surface a clear actionable message instead.
+            # Subprocess on a Windows SelectorEventLoop: the empty
+            # `str(exc)` would surface as `error=""` to the agent.
             _msg = (
                 "shell.bash background mode requires ProactorEventLoop "
                 "(Windows asyncio subprocess limitation). The current "
@@ -1479,13 +1225,9 @@ class ShellModule(BaseModule):
         self._tasks[task_id] = task
         self._track_session_task(task_id)
 
-        # Wait briefly to detect immediate failures (port-in-use, missing
-        # binary, syntax error, etc.). The window is longer for known-slow
-        # crashers like Python (interpreter startup + asyncio init means
-        # OSError surfaces ~400-500ms after spawn, so 300ms wasn't enough).
-        # Most well-behaved background commands either print early stdout
-        # within a few hundred ms or stay alive for minutes; the wait
-        # cost is negligible vs. the cost of attaching to a dead server.
+        # Brief watchdog for immediate failures (port-in-use, missing
+        # binary). The window is longer for slow crashers like Python
+        # where the error surfaces ~400 ms after spawn.
         cmd_lower = command.lower()
         is_slow_crasher = (
             "python " in cmd_lower
@@ -1535,7 +1277,6 @@ class ShellModule(BaseModule):
         )
 
     async def _bash_status_mode(self, params: BashParams) -> ActionResult:
-        """Status check: return status and output of a background task."""
         # Periodic cleanup: drop tasks that finished more than 1 hour ago
         self._cleanup_old_finished_tasks(max_age_seconds=3600)
 
@@ -1561,7 +1302,6 @@ class ShellModule(BaseModule):
         })
 
     async def _bash_kill_mode(self, params: BashParams) -> ActionResult:
-        """Kill mode: terminate a background task."""
         task = self._tasks.get(params.task_id)
         if task is None:
             return self._task_gone_result(params.task_id, mode="kill")
@@ -1592,19 +1332,9 @@ class ShellModule(BaseModule):
         if task._progress_task and not task._progress_task.done():
             task._progress_task.cancel()
 
-        # Notify the bus so the FRONTEND (BackgroundService) flips the
-        # task off the "running" pile. Without this hook the agent's
-        # kill landed silently: the result was a `tool_call` event with
-        # `status: "killed"` carried in its payload, but the frontend's
-        # subscriber only watches `bg_task_update` events to update the
-        # tasks panel - so the UI kept rendering the task as running
-        # long after the process was dead. The relay in `_deploy.py`
-        # converts this notification into a `bg_task_update` envelope
-        # (`status: "cancelled"`) and the BackgroundService then
-        # applies `copyWith(status: "cancelled")` on the matching row.
-        # The agent itself doesn't need a re-injection here because it
-        # GOT the kill result synchronously as the tool_call return
-        # value - this notification is purely for the UI.
+        # Emit a `bg_task_update` notification so BackgroundService
+        # flips the row off the running pile; the agent already has
+        # the kill result synchronously.
         stdout_tail = "\n".join(list(task.stdout_lines)[-5:])
         self._notify_bg({
             "task_id": params.task_id,
@@ -1623,7 +1353,6 @@ class ShellModule(BaseModule):
         })
 
     async def _bash_stdin_mode(self, params: BashParams) -> ActionResult:
-        """Send text to a running background task's stdin."""
         task = self._tasks.get(params.task_id)
         if task is None:
             return self._task_gone_result(params.task_id, mode="stdin")
@@ -1658,11 +1387,6 @@ class ShellModule(BaseModule):
             return ActionResult(success=False, error=str(exc))
 
     async def _bash_wait_mode(self, params: BashParams) -> ActionResult:
-        """Wait for background task to complete and return final result.
-
-        Like my pattern of waiting for pytest to complete.
-        Blocks until task finishes, then returns stdout/stderr/exit_code.
-        """
         task = self._tasks.get(params.task_id)
         if task is None:
             return self._task_gone_result(params.task_id, mode="wait")
@@ -1702,11 +1426,6 @@ class ShellModule(BaseModule):
         )
 
     async def _bash_stream_mode(self, params: BashParams) -> ActionResult:
-        """Stream command output line-by-line with optional pattern filtering.
-
-        Like Monitor tool - emits notifications for each matching line.
-        Pattern is regex; only matching lines trigger notifications.
-        """
         command = params.command
         assert command is not None
 
@@ -1782,7 +1501,6 @@ class ShellModule(BaseModule):
         )
 
     def _persist_output(self, stdout: str, command: str, max_bytes: int) -> str | None:
-        """Save large output to a temp file and return the path."""
         try:
             ws = self.workspace or self._workspace
             output_dir = Path(ws or tempfile.gettempdir()) / ".digitorn" / "tool-results"
@@ -1796,24 +1514,7 @@ class ShellModule(BaseModule):
             logger.debug("persist_output failed: %s", exc)
             return None
 
-    # ── Background progress watcher ──────────────────────────
-
     async def _bg_progress_watcher(self, task: BackgroundTask) -> None:
-        """Send periodic progress notifications while task is running.
-
-        Schedule: 5s, 15s, 30s, then every 60s.
-
-        Two responsibilities:
-          1. Periodic ``status: progress`` notifications when new output
-             arrives (already implemented).
-          2. **Hang detection** — if the output buffer ends with a known
-             interactive prompt AND no new output has appeared for the
-             last interval, kill the task and emit a structured
-             ``hang_detected`` notification carrying a directive the
-             agent can apply (e.g. "add --yes flag"). Bypasses the 5
-             min hard timeout: the agent gets actionable feedback
-             within ~30 s of the prompt.
-        """
         schedule = [5, 15, 30]
 
         for delay in schedule:
@@ -1826,11 +1527,8 @@ class ShellModule(BaseModule):
             stdout_tail = "\n".join(list(task.stdout_lines)[-5:])
             stderr_tail = "\n".join(list(task.stderr_lines)[-5:])
 
-            # Hang detection: when the buffer hasn't grown since the
-            # previous check AND its tail looks like an interactive
-            # prompt, kill the task and report a directive. We require
-            # at least the second tick (delay >= 15 s) to avoid
-            # killing a slow-starting build.
+            # Kill on detected hang: idle buffer + prompt-looking tail,
+            # but only past the second tick to spare slow builds.
             if (
                 not new_output
                 and delay >= 15
@@ -1840,8 +1538,8 @@ class ShellModule(BaseModule):
                 if directive:
                     try:
                         task.process.kill()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("module best-effort block failed: %s", exc)
                     self._notify_bg({
                         "task_id": task.task_id,
                         "tool_name": "shell.bash",
@@ -1851,7 +1549,7 @@ class ShellModule(BaseModule):
                         "hang_directive": directive,
                         "error": (
                             "Background command was killed by the hang "
-                            "detector — it printed a prompt and stopped "
+                            "detector - it printed a prompt and stopped "
                             "producing output. See hang_directive for the "
                             "fix."
                         ),
@@ -1898,8 +1596,6 @@ class ShellModule(BaseModule):
                     ),
                 })
 
-    # ── Background reader ────────────────────────────────────
-
     async def _bg_reader(self, task: BackgroundTask, max_bytes: int) -> None:
         proc = task.process
 
@@ -1925,10 +1621,7 @@ class ShellModule(BaseModule):
         task.finished_at = datetime.now(timezone.utc).isoformat()
         _audit("bash", task.command, task.cwd, task.exit_code, None)
 
-        # Disk → workspace sync after the bg task exits. Same rationale
-        # as sync mode: tools like ``npm run dev`` (kept running),
-        # ``npm install``, etc. write files on disk that the IDE
-        # otherwise can't see.
+        # Disk → workspace sync after the bg task exits.
         ws_mod = getattr(self, "_workspace_module", None)
         if ws_mod is not None and hasattr(ws_mod, "_sync_from_disk"):
             try:
@@ -1952,11 +1645,6 @@ class ShellModule(BaseModule):
             notification["error"] = f"Exit code {task.exit_code}\nStderr:\n{stderr_tail if stderr_tail else '(no stderr)'}"
         self._notify_bg(notification)
 
-
-
-# ── Helpers ─────────────────────────────────────────────────────
-
-
 def _is_inside(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
@@ -1964,19 +1652,9 @@ def _is_inside(path: Path, root: Path) -> bool:
     except ValueError:
         return False
 
-
 def _update_cwd(
     module: ShellModule, command: str, current_cwd: str, exit_code: int = 0,
 ) -> None:
-    """Track CWD changes from cd commands for persistence between calls.
-
-    - Processes ALL cd commands in the chain (not just the first), so
-      `cd .. && cd workspace` tracks correctly.
-    - Only updates cwd when the command succeeded (exit_code == 0);
-      otherwise the cd likely failed and we should keep the previous
-      cwd instead of storing a fantasy path.
-    - Validates that the resulting directory exists on disk.
-    """
     if exit_code != 0:
         # Command failed - don't trust any cd inside it
         return
@@ -2025,9 +1703,7 @@ def _update_cwd(
     except OSError:
         return
 
-
 def _is_image_output(stdout: str) -> bool:
-    """Detect if output contains base64-encoded images."""
     if not stdout:
         return False
     # Check for data URI scheme
@@ -2039,9 +1715,7 @@ def _is_image_output(stdout: str) -> bool:
         return True
     return False
 
-
 def _interpret_exit_code(exit_code: int, command: str, stderr: str) -> str | None:
-    """Semantic interpretation of exit codes (like Claude Code's interpretCommandResult)."""
     if exit_code == 0:
         return None
     if exit_code == 1:

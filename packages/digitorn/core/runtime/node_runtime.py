@@ -1,24 +1,4 @@
-"""Node.js runtime service - detect, auto-install, and spawn.
-
-Gives the daemon a first-class Node.js capability used by:
-
-- MCP stdio transports (Node-based servers via npx/node)
-- Package install hooks (``install_command: [npm, install]``)
-- Future: Node runtime for user scripts
-
-Install strategy:
-
-1. **System node**: if ``node --version`` returns >= the min version, use it.
-2. **Version managers** (nvm/fnm/volta): discover and PATH-inject if system
-   node is missing.
-3. **Auto-install**: if still missing, download the pinned Node LTS tarball
-   from nodejs.org into ``~/.local/share/digitorn/runtimes/node-v{ver}/``
-   and wire it into a per-daemon PATH override.
-
-The runtime is a singleton - ``get_node_runtime()`` returns the shared
-instance. The daemon lifespan calls ``await runtime.ensure_installed()``
-once at boot; subsequent calls are cached.
-"""
+"""Node.js runtime service - detect, auto-install, and spawn."""
 
 from __future__ import annotations
 
@@ -77,25 +57,17 @@ class NodeRuntimeError(RuntimeError):
 
 
 class NodeRuntime:
-    """Singleton service managing the daemon's Node.js runtime.
-
-    Usage::
-
-        runtime = get_node_runtime()
-        await runtime.ensure_installed()
-        proc = await runtime.spawn("npm", ["install"], cwd="/path/to/app")
-    """
+    """Singleton service managing the daemon's Node.js runtime."""
 
     def __init__(self) -> None:
         self._info: NodeRuntimeInfo | None = None
         self._lock = asyncio.Lock()
         self._auto_install_enabled = True
 
-    # ───────────────────────── public API ──────────────────────────
 
     @property
     def info(self) -> NodeRuntimeInfo | None:
-        """Resolved info or None if ``ensure_installed`` hasn't been called."""
+        """Resolved info or None if `ensure_installed` hasn't been called."""
         return self._info
 
     @property
@@ -128,10 +100,7 @@ class NodeRuntime:
 
     @property
     def env(self) -> dict[str, str]:
-        """Return a copy of os.environ with Node's bin dir prepended to PATH.
-
-        Subprocesses that need Node should pass this as their ``env=``.
-        """
+        """Return a copy of os.environ with Node's bin dir prepended to PATH."""
         base = dict(os.environ)
         if self._info and self._info.extra_path:
             sep = os.pathsep
@@ -151,17 +120,7 @@ class NodeRuntime:
         self._auto_install_enabled = enabled
 
     async def ensure_installed(self, auto_install: bool | None = None) -> NodeRuntimeInfo:
-        """Resolve a Node runtime, downloading it if needed.
-
-        Idempotent: subsequent calls return the cached info.
-
-        Args:
-            auto_install: Override the instance-level auto_install flag for
-                this call. If None, uses ``self._auto_install_enabled``.
-
-        Raises:
-            NodeRuntimeError: if no suitable Node could be resolved.
-        """
+        """Resolve a Node runtime, downloading it if needed."""
         async with self._lock:
             if self._info is not None:
                 return self._info
@@ -226,16 +185,7 @@ class NodeRuntime:
         stderr: int | None = asyncio.subprocess.PIPE,
         stdin: int | None = None,
     ) -> asyncio.subprocess.Process:
-        """Spawn a subprocess with Node's bin dir on PATH.
-
-        ``command`` is looked up in the augmented PATH. Short names like
-        ``"node"``, ``"npm"``, ``"npx"`` resolve to the runtime's own
-        binaries. On Windows, ``.cmd``/``.bat`` shims (as used by the
-        official Node installer for ``npm.cmd``, ``npx.cmd``) are routed
-        through ``cmd.exe /c`` because ``asyncio.create_subprocess_exec``
-        refuses to launch them directly (`[WinError 193] %1 is not a
-        valid Win32 application`).
-        """
+        """Spawn a subprocess with Node's bin dir on PATH."""
         self._require_resolved()
         assert self._info is not None
 
@@ -252,34 +202,12 @@ class NodeRuntime:
         if env:
             merged_env.update(env)
 
-        # On Windows, npm / npx ship as .cmd shims. asyncio.subprocess
-        # can only exec real PE binaries, so we spawn a shell instead.
-        #
-        # The trap: ``cmd.exe /c "C:\Program Files\...\npm.CMD" install``
-        # looks fine but cmd.exe's argument parser sees the leading ``"``,
-        # strips it, then splits on the first whitespace - turning our
-        # path into ``C:\Program`` and failing with
-        # ``'C:\Program' is not recognized``. The documented workaround
-        # is to wrap the entire command line in an OUTER pair of quotes
-        # so cmd.exe's "preserve quotes when there's exactly one quoted
-        # executable" rule kicks in.
-        #
-        # See `cmd /?` and the `create_subprocess_shell` contract: we
-        # pass the fully-quoted string to ``create_subprocess_shell``,
-        # which invokes COMSPEC /c without stripping anything.
         arg_list = list(args or [])
 
         if sys.platform in ("win32", "cygwin") and resolved.lower().endswith(
             (".cmd", ".bat")
         ):
             import subprocess as _sp
-            # Build a Windows-correctly-escaped command line. Do NOT
-            # add outer quotes: ``create_subprocess_shell`` wraps the
-            # whole thing in ``cmd.exe /c "<...>"`` itself, and doing it
-            # twice produces 6 quotes that cmd's parser collapses into
-            # a path like ``C:\Program`` (see the split on the first
-            # whitespace). list2cmdline quotes just the individual
-            # arguments that contain spaces.
             shell_cmdline = _sp.list2cmdline([resolved, *arg_list])
             logger.debug(
                 "node_runtime_spawn_shell cmdline=%s cwd=%s",
@@ -320,11 +248,7 @@ class NodeRuntime:
         env: dict[str, str] | None = None,
         timeout: float | None = None,
     ) -> tuple[int, str, str]:
-        """Run a command to completion and return ``(rc, stdout, stderr)``.
-
-        Intended for short-lived commands like ``npm install``. For long-
-        running dev servers use ``spawn()``.
-        """
+        """Run a command to completion and return `(rc, stdout, stderr)`."""
         proc = await self.spawn(command, args, cwd=cwd, env=env)
         try:
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
@@ -341,21 +265,13 @@ class NodeRuntime:
         return rc, stdout_bytes.decode("utf-8", errors="replace"), stderr_bytes.decode("utf-8", errors="replace")
 
 
-# ───────────────────────── helpers ──────────────────────────
-
-
 def _runtimes_dir() -> Path:
-    """Return the dir where auto-installed runtimes live.
-
-    Uses the same data dir pattern as :func:`digitorn.core.paths` so all
-    daemon state stays under a single user-data tree.
-    """
+    """Return the dir where auto-installed runtimes live."""
     from platformdirs import user_data_dir
     return Path(user_data_dir("digitorn")) / _RUNTIMES_DIR_NAME
 
 
 def _parse_node_version(output: str) -> str:
-    """Normalize ``node --version`` output (``v22.11.0``) to ``22.11.0``."""
     s = output.strip()
     if s.startswith("v"):
         s = s[1:]
@@ -370,7 +286,6 @@ def _version_major(version: str) -> int:
 
 
 def _probe_path_node(env: dict[str, str] | None = None) -> NodeRuntimeInfo | None:
-    """Run ``node --version`` from PATH, return info if >= MIN_MAJOR."""
     if env is None:
         env = dict(os.environ)
     node_exe = _which("node", env=env)
@@ -400,7 +315,6 @@ def _probe_path_node(env: dict[str, str] | None = None) -> NodeRuntimeInfo | Non
 
 
 def _discover_version_manager_bin() -> str | None:
-    """Look for nvm / fnm / volta installations and return a bin dir."""
     home = Path.home()
 
     nvm_dir = home / ".nvm" / "versions" / "node"
@@ -425,7 +339,6 @@ def _discover_version_manager_bin() -> str | None:
 
 
 def _which(cmd: str, env: dict[str, str] | None = None) -> str | None:
-    """Like ``shutil.which`` but respects a custom env PATH."""
     path = env.get("PATH") if env else None
     resolved = shutil.which(cmd, path=path)
     return resolved
@@ -447,7 +360,6 @@ def _run_sync(
     env: dict[str, str] | None = None,
     timeout: float = 30.0,
 ) -> _CompletedProcess:
-    """Blocking subprocess call - used during probing at boot."""
     import subprocess
     proc = subprocess.run(
         [cmd, *args],
@@ -460,16 +372,8 @@ def _run_sync(
     return _CompletedProcess(proc.returncode, proc.stdout, proc.stderr)
 
 
-# ───────────────────────── auto-install ──────────────────────────
-
-
 def _download_target() -> tuple[str, str, str]:
-    """Return ``(platform_tag, archive_ext, inner_prefix)`` for the current host.
-
-    - linux-x64 / linux-arm64 → tar.xz
-    - darwin-x64 / darwin-arm64 → tar.gz
-    - win-x64 → zip (no arm64 pre-built from nodejs.org)
-    """
+    """Return `(platform_tag, archive_ext, inner_prefix)` for the current host."""
     machine = platform.machine().lower()
     if machine in ("x86_64", "amd64"):
         arch = "x64"
@@ -496,7 +400,6 @@ async def _auto_install_node(
     version: str,
     install_dir: Path,
 ) -> NodeRuntimeInfo | None:
-    """Download + extract Node to ``install_dir``. Returns info on success."""
     install_dir.parent.mkdir(parents=True, exist_ok=True)
 
     # Already extracted?
@@ -553,7 +456,6 @@ async def _auto_install_node(
 
 
 def _info_from_install_dir(install_dir: Path) -> NodeRuntimeInfo | None:
-    """Build NodeRuntimeInfo from an extracted Node distribution dir."""
     if not install_dir.is_dir():
         return None
 
@@ -593,7 +495,6 @@ def _info_from_install_dir(install_dir: Path) -> NodeRuntimeInfo | None:
 
 
 def _download_file(url: str, dest: Path) -> None:
-    """Stream a URL to a file. Runs in a thread via ``asyncio.to_thread``."""
     req = Request(url, headers={"User-Agent": "digitorn-daemon/1.0"})
     with urlopen(req, timeout=60.0) as resp:
         if resp.status != 200:
@@ -607,7 +508,6 @@ def _download_file(url: str, dest: Path) -> None:
 
 
 def _extract_archive(archive: Path, dest_dir: Path) -> Path:
-    """Extract zip/tar into ``dest_dir``; return the top-level extracted dir."""
     suffix = "".join(archive.suffixes).lower()
     if suffix.endswith(".zip"):
         with zipfile.ZipFile(archive) as zf:
@@ -622,14 +522,12 @@ def _extract_archive(archive: Path, dest_dir: Path) -> Path:
         raise NodeRuntimeError(f"Unknown archive format: {archive.name}")
 
     # Find the single top-level dir - nodejs archives have one top folder
-    # named like ``node-v22.11.0-linux-x64``.
+    # named like `node-v22.11.0-linux-x64`.
     children = [p for p in dest_dir.iterdir() if p.is_dir() and p.name.startswith("node-")]
     if not children:
         raise NodeRuntimeError("Extracted archive has no node-* top-level dir")
     return children[0]
 
-
-# ───────────────────────── singleton ──────────────────────────
 
 _runtime: NodeRuntime | None = None
 

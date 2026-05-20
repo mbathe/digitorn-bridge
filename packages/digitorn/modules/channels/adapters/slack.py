@@ -1,21 +1,4 @@
-"""Slack adapter - Socket Mode inbound + Web API outbound.
-
-Uses the Slack Socket Mode WebSocket for real-time event reception
-and the Web API (chat.postMessage) for sending messages.
-Only needs ``aiohttp`` - no slack-sdk dependency.
-
-Setup:
-    1. Create app at api.slack.com/apps
-    2. Enable Socket Mode → generate App-Level Token (xapp-...)
-    3. Event Subscriptions → subscribe to message.channels, message.im
-    4. OAuth Permissions → chat:write, channels:history, channels:read
-    5. Install to Workspace → copy Bot Token (xoxb-...)
-
-Security:
-    - Tokens never exposed in logs or outbound messages.
-    - Only responds to human messages (ignores bots, itself, subtypes).
-    - Socket Mode uses WSS (encrypted) with server-verified connections.
-"""
+"""Slack adapter - Socket Mode inbound + Web API outbound."""
 
 from __future__ import annotations
 
@@ -36,7 +19,6 @@ from digitorn.modules.channels.adapter import (
 logger = logging.getLogger(__name__)
 
 _API_BASE = "https://slack.com/api"
-
 
 class SlackAdapter(BaseChannelAdapter):
     """Slack adapter - Socket Mode WebSocket + Web API."""
@@ -75,8 +57,6 @@ class SlackAdapter(BaseChannelAdapter):
             import aiohttp
             self._session = aiohttp.ClientSession()
         return self._session
-
-    # ── Inbound (Socket Mode WebSocket) ──────────────────────────
 
     async def start_listener(self, callback: InboundCallback) -> None:
         if not self._bot_token or not self._app_token:
@@ -149,7 +129,6 @@ class SlackAdapter(BaseChannelAdapter):
             backoff = min(backoff * 2, 60)
 
     async def _get_ws_url(self, session: Any) -> str:
-        """Get WebSocket URL via apps.connections.open."""
         try:
             async with session.post(
                 f"{_API_BASE}/apps.connections.open",
@@ -168,7 +147,6 @@ class SlackAdapter(BaseChannelAdapter):
     async def _handle_socket_event(
         self, data: dict, ws: Any, callback: InboundCallback,
     ) -> None:
-        """Process a Socket Mode envelope."""
         envelope_type = data.get("type")
 
         # Acknowledge all envelopes immediately
@@ -198,7 +176,6 @@ class SlackAdapter(BaseChannelAdapter):
     async def _handle_message(
         self, event: dict, callback: InboundCallback,
     ) -> None:
-        """Process a message event."""
         # Ignore bot messages, subtypes (join, leave, etc.), and our own messages
         if event.get("bot_id"):
             return
@@ -259,8 +236,6 @@ class SlackAdapter(BaseChannelAdapter):
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
-
-    # ── Outbound (Web API) ───────────────────────────────────────
 
     async def deliver(
         self,

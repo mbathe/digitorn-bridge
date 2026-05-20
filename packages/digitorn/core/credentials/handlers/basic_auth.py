@@ -1,15 +1,4 @@
-"""BasicAuthHandler - HTTP Basic auth (RFC 7617).
-
-Username + password fields. The runtime injection encodes them as
-`Authorization: Basic base64(user:pass)` when consumed.
-
-Common consumers:
-  - Internal HTTP services with no OAuth.
-  - IMAP / SMTP servers (with the multi-field-shaped variants
-    `imap_auth` / `smtp_auth` for host+port+TLS specifics).
-  - Docker registries.
-  - Old-school enterprise APIs.
-"""
+"""BasicAuthHandler - HTTP Basic auth (RFC 7617)."""
 
 from __future__ import annotations
 
@@ -57,13 +46,7 @@ class BasicAuthHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Hit `test_endpoint` (or fields.base_url for custom creds) with HTTP Basic.
-
-        Returns ``(True, None)`` only on a 2xx. Treats 401/403 as a
-        clear auth failure; any other status code still counts as
-        "endpoint reached" since basic-auth APIs frequently return
-        404 or 405 for the root URL.
-        """
+        """Hit `test_endpoint` (or fields.base_url for custom creds) with HTTP Basic."""
         endpoint = (schema_provider or {}).get("test_endpoint") or \
                    str((fields or {}).get("base_url") or "").strip()
         if not endpoint:

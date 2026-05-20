@@ -1,15 +1,10 @@
-"""VectorBackend - abstract interface for vector databases.
-
-All RAG storage operations go through this protocol.  Backends declare their
-capabilities (sparse vectors, native hybrid search) so the pipeline can adapt.
-"""
+"""VectorBackend - abstract interface for vector databases."""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
-
 
 @dataclass(slots=True)
 class CollectionInfo:
@@ -22,7 +17,6 @@ class CollectionInfo:
     embedding_model: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
-
 @dataclass(slots=True)
 class Document:
     """A stored document with its vector and metadata."""
@@ -30,7 +24,6 @@ class Document:
     doc_id: str
     text: str
     metadata: dict[str, Any] = field(default_factory=dict)
-
 
 @dataclass(slots=True)
 class SearchResult:
@@ -41,24 +34,12 @@ class SearchResult:
     score: float
     metadata: dict[str, Any] = field(default_factory=dict)
 
-
 class VectorBackend(ABC):
-    """Abstract interface for vector database backends.
-
-    Backends declare capabilities so the RAG pipeline can adapt:
-
-    - ``supports_sparse``:  Backend has native sparse vector support.
-    - ``supports_hybrid``:  Backend has built-in hybrid search.
-    - ``supports_metadata_filter``:  Backend supports payload/metadata filtering.
-    """
+    """Abstract interface for vector database backends."""
 
     supports_sparse: bool = False
     supports_hybrid: bool = False
     supports_metadata_filter: bool = True
-
-    # ------------------------------------------------------------------
-    # Lifecycle
-    # ------------------------------------------------------------------
 
     @abstractmethod
     async def initialize(self) -> None:
@@ -67,10 +48,6 @@ class VectorBackend(ABC):
     @abstractmethod
     async def close(self) -> None:
         """Release resources."""
-
-    # ------------------------------------------------------------------
-    # Collections
-    # ------------------------------------------------------------------
 
     @abstractmethod
     async def create_collection(
@@ -89,10 +66,6 @@ class VectorBackend(ABC):
     @abstractmethod
     async def collection_exists(self, name: str) -> bool:
         """Check if a collection exists."""
-
-    # ------------------------------------------------------------------
-    # CRUD
-    # ------------------------------------------------------------------
 
     @abstractmethod
     async def upsert(
@@ -121,10 +94,6 @@ class VectorBackend(ABC):
         """Retrieve all documents from a collection. Used for migration."""
         raise NotImplementedError(f"{type(self).__name__} does not implement get_all.")
 
-    # ------------------------------------------------------------------
-    # Search
-    # ------------------------------------------------------------------
-
     @abstractmethod
     async def search(
         self,
@@ -145,19 +114,11 @@ class VectorBackend(ABC):
         alpha: float = 0.7,
         filter: dict[str, Any] | None = None,
     ) -> list[SearchResult]:
-        """Native hybrid search (dense + sparse/FTS).
-
-        Default implementation raises NotImplementedError - the pipeline
-        falls back to external BM25 + RRF when this is not supported.
-        """
+        """Native hybrid search (dense + sparse/FTS)."""
         raise NotImplementedError(
             f"{type(self).__name__} does not support native hybrid search. "
             "The RAG pipeline will use BM25 + RRF fusion instead."
         )
-
-    # ------------------------------------------------------------------
-    # State
-    # ------------------------------------------------------------------
 
     def state_snapshot(self) -> dict[str, Any]:
         """Serialize backend state for persistence."""

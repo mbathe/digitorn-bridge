@@ -1,13 +1,4 @@
-"""AppBootstrapper - execute a compiled app definition against live modules.
-
-Takes a ``CompiledApp`` (produced by the compiler) and:
-    1. Executes setup actions on each module (in declaration order)
-    2. Stores module constraints for runtime enforcement
-    3. Returns a ``BootstrapResult`` with per-step outcomes
-
-All setup actions route through ``module.execute()`` so the full security
-gate, audit trail, and param validation pipeline applies.
-"""
+"""AppBootstrapper - execute a compiled app definition against live modules."""
 
 from __future__ import annotations
 
@@ -72,17 +63,7 @@ class BootstrapResult:
 
 
 class AppBootstrapper:
-    """Execute compiled app definitions against live modules.
-
-    Usage::
-
-        bootstrapper = AppBootstrapper(registry, service_bus)
-        result = await bootstrapper.bootstrap(compiled_app)
-
-        if not result.success:
-            for step in result.failed_steps:
-                print(f"FAILED: {step.module_id}.{step.action}: {step.error}")
-    """
+    """Execute compiled app definitions against live modules."""
 
     def __init__(
         self,
@@ -98,18 +79,7 @@ class AppBootstrapper:
         self._runtime_store = runtime_store
 
     async def bootstrap(self, compiled: CompiledApp) -> BootstrapResult:
-        """Execute all setup steps and store constraints.
-
-        Steps are executed in module declaration order, and within each module
-        in setup list order.  Each step goes through ``module.execute()`` so
-        the full security and audit pipeline applies.
-
-        Args:
-            compiled: A ``CompiledApp`` produced by ``AppYAMLCompiler.compile()``.
-
-        Returns:
-            ``BootstrapResult`` with per-step outcomes and stored constraints.
-        """
+        """Execute all setup steps and store constraints."""
         t0 = time.monotonic()
         all_results: list[SetupStepResult] = []
         all_errors: list[str] = []
@@ -182,7 +152,6 @@ class AppBootstrapper:
         config: CompiledModuleConfig,
         errors: list[str],
     ) -> list[SetupStepResult]:
-        """Execute all setup steps for a single module."""
         results: list[SetupStepResult] = []
 
         try:
@@ -221,7 +190,6 @@ class AppBootstrapper:
         module: Any,
         step: CompiledSetupStep,
     ) -> SetupStepResult:
-        """Execute a single setup step via module.execute()."""
         t0 = time.monotonic()
         try:
             action_result = await module.execute(step.action, step.resolved_params)

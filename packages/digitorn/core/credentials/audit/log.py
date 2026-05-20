@@ -1,22 +1,4 @@
-"""AuditLog interface + in-memory implementation.
-
-The in-memory implementation is for tests and short-lived processes.
-Production deployments use `SqlAuditLog` (in `store.py`) which persists
-to the `credential_audit` DB table with a SHA-256 hash chain so a
-tampered or deleted row breaks the chain and can be detected by the
-verifier (`SqlAuditLog.verify_chain()`).
-
-Hash chain construction:
-
-    this_hash = SHA256(prev_hash || this_row_canonical_json)
-
-The genesis row (the very first audit entry on a fresh DB) uses
-`prev_hash = "0" * 64`. Any subsequent row carries the full hash of
-its predecessor, so tampering with row N invalidates all rows N+1..M.
-
-A periodic verifier job re-hashes the chain and emits an alert if the
-recomputed `this_hash` doesn't match the persisted one.
-"""
+"""AuditLog interface + in-memory implementation."""
 
 from __future__ import annotations
 
@@ -61,24 +43,7 @@ class AuditOutcome(str, Enum):
 
 @dataclass(frozen=True)
 class AuditRecord:
-    """One audit row. Immutable by construction.
-
-    Fields chosen to answer "who did what, when, where, on which
-    credential, and why":
-
-      - `who`: user_id of the caller (system actions = `system`).
-      - `what`: AuditAction.
-      - `when`: unix timestamp at the moment the action was attempted.
-      - `where`: client IP + user-agent (best-effort, may be empty).
-      - `on`: credential_id targeted (or `*` for list operations).
-      - `outcome`: success/failure/denied.
-      - `reason`: free-text explanation when outcome != success.
-      - `app_id`: when the action is app-scoped (resolution, injection).
-      - `extra`: small JSON dict for action-specific details (handler
-                 name, scope before/after on scope_change, etc.). MUST
-                 NOT contain secrets - the scrubber catches anyway,
-                 belt-and-braces.
-    """
+    """One audit row. Immutable by construction."""
 
     who: str
     action: AuditAction
@@ -92,9 +57,7 @@ class AuditRecord:
     extra: dict[str, Any] = field(default_factory=dict)
 
     def to_canonical_json(self) -> str:
-        """Stable JSON representation for hashing. Sorted keys, no
-        whitespace, no extra fields. Determinism is REQUIRED for the
-        hash chain to be verifiable."""
+        """Stable JSON representation for hashing. Sorted keys, no"""
         d = asdict(self)
         d["action"] = self.action.value
         d["outcome"] = self.outcome.value
@@ -113,10 +76,7 @@ class AuditLog(Protocol):
     """Backend-agnostic audit log."""
 
     async def record(self, rec: AuditRecord) -> None:
-        """Persist one audit row. Implementations append to the chain
-        and return after the row is durable. A failure to persist is
-        a HARD error - the caller should refuse the operation rather
-        than proceed without audit."""
+        """Persist one audit row. Implementations append to the chain"""
         ...
 
     async def list_for_credential(
@@ -138,18 +98,12 @@ class AuditLog(Protocol):
         ...
 
     async def verify_chain(self) -> tuple[bool, str | None]:
-        """Re-hash the chain and verify integrity. Returns
-        (valid, broken_at_id). `broken_at_id` is None when the chain
-        is intact."""
+        """Re-hash the chain and verify integrity. Returns"""
         ...
 
 
 class InMemoryAuditLog:
-    """Implementation of AuditLog for tests and ephemeral processes.
-
-    Stores rows in a list. Hash chain is computed correctly so tests
-    can verify the same logic that the SQL implementation uses.
-    """
+    """Implementation of AuditLog for tests and ephemeral processes."""
 
     def __init__(self) -> None:
         self._rows: list[tuple[AuditRecord, str]] = []  # (record, this_hash)

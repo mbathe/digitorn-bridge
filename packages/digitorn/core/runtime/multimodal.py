@@ -1,11 +1,4 @@
-"""Multimodal message handling - image content blocks for vision models.
-
-Handles the conversion between internal image references and the
-provider-specific formats (Anthropic vs OpenAI vs text-only fallback).
-
-Also implements Image Aging: recent images are sent at full resolution,
-older images are resized, and very old images become text descriptions.
-"""
+"""Multimodal message handling - image content blocks for vision models."""
 
 from __future__ import annotations
 
@@ -19,15 +12,7 @@ def build_user_message_with_images(
     text: str,
     image_refs: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Build a user message with text + image references.
-
-    Args:
-        text: The user's text message.
-        image_refs: List of image ref dicts from ImageStore.
-
-    Returns:
-        A message dict with multimodal content blocks.
-    """
+    """Build a user message with text + image references."""
     if not image_refs:
         return {"role": "user", "content": text}
 
@@ -73,29 +58,7 @@ async def resolve_images_for_provider(
     aging_low_turns: int = 2,
     low_res_size: int = 512,
 ) -> list[dict[str, Any]]:
-    """Resolve image references to provider-specific format.
-
-    Applies Image Aging:
-    - Current turn: full resolution base64
-    - Recent turns (aging_full_turns): full resolution
-    - Older turns (aging_low_turns): low resolution (resized)
-    - Very old: text description only
-
-    Args:
-        messages: The message list with image_ref blocks.
-        provider_format: "anthropic", "openai", or "text"
-        image_store: The ImageStore instance.
-        session_id: Current session ID.
-        current_turn: Current turn number.
-        supports_vision: Whether the model supports vision.
-        image_detail: "auto", "low", or "high".
-        aging_full_turns: Turns at full resolution.
-        aging_low_turns: Turns at low resolution.
-        low_res_size: Resize dimension for low-res images.
-
-    Returns:
-        New message list with resolved image content.
-    """
+    """Resolve image references to provider-specific format."""
     result = []
 
     for msg in messages:
@@ -230,11 +193,7 @@ def inject_tool_image(
     tool_name: str,
     alt_text: str = "",
 ) -> None:
-    """Inject a tool-generated image into the messages for the LLM to see.
-
-    Called when a tool result contains an image (e.g. browser.screenshot,
-    filesystem.read on an image file).
-    """
+    """Inject a tool-generated image into the messages for the LLM to see."""
     messages.append({
         "role": "user",
         "content": [

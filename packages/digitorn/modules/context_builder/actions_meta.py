@@ -27,19 +27,7 @@ logger = logging.getLogger(__name__)
 
 _PAGE_SIZE = 20
 
-
 def _format_ask_user_response(params: Any, raw: str) -> str:
-    """Turn the raw user payload into a string the LLM can read.
-
-    Handles the four ``ask_user`` variants:
-
-    * **single choice**: raw is the option id (or label). Returned as-is.
-    * **multi-select**: raw is a CSV of ids - split + one-per-line list.
-    * **form**: raw is a JSON dict - pretty-printed key/value list.
-    * **content review**: raw is the (possibly edited) text - returned verbatim.
-
-    For free-text questions raw is just the user's text.
-    """
     raw = (raw or "").strip()
     if not raw:
         return ""
@@ -65,9 +53,7 @@ def _format_ask_user_response(params: Any, raw: str) -> str:
 
     return raw
 
-
 def _levenshtein(s: str, t: str) -> int:
-    # Iterative DP, O(m*n) time, O(min(m,n)) space.
     if len(s) < len(t):
         s, t = t, s
     if not t:
@@ -82,13 +68,8 @@ def _levenshtein(s: str, t: str) -> int:
         prev, curr = curr, prev
     return prev[-1]
 
-
 class MetaToolsMixin:
-    """Meta-tools for tool discovery + execution + skills + app composition.
-
-    Requires on host class:
-        _index, _usage_counts, _exec_context, _skills
-    """
+    """Meta-tools for tool discovery + execution + skills + app composition."""
 
     @action(
         description=(
@@ -120,7 +101,6 @@ class MetaToolsMixin:
             self._index, params.query, params.max_results,
             usage_counts=self._usage_counts,
         )
-        # Include full schemas so GetTool is not needed
         tools_data = []
         for r in results:
             tool_entry = {
@@ -131,7 +111,6 @@ class MetaToolsMixin:
                 "relevance": r.relevance,
                 "tags": r.tags,
             }
-            # Attach full param schema if available in the index
             indexed = self._index.tools.get(r.fqn)
             if indexed and hasattr(indexed, "params_schema"):
                 tool_entry["parameters"] = indexed.params_schema
@@ -218,7 +197,6 @@ class MetaToolsMixin:
                 metadata={"blocked": True},
             )
         if tool.policy_decision == Decision.APPROVE and not params.params.get("_approved"):
-            # CB6: try the approval queue first (mirrors run_parallel pattern)
             approval_queue = None
             agent_ctx = getattr(self, "_agent_context", None)
             if agent_ctx is not None:
@@ -270,10 +248,8 @@ class MetaToolsMixin:
                 agent_ctx = getattr(self, "_agent_context", None)
                 if agent_ctx and hasattr(agent_ctx, "compiled_constraints"):
                     module_constraints = agent_ctx.compiled_constraints.get(tool.module_id, {})
-                # Security is already enforced above via tool.policy_decision
-                # (BLOCK/APPROVE checks at L145-156). Don't propagate the
-                # security_profile to the module - it would cause a redundant
-                # and incorrect second gate check that doesn't respect app-level grants.
+                # tool.policy_decision already enforced; drop the profile
+                # to avoid a redundant second gate check.
                 ctx = ExecutionContext(
                     plan_id=ctx.plan_id,
                     action_id=f"{tool.module_id}.{tool.action_name}",
@@ -443,7 +419,6 @@ class MetaToolsMixin:
 
             resolved.append((i, name, tool, dict(act.params)))
 
-        # ── Grouped approval: send all requests at once, wait for all ──
         if needs_approval:
             approval_queue = None
             agent_ctx = getattr(self, "_agent_context", None)
@@ -453,7 +428,6 @@ class MetaToolsMixin:
                 approval_queue = getattr(self, "_approval_queue", None)
 
             if approval_queue is not None:
-                # Send all approval requests concurrently
                 async def _request_approval(idx, name, tool, action_params):
                     try:
                         from digitorn.core.cli.ui import _tool_label
@@ -471,8 +445,8 @@ class MetaToolsMixin:
                     )
                     return idx, name, tool, action_params, approved, message
 
-                # Build the request list AND keep a parallel info list so we can
-                # always recover (idx, name) even when _request_approval itself throws.
+                # keep parallel info list so we can recover idx/name
+                # even when _request_approval itself raises.
                 approval_requests = list(needs_approval)
                 approval_results = await _aio.gather(
                     *[_request_approval(i, n, t, p) for i, n, t, p in approval_requests],
@@ -482,8 +456,6 @@ class MetaToolsMixin:
                 for req_info, result in zip(approval_requests, approval_results):
                     req_idx, req_name, req_tool, req_params = req_info
                     if isinstance(result, BaseException):
-                        # Approval system itself crashed - record as error so the
-                        # action is NOT silently dropped (was the cause of zip mismatch)
                         try:
                             from digitorn.core.cli.ui import _tool_label
                             label, detail = _tool_label(req_name, req_params)
@@ -513,7 +485,6 @@ class MetaToolsMixin:
                             "error": f"User denied: {msg}" if msg else "User denied approval.",
                         })
             else:
-                # No approval queue - reject all approval-required tools
                 for i, name, tool, action_params in needs_approval:
                     errors.append({
                         "index": i, "name": name,
@@ -524,22 +495,14 @@ class MetaToolsMixin:
                     })
 
         if not resolved and errors:
-            # Build an actionable top-level summary instead of the
-            # generic "All actions failed resolution or were denied."
-            # The LLM reads `error` first (a string in tool_result) and
-            # historically had to dig into `data.results` to see why -
-            # most agents stop at the top error and retry blindly. Group
-            # identical errors (same error string, distinct tool names)
-            # so 22 actions collapse to 1-3 lines.
+            # group identical errors so 20+ failures collapse to a
+            # few lines the LLM actually reads.
             from collections import Counter
             grouped: Counter[tuple[str, str]] = Counter()
             for e in errors:
                 grouped[(e.get("name", "?"), e.get("error", ""))] += 1
             parts: list[str] = []
             for (tname, emsg), cnt in grouped.most_common(5):
-                # Truncate noisy bodies (the not-found error inlines a
-                # tool list when discovery is unavailable) - the agent
-                # has the full detail in data.results anyway.
                 snippet = emsg.splitlines()[0] if emsg else "denied"
                 if len(snippet) > 160:
                     snippet = snippet[:157] + "..."
@@ -556,8 +519,8 @@ class MetaToolsMixin:
                 data={"results": errors},
             )
 
-        # Build execution context WITHOUT security_profile to avoid double gate.
-        # Security is already enforced above via tool.policy_decision checks.
+        # tool.policy_decision already enforced; drop the profile
+        # to avoid a redundant second gate check.
         _ctx = self._exec_context
         _safe_ctx = None
         if _ctx is not None:
@@ -567,7 +530,7 @@ class MetaToolsMixin:
                 action_id=_ctx.action_id,
                 app_id=_ctx.app_id,
                 service_bus=_ctx.service_bus,
-                security_profile=None,  # No double gate
+                security_profile=None,
                 session_id=_ctx.session_id,
                 user_id=_ctx.user_id,
                 workspace=_ctx.workspace,
@@ -635,7 +598,6 @@ class MetaToolsMixin:
         tool = self._index.tools.get(name)
         if tool:
             return name, tool
-        # Resolve short API names (Write → filesystem.write, Bash → shell.bash)
         from digitorn.core.runtime.tool_names import to_fqn
         fqn = to_fqn(name)
         if fqn != name:
@@ -653,10 +615,7 @@ class MetaToolsMixin:
             tool = self._index.tools.get(dotted)
             if tool:
                 return dotted, tool
-        # Last resort: search by action name suffix (case-insensitive
-        # on both sides - the LLM may capitalize names like ``Read`` and
-        # the indexed FQN's suffix could carry mixed case from MCP tool
-        # registration).
+        # Last resort: match by action-name suffix, case-insensitive.
         name_lower = name.lower()
         for fqn_key, idx_tool in self._index.tools.items():
             if fqn_key.rsplit(".", 1)[-1].lower() == name_lower:
@@ -671,10 +630,7 @@ class MetaToolsMixin:
             return None, f"Tool '{name}' is blocked by security policy."
         return tool, None
 
-    # ── Prompt sections ────────────────────────────────
-
     def _prompt_sections_meta(self) -> list[dict[str, Any]]:
-        """Prompt instructions for parallel execution (run_parallel)."""
         return [{
             "title": "EXECUTION PRIMITIVES (always available)",
             "content": (
@@ -720,10 +676,7 @@ class MetaToolsMixin:
             shown = prefix_matches[:5]
             parts.append(f"Available in that module: {', '.join(shown)}.")
         else:
-            # Only advertise the discovery meta-tools when they're
-            # actually exposed to this agent. Apps running in `direct`
-            # tool-injection mode don't surface `search_tools` /
-            # `list_categories`, so the old advice was a dead end.
+            # advertise discovery meta-tools only if this agent has them.
             has_discovery = False
             try:
                 index = getattr(self, "_index", None)
@@ -741,7 +694,6 @@ class MetaToolsMixin:
                     "available tools.",
                 )
             else:
-                # Inline a short list so the agent can self-correct.
                 try:
                     index = getattr(self, "_index", None)
                     names = (
@@ -752,8 +704,8 @@ class MetaToolsMixin:
                         parts.append(
                             f"Available tools: {', '.join(names)}.",
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("actions_meta best-effort block failed: %s", exc)
 
         return " ".join(parts)
 
@@ -807,13 +759,8 @@ class MetaToolsMixin:
         cli_param="app_id",
     )
     async def call_app(self, params: CallAppParams) -> ActionResult:
-        # Prefer in-process dispatch via the AppManager when the bootstrap
-        # has wired one. The HTTP fallback below is only kept for the
-        # legacy dev path and is broken in production: ``RemoteAuthMiddleware``
-        # has no loopback bypass, so the bare loopback POST gets 401. The
-        # bootstrap should set ``cb._app_manager`` (Phase 2 work) so this
-        # path is the default. Until then we surface a clear error rather
-        # than the cryptic ``Missing bearer token``.
+        # prefer in-process dispatch via AppManager; the HTTP loopback
+        # fallback is broken under auth middleware (no loopback bypass).
         manager = getattr(self, "_app_manager", None)
         if manager is not None and hasattr(manager, "run_one_shot"):
             try:
@@ -858,10 +805,7 @@ class MetaToolsMixin:
                     error=f"call_app failed: {type(exc).__name__}: {exc}",
                 )
 
-        # Legacy HTTP fallback - only works when auth is disabled
-        # (``server.auth_enabled: false``) since the daemon's
-        # ``RemoteAuthMiddleware`` rejects all ``/api/*`` requests
-        # without a Bearer token regardless of source IP.
+        # Legacy HTTP fallback - only works when auth is disabled.
         try:
             import httpx
             async with httpx.AsyncClient() as client:
@@ -877,7 +821,7 @@ class MetaToolsMixin:
                             "call_app cannot reach the target app: the daemon's "
                             "auth middleware requires a Bearer token on /api/*. "
                             "In-process dispatch is unavailable on this build "
-                            "(``cb._app_manager`` not wired). Disable auth in dev "
+                            "(`cb._app_manager` not wired). Disable auth in dev "
                             "or invoke the target app's tools directly via "
                             "run_parallel / Agent()."
                         ),
@@ -902,8 +846,6 @@ class MetaToolsMixin:
             return ActionResult(success=False, error=f"App '{params.app_id}' timed out after {params.timeout}s")
         except Exception as exc:
             return ActionResult(success=False, error=str(exc))
-
-    # ── ask_user ────────────────────────────────────────────────
 
     @action(
         description=(
@@ -957,26 +899,16 @@ class MetaToolsMixin:
         cli_param="question",
     )
     async def ask_user(self, params: AskUserParams) -> ActionResult:
-        """Ask the user a question and wait for their response.
-
-        Uses the ApprovalQueue to pause the agent and wait for user input.
-        If content is provided, it's sent as reviewable/editable material.
-        The user can approve (with optional edits) or deny (with feedback).
-        """
-        # Get the approval queue from the agent context
+        """Ask the user a question and wait for their response via the approval queue."""
         ctx = self._context_var.get() if hasattr(self, "_context_var") else None
         approval_queue = None
 
-        # Try multiple paths to find the approval queue
         if ctx is not None:
             approval_queue = getattr(ctx, "approval_queue", None)
         if approval_queue is None:
-            # Try via the module's _service_bus or parent context
             approval_queue = getattr(self, "_approval_queue", None)
 
         if approval_queue is None:
-            # No approval queue - standalone/CLI mode.
-            # Return as error so the agent knows it can't actually ask the user.
             logger.warning("ask_user: no approval_queue available (standalone mode?)")
             return ActionResult(
                 success=False,
@@ -993,7 +925,6 @@ class MetaToolsMixin:
                 },
             )
 
-        # Build the approval request with all interaction fields
         tool_params: dict[str, Any] = {"question": params.question}
         if params.content:
             tool_params["content"] = params.content

@@ -1,15 +1,4 @@
-"""Build a SandboxProfile from a CompiledApp.
-
-The profile is derived entirely from the app YAML - capabilities,
-constraints, and module declarations.  No manual sandbox configuration.
-
-Rules:
-    - Module present + constraints.paths   → writable_paths populated
-    - Module present + unrestricted: true  → fs_unrestricted
-    - Module absent                        → no OS-level rights for that domain
-    - MCP/third-party with sandbox: block  → declared permissions applied
-    - No security_profile (dev mode)       → empty profile (noop sandbox)
-"""
+"""Build a SandboxProfile from a CompiledApp."""
 
 from __future__ import annotations
 
@@ -30,14 +19,7 @@ def build_sandbox_profile(
     compiled: CompiledApp,
     workspace_override: str | None = None,
 ) -> SandboxProfile:
-    """Translate a CompiledApp into an OS-level SandboxProfile.
-
-    Args:
-        compiled: The compiled app definition.
-        workspace_override: If provided, use this workspace instead of
-            the one from the compiled app. Used in warm pool mode where
-            workspace is determined per-session at sandbox time.
-    """
+    """Translate a CompiledApp into an OS-level SandboxProfile."""
     profile = SandboxProfile(app_id=compiled.meta.app_id)
     workspace = workspace_override or _resolve_workspace(compiled)
 
@@ -72,9 +54,6 @@ def build_sandbox_profile(
     _apply_allow_paths(profile, compiled)
 
     return profile
-
-
-# ── Module-specific handlers ──────────────────────────────────────
 
 
 def _handle_filesystem(
@@ -160,16 +139,7 @@ def _handle_mcp(
     config: dict[str, Any],
     workspace: str,
 ) -> None:
-    """Apply per-server sandbox permissions for MCP.
-
-    Deny-by-default: each MCP server must declare its sandbox permissions
-    explicitly.  No declaration = no OS-level rights (the server won't
-    function, which is intentional - explicit is better than implicit).
-
-    The transport type (stdio vs SSE/HTTP) is used for *validation*
-    (warning if a server lacks the permissions its transport needs),
-    not for auto-granting.
-    """
+    """Apply per-server sandbox permissions for MCP (deny-by-default)."""
     servers = config.get("servers", {})
     if not servers:
         return
@@ -182,7 +152,6 @@ def _handle_mcp(
         transport = _infer_mcp_transport(server_cfg)
 
         if not declared:
-            # No sandbox declaration - log a warning and grant nothing.
             logger.warning(
                 "mcp_server_no_sandbox server=%s transport=%s - "
                 "no sandbox permissions declared, server will be blocked "
@@ -191,10 +160,8 @@ def _handle_mcp(
             )
             continue
 
-        # Apply declared permissions only.
         _apply_declared_sandbox(profile, {"sandbox": declared}, workspace)
 
-        # Validate: warn if declared permissions don't match transport needs.
         perms = set(declared.get("permissions", []))
         if transport == "stdio" and not perms & {"process.exec", "process.*"}:
             logger.warning(
@@ -213,21 +180,16 @@ def _handle_mcp(
 
 
 def _infer_mcp_transport(server_cfg: dict[str, Any]) -> str:
-    """Infer the MCP transport type from server config.
-
-    Returns 'stdio', 'sse', or 'http'.
-    """
     explicit = server_cfg.get("transport", "").lower()
     if explicit in ("stdio", "sse", "http", "streamable_http"):
         return "http" if explicit == "streamable_http" else explicit
 
-    # Heuristic: if 'command' is present → stdio, if 'url' → SSE/HTTP.
     if server_cfg.get("command"):
         return "stdio"
     if server_cfg.get("url"):
         return "sse"
 
-    return "stdio"  # Default assumption (most common).
+    return "stdio"
 
 
 def _handle_llm_provider(
@@ -236,7 +198,6 @@ def _handle_llm_provider(
     config: dict[str, Any],
     workspace: str,
 ) -> None:
-    """LLM provider always needs network to call inference APIs."""
     profile.allow_network = True
 
 
@@ -252,15 +213,11 @@ _MODULE_HANDLERS = {
 }
 
 
-# ── Generic sandbox: block for MCP / third-party modules ─────────
-
-
 def _apply_declared_sandbox(
     profile: SandboxProfile,
     config: dict[str, Any],
     workspace: str,
 ) -> None:
-    """Apply explicitly declared sandbox permissions from module config."""
     declared = config.get("sandbox", {})
     if not declared:
         return
@@ -288,14 +245,10 @@ def _apply_declared_sandbox(
             profile.allowed_hosts.add(host)
 
 
-# ── Permission-based inference ────────────────────────────────────
-
-
 def _apply_granted_permissions(
     profile: SandboxProfile,
     security: Any,
 ) -> None:
-    """Infer sandbox flags from the SecurityProfile's granted_permissions."""
     perms = security.granted_permissions
 
     def _has(pattern: str) -> bool:
@@ -309,14 +262,10 @@ def _apply_granted_permissions(
         profile.allow_network = True
 
 
-# ── Resource limits ───────────────────────────────────────────────
-
-
 def _apply_resource_limits(
     profile: SandboxProfile,
     compiled: CompiledApp,
 ) -> None:
-    """Extract optional resource limits from execution config."""
     resources = getattr(compiled.execution, "resources", None)
     if not resources:
         return
@@ -327,19 +276,10 @@ def _apply_resource_limits(
         profile.max_processes = int(resources.get("processes", 10))
 
 
-# ── Allow paths from sandbox config ───────────────────────────
-
-
 def _apply_allow_paths(
     profile: SandboxProfile,
     compiled: CompiledApp,
 ) -> None:
-    """Add user-declared allow_paths from execution.sandbox config.
-
-    Each entry is either:
-        - "path"     → read-only
-        - "path:rw"  → read-write
-    """
     sandbox_cfg = getattr(
         getattr(compiled.execution, "sandbox", None), "allow_paths", None,
     )
@@ -359,9 +299,6 @@ def _apply_allow_paths(
             raw = entry.rstrip(":ro").strip()
             resolved = str(Path(raw).expanduser().resolve())
             profile.readable_paths.add(resolved)
-
-
-# ── Helpers ───────────────────────────────────────────────────────
 
 
 def _resolve_workspace(compiled: CompiledApp) -> str:

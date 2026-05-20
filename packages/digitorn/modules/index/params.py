@@ -6,7 +6,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 class RegisterSourceParams(BaseModel):
     """Parameters for the register_source action."""
 
@@ -55,7 +54,6 @@ class RegisterSourceParams(BaseModel):
         pattern="^(ephemeral|persistent)$",
     )
 
-
 class RegisterExtractorParams(BaseModel):
     """Parameters for the register_extractor action."""
 
@@ -69,7 +67,6 @@ class RegisterExtractorParams(BaseModel):
         description="Action name on the module that performs extraction.",
     )
 
-
 class ScanParams(BaseModel):
     """Parameters for the scan action."""
 
@@ -80,7 +77,6 @@ class ScanParams(BaseModel):
         default=False,
         description="Force full rescan even if content hashes haven't changed.",
     )
-
 
 class QueryParams(BaseModel):
     """Parameters for the query action."""
@@ -106,7 +102,6 @@ class QueryParams(BaseModel):
         description="Maximum number of results to return.",
     )
 
-
 class RelationsParams(BaseModel):
     """Parameters for the relations action."""
 
@@ -129,14 +124,8 @@ class RelationsParams(BaseModel):
         description="Traversal depth in the relation graph.",
     )
 
-
 class ContextParams(BaseModel):
-    """Parameters for the context action - the LLM's primary tool.
-
-    Returns optimal context for working on a target, trimmed to fit
-    the token budget. Includes the target content plus dependencies
-    and callers.
-    """
+    """Parameters for the context action - the LLM's primary tool."""
 
     target: str = Field(
         description=(
@@ -160,7 +149,6 @@ class ContextParams(BaseModel):
         le=3,
         description="Relation traversal depth.",
     )
-
 
 class InvalidateParams(BaseModel):
     """Parameters for the invalidate action."""

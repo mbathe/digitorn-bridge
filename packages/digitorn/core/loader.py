@@ -109,10 +109,6 @@ def _validate_docs(descriptor: ModuleDescriptor) -> list[str]:
     if not actions_path.exists():
         errors.append(f"Missing required {actions_path.name} in {module_dir}")
 
-    # integration.md and docs/app-config.yaml are explicitly optional.
-    # Emitting a WARNING for missing optional files on every boot pollutes
-    # the daemon log without giving the operator anything actionable -
-    # downgraded to DEBUG. Run with ``log_level=DEBUG`` to surface them.
     integration_path = module_dir / descriptor.docs.get("integration", "docs/integration.md")
     if not integration_path.exists():
         logger.debug(
@@ -278,7 +274,7 @@ def load_modules(
         disabled:   Module IDs to skip (overrides enabled and TOML enabled).
         load_all:   If True (default), load all discovered modules that have
                     enabled=true in their TOML. If False, only load modules
-                    explicitly listed in ``enabled``.
+                    explicitly listed in `enabled`.
 
     Returns:
         Dict of module_id -> status ("loaded", "isolated", "skipped", "error: ...").

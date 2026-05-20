@@ -41,26 +41,26 @@ class WorkspaceLayout:
     - **Shared** (default): the workspace is a directory that may host
       multiple apps and multiple sessions (CLI use, user-picked
       project folder). Per-app and per-session metadata is segregated
-      under ``.digitorn/apps/{app_id}/sessions/{sid}/``.
+      under `.digitorn/apps/{app_id}/sessions/{sid}/`.
 
-    - **Per-session** (``per_session=True``): the workspace is ALREADY
-      scoped to a single (app, session) pair — typically the daemon
-      auto-workspace ``~/.digitorn/workspaces/{app_id}/{sid}/``. The
-      ``apps/{app_id}/`` and ``sessions/{sid}/`` segments are dropped
+    - **Per-session** (`per_session=True`): the workspace is ALREADY
+      scoped to a single (app, session) pair - typically the daemon
+      auto-workspace `~/.digitorn/workspaces/{app_id}/{sid}/`. The
+      `apps/{app_id}/` and `sessions/{sid}/` segments are dropped
       because the workspace path already provides that segregation;
       otherwise the layout repeats the app_id and session_id once
-      uselessly inside ``.digitorn/``. Skills, rules, memory and
-      checkpoints all land directly under ``.digitorn/`` in this mode.
+      uselessly inside `.digitorn/`. Skills, rules, memory and
+      checkpoints all land directly under `.digitorn/` in this mode.
 
-    - **Project-shared** (``per_session=True`` +
-      ``external_session_dir``): the workspace is a
-      ``~/.digitorn/workdirs/{app_id}/{user_id}/{slug}/`` dir shared
+    - **Project-shared** (`per_session=True` +
+      `external_session_dir`): the workspace is a
+      `~/.digitorn/workdirs/{app_id}/{user_id}/{slug}/` dir shared
       by every session of the named project. Project-level artifacts
-      (``skills/``, ``rules/``, project memory) stay in
-      ``{workdir}/.digitorn/`` so the user can edit them; per-session
+      (`skills/`, `rules/`, project memory) stay in
+      `{workdir}/.digitorn/` so the user can edit them; per-session
       state (checkpoints, future per-session files) lives at
-      ``external_session_dir`` instead — typically
-      ``~/.digitorn/workspaces/{app_id}/{session_id}/`` — to prevent
+      `external_session_dir` instead - typically
+      `~/.digitorn/workspaces/{app_id}/{session_id}/` - to prevent
       concurrent sessions from trampling each other's state and to
       keep the workdir clean of daemon internals the agent shouldn't
       mutate.
@@ -151,11 +151,11 @@ class WorkspaceLayout:
         """Load the app's project memory file + modular rules.
 
         Sources (in order, first match wins for base memory):
-          1. ``.digitorn/apps/{app_id}/.digitorn.md``
-          2. ``{workspace}/.digitorn.md``
-          3. ``{workspace}/CLAUDE.md``
+          1. `.digitorn/apps/{app_id}/.digitorn.md`
+          2. `{workspace}/.digitorn.md`
+          3. `{workspace}/CLAUDE.md`
 
-        Rules from ``.digitorn/rules/`` are always appended.
+        Rules from `.digitorn/rules/` are always appended.
         """
         base: str | None = None
 
@@ -218,8 +218,8 @@ class WorkspaceLayout:
     def load_rules(self, active_paths: list[str] | None = None) -> str | None:
         """Load modular rules from global + app rules directories.
 
-        Rules are ``.md`` files in ``.digitorn/rules/`` (global) and
-        ``.digitorn/apps/{app_id}/rules/`` (app-specific).
+        Rules are `.md` files in `.digitorn/rules/` (global) and
+        `.digitorn/apps/{app_id}/rules/` (app-specific).
 
         Each file may have optional YAML frontmatter to scope it::
 
@@ -229,9 +229,9 @@ class WorkspaceLayout:
             All API routes must validate input with Pydantic.
 
         Args:
-            active_paths: If provided, only include rules whose ``paths:``
+            active_paths: If provided, only include rules whose `paths:`
                 frontmatter matches at least one active path (glob).
-                Rules without ``paths:`` frontmatter are always included.
+                Rules without `paths:` frontmatter are always included.
 
         Returns:
             Concatenated rules text, or None if no rules found.

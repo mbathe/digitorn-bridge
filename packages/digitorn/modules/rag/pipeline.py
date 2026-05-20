@@ -1,11 +1,4 @@
-"""RagPipeline - configurable retrieval orchestrator.
-
-Stages: query -> [cache?] -> [route?] -> [expand?] -> retrieve -> fuse -> [rerank?] -> [crag?] -> results
-
-Supports strategy composition:
-- base strategies: semantic, bm25, hybrid
-- wrappers: multiquery (query expansion), crag (quality eval), adaptive (auto-route)
-"""
+"""RagPipeline - configurable retrieval orchestrator."""
 
 from __future__ import annotations
 
@@ -25,7 +18,6 @@ if TYPE_CHECKING:
     from .cache import SemanticCache
 
 logger = logging.getLogger(__name__)
-
 
 class RagPipeline:
     """Executes the full retrieval pipeline for a single knowledge base query."""
@@ -90,12 +82,7 @@ class RagPipeline:
         metadata_filter: dict[str, Any] | None = None,
         timeout: float = 0.3,
     ) -> tuple[list[RetrievalResult], list[RetrievalResult]]:
-        """Streaming retrieval - returns (fast_results, late_results).
-
-        Launches semantic and BM25 in parallel, returns whatever is ready
-        within `timeout` as fast_results. The rest arrives as late_results.
-        Used by streaming LLM generation to start producing tokens early.
-        """
+        """Streaming retrieval - returns (fast_results, late_results)."""
         sem_task = asyncio.create_task(self._semantic(
             query, collection, model, top_k * 3, min_score, metadata_filter,
         ))
@@ -127,13 +114,11 @@ class RagPipeline:
             for task in late_done:
                 try:
                     late.extend(task.result())
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("pipeline best-effort block failed: %s", exc)
             late = [r for r in late if r.doc_id not in {f.doc_id for f in fast}]
 
         return fast, late
-
-    # ── Base strategies ────────────────────────────────────────────────
 
     async def _semantic(
         self,
@@ -237,8 +222,6 @@ class RagPipeline:
 
         return results
 
-    # ── Post-processing ────────────────────────────────────────────────
-
     def _apply_rerank(
         self,
         query: str,
@@ -284,7 +267,6 @@ class RagPipeline:
                 seen.add(r.doc_id)
                 deduped.append(r)
         return deduped
-
 
 def _citation_from_meta(meta: dict[str, Any], score: float) -> Citation:
     parts = []

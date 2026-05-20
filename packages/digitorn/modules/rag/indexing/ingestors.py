@@ -1,8 +1,4 @@
-"""Format-specific document ingestors.
-
-Each ingestor reads a source format and produces normalized documents
-ready for chunking and embedding. Auto-detected by file extension.
-"""
+"""Format-specific document ingestors."""
 
 from __future__ import annotations
 
@@ -17,17 +13,14 @@ from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass(slots=True)
 class IngestDocument:
     text: str
     doc_id: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
 
-
 class Ingestor(Protocol):
     def ingest(self, path: Path, **kwargs: Any) -> list[IngestDocument]: ...
-
 
 class PlainTextIngestor:
     def ingest(self, path: Path, **kwargs: Any) -> list[IngestDocument]:
@@ -39,7 +32,6 @@ class PlainTextIngestor:
             doc_id=str(path),
             metadata={"source_type": "file", "source_id": str(path), "format": "text"},
         )]
-
 
 class MarkdownIngestor:
     """Splits markdown by headers, preserving section hierarchy."""
@@ -89,7 +81,6 @@ class MarkdownIngestor:
 
         return sections
 
-
 class CodeIngestor:
     """Treats code files as single documents with language metadata."""
 
@@ -113,7 +104,6 @@ class CodeIngestor:
                 "format": "code", "language": lang,
             },
         )]
-
 
 class CSVIngestor:
     """Each row becomes a document, or groups of rows if large."""
@@ -139,7 +129,6 @@ class CSVIngestor:
                 },
             ))
         return docs
-
 
 class JSONIngestor:
     """Flattens JSON objects into searchable text documents."""
@@ -176,7 +165,6 @@ class JSONIngestor:
             ))
         return docs
 
-
 class JSONLIngestor:
     def ingest(self, path: Path, **kwargs: Any) -> list[IngestDocument]:
         docs = []
@@ -197,7 +185,6 @@ class JSONLIngestor:
                 ))
         return docs
 
-
 class HTMLIngestor:
     """Extracts text from HTML, strips tags."""
 
@@ -216,15 +203,7 @@ class HTMLIngestor:
             metadata={"source_type": "file", "source_id": str(path), "format": "html"},
         )]
 
-
 def _extract_pdf_pages(path: Path) -> list[tuple[int, str]]:
-    """Extract per-page text from a PDF using pymupdf.
-
-    Returns a list of (page_number_1based, text) tuples. Empty list on
-    failure or when pymupdf is not installed. The pdf module used to
-    own this code, but it was the only consumer and the wrapper added
-    no value, so it was inlined here when the pdf module was removed.
-    """
     try:
         import pymupdf
     except ImportError:
@@ -242,7 +221,6 @@ def _extract_pdf_pages(path: Path) -> list[tuple[int, str]]:
         logger.warning("PDF read failed for %s: %s", path, exc)
         return []
 
-
 class PDFIngestor:
     """Read a PDF file and produce one IngestDocument per page."""
 
@@ -252,7 +230,7 @@ class PDFIngestor:
         return self._build_docs(path, _extract_pdf_pages(path))
 
     async def ingest_async(self, path: Path, bus: Any = None) -> list[IngestDocument]:
-        # ``bus`` is accepted for API compatibility with sibling ingestors
+        # `bus` is accepted for API compatibility with sibling ingestors
         # that still delegate over ServiceBus; PDFIngestor reads directly.
         import asyncio
         pages = await asyncio.to_thread(_extract_pdf_pages, path)
@@ -278,21 +256,7 @@ class PDFIngestor:
             ))
         return docs
 
-
 def _extract_docx_sections(path: Path) -> list[tuple[str, str]]:
-    """Extract section-aligned text from a .docx using python-docx.
-
-    Returns a list of ``(heading, body)`` tuples. ``heading`` is the
-    heading paragraph's text (empty for the content above the first
-    heading); ``body`` is the joined non-empty paragraphs that follow
-    until the next heading. Tables are flattened to ``cell | cell``
-    rows so structured content still reaches the index.
-
-    Empty list on failure or when python-docx is not installed.
-    Mirrors :func:`_extract_pdf_pages` and
-    :func:`_extract_spreadsheet_sheets` so the calling ingestor stays
-    a thin wrapper.
-    """
     try:
         import docx  # python-docx
     except ImportError:
@@ -315,11 +279,7 @@ def _extract_docx_sections(path: Path) -> list[tuple[str, str]]:
         if current_heading or current_body:
             sections.append((current_heading, list(current_body)))
 
-    # Walk paragraphs in document order. Heading-styled paragraphs
-    # split sections; everything else accumulates. python-docx exposes
-    # tables separately, so we sweep them after - keeps the helper
-    # tolerant of malformed docs that mix tables and paragraphs
-    # heavily.
+    # Heading-styled paragraphs split sections; tables are swept after.
     for para in doc.paragraphs:
         text = (para.text or "").strip()
         if not text:
@@ -327,8 +287,8 @@ def _extract_docx_sections(path: Path) -> list[tuple[str, str]]:
         style_name = ""
         try:
             style_name = (para.style.name if para.style else "") or ""
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("ingestors best-effort block failed: %s", exc)
         if style_name.startswith("Heading"):
             _flush()
             current_heading = text
@@ -356,17 +316,9 @@ def _extract_docx_sections(path: Path) -> list[tuple[str, str]]:
         if heading or body
     ]
 
-
 def _extract_spreadsheet_sheets(
     path: Path, max_rows: int = 10000,
 ) -> list[tuple[str, list[Any], list[list[Any]]]]:
-    """Extract (sheet_name, headers, rows) tuples from a spreadsheet.
-
-    Supports .csv (stdlib csv) and .xlsx (openpyxl, optional). Returns
-    an empty list on unsupported formats or missing libraries. The
-    spreadsheet module used to own this code, but it was the only
-    consumer and was inlined when the module was removed.
-    """
     suffix = path.suffix.lower()
     if suffix == ".csv":
         import csv
@@ -413,15 +365,7 @@ def _extract_spreadsheet_sheets(
             return []
     return []
 
-
 def _extract_pptx_slides(path: Path) -> list[tuple[int, str]]:
-    """Extract per-slide text from a .pptx using python-pptx.
-
-    Returns ``[(slide_number_1based, text), ...]``. Empty list on
-    failure or when python-pptx is missing. Mirrors the
-    ``_extract_pdf_pages`` contract exactly so the wrapping ingestor
-    stays trivial.
-    """
     try:
         from pptx import Presentation
     except ImportError:
@@ -458,23 +402,14 @@ def _extract_pptx_slides(path: Path) -> list[tuple[int, str]]:
                     note_text = (ntf.text or "").strip()
                     if note_text:
                         chunks.append(f"[notes] {note_text}")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("ingestors best-effort block failed: %s", exc)
         joined = "\n".join(chunks).strip()
         if joined:
             out.append((idx, joined))
     return out
 
-
 def _extract_odt_paragraphs(path: Path) -> list[tuple[str, str]]:
-    """Extract section-aligned text from a .odt by reading its
-    ``content.xml`` directly (no odfpy dep).
-
-    Returns ``[(heading, body), ...]`` matching ``_extract_docx_sections``
-    so a future generic "sectioned" ingestor base can subsume both.
-    Empty list on read / parse failure - the rag fallback path then
-    treats the file as opaque text.
-    """
     import zipfile
     from xml.etree import ElementTree as ET
 
@@ -493,7 +428,7 @@ def _extract_odt_paragraphs(path: Path) -> list[tuple[str, str]]:
         return []
 
     # ODF namespaces. We never bind them by prefix because XML wants
-    # full ``{uri}local`` syntax under ElementTree.
+    # full `{uri}local` syntax under ElementTree.
     NS_TEXT = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
     sections: list[tuple[str, list[str]]] = []
     current_heading = ""
@@ -526,17 +461,9 @@ def _extract_odt_paragraphs(path: Path) -> list[tuple[str, str]]:
         if heading or body
     ]
 
-
 def _extract_ods_sheets(
     path: Path, max_rows: int = 10000,
 ) -> list[tuple[str, list[Any], list[list[Any]]]]:
-    """Extract (sheet_name, headers, rows) from an .ods via raw XML.
-
-    Same return shape as :func:`_extract_spreadsheet_sheets` so the
-    existing :class:`SpreadsheetIngestor` can swallow it without
-    changes - we just register a new sync entry that points at this
-    helper indirectly through :class:`ODSIngestor` below.
-    """
     import zipfile
     from xml.etree import ElementTree as ET
 
@@ -578,23 +505,14 @@ def _extract_ods_sheets(
         out.append((name, headers, rows[1:max_rows + 1]))
     return out
 
-
 def _extract_rtf_text(path: Path) -> str:
-    """Strip a .rtf to plain text without a heavy dependency.
-
-    RTF is a small grammar: control words ``\\foo``, hex escapes
-    ``\\'XX``, group braces ``{}``, deletable groups ``{\\*...}``.
-    A regex pass covers the long tail of business documents well
-    enough for retrieval (we lose formatting but keep words and
-    paragraph breaks). Returns ``""`` on read failure.
-    """
     try:
         raw = path.read_text(encoding="latin-1", errors="replace")
     except Exception as exc:
         logger.warning("RTF read failed for %s: %s", path, exc)
         return ""
 
-    # Drop ``{\*\anything ...}`` blocks - they hold metadata the LLM
+    # Drop `{\*\anything ...}` blocks - they hold metadata the LLM
     # doesn't need (fonts, colours, revision history).
     def _strip_deletable(text: str) -> str:
         out: list[str] = []
@@ -618,7 +536,7 @@ def _extract_rtf_text(path: Path) -> str:
         return "".join(out)
 
     text = _strip_deletable(raw)
-    # Hex escapes ``\'XX`` → byte. Decode as cp1252 (Windows default).
+    # Hex escapes `\'XX` → byte. Decode as cp1252 (Windows default).
     def _hex_sub(m: re.Match[str]) -> str:
         try:
             return bytes([int(m.group(1), 16)]).decode("cp1252", errors="replace")
@@ -629,7 +547,7 @@ def _extract_rtf_text(path: Path) -> str:
     text = re.sub(r"\\par\b ?", "\n", text)
     text = re.sub(r"\\line\b ?", "\n", text)
     text = re.sub(r"\\tab\b ?", "\t", text)
-    # Generic control words: ``\foo123 `` or ``\foo`` followed by space.
+    # Generic control words: `\foo123 ` or `\foo` followed by space.
     text = re.sub(r"\\[a-zA-Z]+-?\d*\s?", "", text)
     # Drop stray braces.
     text = text.replace("{", "").replace("}", "")
@@ -639,13 +557,8 @@ def _extract_rtf_text(path: Path) -> str:
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
-
 class PPTXIngestor:
-    """One IngestDocument per slide. Mirrors PDFIngestor verbatim so
-    the rag pipeline can't tell PPTX apart from PDF at the metadata
-    layer - both produce per-page citations via the existing
-    ``[file · page N]`` rendering.
-    """
+    """One IngestDocument per slide. Mirrors PDFIngestor verbatim so."""
 
     def ingest(self, path: Path, **kwargs: Any) -> list[IngestDocument]:
         slides = _extract_pptx_slides(path)
@@ -663,14 +576,13 @@ class PPTXIngestor:
                     "source_type": "file",
                     "source_id": str(path),
                     "format": "pptx",
-                    # ``page`` so the existing citation renderer
-                    # (``_format_rag_context_block``) emits
-                    # ``[deck.pptx · page 4]`` without any change.
+                    # `page` so the existing citation renderer
+                    # (`_format_rag_context_block`) emits
+                    # `[deck.pptx · page 4]` without any change.
                     "page": slide_num,
                 },
             ))
         return docs
-
 
 class ODTIngestor:
     """ODT mirror of DOCXIngestor. Section-aligned, header-driven."""
@@ -698,12 +610,8 @@ class ODTIngestor:
             ))
         return docs
 
-
 class ODSIngestor:
-    """ODS mirror of SpreadsheetIngestor - one IngestDocument per row,
-    sheet name in metadata. Delegates extraction to
-    :func:`_extract_ods_sheets` which returns the same shape as the
-    XLSX extractor so the row-formatting loop is identical."""
+    """ODS mirror of SpreadsheetIngestor."""
 
     def ingest(self, path: Path, **kwargs: Any) -> list[IngestDocument]:
         sheets = _extract_ods_sheets(path)
@@ -735,10 +643,8 @@ class ODSIngestor:
                 ))
         return docs
 
-
 class RTFIngestor:
-    """RTF → plain text single-doc ingestor. The text loses formatting
-    but keeps the words, which is all retrieval needs."""
+    """RTF → plain text single-doc ingestor. The text loses formatting."""
 
     def ingest(self, path: Path, **kwargs: Any) -> list[IngestDocument]:
         text = _extract_rtf_text(path)
@@ -754,17 +660,8 @@ class RTFIngestor:
             },
         )]
 
-
 class DOCXIngestor:
-    """Read a .docx (Word document) and produce one IngestDocument
-    per section (heading + body). Mirrors PDFIngestor's shape so the
-    rag pipeline's per-doc metadata path stays uniform.
-
-    No async variant: python-docx is fast enough that the sync
-    ingestor path off-loaded via ``asyncio.to_thread`` in the rag
-    module is sufficient. If we ever hit a 500-page DOCX that needs
-    streaming, mirror PDFIngestor.ingest_async then.
-    """
+    """Read a .docx (Word document) and produce one IngestDocument."""
 
     def ingest(self, path: Path, **kwargs: Any) -> list[IngestDocument]:
         sections = _extract_docx_sections(path)
@@ -788,7 +685,6 @@ class DOCXIngestor:
                 },
             ))
         return docs
-
 
 class SpreadsheetIngestor:
     """Read a spreadsheet (.csv / .xlsx) and produce one IngestDocument per row."""
@@ -821,9 +717,6 @@ class SpreadsheetIngestor:
                     },
                 ))
         return docs
-
-
-# ── Registry ──────────────────────────────────────────────────────────
 
 _SYNC_INGESTORS: dict[str, Ingestor] = {
     ".md": MarkdownIngestor(),
@@ -873,14 +766,11 @@ _SYNC_INGESTORS: dict[str, Ingestor] = {
 
 _ASYNC_EXTENSIONS = {".pdf", ".xlsx", ".xls"}
 
-
 def get_ingestor(ext: str) -> Ingestor | None:
     return _SYNC_INGESTORS.get(ext.lower())
 
-
 def is_async_format(ext: str) -> bool:
     return ext.lower() in _ASYNC_EXTENSIONS
-
 
 def supported_extensions() -> set[str]:
     return set(_SYNC_INGESTORS.keys()) | _ASYNC_EXTENSIONS

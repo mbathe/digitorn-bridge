@@ -1,16 +1,4 @@
-"""HubSource - fetch packages from a remote Digitorn Hub.
-
-Source URI grammar:
-    hub://<publisher_slug>/<package_id>            -> latest non-yanked version
-    hub://<publisher_slug>/<package_id>@<version>  -> pinned version
-
-The hub server lives in ``packages/hub/``. Endpoints used here:
-
-    GET /api/v1/packages/{pub}/{pkg}                     -> resolve latest
-    GET /api/v1/packages/{pub}/{pkg}/versions/{v}/download  -> 302 -> presigned URL
-
-Auth tokens are accepted but optional; today's hub allows anonymous reads.
-"""
+"""HubSource - fetch packages from a remote Digitorn Hub."""
 from __future__ import annotations
 
 import io
@@ -39,13 +27,11 @@ _HUB_URI_RE = re.compile(
 )
 _MAX_BYTES = 100 * 1024 * 1024
 
-
 @dataclass(frozen=True)
 class _ParsedHubUri:
     publisher: str
     package_id: str
     version: str | None
-
 
 def parse_hub_uri(uri: str) -> _ParsedHubUri:
     m = _HUB_URI_RE.match(uri.strip())
@@ -59,7 +45,6 @@ def parse_hub_uri(uri: str) -> _ParsedHubUri:
         package_id=m.group("pkg"),
         version=m.group("version"),
     )
-
 
 class HubSource(PackageSource):
     source_type = "hub"

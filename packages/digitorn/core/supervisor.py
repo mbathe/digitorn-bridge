@@ -1,37 +1,4 @@
-"""External watchdog / supervisor for the Digitorn daemon.
-
-Spawns the daemon as a subprocess, polls ``/healthz`` continuously, and
-restarts the daemon when it crashes or becomes unresponsive. Designed
-to keep the daemon alive in dev / on-prem deploys without requiring
-systemd or a container orchestrator.
-
-Production deployments should use systemd / Docker / NSSM where
-available - this supervisor is the cross-platform fallback that works
-out of the box on developer laptops and small servers.
-
-Trigger conditions for restart:
-
-  * Process exited (any exit code).
-  * ``/healthz`` returned non-200 N times in a row (default 5).
-  * ``/healthz`` ``status == "degraded"`` for M consecutive probes
-    (default 6 = 1 minute at 10s interval) - the loop is stuck.
-  * ``/healthz`` ``loop_stalls_total`` increased by >= 3 since the
-    last reboot - persistent event-loop stalls.
-  * Process memory exceeded the configured cap (default 4 GiB).
-
-Each restart is logged to ``~/.digitorn/incidents/`` with the daemon's
-last 200 lines of stderr captured at the moment of failure.
-
-Usage:
-
-    python -m digitorn.core.supervisor [--host 127.0.0.1] [--port 8000]
-
-Or programmatically:
-
-    from digitorn.core.supervisor import Supervisor
-    sup = Supervisor()
-    sup.run()                  # blocks; SIGINT exits cleanly
-"""
+"""External watchdog / supervisor for the Digitorn daemon."""
 from __future__ import annotations
 
 import argparse
@@ -56,11 +23,11 @@ _DEFAULT_HOST = "127.0.0.1"
 _DEFAULT_PORT = 8000
 _HEALTH_INTERVAL_S = 10.0
 _HEALTH_TIMEOUT_S = 5.0
-_BOOT_GRACE_S = 180.0  # Don't trigger restart during initial boot.
-_MAX_FAIL_PROBES = 5    # 5 consecutive 500/timeout → restart
-_MAX_DEGRADED_PROBES = 6  # 6 consecutive degraded (1 min) → restart
-_RESTART_BACKOFF = [2.0, 5.0, 15.0, 30.0, 60.0]  # caps at 60s
-_STDERR_RING = 200      # Last N stderr lines captured for incidents.
+_BOOT_GRACE_S = 180.0
+_MAX_FAIL_PROBES = 5
+_MAX_DEGRADED_PROBES = 6
+_RESTART_BACKOFF = [2.0, 5.0, 15.0, 30.0, 60.0]
+_STDERR_RING = 200
 _INCIDENTS_DIR = Path.home() / ".digitorn" / "incidents"
 
 
@@ -76,16 +43,8 @@ def _setup_logging() -> None:
     logger.propagate = False
 
 
-# ── Health probing ───────────────────────────────────────────────────
-
-
 def _probe_health(host: str, port: int) -> dict[str, Any] | None:
-    """Hit ``/healthz`` and return the parsed body, or None on failure.
-
-    Uses ``urllib`` instead of ``httpx`` to keep the supervisor
-    dependency-free - it should run with just the stdlib so an outage
-    that breaks the venv doesn't take it out too.
-    """
+    """Hit /healthz and return the parsed body, or None on failure."""
     url = f"http://{host}:{port}/healthz"
     try:
         with _urlreq.urlopen(url, timeout=_HEALTH_TIMEOUT_S) as resp:
@@ -96,9 +55,6 @@ def _probe_health(host: str, port: int) -> dict[str, Any] | None:
         return None
 
 
-# ── Incident logging ─────────────────────────────────────────────────
-
-
 def _write_incident(
     reason: str,
     *,
@@ -107,11 +63,7 @@ def _write_incident(
     exit_code: int | None,
     pid: int | None,
 ) -> Path:
-    """Persist a JSON incident report to ``~/.digitorn/incidents/``.
-
-    File format ``YYYYMMDD_HHMMSS_<reason>.json`` so files sort by time
-    and the cause is visible in ``ls``.
-    """
+    """Persist a JSON incident report to ~/.digitorn/incidents/."""
     _INCIDENTS_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     safe_reason = "".join(c if c.isalnum() else "_" for c in reason)[:40]
@@ -134,11 +86,8 @@ def _write_incident(
     return path
 
 
-# ── The supervisor itself ────────────────────────────────────────────
-
-
 class Supervisor:
-    """Spawn-and-watch loop for ``digitorn start``."""
+    """Spawn-and-watch loop for `digitorn start`."""
 
     def __init__(
         self,
@@ -165,13 +114,7 @@ class Supervisor:
         self._stop_requested = False
         self._stalls_baseline = 0
 
-    # ── Subprocess management ────────────────────────────────────
-
     def _spawn(self) -> subprocess.Popen[bytes]:
-        # Resolve the daemon entrypoint. We assume ``digitorn`` is on
-        # PATH (installed via ``pip install -e .`` or PyPI). Fallback
-        # to ``python -m digitorn.core.server start`` so a user that
-        # only has the source tree can still run the supervisor.
         digitorn = shutil.which("digitorn")
         if digitorn:
             cmd = [digitorn, "start", "--host", self.host, "--port", str(self.port)]
@@ -192,8 +135,6 @@ class Supervisor:
             env=env,
             text=False,
         )
-        # Drain the daemon's stdout into our ring + the supervisor's
-        # own stderr so the operator sees both sets of logs in one tail.
         import threading
         def _drain() -> None:
             assert proc.stdout is not None
@@ -203,8 +144,6 @@ class Supervisor:
                 except Exception:
                     continue
                 self._stderr_ring.append(line)
-                # Mirror to our stderr so an interactive terminal sees
-                # it; production deploys can redirect both to a file.
                 print(line, file=sys.stderr, flush=True)
         t = threading.Thread(target=_drain, daemon=True, name="sup-drain")
         t.start()
@@ -217,10 +156,7 @@ class Supervisor:
             return
         try:
             if os.name == "nt":
-                # Windows doesn't support POSIX signals on subprocesses.
-                # ``terminate()`` issues ``TerminateProcess``; the
-                # daemon's lifespan ``finally:`` won't run, but the
-                # Job Object cleanup catches every child for us.
+                # POSIX signals unavailable on Windows subprocesses; Job Object cleans children
                 self._proc.terminate()
             else:
                 self._proc.send_signal(sig)
@@ -235,10 +171,7 @@ class Supervisor:
         except subprocess.TimeoutExpired:
             return None
 
-    # ── Restart policy ───────────────────────────────────────────
-
     def _should_throttle_restart(self) -> bool:
-        """True when we've restarted >N times in the last hour - back off."""
         now = time.monotonic()
         self._restart_history = deque(
             (t for t in self._restart_history if t > now - 3600),
@@ -260,8 +193,6 @@ class Supervisor:
             self._stop_requested = True
             return
         pid = self._proc.pid if self._proc else None
-        # Capture exit code if the proc has terminated, otherwise we'll
-        # kill it and read after.
         exit_code = self._proc.poll() if self._proc else None
         if exit_code is None and self._proc is not None:
             self._kill()
@@ -270,8 +201,8 @@ class Supervisor:
                 logger.warning("daemon did not exit gracefully - sending SIGKILL")
                 try:
                     self._proc.kill()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("supervisor best-effort block failed: %s", exc)
                 exit_code = self._wait_exit(timeout=5.0)
         path = _write_incident(
             reason,
@@ -292,15 +223,10 @@ class Supervisor:
         self._stalls_baseline = 0
         self._proc = self._spawn()
 
-    # ── Main loop ────────────────────────────────────────────────
-
     def _install_signal_handlers(self) -> None:
         def _handle(signum: int, _frame: Any) -> None:
             logger.info("signal received signum=%d - graceful shutdown", signum)
             self._stop_requested = True
-        # SIGINT (Ctrl+C) + SIGTERM. Windows has SIGINT; SIGTERM is
-        # accepted by Python but the OS doesn't deliver it the same
-        # way (``CTRL_BREAK_EVENT`` is the closest equivalent).
         signal.signal(signal.SIGINT, _handle)
         if hasattr(signal, "SIGTERM"):
             try:
@@ -327,7 +253,6 @@ class Supervisor:
             while not self._stop_requested:
                 time.sleep(_HEALTH_INTERVAL_S)
 
-                # 1. Process alive?
                 rc = self._proc.poll()
                 if rc is not None:
                     self._restart(
@@ -339,7 +264,6 @@ class Supervisor:
                     consecutive_degraded = 0
                     continue
 
-                # 2. Probe /healthz.
                 health = _probe_health(self.host, self.port)
                 if health is None:
                     consecutive_failures += 1
@@ -357,9 +281,6 @@ class Supervisor:
                 status = str(health.get("status", "unknown"))
                 stalls = int(health.get("loop_stalls_total", 0))
 
-                # During boot we accept warming/degraded for up to
-                # _BOOT_GRACE_S - the daemon may legitimately take 60-90s
-                # to come fully up (DB connect, JWKS warm, modules).
                 in_boot_grace = (
                     time.monotonic() - proc_started_at < _BOOT_GRACE_S
                 )
@@ -378,7 +299,6 @@ class Supervisor:
                 else:
                     consecutive_degraded = 0
 
-                # 3. Loop-stall detection.
                 if not in_boot_grace:
                     delta_stalls = stalls - self._stalls_baseline
                     if delta_stalls >= 3:
@@ -390,7 +310,6 @@ class Supervisor:
                         continue
                 self._stalls_baseline = stalls
 
-                # 4. Memory cap (best-effort via psutil if available).
                 if self.memory_cap_mb is not None:
                     rss_mb = self._proc_memory_mb()
                     if rss_mb is not None and rss_mb > self.memory_cap_mb:
@@ -401,8 +320,6 @@ class Supervisor:
                         proc_started_at = time.monotonic()
                         continue
 
-                # Healthy. Reset restart counter slowly so a few good
-                # hours of uptime allow future restarts again.
                 if status == "alive" and not in_boot_grace:
                     self._restart_count = max(0, self._restart_count - 1)
 
@@ -423,9 +340,6 @@ class Supervisor:
             return round(p.memory_info().rss / 1024 / 1024, 1)
         except Exception:
             return None
-
-
-# ── CLI entry point ──────────────────────────────────────────────────
 
 
 def main(argv: list[str] | None = None) -> int:

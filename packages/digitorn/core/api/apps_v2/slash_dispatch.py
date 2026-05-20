@@ -1,40 +1,4 @@
-"""Pre-dispatch handlers for slash commands declared in
-``ui.slash_commands`` with an ``action: { type: builtin, name: ... }``
-block.
-
-These run at HTTP level BEFORE the message ever reaches the agent
-loop. They short-circuit the LLM call entirely: the daemon performs
-the action and emits a synthetic ``assistant_message`` SSE event,
-then returns 200. No turn, no LLM cost, no tool call.
-
-Two categories of slash commands live in the codebase:
-
-  - **pre-dispatch (this module)**: no LLM loop needed. The daemon
-    knows what to do (e.g. ``/help`` reads the manifest, ``/clear``
-    wipes session state). Handled here.
-  - **loop-augment (post-prod, hooks engine)**: the slash kicks off
-    a normal LLM turn but with an extra system directive or tool
-    pre-loaded. Will route through ``runtime/hooks.py`` once the
-    engine grows a ``slash_command`` event type.
-
-YAML shape (forward-compatible with the loop-augment phase) ::
-
-    ui:
-      slash_commands:
-        - command: /help
-          description: List available commands
-          action:
-            type: builtin
-            name: help
-
-Adding a new builtin = adding a function to ``BUILTIN_HANDLERS`` +
-declaring its name in the app YAML. Nothing else.
-
-v1 ships ``help`` only. ``/clear``, ``/compact``, ``/undo``,
-``/abort`` follow in follow-up PRs once their core logic has been
-extracted from the legacy ``sessions.py`` endpoints into reusable
-helpers (today the logic is intertwined with the HTTP handler).
-"""
+"""Pre-dispatch handlers for slash commands declared in"""
 
 from __future__ import annotations
 
@@ -47,10 +11,6 @@ from typing import Any, Awaitable, Callable
 logger = logging.getLogger(__name__)
 
 
-# Regex matching the slash-command syntax accepted at the start of a
-# user message: ``/<word>`` optionally followed by whitespace + free-
-# form arguments. Case-insensitive on the command, args preserved
-# verbatim. Lives here so messages.py imports a single source.
 SLASH_CMD_RE = re.compile(
     r"^\s*/([a-zA-Z][a-zA-Z0-9_-]*)(?:\s+([\s\S]*))?$",
     re.IGNORECASE,
@@ -58,14 +18,7 @@ SLASH_CMD_RE = re.compile(
 
 
 class DispatchResult:
-    """Outcome of a slash-command dispatch.
-
-    ``message``  : human-readable text to emit as a synthetic
-                   assistant_message. Markdown allowed.
-    ``handled``  : when False the parser falls through to the normal
-                   LLM dispatch (e.g. the slash matched a command but
-                   the handler refused, or hit a soft error).
-    """
+    """Outcome of a slash-command dispatch."""
 
     __slots__ = ("message", "handled")
 
@@ -74,24 +27,11 @@ class DispatchResult:
         self.handled = handled
 
 
-# Handler signature: takes a context dict (lazy by design — different
-# handlers need different parts of the request, so we pass everything
-# and let each one pull what it needs). Returns a DispatchResult.
 SlashHandler = Callable[[dict[str, Any]], Awaitable[DispatchResult]]
 
 
 async def _builtin_help(ctx: dict[str, Any]) -> DispatchResult:
-    """List every command available in this app's palette.
-
-    Pulls from three sources, deduped by command:
-
-      1. ``ui.slash_commands`` (app-declared, both action-bound and
-         pure UI-sugar templates).
-      2. ``dev.skills``        (agent-side and user-side ``/<name>``
-         entries reachable via ``/use_skill``).
-      3. The user's own ``user_skills`` table (per-user library)
-         when the app has ``dev.allow_user_skills: true``.
-    """
+    """List every command available in this app's palette."""
     deployed = ctx["deployed"]
     user_id = ctx.get("user_id")
     app_id = ctx["app_id"]
@@ -107,7 +47,7 @@ async def _builtin_help(ctx: dict[str, Any]) -> DispatchResult:
             desc = (s.get("description") or "").strip()
             if not cmd:
                 continue
-            lines.append(f"- **{cmd}** — {desc}" if desc else f"- **{cmd}**")
+            lines.append(f"- **{cmd}** - {desc}" if desc else f"- **{cmd}**")
         lines.append("")
 
     app_skills = list(getattr(compiled, "skills", []) or [])
@@ -118,7 +58,7 @@ async def _builtin_help(ctx: dict[str, Any]) -> DispatchResult:
             desc = (s.get("description") or "").strip()
             if not cmd:
                 continue
-            lines.append(f"- **{cmd}** — {desc}" if desc else f"- **{cmd}**")
+            lines.append(f"- **{cmd}** - {desc}" if desc else f"- **{cmd}**")
         lines.append("")
 
     allow_user = bool(getattr(compiled, "allow_user_skills", False))
@@ -143,7 +83,7 @@ async def _builtin_help(ctx: dict[str, Any]) -> DispatchResult:
                 for name, desc in rows:
                     label = f"- **{name}**"
                     if desc:
-                        label += f" — {desc}"
+                        label += f" - {desc}"
                     lines.append(label)
                 lines.append("")
         except Exception as exc:
@@ -156,15 +96,7 @@ async def _builtin_help(ctx: dict[str, Any]) -> DispatchResult:
 
 
 async def _builtin_compact_session(ctx: dict[str, Any]) -> DispatchResult:
-    """Trim the agent's in-flight message list + mirror the cut to
-    the SessionStore so the compaction survives a daemon restart.
-
-    Same orchestration as ``apps_v2/sessions.py::compact_session``
-    (the HTTP endpoint) — kept in sync by copy-paste rather than a
-    shared helper so the endpoint stays untouched during this Phase
-    1 ship. Post-prod refactor: extract one ``compact_session_core``
-    helper both call sites import.
-    """
+    """Trim the agent's in-flight message list + mirror the cut to"""
     manager = ctx.get("manager")
     deployed = ctx["deployed"]
     app_id = ctx["app_id"]
@@ -207,7 +139,6 @@ async def _builtin_compact_session(ctx: dict[str, Any]) -> DispatchResult:
         return DispatchResult(f"Compaction failed: {exc}")
 
     # Mirror to the SessionStore so /history survives daemon restart.
-    # Mirrors apps_v2/sessions.py::compact_session lines 1376-1421.
     if result.get("compacted") and result.get("to_compact_count", 0) > 0:
         try:
             from digitorn.core.runtime.session_store.bridge import (
@@ -254,15 +185,7 @@ async def _builtin_compact_session(ctx: dict[str, Any]) -> DispatchResult:
 
 
 async def _builtin_undo_session(ctx: dict[str, Any]) -> DispatchResult:
-    """Restore the most recently checkpointed file via the
-    filesystem module's per-write snapshot stack. Mirrors
-    ``apps_v2/sessions.py::undo_session``.
-
-    Operates on file checkpoints, NOT on chat messages. Each agent
-    write/edit pushes a snapshot; ``/undo`` pops the most recent one
-    across all checkpointed files and rewrites the file with its
-    pre-edit content.
-    """
+    """Restore the most recently checkpointed file via the"""
     deployed = ctx["deployed"]
     fs_module = deployed.modules.get("filesystem")
     if fs_module is None or not hasattr(fs_module, "_checkpoints"):
@@ -295,9 +218,6 @@ async def _builtin_undo_session(ctx: dict[str, Any]) -> DispatchResult:
     )
 
 
-# ── Registry ────────────────────────────────────────────────────────
-
-
 BUILTIN_HANDLERS: dict[str, SlashHandler] = {
     "help": _builtin_help,
     "compact_session": _builtin_compact_session,
@@ -308,13 +228,7 @@ BUILTIN_HANDLERS: dict[str, SlashHandler] = {
 def lookup_slash_action(
     compiled: Any, command_name: str,
 ) -> dict[str, Any] | None:
-    """Find the SlashCommand entry whose ``command`` matches and
-    that carries an ``action.type == "builtin"`` block. Returns the
-    action dict (``{type, name, params?}``) or None.
-
-    ``command_name`` is the bare slug, without the leading slash.
-    Matches case-insensitively against the YAML-declared command.
-    """
+    """Find the SlashCommand entry whose `command` matches and"""
     slash_commands = list(getattr(compiled, "slash_commands", []) or [])
     needle = command_name.strip().lower()
     for entry in slash_commands:
@@ -350,13 +264,7 @@ async def dispatch(
     args: str,
     manager: Any | None = None,
 ) -> DispatchResult:
-    """Execute a builtin slash handler. Caller MUST have validated
-    ``action`` via ``lookup_slash_action`` first.
-
-    ``manager`` is the runtime manager (event bus, get_session, …).
-    Required for stateful builtins like ``compact_session`` and
-    ``undo_session``; pure-read builtins like ``help`` ignore it.
-    """
+    """Execute a builtin slash handler. Caller MUST have validated"""
     name = (action.get("name") or "").strip().lower()
     handler = BUILTIN_HANDLERS[name]
     try:

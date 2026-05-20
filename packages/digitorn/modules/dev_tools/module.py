@@ -1,14 +1,4 @@
-"""Dev Tools Module - 3 ultra-powerful tools for testing & building Digitorn apps.
-
-Design philosophy: few tools, many modes (like Shell: 1 tool, 5 modes).
-The Builder agent needs only 3 tools to do everything a human can do with
-the Flutter client AND everything the Builder backend needs to craft apps.
-
-Tools:
-  1. App   - lifecycle, discovery, packages, MCP, drafts, security, compile
-  2. Chat  - sessions, queue, approvals, memory, workspace, live events
-  3. Run   - one-shot, triggers, background sessions, background tasks, pipeline
-"""
+"""Dev Tools Module - 3 tools for testing & building Digitorn apps."""
 
 from __future__ import annotations
 
@@ -25,7 +15,6 @@ from digitorn.modules.manifest import ModuleManifest
 logger = logging.getLogger(__name__)
 
 _HIDDEN = {"hidden": True}
-
 
 class AppParams(BaseModel):
     """App lifecycle + discovery + packages + MCP + drafts + security."""
@@ -80,7 +69,6 @@ class AppParams(BaseModel):
     health: bool = Field(False, json_schema_extra=_HIDDEN, description="Daemon health.")
     diagnostics: bool = Field(False, json_schema_extra=_HIDDEN, description="App diagnostics for app_id.")
 
-
 class ChatParams(BaseModel):
     """Session-based conversation + inspection + queue + approvals + live events."""
 
@@ -134,7 +122,6 @@ class ChatParams(BaseModel):
 
     timeout: float = Field(3600.0, json_schema_extra=_HIDDEN, description="Max wait time.")
 
-
 class RunParams(BaseModel):
     """Non-conversational: one-shot, pipeline, triggers, background sessions + tasks."""
 
@@ -171,9 +158,8 @@ class RunParams(BaseModel):
 
     timeout: float = Field(3600.0, json_schema_extra=_HIDDEN)
 
-
 class DevToolsModule(BaseModule):
-    """Dev tools for testing + building Digitorn apps - 3 ultra-powerful tools."""
+    """Dev tools for testing + building Digitorn apps - 3 tools."""
 
     MODULE_ID = "dev_tools"
     VERSION = "3.0.0"
@@ -188,7 +174,7 @@ class DevToolsModule(BaseModule):
             "title": "App Testing & Building - Why and How",
             "content": (
                 "You have 3 tools (App, Chat, Run) backed by a full live client. "
-                "They let you do literally everything a Flutter user can do, plus "
+                "They let you do literally everything a chat user can do, plus "
                 "everything the Builder backend needs to craft and validate apps.\n"
                 "\n"
                 "## Rule of thumb\n"
@@ -251,7 +237,7 @@ class DevToolsModule(BaseModule):
 
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest.from_module(self).model_copy(update={
-            "description": "3 ultra-powerful tools for testing & building Digitorn apps.",
+            "description": "3 tools for testing & building Digitorn apps.",
             "author": "Digitorn Team",
         })
 
@@ -261,10 +247,6 @@ class DevToolsModule(BaseModule):
     async def on_stop(self) -> None:
         self._sessions.clear()
         self._client = None
-
-    # ═══════════════════════════════════════════════════════════
-    # TOOL 1: App - lifecycle, discovery, packages, MCP, drafts, security
-    # ═══════════════════════════════════════════════════════════
 
     @action(
         description="App lifecycle + discovery + packages + MCP + drafts + security.",
@@ -324,13 +306,8 @@ class DevToolsModule(BaseModule):
         cli_param="yaml_path",
     )
     async def app(self, params: AppParams) -> ActionResult:
-        # Offload to a worker thread - the whole dispatch below calls
-        # into the DaemonClient which uses sync httpx. Every HTTP hop
-        # (compile_yaml, deploy, secrets, discovery) blocked the
-        # asyncio loop for 1–3 s per call. Measured: 8 loop stalls
-        # during a single builder build (4 compiles + list_modules +
-        # deploy + secrets). Running in a thread keeps the loop free
-        # while the daemon handles its own requests.
+        # Off-load: the DaemonClient is sync httpx and each hop would
+        # stall the loop for seconds.
         import asyncio as _asyncio
         return await _asyncio.to_thread(self._app_sync, params)
 
@@ -427,12 +404,6 @@ class DevToolsModule(BaseModule):
                 r = client.generate_package_manifest(params.yaml_content)
                 return ActionResult(success=True, data=r)
 
-            # Resolve relative yaml_path against the session workspace -
-            # agents typically pass "app.yaml" (relative) after writing
-            # via WsWrite. Without this, Path.resolve() uses the daemon's
-            # CWD (project root) instead of the session workspace, so
-            # deploy 404s with "YAML file not found" even though the
-            # agent just wrote the file.
             if params.yaml_path:
                 import os as _os
                 from pathlib import Path as _Path
@@ -450,14 +421,9 @@ class DevToolsModule(BaseModule):
                 r = client.validate_yaml(params.yaml_path)
                 return ActionResult(success=r.get("valid", False), data=r)
 
-            # Deploy (file path or inline content)
-            # Also auto-persist a builder draft so `GET /api/builder/drafts`
-            # returns something after the coordinator writes a YAML -
-            # previously the builder generated 10+ files via WsWrite and
-            # the drafts list stayed empty (BUG-041).
+            # Deploy (file path or inline content). Also auto-persist a builder
+            # draft so `GET /api/builder/drafts` reflects coordinator writes.
             def _persist_draft(yaml_content: str, app_id: str, deployed: bool) -> None:
-                # Sync wrapper - we're running inside asyncio.to_thread
-                # so there's no live loop; we can spin a fresh one.
                 try:
                     import asyncio as _ai
                     from digitorn.core.app.build_draft_store import BuildDraftStore
@@ -541,15 +507,11 @@ class DevToolsModule(BaseModule):
         except Exception as e:
             return ActionResult(success=False, error=str(e))
 
-    # ═══════════════════════════════════════════════════════════
-    # TOOL 2: Chat - sessions + queue + approvals + memory + workspace + live events
-    # ═══════════════════════════════════════════════════════════
-
     @action(
         description="Chat with a deployed app - sessions, queue, approvals, workspace, live events.",
         tool_prompt=(
             "Exercise conversational apps like a human user would, plus everything the "
-            "Flutter client shows: live events, queue state, preview snapshot, code snapshot, "
+            "The client shows: live events, queue state, preview snapshot, code snapshot, "
             "workspace files, memory, tasks, history, approvals, ask_user, abort/resume/fork.\n"
             "\n"
             "## Send messages\n"
@@ -610,12 +572,8 @@ class DevToolsModule(BaseModule):
         cli_param="message",
     )
     async def chat(self, params: ChatParams) -> ActionResult:
-        # The watch=true path is natively async (``_watched_send`` drives
-        # a Socket.IO stream). The ordinary sync path, however, calls
-        # ``client.chat/send/list_sessions`` which hit the daemon via
-        # sync ``httpx`` and would freeze the event loop - catastrophic
-        # because the daemon's own turns (like the app being tested)
-        # share that loop and would deadlock. Offload the sync branch.
+        # `watch=true` is natively async; the sync branch off-loads to
+        # avoid deadlocking the daemon's own turns through sync httpx.
         if params.watch and params.message:
             try:
                 client = self._get_client()
@@ -774,13 +732,6 @@ class DevToolsModule(BaseModule):
             return ActionResult(success=False, error=str(e))
 
     async def _watched_send(self, client, params, images):
-        """Post a message and live-stream events. Returns early on blockers.
-
-        Returns a structured timeline the LLM can reason on without waiting
-        for the full turn to finish: tokens grouped as text chunks, tool
-        calls with results, thinking, blocker events (pending_approval,
-        pending_ask_user, error). seq-ordered throughout.
-        """
         from digitorn.testing.assertions import sort_by_seq
 
         if params.session_id:
@@ -867,11 +818,10 @@ class DevToolsModule(BaseModule):
         finally:
             try:
                 await asyncio.to_thread(stream.stop, 2.0)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
 
     def _compact_timeline(self, events, *, include_tokens: bool, max_events: int):
-        """Fold token streams into chunks, strip redundant envelope fields."""
         out = []
         token_buf: list[str] = []
 
@@ -942,10 +892,6 @@ class DevToolsModule(BaseModule):
             "error": result.error,
         })
 
-    # ═══════════════════════════════════════════════════════════
-    # TOOL 3: Run - one-shot, pipeline, triggers, background sessions/tasks, watchers
-    # ═══════════════════════════════════════════════════════════
-
     @action(
         description="Run non-conversational apps - one-shot, pipeline, triggers, background, watchers.",
         tool_prompt=(
@@ -989,7 +935,7 @@ class DevToolsModule(BaseModule):
         cli_param="input_text",
     )
     async def run(self, params: RunParams) -> ActionResult:
-        # All branches hit the daemon via sync ``httpx``. Offload to
+        # All branches hit the daemon via sync `httpx`. Offload to
         # worker to avoid freezing the event loop during a chain of
         # trigger/bg/watcher calls.
         import asyncio as _asyncio

@@ -1,9 +1,4 @@
-"""Index module - in-memory store with inverted index.
-
-All lookups are O(1) dict access. Full-text search uses a token-based
-inverted index. Persistence is handled via state_snapshot / restore_state
-in the module (not here).
-"""
+"""Index module - in-memory store with inverted index."""
 
 from __future__ import annotations
 
@@ -16,9 +11,7 @@ from .types import IndexEntry, Relation, Source
 _SPLIT_RE = re.compile(r"[^a-zA-Z0-9_]+")
 _MIN_TOKEN_LEN = 2
 
-
 def _tokenize(text: str) -> set[str]:
-    """Split text into searchable tokens."""
     tokens = set()
     for part in _SPLIT_RE.split(text.lower()):
         if len(part) >= _MIN_TOKEN_LEN:
@@ -27,7 +20,6 @@ def _tokenize(text: str) -> set[str]:
                 if len(sub) >= _MIN_TOKEN_LEN:
                     tokens.add(sub.lower())
     return tokens
-
 
 class IndexStore:
     """In-memory index store - fast lookups, inverted index for full-text."""
@@ -47,7 +39,6 @@ class IndexStore:
         self._relations_out: dict[str, list[Relation]] = {}
         self._relations_in: dict[str, list[Relation]] = {}
 
-
     def add_source(self, source: Source) -> None:
         self._sources[source.source_id] = source
 
@@ -65,7 +56,6 @@ class IndexStore:
             self._remove_entry(eid)
         self._by_source.pop(source_id, None)
         return len(entry_ids)
-
 
     def upsert(self, entry: IndexEntry) -> bool:
         """Insert or update an entry. Returns True if content changed."""
@@ -108,7 +98,6 @@ class IndexStore:
             ]
 
     def _index_entry(self, entry: IndexEntry) -> None:
-        """Add entry to all secondary indexes."""
         eid = entry.entry_id
         self._by_path.setdefault(entry.path, set()).add(eid)
         self._by_kind.setdefault(entry.kind, set()).add(eid)
@@ -120,7 +109,6 @@ class IndexStore:
             self._fts.setdefault(token, set()).add(eid)
 
     def _unindex_entry(self, entry: IndexEntry) -> None:
-        """Remove entry from all secondary indexes."""
         eid = entry.entry_id
         self._by_path.get(entry.path, set()).discard(eid)
         self._by_kind.get(entry.kind, set()).discard(eid)
@@ -130,7 +118,6 @@ class IndexStore:
         tokens = _tokenize(f"{entry.name} {entry.signature} {entry.summary}")
         for token in tokens:
             self._fts.get(token, set()).discard(eid)
-
 
     def add_relation(self, relation: Relation) -> None:
         out_list = self._relations_out.setdefault(relation.from_id, [])
@@ -147,10 +134,7 @@ class IndexStore:
         kind: str | None = None,
         depth: int = 1,
     ) -> tuple[list[IndexEntry], list[Relation]]:
-        """Traverse the relation graph from an entry.
-
-        Returns (entries, relations) reachable within ``depth`` hops.
-        """
+        """Traverse the relation graph from an entry."""
         visited_entries: dict[str, IndexEntry] = {}
         collected_relations: list[Relation] = []
         frontier = {entry_id}
@@ -185,7 +169,6 @@ class IndexStore:
                 break
 
         return list(visited_entries.values()), collected_relations
-
 
     def search(
         self,
@@ -223,7 +206,6 @@ class IndexStore:
         results.sort(key=lambda x: -x[1])
         return results[:limit]
 
-
     def invalidate_by_path(self, path: str) -> int:
         """Remove all entries for a given path. Returns count removed."""
         entry_ids = list(self._by_path.get(path, []))
@@ -238,7 +220,6 @@ class IndexStore:
             self._remove_entry(eid)
         return len(entry_ids)
 
-
     def stats(self) -> dict[str, Any]:
         return {
             "sources": len(self._sources),
@@ -247,7 +228,6 @@ class IndexStore:
             "fts_tokens": len(self._fts),
             "by_kind": {k: len(v) for k, v in self._by_kind.items() if v},
         }
-
 
     def snapshot(self) -> dict[str, Any]:
         """Serialize the entire store for persistence."""

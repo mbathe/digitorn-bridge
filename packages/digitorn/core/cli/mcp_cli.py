@@ -1,20 +1,4 @@
-"""CLI commands for MCP server management.
-
-    digitorn mcp search <query>            - Search catalog + registry
-    digitorn mcp browse [--query Q]        - Browse the full registry
-    digitorn mcp requirements <server_id>  - Show credentials needed BEFORE install
-    digitorn mcp install <server_id> [--env K=V] [--token T] [--test] [--enable]
-    digitorn mcp list                      - List installed servers
-    digitorn mcp info <server_id>          - Full details on an installed server
-    digitorn mcp config <server_id> --set K=V [...]  - Update credentials
-    digitorn mcp test <server_id>          - Probe connection + tools
-    digitorn mcp enable <server_id>        - Auto-start on daemon boot
-    digitorn mcp disable <server_id>       - Stop auto-starting
-    digitorn mcp remove <server_id>        - Uninstall
-    digitorn mcp pool                      - Live pool status
-    digitorn mcp health                    - Health check all
-    digitorn mcp registry refresh          - Force-refresh the registry cache
-"""
+"""CLI commands for MCP server management."""
 
 from __future__ import annotations
 
@@ -39,7 +23,7 @@ _DEFAULT_DAEMON = "http://127.0.0.1:8000"
 
 
 def _parse_env_pairs(pairs: list[str]) -> dict[str, str]:
-    """Parse ``--env KEY=VALUE`` repeated flags into a flat dict."""
+    """Parse `--env KEY=VALUE` repeated flags into a flat dict."""
     out: dict[str, str] = {}
     for raw in pairs:
         if "=" not in raw:
@@ -51,8 +35,7 @@ def _parse_env_pairs(pairs: list[str]) -> dict[str, str]:
 
 
 def _ok(resp) -> bool:
-    """Daemon may wrap responses in ``{success, data, error}`` envelope OR
-    return a bare dict. This collapses both shapes into "did it work"."""
+    """Daemon may wrap responses in `{success, data, error}` envelope OR"""
     if resp.status_code >= 400:
         return False
     body = resp.json() if resp.content else {}
@@ -78,18 +61,13 @@ def _err_msg(resp) -> str:
 
 
 def _status_style(status: str) -> str:
-    """DB status → rich color tag. ``installed/tested/ready`` are the
-    real DB statuses; ``error`` is also possible. The old code coloured
-    on ``connected`` which never matches."""
+    """DB status → rich color tag."""
     return {
         "ready": "green",
         "tested": "cyan",
         "installed": "yellow",
         "error": "red",
     }.get(status, "white")
-
-
-# ── search ──────────────────────────────────────────────────────
 
 
 @mcp_cli.command()
@@ -124,9 +102,6 @@ def search(
         desc = (r.get("description") or "")[:80]
         table.add_row(sid, src, rt, desc)
     console.print(table)
-
-
-# ── browse ──────────────────────────────────────────────────────
 
 
 @mcp_cli.command()
@@ -187,9 +162,6 @@ def browse(
         )
 
 
-# ── requirements ────────────────────────────────────────────────
-
-
 @mcp_cli.command()
 def requirements(
     server_id: Annotated[str, typer.Argument(help="Server ID.")],
@@ -197,7 +169,7 @@ def requirements(
 ) -> None:
     """Show credentials a server needs BEFORE installing it.
 
-    Works for both catalog AND registry servers — saves you a 30s
+    Works for both catalog AND registry servers - saves you a 30s
     npm install only to discover you needed a token.
     """
     resp = daemon_request(
@@ -257,9 +229,6 @@ def requirements(
     if yaml_ex:
         console.print("\n[dim]YAML example:[/dim]")
         console.print(f"[cyan]{yaml_ex}[/cyan]")
-
-
-# ── install ─────────────────────────────────────────────────────
 
 
 @mcp_cli.command()
@@ -346,9 +315,6 @@ def install(
             console.print(f"[yellow]auto_start toggle failed: {_err_msg(eresp)}[/yellow]")
 
 
-# ── list ────────────────────────────────────────────────────────
-
-
 @mcp_cli.command(name="list")
 def list_servers(
     status: str | None = typer.Option(
@@ -395,9 +361,6 @@ def list_servers(
             auto,
         )
     console.print(table)
-
-
-# ── info ────────────────────────────────────────────────────────
 
 
 @mcp_cli.command()
@@ -453,9 +416,6 @@ def info(
             console.print(f"[dim]... and {len(tools) - 50} more[/dim]")
 
 
-# ── config ──────────────────────────────────────────────────────
-
-
 @mcp_cli.command()
 def config(
     server_id: Annotated[str, typer.Argument(help="Server ID.")],
@@ -469,7 +429,7 @@ def config(
     """Update credentials / options on an installed server.
 
     The daemon maps shorthand keys to the right env var via the catalog
-    or registry mapping. Status auto-resets to ``installed`` so a
+    or registry mapping. Status auto-resets to `installed` so a
     re-test is required before agents pick up the change.
 
     Examples:
@@ -495,9 +455,6 @@ def config(
         f"[green]✓ Updated[/green] {server_id} ({len(new_config)} key(s)). "
         f"[dim]Run[/dim] [cyan]digitorn mcp test {server_id}[/cyan] [dim]to verify.[/dim]"
     )
-
-
-# ── test ────────────────────────────────────────────────────────
 
 
 @mcp_cli.command()
@@ -535,9 +492,6 @@ def test(
             console.print(f"  {data['error'][:300]}")
 
 
-# ── enable / disable ────────────────────────────────────────────
-
-
 def _toggle_auto_start(server_id: str, daemon: str, enable: bool) -> None:
     resp = daemon_request(
         "put",
@@ -569,9 +523,6 @@ def disable(
     _toggle_auto_start(server_id, daemon, False)
 
 
-# ── remove ──────────────────────────────────────────────────────
-
-
 @mcp_cli.command()
 def remove(
     server_id: Annotated[str, typer.Argument(help="Server ID to remove.")],
@@ -586,9 +537,6 @@ def remove(
         console.print(f"[red]✗ Remove failed[/red]: {_err_msg(resp)}")
         raise typer.Exit(1)
     console.print(f"[green]✓ Removed[/green] {server_id}")
-
-
-# ── pool / health ───────────────────────────────────────────────
 
 
 @mcp_cli.command()
@@ -661,9 +609,6 @@ def health(
         mark = "[green]✓[/green]" if ok else "[red]✗[/red]"
         table.add_row(sid, mark)
     console.print(table)
-
-
-# ── registry ────────────────────────────────────────────────────
 
 
 registry_cli = typer.Typer(

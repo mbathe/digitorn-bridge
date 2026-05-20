@@ -1,18 +1,4 @@
-"""Generic WebSocket voice backend - full-duplex streaming.
-
-Supports two modes:
-- Turn-based: client sends transcript, server responds with complete audio
-- Full-duplex: server streams TTS audio sentence-by-sentence as LLM generates
-  tokens. Client can interrupt (barge-in) at any time.
-
-Protocol:
-    Client → Server: {"type": "transcript", "text": "..."}
-    Client → Server: {"type": "interrupt"}  (barge-in: stop current speech)
-    Server → Client: {"type": "speak_start", "call_id": "..."}
-    Server → Client: binary audio chunks (mp3)
-    Server → Client: {"type": "speak_end", "call_id": "..."}
-    Server → Client: {"type": "speak", "text": "..."} (browser TTS fallback)
-"""
+"""Generic WebSocket voice backend - full-duplex streaming."""
 
 from __future__ import annotations
 
@@ -32,7 +18,6 @@ from digitorn.modules.channels.adapters.voice.base import (
 logger = logging.getLogger(__name__)
 
 _SENTENCE_SPLIT = re.compile(r'(?<=[.!?…])\s+|(?<=\n)\s*')
-
 
 class WebSocketVoiceBackend(VoiceBackend):
     """Generic WebSocket backend - full-duplex voice streaming."""
@@ -106,12 +91,6 @@ class WebSocketVoiceBackend(VoiceBackend):
             return False
 
     async def _speak_streaming(self, call_id: str, ws: Any, full_text: str) -> bool:
-        """Stream TTS audio sentence-by-sentence for low latency.
-
-        Splits the response into sentences, synthesizes each one immediately,
-        and streams audio chunks to the client. Supports barge-in: if the
-        client sends an "interrupt" message, TTS stops mid-sentence.
-        """
         interrupt_event = self._interrupted.setdefault(call_id, asyncio.Event())
 
         sentences = _split_sentences(full_text)
@@ -148,8 +127,8 @@ class WebSocketVoiceBackend(VoiceBackend):
             try:
                 await ws.send_json({"type": "end", "call_id": call_id})
                 await ws.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("websocket_backend best-effort block failed: %s", exc)
         self._calls.pop(call_id, None)
 
     async def _handle_websocket(self, request: Any) -> Any:
@@ -222,9 +201,7 @@ class WebSocketVoiceBackend(VoiceBackend):
         elif msg_type == "end":
             await self.hangup(call_id)
 
-
 def _split_sentences(text: str) -> list[str]:
-    """Split text into sentences for progressive TTS."""
     if not text:
         return []
     parts = _SENTENCE_SPLIT.split(text)

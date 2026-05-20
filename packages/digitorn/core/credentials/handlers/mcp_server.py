@@ -1,48 +1,4 @@
-"""McpServerHandler - real lifecycle bridge to ``MCPConnectionPool``.
-
-An MCP credential is different from every other credential type
-because the credential **is** the configuration of a live process
-(or network connection). When the user fills in the fields, we need
-to spawn the process; when they delete the credential, we kill it.
-
-The bridge
-----------
-
-The handler talks to ``digitorn.modules.mcp.connections.MCPConnectionPool``
-which already knows how to:
-
-- spawn a stdio subprocess with a custom env
-- merge env vars safely (via ``build_safe_env``)
-- connect to SSE / streamable HTTP MCP servers
-- keep an in-memory registry of live entries
-- reconnect on failure
-
-So this handler is essentially a **translator** between the
-``credentials_schema`` YAML shape and ``pool.connect()``'s keyword
-arguments. No subprocess code lives here - it's all in the
-existing pool.
-
-Transport mapping::
-
-    schema transport    →   pool transport_type
-    ────────────────────    ───────────────────
-    stdio               →   stdio
-    http                →   streamable_http
-    ws                  →   (not supported by the pool today → error)
-
-Env var substitution
---------------------
-
-The schema can declare ``env_template``::
-
-    env_template:
-      NOTION_API_KEY: "{{field.api_key}}"
-      NOTION_WORKSPACE: "{{field.workspace}}"
-
-The handler walks this dict and substitutes each ``{{field.X}}``
-reference with the corresponding value from the filled credential.
-The resulting env dict is handed to ``pool.connect(env=...)``.
-"""
+"""McpServerHandler - real lifecycle bridge to `MCPConnectionPool`."""
 
 from __future__ import annotations
 
@@ -55,11 +11,6 @@ from digitorn.core.credentials.handler import CredentialHandler
 logger = logging.getLogger(__name__)
 
 
-# Translates the high-level schema transport name to the pool's
-# internal transport_type constants. The pool uses "sse" and
-# "streamable_http" for the two HTTP-based transports - we surface
-# the newer one as the default "http" mapping because it's what
-# most MCP servers recommend in 2025+.
 _TRANSPORT_MAP = {
     "stdio": "stdio",
     "http": "streamable_http",
@@ -69,9 +20,6 @@ _TRANSPORT_MAP = {
 
 class McpServerHandler(CredentialHandler):
     provider_type = "mcp_server"
-    # MCP servers vary by transport: stdio = local process per user,
-    # http = remote shared. The catalog declares which scopes a
-    # specific MCP server supports. We accept all by default.
     allowed_scopes = (
         "system_wide",
         "per_app_shared",
@@ -91,14 +39,7 @@ class McpServerHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Sanity-check the MCP server config without spawning it.
-
-        For a stdio MCP we verify the command resolves in PATH (so the
-        user catches typos like ``npx`` vs ``npxx`` immediately) and
-        that env_vars / args parse cleanly. We deliberately don't
-        spawn the actual subprocess - the real ``on_credential_filled``
-        path does that and is too heavy / side-effecty for a sync test.
-        """
+        """Sanity-check the MCP server config without spawning it."""
         import shutil
         cmd = ""
         # Catalogue path: command list lives on schema_provider.
@@ -166,9 +107,6 @@ class McpServerHandler(CredentialHandler):
             )
             return
 
-        # Build env from env_template + credential fields. For custom
-        # MCP credentials we also accept a free-form `env_vars` field
-        # holding `KEY=value` lines (one per line).
         env = _render_env_template(
             schema_provider.get("env_template") or {},
             cred_fields,
@@ -183,9 +121,6 @@ class McpServerHandler(CredentialHandler):
         if cwd:
             connect_kwargs["cwd"] = cwd
         if transport_type == "stdio":
-            # Catalogue path: TOML ships `command: ["npx", "-y", ...]`
-            # as a single list. Custom path: credential ships
-            # `command` (str) + `args` (newline-separated string).
             command = schema_provider.get("command") or []
             if not command:
                 cmd_str = (cred_fields.get("command") or "").strip()
@@ -269,21 +204,14 @@ class McpServerHandler(CredentialHandler):
             )
 
 
-# ────────────────────────────────────────────────────────────────────
 # Env template substitution
-# ────────────────────────────────────────────────────────────────────
 
 
 _FIELD_PATTERN = re.compile(r"\{\{field\.([a-zA-Z0-9_]+)\}\}")
 
 
 def _parse_lines(raw: Any) -> list[str]:
-    """Split a multiline credential field into a clean list.
-
-    Empty lines and `#` comment lines are dropped. Leading/trailing
-    whitespace is stripped. Used for the custom MCP `args` field
-    where the user writes one argument per line.
-    """
+    """Split a multiline credential field into a clean list."""
     if not raw or not isinstance(raw, str):
         return []
     out: list[str] = []
@@ -296,12 +224,7 @@ def _parse_lines(raw: Any) -> list[str]:
 
 
 def _parse_kv_lines(raw: Any) -> dict[str, str]:
-    """Parse `KEY=value` lines from a multiline string.
-
-    Empty lines and `#` comments are skipped. Lines without `=` are
-    silently dropped to keep the parser forgiving. Used for the
-    custom MCP `env_vars` field.
-    """
+    """Parse `KEY=value` lines from a multiline string."""
     if not raw or not isinstance(raw, str):
         return {}
     out: dict[str, str] = {}
@@ -320,18 +243,7 @@ def _render_env_template(
     template: dict[str, str],
     fields: dict[str, Any],
 ) -> dict[str, str]:
-    """Substitute ``{{field.X}}`` references with credential field values.
-
-    Example::
-
-        template = {"NOTION_API_KEY": "{{field.api_key}}"}
-        fields   = {"api_key": "secret_abc"}
-        → {"NOTION_API_KEY": "secret_abc"}
-
-    Fields that don't exist in ``fields`` become empty strings, so
-    the subprocess just sees an empty env var rather than a literal
-    ``{{field.X}}`` string (which would be a clear bug).
-    """
+    """Substitute `{{field.X}}` references with credential field values."""
     out: dict[str, str] = {}
     for k, raw_value in (template or {}).items():
         if not isinstance(raw_value, str):

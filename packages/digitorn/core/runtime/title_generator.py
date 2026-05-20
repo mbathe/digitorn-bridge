@@ -1,18 +1,4 @@
-"""Generate a short semantic title for a session from its first turn.
-
-Triggered from ``agent_loop._persist_turn`` when the first turn
-completes successfully. Runs fire-and-forget so response latency is
-untouched. Safe to fail - on error the raw first-message-truncated
-title stays in place.
-
-Design:
-  - uses the agent's existing provider (or its fallback if defined)
-  - single call, ~50 output tokens, temperature 0.3
-  - prompt pins the model to a 3-7 word answer, no quotes, no period
-  - updates ``session.title`` in memory + persists to DB if the
-    UserSession row exists (it does, since commit-on-first-success
-    already created it before we get here).
-"""
+"""Generate a short semantic title for a session from its first turn."""
 
 from __future__ import annotations
 
@@ -35,7 +21,6 @@ _SYSTEM_PROMPT = (
 
 
 def _clean_title(raw: str) -> str:
-    """Normalize the model's output into a usable title string."""
     if not raw:
         return ""
     # Drop any DeepSeek-R1 <think> blocks that may leak through.
@@ -50,12 +35,7 @@ def _clean_title(raw: str) -> str:
 
 
 def _extract_text(response: Any) -> str:
-    """Pull the plain text out of a ChatResponse.
-
-    Providers wrap content differently (``response.content``,
-    ``response.message.content``, ``response.text``, list of blocks,
-    etc.) - try each shape before giving up.
-    """
+    """Pull the plain text out of a ChatResponse."""
     if response is None:
         return ""
     # Direct string attributes
@@ -89,12 +69,7 @@ async def generate_semantic_title(
     user_message: str,
     assistant_reply: str = "",
 ) -> str | None:
-    """Ask the LLM for a 3-7 word title. Returns cleaned title or None.
-
-    Uses ``ctx.fallback_provider`` if set (usually cheaper), else
-    ``ctx.provider``. Never raises - on failure, logs and returns None
-    so the caller keeps the raw title.
-    """
+    """Ask the LLM for a 3-7 word title"""
     provider = getattr(ctx, "fallback_provider", None) or getattr(ctx, "provider", None)
     if provider is None:
         return None
@@ -139,16 +114,7 @@ async def maybe_update_session_title(
     session: Any,
     session_store: Any = None,
 ) -> None:
-    """Background-safe: generate + persist a semantic title.
-
-    Call this after the first successful turn. Reads the first user +
-    first assistant message from ``session.messages``, asks the LLM
-    for a title, updates ``session.title``, and persists via the
-    provided ``session_store`` (whose ``put`` serializes the whole
-    ConversationSession including its title).
-
-    Silent on any error - the raw truncated title stays in place.
-    """
+    """Background-safe: generate + persist a semantic title."""
     try:
         msgs = getattr(session, "messages", None) or []
         first_user = ""

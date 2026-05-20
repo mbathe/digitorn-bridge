@@ -1,8 +1,4 @@
-"""Routes for the background group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the background group, extracted from the legacy `apps.py`."""
 
 from __future__ import annotations
 
@@ -105,7 +101,6 @@ from ._shared import (
 router = APIRouter(tags=["apps"])
 
 
-
 @router.get("/{app_id}/background-tasks", response_model=AppResponse)
 async def list_background_tasks_app(request: Request, app_id: str) -> AppResponse:
     """List all background tasks (running + completed)."""
@@ -126,11 +121,7 @@ async def list_background_tasks_app(request: Request, app_id: str) -> AppRespons
 
 @router.get("/{app_id}/sessions/{session_id}/tasks", response_model=AppResponse)
 async def list_background_tasks(request: Request, app_id: str, session_id: str) -> AppResponse:
-    """List all background shell tasks for a session.
-
-    Returns running and recently finished tasks with their status,
-    command, pid, uptime, and output line counts.
-    """
+    """List all background shell tasks for a session."""
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     manager = _get_manager(request)
@@ -192,13 +183,7 @@ async def get_background_task(request: Request, app_id: str, task_id: str) -> Ap
 async def launch_background_task(
     request: Request, app_id: str, body: BackgroundTaskRequest,
 ) -> AppResponse:
-    """Launch a tool as a background task.
-
-    The tool runs asynchronously. Poll status via GET or subscribe
-    to the session via Socket.IO for completion events.
-
-    Returns the task_id for tracking.
-    """
+    """Launch a tool as a background task."""
     _validate_id(app_id)
     manager = _get_manager(request)
     if not _is_deployed(request, app_id):
@@ -246,11 +231,7 @@ async def wait_background_task(
 async def cancel_background_task(
     request: Request, app_id: str, session_id: str, task_id: str,
 ) -> AppResponse:
-    """Cancel a specific background shell task (user-initiated).
-
-    Terminates the process, sends a 'cancelled' notification to the agent
-    so it knows the user stopped the task on next turn.
-    """
+    """Cancel a specific background shell task (user-initiated)."""
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     manager = _get_manager(request)
@@ -262,10 +243,6 @@ async def cancel_background_task(
     if shell_mod is None or not hasattr(shell_mod, "cancel_task"):
         raise HTTPException(status_code=404, detail="Shell module not available")
 
-    # Pass user_id so the cancel notification carries the routing keys
-    # the bg-notification poller needs to look up the right deploy and
-    # wake the agent for THIS user's session (otherwise the poller
-    # falls back to user_id="local" which may not own this app).
     user_id = getattr(request.state, "user_id", None)
     result = await shell_mod.cancel_task(session_id, task_id, user_id=user_id)
     return AppResponse(success=result.get("success", False), data=result)
@@ -295,12 +272,7 @@ async def cancel_background_task_app(request: Request, app_id: str, task_id: str
 
 @router.get("/{app_id}/notifications/active")
 async def has_active_bg_tasks(request: Request, app_id: str) -> AppResponse:
-    """Quick check if any background tasks are active for this app.
-
-    Returns ``active: false`` (not 404) when the app is not deployed,
-    since this endpoint is polled continuously by the CLI - a 404 would
-    spam the server logs with useless error entries.
-    """
+    """Quick check if any background tasks are active for this app."""
     _validate_id(app_id)
     manager = _get_manager(request)
     if not _is_deployed(request, app_id):
@@ -351,12 +323,7 @@ async def get_background_session(
 async def get_background_session_payload(
     request: Request, app_id: str, bg_session_id: str,
 ) -> AppResponse:
-    """Return the full payload (prompt + metadata + files) for a session.
-
-    Also returns a ``validation`` block describing whether the payload
-    satisfies the app's declared ``payload_schema`` - the dashboard uses
-    this to decide whether to enable the "Activate" button.
-    """
+    """Return the full payload (prompt + metadata + files) for a session."""
     _validate_id(app_id)
     manager = _get_manager(request)
     deployed = _get_deployed(request, app_id)
@@ -431,13 +398,7 @@ async def upload_background_session_payload_file(
     bg_session_id: str,
     file: UploadFile = File(...),
 ) -> AppResponse:
-    """Attach a file to a session payload (multipart upload).
-
-    The file bytes are stored on disk under
-    ``~/.digitorn/apps/<app_id>/sessions/<sid>/payload/`` and an entry
-    is added to the payload's ``files`` list so the injection layer can
-    surface its path to the agent at trigger time.
-    """
+    """Attach a file to a session payload (multipart upload)."""
     _validate_id(app_id)
     store = _get_bg_session_store(request)
     _assert_session_visible(await store.get(bg_session_id), app_id, request)
@@ -468,12 +429,7 @@ async def create_background_session(
     app_id: str,
     body: BackgroundSessionCreateRequest,
 ) -> AppResponse:
-    """Create a new background session for the authenticated user.
-
-    In multi mode, each user can create multiple sessions with custom params
-    (e.g. different CVs, different configs). In mono mode, this is a no-op -
-    the session is auto-created on first trigger.
-    """
+    """Create a new background session for the authenticated user."""
     _validate_id(app_id)
     manager = _get_manager(request)
     deployed = _get_deployed(request, app_id)
@@ -548,8 +504,8 @@ async def delete_background_session(
     # Wipe payload files first (best-effort) so we never leave orphan bytes
     try:
         await store.clear_payload(bg_session_id)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("background best-effort block failed: %s", exc)
     ok = await store.delete(bg_session_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -565,11 +521,7 @@ async def list_activations(
     trigger_id: str | None = None,
     status: str | None = None,
 ) -> AppResponse:
-    """List activation history for a background app.
-
-    Returns a paginated list of trigger activations with timing, result,
-    and token usage. Filter by trigger_id or status (running/completed/failed).
-    """
+    """List activation history for a background app."""
     _validate_id(app_id)
     store = _get_activation_store(request)
     activations = await store.list(
@@ -587,10 +539,7 @@ async def list_activations(
 
 @router.get("/{app_id}/activations/stats", response_model=AppResponse)
 async def activation_stats(request: Request, app_id: str) -> AppResponse:
-    """Get aggregated activation statistics.
-
-    Returns: total count, success rate, avg duration, total tokens, total cost.
-    """
+    """Get aggregated activation statistics."""
     _validate_id(app_id)
     store = _get_activation_store(request)
     stats = await store.stats(app_id)
@@ -599,10 +548,7 @@ async def activation_stats(request: Request, app_id: str) -> AppResponse:
 
 @router.get("/{app_id}/activations/{activation_id}", response_model=AppResponse)
 async def get_activation(request: Request, app_id: str, activation_id: str) -> AppResponse:
-    """Get full details of a single activation.
-
-    Includes message, response, tool calls, timing, tokens.
-    """
+    """Get full details of a single activation."""
     _validate_id(app_id)
     store = _get_activation_store(request)
     activation = await store.get(activation_id)
@@ -618,38 +564,7 @@ async def get_activation(request: Request, app_id: str, activation_id: str) -> A
 async def get_activation_artifacts(
     request: Request, app_id: str, activation_id: str,
 ) -> AppResponse:
-    """List every artifact (file) produced by an activation.
-
-    An artifact is a file-writing tool call (``filesystem.write``,
-    ``filesystem.edit``, ``notebook.*``, ``spreadsheet.*``, ``pdf.*``,
-    ``presentation.*``) that succeeded. The background runtime emits a
-    dedicated ``artifact`` event for each of these at activation time,
-    so this route just reads the already-persisted rows.
-
-    Response::
-
-        {
-          "success": true,
-          "data": {
-            "activation_id": "...",
-            "count": 2,
-            "artifacts": [
-              {
-                "sequence": 7,
-                "timestamp": "2026-04-13T10:35:44.783Z",
-                "path": "/workspace/out/report.pdf",
-                "action": "pdf.create",
-                "size_bytes": 124567
-              },
-              ...
-            ]
-          }
-        }
-
-    The Flutter dashboard drawer uses this endpoint to populate its
-    "Artifacts" section. Click on an artifact opens the viewer
-    registered for that file type (CSV, PDF, Notebook, …).
-    """
+    """List every artifact (file) produced by an activation."""
     _validate_id(app_id)
     _validate_id(activation_id, "activation_id")
     store = _get_activation_store(request)
@@ -695,33 +610,7 @@ async def get_activation_events(
     activation_id: str,
     event_type: str | None = None,
 ) -> AppResponse:
-    """Return the full timeline of events for an activation.
-
-    Events are ordered by ``sequence`` (monotonically assigned when
-    each event was recorded) so the frontend can render them without
-    worrying about wall-clock ties. Every event has the shape::
-
-        {
-          "id": "abcd...",
-          "sequence": 7,
-          "timestamp": "2026-04-13T10:35:44.102Z",
-          "event_type": "tool_call",
-          "data": {
-             "call_id": "call_xyz",
-             "name": "filesystem.read",
-             "params": {"file_path": "/data/news.json"},
-             "success": true,
-             "error": "",
-             "result_preview": {...}
-          }
-        }
-
-    Known ``event_type`` values currently emitted by the background
-    runtime: ``tool_call``, ``thinking``, ``channel_sent``,
-    ``artifact``, ``turn_start``, ``turn_end``.
-
-    Pass ``?event_type=tool_call`` (or any of the above) to filter.
-    """
+    """Return the full timeline of events for an activation."""
     _validate_id(app_id)
     _validate_id(activation_id, "activation_id")
     store = _get_activation_store(request)
@@ -751,32 +640,7 @@ async def get_activation_events(
 async def download_artifact(
     request: Request, app_id: str, event_id: str,
 ):
-    """Stream an artifact file to the client.
-
-    The ``event_id`` MUST be the id of an ``ActivationEvent`` row with
-    ``event_type='artifact'`` - in other words, a file that was
-    previously recorded by the background runtime when a tool wrote it
-    to disk. This is enforced strictly to prevent any form of path
-    injection: the client never passes a filesystem path, it passes an
-    opaque id that the daemon resolves to a path it already knows and
-    trusted at recording time.
-
-    Security pipeline:
-
-    1. Look up the event by id.
-    2. Verify the event belongs to an activation of this ``app_id``
-       (cross-app lookup is blocked).
-    3. Verify the event_type is ``artifact``.
-    4. Read the path from the event's ``data.path``.
-    5. Verify the file exists, is a regular file (not a dir/symlink to
-       a dir), and is within the size limit.
-    6. Stream it with the right Content-Type.
-
-    A failure at any step returns 404 with a generic message - the
-    client should never be able to tell the difference between "path
-    doesn't exist", "not an artifact", and "doesn't belong to this app"
-    because those distinctions leak info about other users' data.
-    """
+    """Stream an artifact file to the client."""
     _validate_id(app_id)
     _validate_id(event_id, "event_id")
     _require_permission(request, "apps:read")
@@ -793,12 +657,6 @@ async def download_artifact(
     if not raw_path or not isinstance(raw_path, str):
         raise HTTPException(status_code=404, detail="Artifact not found")
 
-    # Resolve symlinks and check that the file exists + is a regular
-    # file. We do NOT gate on a workspace allowlist here because the
-    # artifact was recorded by the daemon itself during a tool call -
-    # the daemon trusted that path enough to execute the write, so it
-    # can trust it enough to read it back. Path injection is blocked
-    # at step 1-3 (the event_id lookup), not here.
     try:
         file_path = Path(raw_path).resolve()
     except Exception:
@@ -825,10 +683,6 @@ async def download_artifact(
             ),
         )
 
-    # Content type - Python's mimetypes covers the common cases
-    # (pdf, csv, json, yaml, md, png, …). Fall back to
-    # application/octet-stream so browsers offer a download rather than
-    # trying to render a mystery binary.
     import mimetypes
     ctype, _enc = mimetypes.guess_type(str(file_path))
     if not ctype:
@@ -852,14 +706,7 @@ async def download_artifact(
 async def download_artifact_head(
     request: Request, app_id: str, event_id: str,
 ):
-    """HEAD equivalent of the download endpoint.
-
-    Returns only the response headers - Content-Type, Content-Length,
-    X-Artifact-* - so the client can decide whether to proceed with
-    the full GET (e.g. to avoid downloading a 49 MB file into memory
-    when the user only wanted to see the size in a tooltip). Same
-    security pipeline as the GET.
-    """
+    """HEAD equivalent of the download endpoint."""
     _validate_id(app_id)
     _validate_id(event_id, "event_id")
     _require_permission(request, "apps:read")

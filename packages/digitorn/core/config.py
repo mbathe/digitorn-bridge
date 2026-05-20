@@ -1,15 +1,4 @@
-"""Digitorn - Daemon configuration.
-
-Configuration is loaded from (in order of increasing priority):
-    1. Built-in defaults (this file)
-    2. System config: /etc/digitorn/config.yaml
-    3. User config:   ~/.digitorn/config.yaml
-    4. Environment variables prefixed with DIGITORN_
-
-Nested env vars use double underscore as separator:
-    DIGITORN_SERVER__PORT=8000
-    DIGITORN_DATABASE__URL=postgresql+asyncpg://...
-"""
+"""Digitorn - Daemon configuration."""
 
 from __future__ import annotations
 
@@ -19,14 +8,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-# Re-export ``WorkersConfig`` so the ``workers:`` block on Settings
-# is a real nested model. The workers subsystem owns the schema --
-# core/config.py is the integration point. Import is cheap (only
-# pydantic) and creates no cycle (workers/config.py imports nothing
-# from digitorn.core).
 from digitorn.workers.config import WorkersConfig
-
-
 
 
 class ServerConfig(BaseModel):
@@ -64,7 +46,7 @@ class ServerConfig(BaseModel):
         description=(
             "Expose Swagger UI (/docs), ReDoc (/redoc), and the raw "
             "OpenAPI schema (/openapi.json). Automatically true when "
-            "``auth_enabled`` is false (dev mode). Leave off in prod - the "
+            "`auth_enabled` is false (dev mode). Leave off in prod - the "
             "full API surface is an attacker's best friend."
         ),
     )
@@ -135,17 +117,7 @@ class OAuthProviderConfig(BaseModel):
 
 
 class OAuthConfig(BaseModel):
-    """OAuth/OIDC providers config. Each sub-section is enabled when both
-    `client_id` and `client_secret` are set (typically via env vars):
-
-        DIGITORN_OAUTH__GOOGLE__CLIENT_ID=...
-        DIGITORN_OAUTH__GOOGLE__CLIENT_SECRET=...
-        DIGITORN_OAUTH__MICROSOFT__CLIENT_ID=...
-        DIGITORN_OAUTH__MICROSOFT__CLIENT_SECRET=...
-
-    The redirect URI is derived from `public_base_url` at runtime, e.g.
-    `https://api.digitorn.ai/auth/oauth/google/callback`.
-    """
+    """OAuth/OIDC providers config."""
 
     public_base_url: str = Field(
         default="http://localhost:8000",
@@ -168,13 +140,7 @@ class OAuthConfig(BaseModel):
 
 
 class DatabaseConfig(BaseModel):
-    """SQLAlchemy database connection.
-
-    Supports any SQLAlchemy-compatible URL:
-        - SQLite:      sqlite+aiosqlite:///~/.digitorn/digitorn.db
-        - PostgreSQL:  postgresql+asyncpg://user:pass@localhost/digitorn
-        - MySQL:       mysql+aiomysql://user:pass@localhost/digitorn
-    """
+    """SQLAlchemy database connection."""
 
     url: str = Field(
         default="sqlite+aiosqlite:///digitorn.db",
@@ -244,11 +210,7 @@ class AppConfig(BaseModel):
 
 
 class RuntimeConfig(BaseModel):
-    """Agent runtime tuning knobs.
-
-    These control loop detection, tool timeouts, context compaction,
-    and other runtime behaviors that were previously hardcoded.
-    """
+    """Agent runtime tuning knobs."""
 
     max_consecutive_failures: int = Field(
         default=8, ge=1, le=30,
@@ -284,20 +246,12 @@ class RuntimeConfig(BaseModel):
     )
     tracking: "RunTrackingConfig" = Field(default_factory=lambda: RunTrackingConfig())
 
-    # ── Gateway routing for outbound LLM calls ─────────────────────
-    # When a session has no per-app / per-user credential configured
-    # for the brain's provider, the runtime hot-swaps the brain config
-    # to call this URL with the user's JWT instead. The gateway
-    # authenticates the call, checks quota, forwards to the real
-    # provider with Digitorn's shared API keys. Default uses the
-    # loopback address - daemon and gateway tend to cohabit on the
-    # same VPS, so loopback skips DNS, TLS, and the public Caddy hop.
     gateway_base_url: str = Field(
         default="http://127.0.0.1:8002/v1",
         description=(
             "Base URL the daemon uses to reach the digitorn gateway. "
             "Default = local loopback (same machine deployment). "
-            "Set to ``https://gateway.digitorn.ai/v1`` for split deployments."
+            "Set to `https://gateway.digitorn.ai/v1` for split deployments."
         ),
     )
     gateway_enabled: bool = Field(
@@ -312,38 +266,18 @@ class RuntimeConfig(BaseModel):
 
 
 class RunTrackingConfig(BaseModel):
-    """Pluggable persistence for agent_runs / agent_run_events.
-
-    The runtime hot path enqueues events to a single async worker that
-    drains them into the configured backend. The runtime never blocks
-    on persistence; a slow or unavailable backend translates to events
-    queueing up (capped) then dropped with a warning, NEVER to a
-    slowdown of the user-facing turn.
-
-    Modes:
-
-      * ``postgres`` (cloud, default) - writes to the v2 schema in the
-        same Neon Postgres the daemon uses for everything else. Powers
-        the live dashboard.
-
-      * ``jsonfile`` (local) - one append-only JSONL per run under
-        ``~/.digitorn/runs/<YYYY>/<MM>/<run_id>.jsonl``. No external
-        service required; fits the runtime-only deployment story.
-
-      * ``null`` (off) - drop every event silently. For benchmarks
-        and trust-no-one sandbox runs.
-    """
+    """Pluggable persistence for agent_runs / agent_run_events."""
 
     backend: str = Field(
         default="jsonfile",
         description=(
-            "Backend key (``postgres`` | ``sqlite`` | ``jsonfile`` | "
-            "``kv`` | ``null``). Operators can register custom backends "
-            "via ``digitorn.core.runtime.run_tracker.backends.BACKEND_REGISTRY``. "
-            "Default is ``jsonfile``: append-only JSONL per session, "
+            "Backend key (`postgres` | `sqlite` | `jsonfile` | "
+            "`kv` | `null`). Operators can register custom backends "
+            "via `digitorn.core.runtime.run_tracker.backends.BACKEND_REGISTRY`. "
+            "Default is `jsonfile`: append-only JSONL per session, "
             "no external service required, scales to 1M+ sessions, and "
             "the data stays available for offline analytics by tailing "
-            "the files. Switch to ``postgres`` for a multi-instance "
+            "the files. Switch to `postgres` for a multi-instance "
             "cloud deployment that needs a single SQL surface for the "
             "admin dashboard."
         ),
@@ -351,9 +285,9 @@ class RunTrackingConfig(BaseModel):
     config: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "Backend-specific options. ``jsonfile`` and ``sqlite`` "
-            "accept ``{path: str}`` (defaults to ~/.digitorn/runs/). "
-            "``postgres``, ``kv`` and ``null`` ignore this."
+            "Backend-specific options. `jsonfile` and `sqlite` "
+            "accept `{path: str}` (defaults to ~/.digitorn/runs/). "
+            "`postgres`, `kv` and `null` ignore this."
         ),
     )
 
@@ -364,8 +298,8 @@ class AuthConfig(BaseModel):
     access_token_ttl: int = Field(
         default=0, ge=0,
         description=(
-            "Access token lifetime in seconds. ``0`` means never expires "
-            "(the JWT is issued without an ``exp`` claim). Default: 0 - "
+            "Access token lifetime in seconds. `0` means never expires "
+            "(the JWT is issued without an `exp` claim). Default: 0 - "
             "tokens are long-lived for local-dev ergonomics. Set to a "
             "positive int (e.g. 900 for 15min) in production."
         ),
@@ -373,7 +307,7 @@ class AuthConfig(BaseModel):
     refresh_token_ttl: int = Field(
         default=0, ge=0,
         description=(
-            "Refresh token lifetime in seconds. ``0`` means never expires. "
+            "Refresh token lifetime in seconds. `0` means never expires. "
             "Default: 0 - see access_token_ttl for rationale."
         ),
     )
@@ -390,19 +324,12 @@ class AuthConfig(BaseModel):
         description="Time to wait for user approval before auto-deny (seconds).",
     )
 
-    # ── Central auth integration ─────────────────────────────────────
-    # The daemon TRUSTS tokens issued by the central digitorn-auth
-    # service: it caches the central's JWKS via
-    # ``digitorn_auth.client.RemoteAuthClient`` and verifies signatures
-    # with the central's RSA public key. Combined with
-    # ``LocalDeviceAuth`` (paired via ``digitorn install-local``) the
-    # daemon can authenticate the user fully offline.
     mode: str = Field(
         default="remote",
         description=(
-            "Auth mode. Only ``'remote'`` is supported. The daemon "
+            "Auth mode. Only `'remote'` is supported. The daemon "
             "validates tokens issued by the central digitorn-auth "
-            "service at ``service_url``; it never signs its own JWTs."
+            "service at `service_url`; it never signs its own JWTs."
         ),
     )
     service_url: str = Field(
@@ -411,8 +338,8 @@ class AuthConfig(BaseModel):
             "Base URL of the central digitorn-auth service. Defaults "
             "to Digitorn's hosted auth so a fresh install boots "
             "without manual config; override here or via env "
-            "``DIGITORN_AUTH__SERVICE_URL`` to point at a self-hosted "
-            "instance (e.g. ``http://127.0.0.1:8001`` in dev)."
+            "`DIGITORN_AUTH__SERVICE_URL` to point at a self-hosted "
+            "instance (e.g. `http://127.0.0.1:8001` in dev)."
         ),
     )
     accept_issuers: list[str] = Field(
@@ -477,7 +404,7 @@ class SessionConfig(BaseModel):
         default=300.0, ge=5.0, le=86400.0,
         description=(
             "How long an agent waits for a user to resolve an approval "
-            "request before auto-denying with ``approval_timeout``. "
+            "request before auto-denying with `approval_timeout`. "
             "Apps with a compiled security_profile.approval_timeout "
             "override this default. Keep low (30–120 s) for headless / "
             "CI contexts, higher (5–15 min) for interactive UI where a "
@@ -575,7 +502,7 @@ class AgentSpawnConfig(BaseModel):
             "Hard ceiling on total concurrent sub-agents across all "
             "sessions. Prevents one runaway session from monopolizing "
             "the daemon. Tune up for high-fan-out workloads. The "
-            "computed default is ``max_workers * 4`` clamped to "
+            "computed default is `max_workers * 4` clamped to "
             "[100, 2000]; this field overrides that auto-derivation."
         ),
     )
@@ -615,10 +542,10 @@ class AgentSpawnConfig(BaseModel):
         default=100, ge=10, le=10000,
         description=(
             "LRU bound on the per-session module/ContextBuilder cache. "
-            "``cleanup_session`` already drops the entry on normal "
+            "`cleanup_session` already drops the entry on normal "
             "session end, but daemon crashes mid-session leave orphans. "
             "Past this threshold the periodic cleanup task evicts the "
-            "least-recently-used entries (calling ``on_stop`` on owned "
+            "least-recently-used entries (calling `on_stop` on owned "
             "modules). Each entry holds a full module set + index, "
             "easily 50-100 MB at scale - keep this tight."
         ),
@@ -754,11 +681,7 @@ class DiscoveryConfig(BaseModel):
 
 
 class DefaultModelConfig(BaseModel):
-    """Default LLM model for built-in apps (digitorn-chat).
-
-    These values are injected into built-in app YAMLs at deploy time,
-    so nothing is hardcoded. Override via config.yaml or env vars.
-    """
+    """Default LLM model for built-in apps (digitorn-chat)."""
 
     provider: str = Field(
         default="anthropic",
@@ -799,24 +722,7 @@ class LoggingConfig(BaseModel):
 
 
 class TranscribeConfig(BaseModel):
-    """Voice transcription (`POST /api/transcribe`) settings.
-
-    Three providers supported, picked by ``provider``:
-      * ``gateway`` (default) - forward to ``runtime.gateway_base_url``
-        so the gateway handles routing, credentials, quota, usage events,
-        cost tracking and failover. This is the canonical path: every
-        outbound AI call goes through the gateway, transcription
-        included.
-      * ``openai`` - call OpenAI's ``whisper-1`` endpoint directly. Needs
-        the ``OPENAI_API_KEY`` env var or a credential under
-        provider='openai'. Only useful when ``runtime.gateway_enabled``
-        is false (air-gapped / local-only deploys).
-      * ``local`` - run faster-whisper in-process. No network, no cost,
-        but needs ``faster-whisper`` + ``av`` installed in the daemon's
-        venv and a CUDA-capable GPU for reasonable latency on anything
-        bigger than ``tiny``. Pick this only when you want the audio to
-        never leave the machine.
-    """
+    """Voice transcription (`POST /api/transcribe`) settings."""
 
     enabled: bool = Field(
         default=True,
@@ -826,7 +732,7 @@ class TranscribeConfig(BaseModel):
     gateway_model: str = Field(
         default="whisper-1",
         description=(
-            "Alias to send when ``provider=gateway``. The gateway resolves "
+            "Alias to send when `provider=gateway`. The gateway resolves "
             "this to a real upstream model + credential via its catalogue + "
             "routes tables. Suggested aliases: 'whisper-1' (OpenAI), "
             "'whisper-large-v3' (Groq, free tier), 'whisper-large-v3-turbo'."
@@ -866,8 +772,8 @@ class TranscribeConfig(BaseModel):
             "When True, load the local Whisper model eagerly at daemon "
             "startup - first request is instant, baseline RAM/VRAM is "
             "higher. Default False because the canonical provider is "
-            "``gateway`` (nothing to preload). Set True only when running "
-            "``provider=local``."
+            "`gateway` (nothing to preload). Set True only when running "
+            "`provider=local`."
         ),
     )
     shared_instance: bool = Field(
@@ -892,14 +798,7 @@ class TranscribeConfig(BaseModel):
 
 
 class HubConfig(BaseModel):
-    """Remote Digitorn Hub settings.
-
-    The hub is a remote service at ``url`` that publishes/searches/serves
-    Digitorn application archives. The Hub now accepts the same RS256
-    JWT issued by ``auth.digitorn.ai`` (see ``digitorn_hub.auth.central``);
-    the daemon forwards the caller's bearer token when downloading an
-    archive. The legacy ed25519 daemon-bridge auth was retired.
-    """
+    """Remote Digitorn Hub settings."""
 
     url: str = Field(
         default="",
@@ -913,34 +812,7 @@ class HubConfig(BaseModel):
 
 
 class WebPreviewConfig(BaseModel):
-    """``web_preview`` module — how iframe-attached dev servers are
-    addressed by user browsers.
-
-    The agent's dev servers bind to ``127.0.0.1:{port}`` on the daemon
-    host. The user's browser needs an URL it can actually reach:
-
-    * **Local dev** (browser + daemon on the same machine) — the
-      default ``http://{host}:{port}`` works trivially via loopback.
-    * **Cloud / multi-tenant** — the daemon host's loopback isn't
-      reachable from the user's browser. Operator must configure a
-      public mapping (typically a wildcard subdomain routed by an
-      edge proxy: ``*.preview.digitorn.cloud → 127.0.0.1:{port}``).
-      Set ``public_url_template`` accordingly:
-
-        public_url_template = "https://preview-{port}.digitorn.cloud"
-
-    Available template fields (Python ``str.format``):
-      - ``{host}`` → attachment host (``127.0.0.1`` by default)
-      - ``{port}`` → attachment port
-      - ``{app_id}`` → deploying app's id
-      - ``{session_id}`` → session that created the attachment
-      - ``{name}`` → attachment name (``default`` unless overridden)
-
-    Use whichever subset matches your edge proxy's routing. The
-    daemon never re-rewrites the URL — it's emitted to the browser
-    as-is and the browser connects directly. **No more daemon proxy
-    in the hot path.**
-    """
+    """`web_preview` module - how iframe-attached dev servers are"""
 
     public_url_template: str = Field(
         default="http://{host}:{port}",
@@ -973,16 +845,6 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Deployment mode. Drives credential resolution policy:
-    # - `local`  : per_user credentials + grants are honoured. User can
-    #   BYOK per-app via the existing grants flow. Falls back to
-    #   `system_wide` (= meta credential, env-imported at first boot)
-    #   when no per_user grant exists.
-    # - `cloud`  : per_user credentials and grants are bypassed. Every
-    #   app uses the meta credential (system_wide row in Postgres). The
-    #   meta is the single source of truth in hosted; users cannot
-    #   override it. Quota is always tracked.
-    # Override via `DIGITORN_MODE=cloud` or YAML `mode: cloud`.
     mode: Literal["local", "cloud"] = Field(
         default="local",
         description=(
@@ -1011,25 +873,11 @@ class Settings(BaseSettings):
     transcribe: TranscribeConfig = Field(default_factory=TranscribeConfig)
     hub: HubConfig = Field(default_factory=HubConfig)
 
-    # Out-of-process module workers. Default = disabled (empty list)
-    # which preserves the legacy in-process flow byte-for-byte. When
-    # ``workers.enabled: true`` and at least one worker entry lists
-    # modules, those modules are routed to the worker over HTTP at
-    # tool-call time. See ``packages/digitorn/workers/`` for the full
-    # design + lifecycle (file leader for cron, monkey-patch wrapper
-    # in bootstrap, etc.).
     workers: WorkersConfig = Field(default_factory=WorkersConfig)
 
     @classmethod
     def load(cls, config_file: Path | None = None) -> Settings:
-        """Load settings from YAML files + environment variables.
-
-        Priority (highest wins):
-            user config > system config > env vars > defaults
-
-        YAML files are authoritative so ops can pin a value across the
-        whole host. Env vars only fill in what the YAML doesn't set.
-        """
+        """Load settings from YAML files + environment variables."""
         data: dict[str, object] = {}
 
         candidates = [
@@ -1053,10 +901,6 @@ class Settings(BaseSettings):
                     continue
 
                 with path.open(encoding="utf-8") as f:
-                    # YAML 1.2 strict bool rules — daemon config has
-                    # fields like ``enabled: yes/no`` which under YAML
-                    # 1.1 would parse as bool True/False but the user
-                    # might mean the strings. Centralise via the loader.
                     from digitorn.core.app.yaml_loader import safe_load_strict
                     loaded = safe_load_strict(f.read()) or {}
                     data.update(loaded)
@@ -1078,6 +922,6 @@ def get_settings() -> Settings:
 
 
 def override_settings(settings: Settings) -> None:
-    """Replace the singleton. Used in tests."""
+    """Replace the singleton."""
     global _settings
     _settings = settings

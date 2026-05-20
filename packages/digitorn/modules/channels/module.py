@@ -1,16 +1,4 @@
-"""Unified bidirectional channels module.
-
-Provides inbound event reception (webhooks, cron, email, file watch, RSS, queue)
-and outbound message delivery through the same or different channels. Everything
-is configured via YAML in the ``providers:`` block.
-
-Security is enforced at every layer:
-- Inbound: payload size limits, HMAC/API-key auth, content-type whitelist,
-  payload sanitization, per-source rate limiting.
-- Outbound: SSRF protection, secret filtering, header masking.
-- Templates: no eval/exec, no runtime secret access, single-pass only.
-- Isolation: each adapter gets its own config copy, no cross-adapter access.
-"""
+"""Unified bidirectional channels module."""
 
 from __future__ import annotations
 
@@ -53,17 +41,8 @@ from digitorn.modules.manifest import ConstraintSpec, ModuleManifest
 
 logger = logging.getLogger(__name__)
 
-
-# ── Config model (compile-time validation via CONFIG_MODEL) ──────
-
-
 class ChannelsConfig(BaseModel):
-    """Pydantic config for the channels module (validated at compile time).
-
-    ``providers`` stays permissive (``dict[str, dict]``) because each adapter
-    has its own shape and the compiler's template pass temporarily strips
-    ``activation`` blocks before variable resolution.
-    """
+    """Pydantic config for the channels module (validated at compile time)."""
 
     model_config = {"extra": "forbid"}
 
@@ -78,17 +57,12 @@ class ChannelsConfig(BaseModel):
     history_limit: int = Field(default=200, ge=0, le=10000)
     secret_filter_enabled: bool = Field(default=True)
 
-
-# ── Config models ────────────────────────────────────────────────────
-
-
 class PrepareStep(BaseModel):
     """Pre-activation step: call a tool via service_bus."""
 
     action: str = Field(..., description="Module action to call (e.g. 'database.fetch_results').")
     params: dict[str, Any] = Field(default_factory=dict, description="Params with {{event.*}} templates.")
     as_field: str = Field(..., alias="as", description="Store result under this name in event context.")
-
 
 class FilterCondition(BaseModel):
     """Drop events that don't match."""
@@ -100,7 +74,6 @@ class FilterCondition(BaseModel):
     gt: float | None = None
     lt: float | None = None
 
-
 class RouteRule(BaseModel):
     """Route to an agent based on a field value."""
 
@@ -108,13 +81,11 @@ class RouteRule(BaseModel):
     default: bool = False
     agent: str = Field(default="", description="Target agent ID.")
 
-
 class RouteConfig(BaseModel):
     """Dynamic routing based on event data."""
 
     field: str = Field(..., description="Dot path to match on.")
     rules: list[RouteRule] = Field(default_factory=list)
-
 
 class ActivationConfig(BaseModel):
     """How to start the app when an event arrives."""
@@ -129,7 +100,6 @@ class ActivationConfig(BaseModel):
     route: RouteConfig | None = Field(default=None, description="Dynamic agent routing.")
     reply: str = Field(default="none", description="Reply mode: 'auto', 'none', 'explicit'.")
 
-
 class ProviderConfig(BaseModel):
     """Configuration for a single channel provider instance."""
 
@@ -138,7 +108,6 @@ class ProviderConfig(BaseModel):
     activation: ActivationConfig = Field(default_factory=ActivationConfig, description="Activation pipeline config.")
     enabled: bool = Field(default=True, description="Whether this provider is active.")
     max_concurrent: int = Field(default=5, ge=1, le=100, description="Max concurrent activations.")
-
 
 class ChannelsModuleConfig(BaseModel):
     """Top-level channels module config (from YAML)."""
@@ -149,10 +118,6 @@ class ChannelsModuleConfig(BaseModel):
     timeout: float = Field(default=120.0, ge=5.0, le=3600.0, description="Timeout per activation (seconds).")
     history_limit: int = Field(default=200, ge=0, le=10000, description="Max events to keep in history.")
     secret_filter_enabled: bool = Field(default=True, description="Filter secrets from outbound messages.")
-
-
-# ── Active provider state ────────────────────────────────────────────
-
 
 @dataclass
 class ActiveProvider:
@@ -171,10 +136,6 @@ class ActiveProvider:
     last_error: str = ""
     activation_tasks: dict[str, asyncio.Task[Any]] = field(default_factory=dict)
 
-
-# ── Event history entry ──────────────────────────────────────────────
-
-
 @dataclass
 class EventRecord:
     """Minimal record for event history."""
@@ -186,10 +147,6 @@ class EventRecord:
     timestamp: float
     success: bool
     error: str = ""
-
-
-# ── Module ───────────────────────────────────────────────────────────
-
 
 class ChannelsModule(BaseModule):
     """Unified bidirectional channels module."""
@@ -215,13 +172,6 @@ class ChannelsModule(BaseModule):
         ),
     ]
 
-    # Declarative credential slot - one slot covers Telegram bots,
-    # Slack apps, Discord apps, SMTP/IMAP, Twilio. Each adapter reads
-    # the resolved fields under `config.providers.<id>.<field>`. The
-    # injector spreads the fields by handler:
-    #   - bearer_token  -> token
-    #   - basic_auth    -> user / password
-    #   - multi_field   -> raw key/value
     @classmethod
     def _channel_slots(cls) -> list[Any]:
         from digitorn.core.credentials.slot import CredentialSlot
@@ -240,9 +190,6 @@ class ChannelsModule(BaseModule):
                 scopes_preferred=["per_app_shared", "per_user"],
                 scopes_allowed=None,
                 inject={
-                    # Adapter configs key auth fields differently.
-                    # The injector lays them all under a `auth.*`
-                    # subtree; adapters read whatever applies.
                     "token":          "{block}.config.auth.token",
                     "bot_token":      "{block}.config.auth.bot_token",
                     "api_key":        "{block}.config.auth.api_key",
@@ -301,27 +248,12 @@ class ChannelsModule(BaseModule):
             }
         )
 
-    # ── Lifecycle ────────────────────────────────────────────────
-    #
-    # Three phases:
-    #   1. on_start / on_config_update (deploy time)
-    #      → parse config, create adapters, validate - NO listeners yet
-    #   2. start_listeners (run time - called by run_background)
-    #      → launch inbound listener tasks (cron loops, file watchers, etc.)
-    #      → at this point _runtime_app is wired, so agent_turn works
-    #   3. on_stop (shutdown)
-    #      → cancel listeners, close adapters, cleanup
-
     async def on_start(self) -> None:
         self._app_id = getattr(self, "_app_id_override", "default")
         logger.debug("channels_on_start app=%s", self._app_id)
 
     async def on_config_update(self, config: dict[str, Any]) -> None:
-        """Called at deploy time. Parses config and creates adapters.
-
-        Adapters are initialized (on_start) but listeners are NOT started.
-        Listeners start in ``start_listeners()`` when the app is actually run.
-        """
+        """Called at deploy time. Parses config and creates adapters."""
         if isinstance(config, ChannelsModuleConfig):
             self._config_obj = config
         elif isinstance(config, dict):
@@ -363,17 +295,10 @@ class ChannelsModule(BaseModule):
         )
 
     async def start_listeners(self) -> None:
-        """Start inbound listeners on all providers.
-
-        Called by ``run_background()`` after RuntimeApp has wired
-        ``_runtime_app`` and ``_hook_runner`` into this module.
-        At this point agent_turn activation works.
-        """
-        # Last chance to pick up the per-app override - bootstrap injects
-        # _app_id_override AFTER both on_start and on_config_update, so
-        # this is the first hook where the right value is reliably visible.
-        # Without this, the shared singleton's _app_id stays "default"
-        # and inbound events never reach the right app's session manager.
+        """Start inbound listeners on all providers."""
+        # Bootstrap sets `_app_id_override` after `on_start` and
+        # `on_config_update`, so this is the first hook where it is
+        # reliably set on the shared singleton.
         override = getattr(self, "_app_id_override", "")
         if override and override != self._app_id:
             self._app_id = override
@@ -407,15 +332,7 @@ class ChannelsModule(BaseModule):
         await self._session_mgr.cleanup()
         logger.info("channels_stopped app=%s", self._app_id)
 
-    # ── Provider lifecycle ───────────────────────────────────────
-
     async def _init_provider(self, name: str, conf: ProviderConfig) -> None:
-        """Create and initialize an adapter. Does NOT start the listener.
-
-        Called at deploy time (on_config_update). The adapter is ready to
-        send outbound messages, but inbound listeners start later in
-        start_listeners().
-        """
         adapter_cls = get_adapter_class(conf.adapter)
 
         # Each adapter gets its own config copy (isolation)
@@ -443,7 +360,6 @@ class ChannelsModule(BaseModule):
         )
 
     async def _stop_provider(self, name: str) -> None:
-        """Stop a provider and cleanup."""
         prov = self._providers.get(name)
         if not prov:
             return
@@ -475,10 +391,7 @@ class ChannelsModule(BaseModule):
 
         prov.status = "stopped"
 
-    # ── Inbound event handler ────────────────────────────────────
-
     async def _on_inbound_event(self, provider_name: str, event: InboundEvent) -> None:
-        """Handle an inbound event from any adapter."""
         prov = self._providers.get(provider_name)
         if not prov or prov.status != "active":
             return
@@ -523,10 +436,7 @@ class ChannelsModule(BaseModule):
         )
         prov.activation_tasks[event.event_id] = task
 
-    # ── Event persistence (queue survives daemon restart) ─────────
-
     async def _persist_event(self, event: InboundEvent, provider_name: str) -> None:
-        """Persist an inbound event to DB before processing."""
         try:
             from digitorn.core.database import _engine, get_session_factory
             if _engine is None:
@@ -552,7 +462,6 @@ class ChannelsModule(BaseModule):
             logger.debug("event_persist_skipped", exc_info=True)
 
     async def _mark_event_processed(self, event_id: str) -> None:
-        """Mark an event as processed in DB."""
         try:
             from digitorn.core.database import _engine, get_session_factory
             if _engine is None:
@@ -569,8 +478,6 @@ class ChannelsModule(BaseModule):
                 await db.commit()
         except Exception:
             logger.debug("event_mark_processed_skipped", exc_info=True)
-
-    # ── Actions ──────────────────────────────────────────────────
 
     @action(
         description="Send a message through a specific channel provider.",
@@ -738,13 +645,9 @@ class ChannelsModule(BaseModule):
                 })
             providers.append(info)
 
-        # Return the catalog of adapter types the daemon CAN run
-        # alongside the list of currently-configured instances. Without
-        # this, BUG-056 manifested as an empty response that made the
-        # feature look unimplemented - when in fact every adapter
-        # listed below is shipped, just not pre-provisioned. The agent
-        # (or a UI) can now discover "what can I configure?" without
-        # reading the channels README.
+        # Return the catalogue of adapter types alongside the list of
+        # currently-configured instances so consumers can discover the
+        # available adapters without reading the README.
         from digitorn.modules.channels.adapters import list_adapter_types
         available = list_adapter_types()
 
@@ -951,8 +854,6 @@ class ChannelsModule(BaseModule):
             provider=params.provider,
             text=params.text,
         ))
-
-    # ── State ────────────────────────────────────────────────────
 
     def state_snapshot(self) -> dict[str, Any]:
         return {

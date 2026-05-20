@@ -1,16 +1,4 @@
-"""Module cryptographic signing - Ed25519 key pairs, signing, verification.
-
-Uses the ``cryptography`` library for Ed25519 key generation, signing, and
-verification.  Falls back gracefully when ``cryptography`` is not installed
-(hub extra not enabled).
-
-Key workflow:
-  1. Module author generates a key pair via ``ModuleSigner.generate_key_pair()``.
-  2. Author signs their module via ``signer.sign_module(module_dir)`` which
-     produces a ``ModuleSignature`` stored in ``digitorn-module.toml``.
-  3. On installation, the ``SignatureVerifier`` checks the signature against
-     the local trust store (directory of ``.pub`` files).
-"""
+"""Module cryptographic signing - Ed25519 key pairs, signing, verification."""
 
 from __future__ import annotations
 
@@ -25,10 +13,8 @@ from digitorn.modules.manifest import ModuleSignature
 
 log = get_logger(__name__)
 
-
 class SigningError(Exception):
     """Raised when signing or verification fails."""
-
 
 @dataclass
 class KeyPair:
@@ -38,15 +24,8 @@ class KeyPair:
     public_key_bytes: bytes
     fingerprint: str
 
-
 class ModuleSigner:
-    """Signs module packages using Ed25519.
-
-    Usage (CLI tool for module authors)::
-
-        signer = ModuleSigner.from_key_file(Path("~/.digitorn/signing.key"))
-        signature = signer.sign_module(module_dir)
-    """
+    """Signs module packages using Ed25519."""
 
     @classmethod
     def generate_key_pair(cls) -> KeyPair:
@@ -123,11 +102,7 @@ class ModuleSigner:
 
     @staticmethod
     def compute_module_hash(module_dir: Path) -> str:
-        """Compute deterministic SHA-256 of module directory content.
-
-        Includes all ``.py`` files (sorted by path) plus ``pyproject.toml``
-        and ``digitorn-module.toml`` if present.
-        """
+        """Compute deterministic SHA-256 of module directory content."""
         hasher = hashlib.sha256()
         for fpath in sorted(module_dir.rglob("*.py")):
             hasher.update(fpath.relative_to(module_dir).as_posix().encode())
@@ -139,16 +114,8 @@ class ModuleSigner:
                 hasher.update(config.read_bytes())
         return hasher.hexdigest()
 
-
 class SignatureVerifier:
-    """Verifies module signatures against a trust store.
-
-    Usage::
-
-        verifier = SignatureVerifier()
-        verifier.load_trust_store(Path("~/.digitorn/trust_store"))
-        is_valid = verifier.verify(manifest.signing, content_hash)
-    """
+    """Verifies module signatures against a trust store."""
 
     def __init__(self, trusted_keys: dict[str, bytes] | None = None) -> None:
         self._trusted: dict[str, bytes] = trusted_keys or {}
@@ -162,10 +129,7 @@ class SignatureVerifier:
         self._trusted.pop(fingerprint, None)
 
     def load_trust_store(self, path: Path) -> int:
-        """Load trusted public keys from a directory of .pub files.
-
-        Returns the number of keys loaded.
-        """
+        """Load trusted public keys from a directory of .pub files."""
         path = path.expanduser()
         if not path.exists():
             return 0
@@ -178,13 +142,7 @@ class SignatureVerifier:
         return loaded
 
     def verify(self, signature: ModuleSignature, content_hash: str) -> bool:
-        """Verify a module signature against the trust store.
-
-        Returns True only if:
-          1. The key fingerprint is in the trust store
-          2. The signed_hash matches the provided content_hash
-          3. The Ed25519 signature is valid
-        """
+        """Verify a module signature against the trust store."""
         try:
             from cryptography.hazmat.primitives.asymmetric.ed25519 import (
                 Ed25519PublicKey,

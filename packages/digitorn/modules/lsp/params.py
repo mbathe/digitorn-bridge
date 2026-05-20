@@ -6,34 +6,22 @@ from pydantic import BaseModel, Field
 
 _HIDDEN = {"hidden": True}
 
-
 class DiagnosticsParams(BaseModel):
     """Get diagnostics (errors, warnings) for a file."""
     path: str | None = Field(default=None, description="File path. Omit = check all.")
     fix: bool = Field(default=False, json_schema_extra=_HIDDEN)
 
-
 class CheckParams(BaseModel):
     """Quick pass/fail check for a file."""
     path: str = Field(..., description="File path to check.")
-
 
 class NotifyChangeParams(BaseModel):
     """Notify that a file changed (triggers fresh diagnostics)."""
     path: str = Field(..., description="Path of the changed file.")
     content: str | None = Field(default=None, json_schema_extra=_HIDDEN)
 
-
 class LspRequestParams(BaseModel):
-    """Forward a raw LSP request (hover / goto / references / completion /
-    rename / signatureHelp / documentSymbol / …) to the language server
-    backing a given file. The server is chosen by the file's extension
-    via the same routing as ``notify_change``.
-
-    ``method`` + ``params`` follow the Language Server Protocol spec
-    verbatim - Digitorn doesn't reshape payloads; the LSP spec IS the
-    contract between client and server.
-    """
+    """Forward a raw LSP request (hover / goto / references / completion /."""
     path: str = Field(
         ...,
         description=(
@@ -53,7 +41,7 @@ class LspRequestParams(BaseModel):
         description=(
             "Raw LSP request params per the spec. For hover/goto: "
             "{textDocument: {uri}, position: {line, character}}. "
-            "We auto-fill ``textDocument.uri`` from ``path`` if omitted."
+            "We auto-fill `textDocument.uri` from `path` if omitted."
         ),
     )
     timeout_seconds: float = Field(
@@ -67,7 +55,7 @@ class LspRequestParams(BaseModel):
         default=None,
         description=(
             "Client-supplied correlation id. Use it to cancel the request "
-            "later via ``POST /lsp/cancel``. When omitted, the daemon "
+            "later via `POST /lsp/cancel`. When omitted, the daemon "
             "generates one for the response."
         ),
     )
@@ -92,9 +80,8 @@ class LspRequestParams(BaseModel):
         ),
     )
 
-
 class LspCancelParams(BaseModel):
-    """Cancel an in-flight LSP request by ``request_id``."""
+    """Cancel an in-flight LSP request by `request_id`."""
     request_id: str = Field(
         ..., description="Correlation id previously returned by /lsp/request.",
     )

@@ -1,36 +1,4 @@
-"""Per-session message queue - FIFO persistent backlog of user messages.
-
-When a client sends a message while a turn is already running, we enqueue
-it here instead of failing. A dispatcher (implemented as a post-turn
-trigger in ``manager.chat``) pulls the head of the queue as soon as the
-current turn finishes.
-
-This module is a **facade**. Concrete storage is selected at boot via
-``configure_backend()`` based on ``settings.session.queue.backend``:
-
-- ``sql``    - Postgres/SQLite-backed (default, durable, audit).
-- ``redis``  - Redis Lua-backed (atomic mark_done+drain - closes the
-                 race that can leave a row orphaned in the queue between
-                 a turn finishing and the next ``next_queued`` scan).
-- ``memory`` - process-local dict (tests, fallback when Redis unreachable).
-
-Public API kept intentionally identical to the pre-facade module so
-callers do not change. In-process state (`_awaiters`, `_session_locks`)
-stays at the module level - it was never persistent.
-
-Contract:
-
-- ``enqueue()`` - always persists; returns the row.
-- ``next_queued()`` - picks the head for a session, marks it ``running``.
-- ``mark_done() / mark_failed() / mark_cancelled()`` - status transitions.
-- ``finish_and_drain()`` - atomic terminal-flip + pop next (Redis only;
-   on SQL it falls back to mark_done() then next_queued() - slightly
-   racy but identical to today's behaviour).
-- ``cancel()``  - removes a queued message before it runs.
-- ``list_for_session()`` - snapshot for GET /queue.
-- ``rehydrate()`` - resets stuck ``running`` rows back to ``queued`` at
-  daemon boot (crash recovery).
-"""
+"""Per-session message queue - FIFO persistent backlog of user messages."""
 
 from __future__ import annotations
 
@@ -66,12 +34,6 @@ class QueueEntry:
     started_at: float | None = None
     finished_at: float | None = None
     error_code: str = ""
-    # One-turn ``role: system`` addendum applied when the dispatcher
-    # runs this entry. Set when the original POST carried a
-    # ``template_id``; the route resolves the template's
-    # ``system_prompt`` and stashes it here so the agent gets the
-    # directive even when the message was queued. Empty string when
-    # the message wasn't attached to a template.
     template_system_prompt: str = ""
 
     def to_dict(self) -> dict[str, Any]:
@@ -92,7 +54,7 @@ class QueueEntry:
 
 
 class QueueFullError(Exception):
-    """Raised when enqueueing would exceed ``session.queue.max_depth``."""
+    """Raised when enqueueing would exceed `session.queue.max_depth`."""
 
     def __init__(self, msg: str, *, depth: int, max_depth: int) -> None:
         super().__init__(msg)
@@ -100,17 +62,8 @@ class QueueFullError(Exception):
         self.max_depth = max_depth
 
 
-# ─── Process-local state (NOT persisted, intentionally) ──────────────
-# ``_awaiters``: correlation_id → Future resolved when the message
-# finishes (mode=wait path). The Future's result is the turn's final
-# output dict.
-# ``_session_locks``: dict guard for FIFO enqueue ordering per session
-# in the SQL backend.
 _awaiters: dict[str, asyncio.Future] = {}
 _session_locks: dict[str, asyncio.Lock] = {}
-# queue_row_id -> raw bearer captured at enqueue time. Lets the drain
-# worker re-publish the inbound JWT ContextVar before dispatch, so a
-# gateway-routed turn picked up later still authenticates.
 _pending_jwts: dict[str, str] = {}
 
 
@@ -121,7 +74,7 @@ def attach_jwt(row_id: str, token: str | None) -> None:
 
 
 def pop_jwt(row_id: str) -> str | None:
-    """Pop the JWT stashed by ``attach_jwt`` (or ``None`` when absent)."""
+    """Pop the JWT stashed by `attach_jwt` (or `None` when absent)."""
     if not row_id:
         return None
     return _pending_jwts.pop(row_id, None)
@@ -155,19 +108,11 @@ def fail_awaiter(correlation_id: str, exc: Exception) -> None:
         fut.set_exception(exc)
 
 
-# ════════════════════════════════════════════════════════════════════
 # Memory Backend (fallback when Redis unreachable, also used by tests)
-# ════════════════════════════════════════════════════════════════════
 
 
 class MemoryQueueBackend:
-    """In-process dict-backed queue. State is per-process, lost on
-    restart - intended for dev (no local Redis required) and tests.
-
-    Public API matches ``RedisQueueBackend`` so the facade can swap
-    transparently. NOT thread-safe; relies on the daemon's single
-    asyncio loop convention.
-    """
+    """In-process dict-backed queue. State is per-process, lost on"""
 
     def __init__(self) -> None:
         # session_id → list[dict] (queued rows in FIFO order)
@@ -246,7 +191,7 @@ class MemoryQueueBackend:
                 if image_refs:
                     tail["image_refs"] = list(tail["image_refs"]) + list(image_refs)
                 tail["enqueued_at"] = time.time()
-                # Last template wins on merge — newer template_id from
+                # Last template wins on merge - newer template_id from
                 # the same user inside the merge window overrides.
                 if template_system_prompt:
                     tail["template_system_prompt"] = template_system_prompt
@@ -431,29 +376,21 @@ class MemoryQueueBackend:
         return n
 
 
-# ════════════════════════════════════════════════════════════════════
 # Backend selection
-# ════════════════════════════════════════════════════════════════════
 
 
 _active_backend: Any = None
 
 
 def configure_backend(backend: Any) -> None:
-    """Install the active backend instance. Called at daemon boot.
-
-    Tests may also call this directly to inject a MemoryQueueBackend.
-    """
+    """Install the active backend instance. Called at daemon boot."""
     global _active_backend
     _active_backend = backend
     logger.info("queue_backend_configured kind=%s", type(backend).__name__)
 
 
 def _get_backend() -> Any:
-    """Return the active backend, defaulting to ``MemoryQueueBackend``
-    when nothing has been configured. Lazy default keeps tests and
-    pre-``configure_backend`` callers working without ceremony.
-    """
+    """Return the active backend, defaulting to `MemoryQueueBackend`"""
     global _active_backend
     if _active_backend is None:
         _active_backend = MemoryQueueBackend()
@@ -470,20 +407,7 @@ def get_backend() -> Any:
 
 
 async def setup_from_settings() -> None:
-    """Boot-time setup. Reads ``settings.session.queue.backend`` and
-    constructs the requested backend.
-
-    * Production: ``backend="redis"`` is the canonical choice. The
-      daemon refuses to start with Redis unreachable (no silent
-      fallback) - operators must fix the Redis URL or set
-      ``backend="memory"`` explicitly for ephemeral runs.
-    * Dev / tests: ``backend="memory"`` keeps things ultra-simple
-      with no external service. State is lost on restart.
-
-    SQL is no longer a supported backend; the only durable option
-    is Redis, which already serves as the daemon's KV / cron / preview
-    bus. Keeping a second persistence path was dead weight.
-    """
+    """Boot-time setup. Reads `settings.session.queue.backend` and"""
     try:
         from digitorn.core.config import get_settings
         cfg = get_settings().session.queue
@@ -509,8 +433,8 @@ async def setup_from_settings() -> None:
                 kv = _gs().server.kv_backend or ""
                 if kv.startswith(("redis://", "rediss://")):
                     url = kv
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("message_queue best-effort block failed: %s", exc)
         if not url:
             raise RuntimeError(
                 "queue_setup: backend=redis but no redis_url configured. "
@@ -537,9 +461,7 @@ async def setup_from_settings() -> None:
     )
 
 
-# ════════════════════════════════════════════════════════════════════
 # Public module-level API - thin dispatchers preserved for backward compat
-# ════════════════════════════════════════════════════════════════════
 
 
 async def enqueue(
@@ -637,13 +559,7 @@ async def finish_and_drain(
     error_code: str = "",
     lease_seconds: int = _DEFAULT_LEASE_SECONDS,
 ) -> QueueEntry | None:
-    """Atomically transition ``row_id`` to ``terminal_status`` AND pop
-    the next queued row for the session. The Redis backend wraps both
-    steps in a single Lua script so a concurrent ``enqueue`` cannot
-    sneak between them. The SQL backend falls back to two sequential
-    queries (same race as the original ``mark_done`` then
-    ``next_queued`` flow - preserved deliberately for drop-in compat).
-    """
+    """Atomically transition `row_id` to `terminal_status` AND pop"""
     return await _get_backend().finish_and_drain(
         session_id, row_id, terminal_status=terminal_status,
         error_code=error_code, lease_seconds=lease_seconds,

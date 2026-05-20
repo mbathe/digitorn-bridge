@@ -1,33 +1,4 @@
-"""File-backed JobStore: watchers + scheduled jobs persisted on disk.
-
-Replaces the legacy ``digitorn.core.app.job_store.JobStore`` for the
-local-mode runtime. Same public surface so manager_v2 can swap the
-backing implementation behind a single import line at Phase 3 of the
-SessionStore-unification refactor.
-
-Layout::
-
-    ~/.digitorn/jobs/
-    ├── watchers/
-    │   └── <app_id>/
-    │       └── <watcher_id>.json
-    ├── jobs/
-    │   └── <app_id>/
-    │       └── <job_id>.json
-    └── notif_buf/
-        └── <app_id>/
-            └── buffer.jsonl    (FIFO, max ``buffer_max``)
-
-Atomicity: every write goes via tmp + ``os.replace``. Reads tolerate
-missing/corrupt files by skipping them with a warning. The directory
-is the source of truth -- no in-memory index that could drift.
-
-Why filesystem-first: the cron / scheduler / watcher subsystem needs
-to survive a daemon crash. KV (DiskCache) worked but added a moving
-part (the KV file's lock + WAL). One JSON file per job is simpler,
-inspect-friendly, and matches the SessionStore + InboxStore +
-AppRegistry pattern in the same package.
-"""
+"""File-backed JobStore: watchers + scheduled jobs persisted on disk."""
 from __future__ import annotations
 
 import json
@@ -43,8 +14,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     # Reuse the legacy dataclasses so consumers don't need to learn
-    # new types. Phase 3+ may move these into this package; for now
-    # we import them as-is so the public API is byte-identical.
+    # new types; the public API stays byte-identical.
     from digitorn.core.app.job_store import PersistedWatcher, ScheduledJob
 
 
@@ -53,7 +23,6 @@ _DEFAULT_BUFFER_TTL = 86400.0
 
 
 def _validate_segment(value: str, label: str) -> None:
-    """Reject path-traversal attempts on identifiers used in dir paths."""
     if not value or "/" in value or "\\" in value or ".." in value:
         raise ValueError(f"invalid {label}: {value!r}")
 
@@ -106,7 +75,6 @@ class FileJobStore:
         self._buffer_max = int(buffer_max)
         self._buffer_ttl = float(buffer_ttl_seconds)
 
-    # ── Watchers ─────────────────────────────────────────────────────
 
     def _watcher_path(self, app_id: str, watcher_id: str) -> Path:
         _validate_segment(app_id, "app_id")
@@ -176,7 +144,6 @@ class FileJobStore:
             pass  # non-empty (race) -- harmless
         return count
 
-    # ── Jobs ─────────────────────────────────────────────────────────
 
     def _job_path(self, app_id: str, job_id: str) -> Path:
         _validate_segment(app_id, "app_id")
@@ -258,14 +225,9 @@ class FileJobStore:
         return count
 
     def list_all_active_jobs(self) -> list["ScheduledJob"]:
-        """All active jobs across every app, used by the scheduler loop
-        to pick which jobs need to fire next. Drop-in replacement for
-        the legacy ``JobStore.list_all_active_jobs`` that walked the
-        ``__all_active_jobs__`` KV index. Same semantics: returns
-        ``ScheduledJob`` instances with ``status == "active"``."""
+        """All active jobs across every app, used by the scheduler loop"""
         return self.list_jobs(status="active")
 
-    # ── Notification buffer ─────────────────────────────────────────
 
     def _buffer_path(self, app_id: str) -> Path:
         _validate_segment(app_id, "app_id")
@@ -274,12 +236,7 @@ class FileJobStore:
     def buffer_notification(
         self, app_id: str, payload: dict[str, Any],
     ) -> None:
-        """Append a notification to the per-app FIFO buffer, capped at
-        ``buffer_max`` entries with a TTL of ``buffer_ttl_seconds``.
-
-        The buffer is read on the next agent turn (``drain_buffered``)
-        and the events are surfaced to the LLM as ``[BACKGROUND TASK]``
-        system messages."""
+        """Append a notification to the per-app FIFO buffer, capped at"""
         path = self._buffer_path(app_id)
         path.parent.mkdir(parents=True, exist_ok=True)
         entry = {"ts": time.time(), "payload": dict(payload)}
@@ -324,12 +281,7 @@ class FileJobStore:
             raise
 
     def drain_buffered(self, app_id: str) -> list[dict[str, Any]]:
-        """Read + atomically clear the notification buffer for ``app_id``.
-
-        Returns the list of payload dicts in FIFO order. After this
-        call the buffer is empty and the next ``buffer_notification``
-        starts a new batch.
-        """
+        """Read + atomically clear the notification buffer for `app_id`."""
         path = self._buffer_path(app_id)
         if not path.exists():
             return []
@@ -338,11 +290,6 @@ class FileJobStore:
         except OSError as exc:
             logger.warning("drain_buffered_read_failed app=%s err=%s", app_id, exc)
             return []
-        # Atomically truncate by replacing with empty file. Tolerate the
-        # rare case where another writer creates a fresh entry between
-        # our read and our replace -- that entry survives because our
-        # replacement file is empty (start fresh), and the new entry is
-        # in the new buffer.
         try:
             path.unlink()
         except OSError:
@@ -364,7 +311,6 @@ class FileJobStore:
                 out.append(payload)
         return out
 
-    # ── Stats / introspection ───────────────────────────────────────
 
     def stats(self) -> dict[str, int]:
         watchers = sum(

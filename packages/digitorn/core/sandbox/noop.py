@@ -1,4 +1,4 @@
-"""No-op sandbox backend - used when no OS isolation is available."""
+"""No-op sandbox backend."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 class NoopSandbox:
-    """Fallback: logs a warning but does not restrict anything."""
+    """Fallback that does not restrict anything."""
 
     @property
     def name(self) -> str:

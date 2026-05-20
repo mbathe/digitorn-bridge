@@ -1,7 +1,4 @@
-"""Cron adapter - schedule-based trigger.
-
-Inbound-only. Fires events on a cron schedule via croniter.
-"""
+"""Cron adapter - schedule-based trigger."""
 
 from __future__ import annotations
 
@@ -22,7 +19,6 @@ from digitorn.modules.channels.adapter import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 class CronAdapter(BaseChannelAdapter):
     """Cron schedule trigger - inbound only."""

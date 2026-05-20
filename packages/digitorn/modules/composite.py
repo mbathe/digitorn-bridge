@@ -1,33 +1,4 @@
-"""Module Spec v3 - Composition / Meta-Module Pattern.
-
-A ``CompositeModule`` defines actions as declarative pipelines of other
-module actions.  This enables:
-  - Reusable workflows composed from existing modules
-  - Meta-modules that orchestrate cross-module operations
-  - Higher-level abstractions without duplicating code
-
-Usage::
-
-    composite = CompositeModule.build(
-        module_id="data_pipeline",
-        version="1.0.0",
-        description="ETL pipeline: extract, transform, load",
-        pipelines={
-            "run_etl": [
-                PipelineStep("database", "run_query", param_map={"query": "extract_query"}),
-                PipelineStep("api_http", "send_request", param_map={
-                    "url": "transform_url",
-                    "body": "{{prev.result}}",
-                }),
-                PipelineStep("database", "execute", param_map={
-                    "query": "load_query",
-                    "params": "{{prev.result}}",
-                }),
-            ],
-        },
-    )
-    registry.register_instance(composite)
-"""
+"""Module Spec v3 - Composition / Meta-Module Pattern."""
 
 from __future__ import annotations
 
@@ -40,7 +11,6 @@ from digitorn.modules.manifest import ActionSpec, ModuleManifest, ParamSpec
 
 log = get_logger(__name__)
 
-
 @dataclass
 class PipelineStep:
     """A single step in a composite action pipeline."""
@@ -51,14 +21,8 @@ class PipelineStep:
     condition: str = ""
     on_error: str = "abort"
 
-
 class CompositeModule(BaseModule):
-    """A module whose actions are composed from pipelines of other module actions.
-
-    CompositeModule uses the ServiceBus (via ModuleContext) to call
-    actions on other modules.  Each action is a declarative pipeline
-    of steps.
-    """
+    """A module whose actions are composed from pipelines of other module actions."""
 
     MODULE_ID: str = ""
     VERSION: str = "0.0.0"
@@ -92,7 +56,6 @@ class CompositeModule(BaseModule):
     def _make_pipeline_handler(
         self, action_name: str, steps: list[PipelineStep]
     ) -> Any:
-        """Create an async handler for a composite pipeline."""
 
         async def handler(params: dict[str, Any]) -> dict[str, Any]:
             return await self._execute_pipeline(action_name, steps, params)
@@ -106,7 +69,6 @@ class CompositeModule(BaseModule):
         steps: list[PipelineStep],
         params: dict[str, Any],
     ) -> dict[str, Any]:
-        """Execute a pipeline of steps sequentially."""
         results: list[Any] = []
         prev_result: Any = None
 
@@ -156,7 +118,6 @@ class CompositeModule(BaseModule):
         input_params: dict[str, Any],
         prev_result: Any,
     ) -> dict[str, Any]:
-        """Resolve parameter templates for a pipeline step."""
         resolved: dict[str, Any] = {}
         for key, value in step.param_map.items():
             if isinstance(value, str):
@@ -179,7 +140,6 @@ class CompositeModule(BaseModule):
         return resolved
 
     def _make_action_spec(self, action_name: str, steps: list[PipelineStep]) -> ActionSpec:
-        """Generate an ActionSpec for a composite pipeline action."""
         step_desc = " -> ".join(f"{s.module}.{s.action}" for s in steps)
         all_params: set[str] = set()
         for step in steps:

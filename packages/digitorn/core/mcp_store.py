@@ -56,11 +56,11 @@ def get_required_config_keys(
     """Return required config keys for a server.
 
     Works for both catalog and registry servers:
-    - Catalog: uses ``env_mapping`` + ``oauth_provider``
-    - Registry: detects OAuth from auto-detected ``config.auth._detected``
+    - Catalog: uses `env_mapping` + `oauth_provider`
+    - Registry: detects OAuth from auto-detected `config.auth._detected`
 
     Returns a dict of {shorthand_key: env_var_name}.
-    For OAuth servers, includes ``auth.client_id`` and ``auth.client_secret``.
+    For OAuth servers, includes `auth.client_id` and `auth.client_secret`.
     Empty dict if the server needs no credentials or is unknown.
     """
     entry = get_catalog_entry(server_id)
@@ -94,8 +94,8 @@ def get_required_config_keys(
 def get_missing_config(server: ManagedMCPServer) -> list[str]:
     """Return config keys that are required but not yet set.
 
-    Checks the server's ``config`` dict against the catalog's ``env_mapping``.
-    Also checks ``env`` (already-resolved env vars) for backward compat.
+    Checks the server's `config` dict against the catalog's `env_mapping`.
+    Also checks `env` (already-resolved env vars) for backward compat.
     For OAuth servers, checks if auth credentials are configured.
     Works for both catalog and registry servers.
     """
@@ -260,12 +260,8 @@ async def install_server(
             if key in config and "Authorization" not in headers:
                 headers["Authorization"] = f"Bearer {config[key]}"
 
-    # App-Store classification: inject Digitorn-provided credentials and
-    # the hosted-bridge URL when the catalog entry declares them. This
-    # is what makes a no-config install possible for servers like
-    # ``brave_search`` (shared Brave API key managed by Digitorn) or
-    # ``github_webhook_mcp`` (Digitorn-hosted Cloudflare Worker URL).
-    # The user never sees these fields in the install dialog.
+    # Inject Digitorn-provided creds + hosted URL declared by the
+    # catalog entry to enable no-config installs.
     if entry is not None:
         await _inject_digitorn_provided(entry, env, headers, credential_store)
         if entry.hosted_url and resolved["transport"] in ("sse", "streamable_http"):
@@ -298,10 +294,8 @@ async def install_server(
         timeout=resolved.get("timeout", 30.0),
     )
 
-    # --- Post-install probe: discover actual env vars from source code ---
-    # Corrects registry metadata and discovers required credentials.
-    # Works for registry servers (corrects mismatched names) and custom
-    # servers (discovers credentials the user needs to configure).
+    # Post-install probe: scan source for env vars to correct
+    # registry metadata and surface required credentials.
     if resolved.get("source") in ("registry", "custom") and resolved["transport"] == "stdio":
         _post_install_probe(server)
 
@@ -405,15 +399,15 @@ def _post_install_probe(server: ManagedMCPServer) -> None:
     """Probe installed source to correct registry env var metadata.
 
     The MCP registry often declares env var names that don't match what
-    the server actually reads (e.g. ``YOUR_API_KEY`` vs ``TODOIST_API_TOKEN``).
+    the server actually reads (e.g. `YOUR_API_KEY` vs `TODOIST_API_TOKEN`).
 
     This function runs immediately after package install to:
     1. Discover the actual env vars the server reads from source
     2. Match them against registry-declared vars
-    3. Replace ``_registry_required_env`` with corrected mappings
+    3. Replace `_registry_required_env` with corrected mappings
 
-    This ensures ``get_required_config_keys`` returns the right shorthands
-    and ``update_server_config`` maps to the right env vars - so the user
+    This ensures `get_required_config_keys` returns the right shorthands
+    and `update_server_config` maps to the right env vars - so the user
     never encounters a mismatch at test/connect time.
     """
     try:
@@ -484,25 +478,25 @@ def _ensure_node_in_path() -> None:
     """Add Node.js to PATH if not already discoverable.
 
     Discovers Node.js from common installation layouts so that
-    ``npm`` / ``npx`` commands work even when the parent shell didn't
+    `npm` / `npx` commands work even when the parent shell didn't
     activate a version manager (IDE-spawned processes, systemd / NSSM
     services, fresh CI runners, …).
 
     Supported layouts:
 
     Posix:
-      * nvm        — ``~/.nvm/versions/node/v*/bin/``
-      * fnm        — ``~/.local/share/fnm/node-versions/v*/installation/bin/``
-      * volta      — ``~/.volta/bin/``
-      * homebrew   — ``/opt/homebrew/bin``, ``/usr/local/bin``
-      * official   — ``/usr/local/bin/node``
+      * nvm        - `~/.nvm/versions/node/v*/bin/`
+      * fnm        - `~/.local/share/fnm/node-versions/v*/installation/bin/`
+      * volta      - `~/.volta/bin/`
+      * homebrew   - `/opt/homebrew/bin`, `/usr/local/bin`
+      * official   - `/usr/local/bin/node`
 
     Windows:
-      * nvm-windows — ``%APPDATA%\\nvm\\v*\\`` (node + npm side-by-side)
-      * fnm        — ``%LOCALAPPDATA%\\fnm\\node-versions\\v*\\installation\\``
-      * volta      — ``%LOCALAPPDATA%\\Volta\\bin``
-      * official   — ``%ProgramFiles%\\nodejs\\``,
-                     ``%ProgramFiles(x86)%\\nodejs\\``
+      * nvm-windows - `%APPDATA%\\nvm\\v*\\` (node + npm side-by-side)
+      * fnm        - `%LOCALAPPDATA%\\fnm\\node-versions\\v*\\installation\\`
+      * volta      - `%LOCALAPPDATA%\\Volta\\bin`
+      * official   - `%ProgramFiles%\\nodejs\\`,
+                     `%ProgramFiles(x86)%\\nodejs\\`
     """
     if shutil.which("node"):
         return
@@ -601,22 +595,22 @@ async def _inject_digitorn_provided(
 ) -> None:
     """Inject Digitorn-managed shared credentials into the install env.
 
-    ``entry.digitorn_provided`` is a ``{env_var_name: credential_name}``
-    map declared on the Hub catalog entry (see migration 0009 — column
-    ``digitorn_provided``). For each pair we resolve the credential
+    `entry.digitorn_provided` is a `{env_var_name: credential_name}`
+    map declared on the Hub catalog entry (see migration 0009 - column
+    `digitorn_provided`). For each pair we resolve the credential
     against the daemon's system-wide credential store and write the
-    decrypted value into ``env`` (or as a Bearer header when the env
+    decrypted value into `env` (or as a Bearer header when the env
     var name signals an Authorization).
 
     Behaviour on a missing credential is non-fatal: we log a warning
     and leave the env var alone. The catalog entry can still ship,
     the user is just expected to fall back to providing the value
     themselves via the install dialog. This lets us flip
-    ``digitorn_provided`` on per-entry without coordinating a daemon
+    `digitorn_provided` on per-entry without coordinating a daemon
     redeploy with a credential-store push.
 
-    No-op when ``digitorn_provided`` is empty (the default for every
-    entry today — provisioning happens entry-by-entry post-prod).
+    No-op when `digitorn_provided` is empty (the default for every
+    entry today - provisioning happens entry-by-entry).
     """
     provided = dict(getattr(entry, "digitorn_provided", None) or {})
     if not provided:
@@ -656,7 +650,7 @@ async def _inject_digitorn_provided(
         if cred is None:
             logger.warning(
                 "digitorn_provided_credential_missing server=%s var=%s cred=%s "
-                "— store has no system_wide credential by that name yet. "
+                "- store has no system_wide credential by that name yet. "
                 "Provision it via the admin UI; the user keeps having to "
                 "fill the field manually until then.",
                 getattr(entry, "server_id", "?"), env_var, cred_name,
@@ -689,12 +683,12 @@ async def _install_package(
 ) -> str | None:
     """Install npm/pip package in an isolated directory.
 
-    npm servers:  ``~/.local/share/digitorn/mcp-servers/<id>/node_modules/``
-    pip servers:  ``~/.local/share/digitorn/mcp-servers/<id>/.venv/``
+    npm servers:  `~/.local/share/digitorn/mcp-servers/<id>/node_modules/`
+    pip servers:  `~/.local/share/digitorn/mcp-servers/<id>/.venv/`
 
-    ``uvx`` / ``npx`` style commands are no-ops here: the package is
+    `uvx` / `npx` style commands are no-ops here: the package is
     pulled lazily on first invocation by the runtime itself, so we
-    skip the eager install (and the ``.venv`` / ``node_modules`` it
+    skip the eager install (and the `.venv` / `node_modules` it
     would otherwise create).
 
     Returns error message or None on success.
@@ -704,7 +698,7 @@ async def _install_package(
 
     cmd_base = Path(command or "").stem.lower() if command else ""
     if cmd_base in ("uvx", "pipx", "npx"):
-        # Lazy runtime — package is fetched on first run. Verify the
+        # Lazy runtime - package is fetched on first run. Verify the
         # runtime itself is on PATH so the user gets a clear error NOW
         # instead of a confusing "command not found" later at start time.
         if shutil.which(cmd_base) is None:
@@ -731,8 +725,8 @@ async def _install_npm(
 ) -> str | None:
     """Install an npm package in an isolated directory.
 
-    Creates a package.json and runs ``npm install <package>``.
-    The binary is then at ``server_dir/node_modules/.bin/<cmd>``.
+    Creates a package.json and runs `npm install <package>`.
+    The binary is then at `server_dir/node_modules/.bin/<cmd>`.
     """
     _ensure_node_in_path()
 
@@ -851,10 +845,10 @@ def _missing_runtime_hint(cmd: str) -> str:
 def _exe_extensions() -> tuple[str, ...]:
     """Executable filename extensions to try when resolving a command.
 
-    Windows uses ``PATHEXT`` (``.exe``/``.cmd``/``.bat``). npm shims
-    install as ``<name>.cmd`` (cmd.exe wrapper) and ``<name>`` (bash
-    shell script) — only the ``.cmd`` flavour is launchable via
-    ``subprocess`` without ``shell=True``, so we must explicitly probe
+    Windows uses `PATHEXT` (`.exe`/`.cmd`/`.bat`). npm shims
+    install as `<name>.cmd` (cmd.exe wrapper) and `<name>` (bash
+    shell script) - only the `.cmd` flavour is launchable via
+    `subprocess` without `shell=True`, so we must explicitly probe
     it. Posix returns the bare extension only.
     """
     if _IS_WINDOWS:
@@ -866,7 +860,7 @@ def _resolve_exe_in(directory: "Path", name: str) -> "Path | None":
     """Find an executable named *name* inside *directory*.
 
     Probes platform-appropriate extensions in priority order. Returns
-    the resolved path or ``None`` if no match exists. Empty/missing
+    the resolved path or `None` if no match exists. Empty/missing
     *directory* is a soft None (callers fall through to the next
     lookup strategy).
     """
@@ -887,7 +881,7 @@ def _resolve_exe_in(directory: "Path", name: str) -> "Path | None":
 def _venv_bin_dir(venv_dir: "Path") -> "Path":
     """Cross-platform venv binaries directory.
 
-    Posix venvs put scripts under ``bin/``; Windows uses ``Scripts/``.
+    Posix venvs put scripts under `bin/`; Windows uses `Scripts/`.
     """
     if _IS_WINDOWS:
         return venv_dir / "Scripts"
@@ -908,12 +902,12 @@ async def _install_pip(
     """Install a pip package in an isolated venv.
 
     Strategy (in order):
-      1. ``uvx`` / ``uv tool`` runtime — no install needed; uv lazily
+      1. `uvx` / `uv tool` runtime - no install needed; uv lazily
          downloads the package on first run into its own managed env.
-      2. ``uv`` available — create the venv with ``uv venv`` and
-         install with ``uv pip install`` (does **not** require pip
+      2. `uv` available - create the venv with `uv venv` and
+         install with `uv pip install` (does **not** require pip
          to be present inside the venv).
-      3. Plain ``python -m venv`` — creates a venv with pip bundled
+      3. Plain `python -m venv` - creates a venv with pip bundled
          and runs that pip directly.
     """
     if not package:
@@ -922,10 +916,8 @@ async def _install_pip(
     venv_dir = server_dir / ".venv"
     uv = shutil.which("uv")
 
-    # Create venv when missing. Prefer ``uv venv`` (much faster) when
-    # uv is around, but it produces a venv WITHOUT pip pre-installed,
-    # so we must follow up with ``uv pip install`` rather than calling
-    # the venv's pip directly.
+    # Prefer `uv venv` when available; it skips bundling pip, so
+    # follow up with `uv pip install` instead of the venv's pip.
     if not venv_dir.exists():
         if uv:
             cmd = [uv, "venv", str(venv_dir), "--python", sys.executable]
@@ -955,8 +947,8 @@ async def _install_pip(
         if not venv_pip.exists():
             return (
                 f"Cannot install into venv: pip not found in {venv_dir}. "
-                f"Install ``uv`` (https://docs.astral.sh/uv/) or rebuild "
-                f"the venv with the stdlib ``python -m venv`` so it ships "
+                f"Install `uv` (https://docs.astral.sh/uv/) or rebuild "
+                f"the venv with the stdlib `python -m venv` so it ships "
                 f"with pip."
             )
         cmd = [str(venv_pip), "install", package]
@@ -1170,11 +1162,11 @@ def _build_connect_kwargs(server: ManagedMCPServer) -> dict[str, Any]:
     """Build kwargs for MCPConnectionPool.connect() from a managed server.
 
     For daemon-managed installs, uses the local isolated directory instead
-    of ``npx -y`` (npm) or global pip commands (pip):
+    of `npx -y` (npm) or global pip commands (pip):
 
-    - npm: ``node server_dir/node_modules/.bin/<cmd>`` or
-            ``node server_dir/node_modules/<package>/dist/index.js``
-    - pip: ``server_dir/.venv/bin/<cmd>``
+    - npm: `node server_dir/node_modules/.bin/<cmd>` or
+            `node server_dir/node_modules/<package>/dist/index.js`
+    - pip: `server_dir/.venv/bin/<cmd>`
     """
     kwargs: dict[str, Any] = {"timeout": server.timeout}
 
@@ -1202,8 +1194,8 @@ def _build_connect_kwargs(server: ManagedMCPServer) -> dict[str, Any]:
 def _remap_env_from_source(server: ManagedMCPServer, env: dict[str, str]) -> None:
     """Remap env vars when registry-declared names don't match actual source.
 
-    Common case: registry declares ``YOUR_API_KEY`` but the server reads
-    ``TODOIST_API_TOKEN``. This function probes the installed source to
+    Common case: registry declares `YOUR_API_KEY` but the server reads
+    `TODOIST_API_TOKEN`. This function probes the installed source to
     find the real env var names and remaps values accordingly.
 
     Only runs for registry servers (catalog servers have correct mappings).
@@ -1291,10 +1283,10 @@ def _prepare_oauth_env(server: ManagedMCPServer, env: dict[str, str]) -> None:
 
     Works universally for catalog, registry, and custom servers.
 
-    For Google OAuth servers (detected by ``oauth_provider == "google"``):
-    - Writes ``gcp-oauth.keys.json`` in Google's "installed app" format
+    For Google OAuth servers (detected by `oauth_provider == "google"`):
+    - Writes `gcp-oauth.keys.json` in Google's "installed app" format
     - **Auto-probes** the server source code to discover env var names
-      (``*_OAUTH_PATH``, ``*_CREDENTIALS_PATH``) - no hardcoding needed
+      (`*_OAUTH_PATH`, `*_CREDENTIALS_PATH`) - no hardcoding needed
     - Writes the credentials file with stored tokens
 
     For env_token servers (e.g. Notion):
@@ -1385,10 +1377,10 @@ def _find_custom_entry_point(server: ManagedMCPServer) -> "Path | None":
     """Resolve the entry point file for a custom/local server.
 
     Looks at command + args to find the actual source file:
-    - ``python3 -m my_server`` → find my_server/__main__.py
-    - ``python3 server.py`` → server.py
-    - ``node server.js`` → server.js
-    - ``/path/to/my-server`` → the script itself
+    - `python3 -m my_server` → find my_server/__main__.py
+    - `python3 server.py` → server.py
+    - `node server.js` → server.js
+    - `/path/to/my-server` → the script itself
     """
     from pathlib import Path
 
@@ -1434,7 +1426,7 @@ def _find_custom_entry_point(server: ManagedMCPServer) -> "Path | None":
 def _probe_server_env_vars(server: ManagedMCPServer) -> set[str]:
     """Discover ALL env vars the server reads from its source code.
 
-    Scans for ``process.env.XXX`` (JS) and ``os.environ.get("XXX")`` (Python).
+    Scans for `process.env.XXX` (JS) and `os.environ.get("XXX")` (Python).
     Returns a set of env var names.
     """
     import re
@@ -1453,8 +1445,8 @@ def _probe_server_env_vars(server: ManagedMCPServer) -> set[str]:
 def _probe_server_oauth_env_vars(server: ManagedMCPServer) -> dict[str, str]:
     """Probe the installed server's source code to discover OAuth env vars.
 
-    Returns a dict with keys like ``oauth_path_env``, ``credentials_path_env``,
-    ``credentials_filename``, ``token_env``.
+    Returns a dict with keys like `oauth_path_env`, `credentials_path_env`,
+    `credentials_filename`, `token_env`.
     """
     import re
 
@@ -1592,11 +1584,11 @@ def _prepare_oauth_headers(
 def _resolve_bare_command(command: str) -> str:
     """If *command* is a bare name (no separators), resolve it through PATH.
 
-    On Windows ``subprocess`` does **not** consult PATHEXT for bare names,
-    so ``npx``/``uvx``/``python`` need to be expanded to their full
-    ``.cmd`` / ``.exe`` path before being handed to ``stdio_client``.
-    Posix systems resolve names through ``execvp`` and don't need this
-    pass; we still run ``shutil.which`` to surface a clearer error early
+    On Windows `subprocess` does **not** consult PATHEXT for bare names,
+    so `npx`/`uvx`/`python` need to be expanded to their full
+    `.cmd` / `.exe` path before being handed to `stdio_client`.
+    Posix systems resolve names through `execvp` and don't need this
+    pass; we still run `shutil.which` to surface a clearer error early
     when the command isn't installed at all.
     """
     if not command:
@@ -1655,8 +1647,8 @@ def _resolve_local_command_inner(server: ManagedMCPServer) -> tuple[str, list[st
                     return str(bin_path), stripped_args
 
             # Filter: prefer bins with "mcp" or "server" in the stem. On
-            # Windows a single npm shim shows up as both ``foo`` (bash)
-            # and ``foo.cmd`` (cmd.exe) — pick the launchable one.
+            # Windows a single npm shim shows up as both `foo` (bash)
+            # and `foo.cmd` (cmd.exe) - pick the launchable one.
             bins = sorted(bin_dir.iterdir())
             mcp_bins = [
                 f for f in bins
@@ -1689,15 +1681,15 @@ def _resolve_local_command_inner(server: ManagedMCPServer) -> tuple[str, list[st
         return original_command, original_args
 
     elif server.runtime == "pip":
-        # Binary inside the venv: ``Scripts/`` on Windows, ``bin/`` on Posix.
+        # Binary inside the venv: `Scripts/` on Windows, `bin/` on Posix.
         venv_bin = _venv_bin_dir(server_dir / ".venv")
         if venv_bin.exists():
-            # Try the command name first. ``Path.name`` is cross-platform —
-            # ``rsplit('/', 1)`` would miss backslash-separated entries.
+            # Try the command name first. `Path.name` is cross-platform -
+            # `rsplit('/', 1)` would miss backslash-separated entries.
             cmd_name = Path(original_command).name if original_command else ""
             if cmd_name:
                 # Strip platform extension if the saved command carries one,
-                # so the probe doesn't double-suffix ``foo.exe.exe``.
+                # so the probe doesn't double-suffix `foo.exe.exe`.
                 stem = Path(cmd_name).stem
                 local_cmd = _resolve_exe_in(venv_bin, stem)
                 if local_cmd is not None:
@@ -1722,7 +1714,7 @@ def _resolve_local_command_inner(server: ManagedMCPServer) -> tuple[str, list[st
 def _read_npm_bin_name(server_dir: "Path", package: str) -> str | None:
     """Read the binary name from the npm package's own package.json.
 
-    The ``"bin"`` field in package.json is the authoritative source for
+    The `"bin"` field in package.json is the authoritative source for
     what binary an npm package installs.  Returns the first binary name,
     or None if not found.
 
@@ -1753,9 +1745,9 @@ def _read_npm_bin_name(server_dir: "Path", package: str) -> str | None:
 
 
 def _strip_npx_args(args: list[str]) -> list[str]:
-    """Strip npx-specific args (``-y`` and the package name) from args list.
+    """Strip npx-specific args (`-y` and the package name) from args list.
 
-    When we switch from ``npx -y @package/name`` to running the binary
+    When we switch from `npx -y @package/name` to running the binary
     directly, we need to remove the npx flags and package identifier.
     """
     result = []
@@ -1804,7 +1796,7 @@ async def update_server_config(
     """Update a server's runtime config (credentials, options).
 
     Also resolves shorthand config keys to env vars (via catalog mapping)
-    and updates the ``env`` column so that connect kwargs are ready.
+    and updates the `env` column so that connect kwargs are ready.
     """
     server = await get_server(session, server_id)
     if server is None:

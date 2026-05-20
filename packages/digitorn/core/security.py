@@ -77,13 +77,8 @@ class ModuleGrant:
     default_action_policy: str = "approve"  # "auto" | "approve" | "block"
     action_overrides: dict[str, str] = field(default_factory=dict)
     hidden_actions: frozenset[str] = field(default_factory=frozenset)
-    # Set of actions explicitly named in the app's capabilities.grant
-    # entries. When NON-EMPTY, the grant is interpreted as an allow-list:
-    # actions NOT in the set fall through to default_action_policy (which
-    # the compiler sets to "approve"/"block" depending on the app's
-    # default_policy). An EMPTY set means the grant didn't restrict at
-    # the action level - e.g. `grant: [{module: filesystem, actions: []}]`
-    # means "grant all of filesystem" and should not act as a restriction.
+    # Non-empty set = allow-list: anything outside it falls back to
+    # `default_action_policy`. Empty set = no action-level restriction.
     allowed_actions: frozenset[str] = field(default_factory=frozenset)
 
     def is_visible(self) -> bool:
@@ -231,10 +226,8 @@ def resolve_action_policy(
     Returns:
         "auto", "approve", or "block"
     """
-    # When the app declares no ``capabilities:`` block at all, the compiler
-    # leaves ``security_profile = None``. This is the dev/test default -
-    # every action runs ``auto`` (no enforcement), same as if the app had
-    # explicitly set ``default_policy: auto``.
+    # `security_profile = None` is the dev/test default; every action
+    # runs `auto`.
     if profile is None:
         return "auto"
 
@@ -253,22 +246,14 @@ def resolve_action_policy(
         if override is not None:
             return override
 
-    # max_risk_level hard gate. Actions whose intrinsic risk exceeds the
-    # configured ceiling are blocked UNLESS they were explicitly granted
-    # (that's the override branch above). This is the knob operators
-    # expect - "I said max_risk_level: low, so shell.bash must NOT run
-    # without me explicitly granting it".
+    # Hard ceiling: actions above `max_risk_level` are blocked unless
+    # the override branch above granted them.
     max_risk = getattr(profile, "max_risk_level", "high") or "high"
     if _risk_rank(risk_level or "medium") > _risk_rank(max_risk):
         return "block"
 
-    # Grant with a non-empty allowed_actions list acts as an allow-list:
-    # actions NOT in that list fall through to the grant's own default
-    # (which the compiler sets to "approve" when the app's default_policy
-    # is "auto" - tightening the surface vs a bare "auto everything").
-    # Using `allowed_actions` (populated only for explicit action lists)
-    # instead of `action_overrides` avoids false positives when the user
-    # adds a `deny` entry to a module that was granted all actions.
+    # Non-empty `allowed_actions` is an allow-list: anything outside
+    # it falls to `grant.default_action_policy`.
     if grant is not None and grant.allowed_actions and action not in grant.allowed_actions:
         return grant.default_action_policy
 

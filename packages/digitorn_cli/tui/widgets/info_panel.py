@@ -1,8 +1,4 @@
-"""InfoPanel - floating overlay panel in the chat area.
-
-Shows data like a dropdown menu. Escape or any key closes it.
-Used for /context, /tools, /sessions, /status, /cost, /model.
-"""
+"""InfoPanel - floating overlay panel in the chat area."""
 
 from __future__ import annotations
 
@@ -11,10 +7,7 @@ from textual.widgets import Static
 
 
 class InfoPanel(Static):
-    """A floating info panel that appears in the chat area.
-
-    Mount it, show data, press Escape to close.
-    """
+    """A floating info panel that appears in the chat area."""
 
     DEFAULT_CSS = """
     InfoPanel {
@@ -38,13 +31,7 @@ class InfoPanel(Static):
 
     def show(self, title: str, rows: list[tuple[str, str]],
              bars: dict[str, float] | None = None) -> None:
-        """Display a panel with title and key-value rows.
-
-        Args:
-            title: Panel header
-            rows: List of (label, value) pairs
-            bars: Optional dict of label → percentage (0-1) for progress bars
-        """
+        """Display a panel with title and key-value rows."""
         t = Text()
 
         # Title

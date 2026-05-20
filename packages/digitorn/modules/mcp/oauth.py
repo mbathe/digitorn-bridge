@@ -1,20 +1,4 @@
-"""MCP OAuth2 - provider configuration, authorization flow, token exchange.
-
-Handles the OAuth2 Authorization Code flow for MCP servers that require
-user-level authentication (Google Calendar, GitHub user-scope, etc.).
-
-Flow:
-1. Agent calls MCP tool → MCPModule detects auth config on server
-2. If no token cached → return requires_oauth error with auth_url
-3. User opens auth_url → provider redirects to callback with code
-4. Callback exchanges code for tokens → stored via UserStore
-5. Agent retries → token injected into MCP transport headers
-
-Supports:
-- Authorization Code with PKCE (recommended)
-- Standard Authorization Code (legacy providers)
-- Token refresh via refresh_token grant
-"""
+"""MCP OAuth2 - provider configuration, authorization flow, token exchange."""
 
 from __future__ import annotations
 
@@ -31,7 +15,6 @@ from urllib.parse import urlencode
 import httpx
 
 logger = logging.getLogger(__name__)
-
 
 _WELL_KNOWN_PROVIDERS: dict[str, dict[str, Any]] = {
     "google": {
@@ -73,25 +56,9 @@ _WELL_KNOWN_PROVIDERS: dict[str, dict[str, Any]] = {
     },
 }
 
-
 @dataclass
 class OAuthProviderConfig:
-    """OAuth2 provider configuration for an MCP server.
-
-    Parsed from YAML::
-
-        servers:
-          google_calendar:
-            transport: sse
-            url: "http://localhost:3000/sse"
-            auth:
-              type: oauth2
-              provider: google
-              client_id: "{{env.GOOGLE_CLIENT_ID}}"
-              client_secret: "{{env.GOOGLE_CLIENT_SECRET}}"
-              scopes: ["calendar.readonly", "calendar.events"]
-              redirect_uri: "http://localhost:8420/api/apps/{app_id}/oauth/callback"
-    """
+    """OAuth2 provider configuration for an MCP server."""
 
     provider: str
     client_id: str
@@ -107,7 +74,6 @@ class OAuthProviderConfig:
     env_token_var: str = ""
 
     def __post_init__(self) -> None:
-        """Fill in well-known URLs if using a known provider."""
         known = _WELL_KNOWN_PROVIDERS.get(self.provider, {})
         if not self.authorize_url:
             self.authorize_url = known.get("authorize_url", "")
@@ -142,7 +108,6 @@ class OAuthProviderConfig:
             env_token_var=data.get("env_token_var", ""),
         )
 
-
 @dataclass
 class OAuthState:
     """Pending OAuth authorization state (stored in memory)."""
@@ -161,25 +126,15 @@ class OAuthState:
         age = datetime.now(timezone.utc).timestamp() - self.created_at
         return age > 600
 
-
 def generate_pkce() -> tuple[str, str]:
-    """Generate PKCE code_verifier and code_challenge (S256).
-
-    Returns:
-        (code_verifier, code_challenge) - both URL-safe strings.
-    """
+    """Generate PKCE code_verifier and code_challenge (S256)."""
     verifier = secrets.token_urlsafe(64)[:128]
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
     challenge = urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
     return verifier, challenge
 
-
 class OAuthManager:
-    """Manages OAuth2 authorization flows for MCP servers.
-
-    One instance per MCPModule (per app). Stores pending auth states
-    in memory (ephemeral - they expire after 10 min).
-    """
+    """Manages OAuth2 authorization flows for MCP servers."""
 
     def __init__(self) -> None:
         self._pending: dict[str, OAuthState] = {}
@@ -190,16 +145,7 @@ class OAuthManager:
         server_id: str,
         user_id: str,
     ) -> tuple[str, str]:
-        """Build the OAuth authorization URL for a user.
-
-        Args:
-            config: Provider config for this MCP server.
-            server_id: MCP server ID.
-            user_id: Internal user ID.
-
-        Returns:
-            (authorize_url, state_key) - redirect user to authorize_url.
-        """
+        """Build the OAuth authorization URL for a user."""
         state_key = secrets.token_urlsafe(32)
 
         params: dict[str, str] = {
@@ -243,7 +189,6 @@ class OAuthManager:
         return state
 
     def _purge_expired(self) -> None:
-        """Remove all expired pending states."""
         expired = [k for k, v in self._pending.items() if v.is_expired]
         for k in expired:
             del self._pending[k]
@@ -256,16 +201,7 @@ class OAuthManager:
         state: OAuthState,
         authorization_code: str,
     ) -> dict[str, Any]:
-        """Exchange authorization code for tokens.
-
-        Args:
-            config: Provider config.
-            state: The original auth state.
-            authorization_code: Code from the callback.
-
-        Returns:
-            Token response dict: access_token, refresh_token, expires_in, scope, etc.
-        """
+        """Exchange authorization code for tokens."""
         body: dict[str, str] = {
             "grant_type": "authorization_code",
             "code": authorization_code,
@@ -336,15 +272,7 @@ class OAuthManager:
         config: OAuthProviderConfig,
         refresh_token: str,
     ) -> dict[str, Any]:
-        """Refresh an expired access token.
-
-        Args:
-            config: Provider config.
-            refresh_token: The refresh token.
-
-        Returns:
-            Token response dict: access_token, expires_in, etc.
-        """
+        """Refresh an expired access token."""
         body: dict[str, str] = {
             "grant_type": "refresh_token",
             "refresh_token": refresh_token,
@@ -390,16 +318,11 @@ class OAuthManager:
             del self._pending[k]
         return len(expired)
 
-
 class OAuthError(Exception):
     """Raised when an OAuth operation fails."""
 
-
 def parse_auth_config(server_config: dict[str, Any]) -> OAuthProviderConfig | None:
-    """Parse the auth block from an MCP server YAML config.
-
-    Returns None if no auth is configured.
-    """
+    """Parse the auth block from an MCP server YAML config."""
     auth = server_config.get("auth")
     if not auth or not isinstance(auth, dict):
         return None
@@ -409,15 +332,10 @@ def parse_auth_config(server_config: dict[str, Any]) -> OAuthProviderConfig | No
         return None
     return OAuthProviderConfig.from_dict(auth)
 
-
 def parse_token_response(
     data: dict[str, Any],
 ) -> tuple[str, str | None, datetime | None, str]:
-    """Extract standard fields from an OAuth token response.
-
-    Returns:
-        (access_token, refresh_token, expires_at, scope)
-    """
+    """Extract standard fields from an OAuth token response."""
     access_token = data.get("access_token", "")
     refresh_token = data.get("refresh_token")
     scope = data.get("scope", "")

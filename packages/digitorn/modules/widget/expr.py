@@ -1,27 +1,4 @@
-"""Widget expression evaluator - server-side substitution of ``{{...}}``.
-
-Implements the closed-set binding language from the widgets spec
-(§6 "Langage de binding"), evaluated against a scope dict
-``{form: ..., state: ..., ctx: ..., item: ..., session: ..., app: ...}``.
-
-Supports:
-
-- Variable lookup with dotted paths and indexing: ``{{a.b.c}}``, ``{{l[0]}}``
-- Filter pipeline: ``{{x | upper | truncate(40)}}``
-- Comparisons: ``{{a == b}}``, ``{{a != b}}``, ``{{a > b}}``, ``{{a >= b}}``
-- Logic: ``{{a && b}}``, ``{{a || b}}``, ``{{!a}}``
-- Ternary: ``{{a ? "yes" : "no"}}``
-- ``is empty`` / ``is not empty``
-- Literals: ``"text"``, ``'text'``, ``42``, ``3.14``, ``true``, ``false``, ``null``
-
-The 24 closed-set filters from the spec are implemented; unknown
-filters raise ``ExprError`` with a clear message so the compiler
-(or the runtime substitution) can surface an error.
-
-The evaluator is **deliberately minimal** - no loops, no
-assignments, no function calls beyond the closed filter set. That
-keeps it sandboxed and reasoning-friendly.
-"""
+"""Widget expression evaluator - server-side substitution of `{{...}}`."""
 
 from __future__ import annotations
 
@@ -31,40 +8,27 @@ import re
 from datetime import datetime, timedelta
 from typing import Any, Callable
 
-
-# ─────────────────────────── errors ────────────────────────────
-
-
 class ExprError(Exception):
     """Raised when an expression cannot be evaluated."""
-
-
-# ─────────────────────────── filters ────────────────────────────
-
 
 def _f_upper(v, *args):  # noqa: D401, ANN001
     return str(v).upper() if v is not None else ""
 
-
 def _f_lower(v, *args):
     return str(v).lower() if v is not None else ""
 
-
 def _f_title(v, *args):
     return str(v).title() if v is not None else ""
-
 
 def _f_truncate(v, n: Any = 40, *_):
     s = "" if v is None else str(v)
     n = int(n)
     return s if len(s) <= n else s[: max(0, n - 1)] + "…"
 
-
 def _f_default(v, fallback: Any = "", *_):
     if v is None or v == "":
         return fallback
     return v
-
 
 def _f_length(v, *_):
     if v is None:
@@ -73,7 +37,6 @@ def _f_length(v, *_):
         return len(v)
     except TypeError:
         return 0
-
 
 def _f_date(v, fmt: Any = "YYYY-MM-DD", *_):
     if v is None:
@@ -95,7 +58,6 @@ def _f_date(v, fmt: Any = "YYYY-MM-DD", *_):
         .replace("ss", "%S")
     )
     return dt.strftime(fmt)
-
 
 def _f_relative_time(v, *_):
     if v is None:
@@ -119,7 +81,6 @@ def _f_relative_time(v, *_):
         return f"{seconds // 3600}h ago"
     return f"{seconds // 86400}d ago"
 
-
 def _f_money(v, currency: Any = "USD", *_):
     if v is None:
         return ""
@@ -131,7 +92,6 @@ def _f_money(v, currency: Any = "USD", *_):
     sym = symbols.get(str(currency).upper(), str(currency).upper() + " ")
     return f"{sym}{n:,.2f}"
 
-
 def _f_number(v, decimals: Any = 0, *_):
     if v is None:
         return ""
@@ -141,7 +101,6 @@ def _f_number(v, decimals: Any = 0, *_):
     except (TypeError, ValueError):
         return str(v)
 
-
 def _f_percent(v, *_):
     if v is None:
         return ""
@@ -150,20 +109,16 @@ def _f_percent(v, *_):
     except (TypeError, ValueError):
         return str(v)
 
-
 def _f_json(v, *_):
     try:
         return json.dumps(v, default=str)
     except Exception:
         return str(v)
 
-
 def _f_filter(v, key: Any, value: Any = None, *_):
-    """Filter a list of dicts by ``item[key] == value``."""
     if not isinstance(v, list):
         return v
     return [it for it in v if isinstance(it, dict) and it.get(str(key)) == value]
-
 
 def _f_map(v, key: Any, *_):
     if not isinstance(v, list):
@@ -171,28 +126,23 @@ def _f_map(v, key: Any, *_):
     k = str(key)
     return [it.get(k) if isinstance(it, dict) else None for it in v]
 
-
 def _f_pluck(v, key: Any, *_):
     return _f_map(v, key)
-
 
 def _f_join(v, sep: Any = ", ", *_):
     if not isinstance(v, list):
         return str(v) if v is not None else ""
     return str(sep).join(str(x) for x in v)
 
-
 def _f_first(v, *_):
     if isinstance(v, list) and v:
         return v[0]
     return None
 
-
 def _f_last(v, *_):
     if isinstance(v, list) and v:
         return v[-1]
     return None
-
 
 def _f_sort(v, key: Any = None, *_):
     if not isinstance(v, list):
@@ -208,7 +158,6 @@ def _f_sort(v, key: Any = None, *_):
         key=lambda x: (x.get(k) if isinstance(x, dict) else x),
     )
 
-
 def _f_reverse(v, *_):
     if isinstance(v, list):
         return list(reversed(v))
@@ -216,22 +165,18 @@ def _f_reverse(v, *_):
         return v[::-1]
     return v
 
-
 def _f_slice(v, a: Any = 0, b: Any = None, *_):
     if not isinstance(v, (list, str)):
         return v
     return v[int(a) : int(b) if b is not None else None]
 
-
 def _f_replace(v, old: Any, new: Any = "", *_):
     return str(v).replace(str(old), str(new)) if v is not None else ""
-
 
 def _f_markdown(v, *_):
     # Markdown rendering happens client-side; this is a passthrough
     # so the evaluator doesn't error on the filter name.
     return v
-
 
 def _f_plus_days(v, n: Any = 0, *_):
     if v is None:
@@ -245,17 +190,14 @@ def _f_plus_days(v, n: Any = 0, *_):
         return str(v)
     return (dt + timedelta(days=int(n))).date().isoformat()
 
-
 def _f_minus_days(v, n: Any = 0, *_):
     return _f_plus_days(v, -int(n))
-
 
 # Soft aliases used in the spec examples - passthrough so the
 # evaluator doesn't error if the YAML references a custom semantic
 # filter the client interprets locally.
 def _f_passthrough(v, *_):
     return v
-
 
 FILTERS: dict[str, Callable[..., Any]] = {
     "upper": _f_upper,
@@ -292,15 +234,9 @@ FILTERS: dict[str, Callable[..., Any]] = {
     "sev_color": _f_passthrough,
 }
 
-
-# ─────────────────────────── lookup ────────────────────────────
-
-
 _INDEX_RE = re.compile(r"\[(\d+)\]")
 
-
 def _lookup(path: str, scopes: dict[str, Any]) -> Any:
-    """Resolve ``a.b.c[0].d`` against the scope dict."""
     if not path:
         return None
 
@@ -357,10 +293,6 @@ def _lookup(path: str, scopes: dict[str, Any]) -> Any:
                 return None
     return cursor
 
-
-# ─────────────────────────── parser ────────────────────────────
-
-
 def _parse_filter_args(args_text: str, scopes: dict[str, Any]) -> list[Any]:
     if not args_text:
         return []
@@ -393,7 +325,6 @@ def _parse_filter_args(args_text: str, scopes: dict[str, Any]) -> list[Any]:
         out.append(_lookup(cur.strip(), scopes))
     return out
 
-
 def _apply_filter(value: Any, filter_text: str, scopes: dict[str, Any]) -> Any:
     filter_text = filter_text.strip()
     if "(" in filter_text:
@@ -409,9 +340,7 @@ def _apply_filter(value: Any, filter_text: str, scopes: dict[str, Any]) -> Any:
         raise ExprError(f"unknown filter {name!r}")
     return fn(value, *args)
 
-
 def _eval_term(text: str, scopes: dict[str, Any]) -> Any:
-    """Evaluate one term (lookup + filter pipeline)."""
     parts = _split_top("|", text)
     head = parts[0].strip()
     if head.startswith("!"):
@@ -423,7 +352,6 @@ def _eval_term(text: str, scopes: dict[str, Any]) -> Any:
         value = _apply_filter(value, f, scopes)
     return value
 
-
 def _eval_atom(text: str, scopes: dict[str, Any]) -> Any:
     text = text.strip()
     if not text:
@@ -432,9 +360,7 @@ def _eval_atom(text: str, scopes: dict[str, Any]) -> Any:
         return _eval_expr(text[1:-1], scopes)
     return _lookup(text, scopes)
 
-
 def _split_top(sep: str, text: str) -> list[str]:
-    """Split ``text`` on ``sep`` only at the top parenthesis level."""
     out: list[str] = []
     cur = ""
     depth = 0
@@ -476,9 +402,7 @@ def _split_top(sep: str, text: str) -> list[str]:
     out.append(cur)
     return out
 
-
 def _eval_expr(text: str, scopes: dict[str, Any]) -> Any:
-    """Evaluate one full expression - handles ternary / logic / compare."""
     text = text.strip()
     if not text:
         return None
@@ -510,7 +434,7 @@ def _eval_expr(text: str, scopes: dict[str, Any]) -> Any:
                 return result
         return result
 
-    # ``is empty`` / ``is not empty``
+    # `is empty` / `is not empty`
     if " is empty" in text:
         left = text.split(" is empty", 1)[0]
         v = _eval_expr(left, scopes)
@@ -537,25 +461,14 @@ def _eval_expr(text: str, scopes: dict[str, Any]) -> Any:
 
     return _eval_term(text, scopes)
 
-
-# ─────────────────────────── public API ─────────────────────────
-
-
 _TOKEN_RE = re.compile(r"\{\{([^{}]+)\}\}")
 
-
 def evaluate(text: str, scopes: dict[str, Any]) -> Any:
-    """Evaluate one expression text (without the surrounding ``{{ }}``)."""
+    """Evaluate one expression text (without the surrounding `{{ }}`)."""
     return _eval_expr(text, scopes)
 
-
 def substitute(text: str, scopes: dict[str, Any]) -> Any:
-    """Substitute ``{{...}}`` tokens inside a string.
-
-    Special case: when the entire string is a single ``{{...}}``
-    token, return the resolved value verbatim (preserving its type).
-    Otherwise interpolate as a string.
-    """
+    """Substitute `{{...}}` tokens inside a string."""
     if not isinstance(text, str):
         return text
     matches = list(_TOKEN_RE.finditer(text))
@@ -580,7 +493,6 @@ def substitute(text: str, scopes: dict[str, Any]) -> Any:
         return str(v)
 
     return _TOKEN_RE.sub(_repl, text)
-
 
 def substitute_tree(node: Any, scopes: dict[str, Any]) -> Any:
     """Recursively walk a dict/list tree and substitute every string leaf."""

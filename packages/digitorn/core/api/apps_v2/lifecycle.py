@@ -1,8 +1,4 @@
-"""Routes for the lifecycle group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the lifecycle group."""
 
 from __future__ import annotations
 
@@ -105,34 +101,13 @@ from ._shared import (
 router = APIRouter(tags=["apps"])
 
 
-
 async def list_apps(
     request: Request,
     include_disabled: bool = False,
     include_installed: bool = True,
     include_hidden: bool = False,
 ) -> AppResponse:
-    """List apps visible to the caller - unified view.
-
-    Merges three sources so the Flutter client has a single endpoint:
-
-    1. Currently deployed apps (``AppManager._deployed`` - in memory).
-    2. Disabled apps (when ``include_disabled=true``, admin-only wide mode).
-    3. Installed packages that are NOT deployed (broken, never-deployed,
-       or uninstalled-in-progress). Included by default, disable with
-       ``include_installed=false``.
-
-    Each entry now carries:
-      - ``runtime_status``: ``running`` | ``disabled`` | ``broken`` | ``not_deployed``
-      - ``install_status``: from the package registry (``installed``, ``broken``, …)
-      - ``version``, ``is_builtin``, ``is_default``, ``installed_at``
-      - ``deploy_error``: last deploy failure text (or None)
-
-    This replaces the previous split between ``/api/apps`` (runtime only)
-    and the removed ``/api/packages`` (installation catalog). The Hub's
-    "Installed" tab should call this with default params; the sidebar
-    "Running" filter applies ``runtime_status == "running"`` client-side.
-    """
+    """List apps visible to the caller - unified view of deployed + disabled + installed."""
     manager = _get_manager(request)
     user_id = _caller_user_id(request)
 
@@ -143,9 +118,6 @@ async def list_apps(
     # registry-only rows below.
     seen_ids: set[str] = {a.get("app_id", "") for a in apps if isinstance(a, dict)}
 
-    # Fetch all registry rows once so we can enrich deployed entries with
-    # source attribution (source_type, source_uri, install_dir, hash,
-    # installed_by). One bulk query, then O(1) lookup per deployed app.
     registry = getattr(request.app.state, "package_registry", None)
     pkg_by_id: dict[str, dict] = {}
     if registry is not None:
@@ -157,10 +129,6 @@ async def list_apps(
         except Exception as exc:
             logger.debug("registry bulk fetch for list failed: %s", exc)
 
-    # Last-used-at per (app_id) for the caller, derived from
-    # ``user_sessions.last_active_at``. Lets the client sort apps by
-    # recency without a per-app round-trip. One bulk query, indexed
-    # on user_id - O(1) lookup per app afterwards.
     last_used_by_id: dict[str, str] = {}
     if user_id:
         try:
@@ -265,11 +233,6 @@ async def list_apps(
             except Exception as exc:
                 logger.warning("list_installed_packages failed: %s", exc, exc_info=True)
 
-    # Filter out hidden apps unless the caller explicitly requested
-    # them (admin section). Scope-aware: a row hidden at scope='system'
-    # excludes the app from every user's list; hidden at scope='user'
-    # only excludes that specific owner. Single bulk query against the
-    # ``applications`` table -- O(N) over the small returned list.
     if not include_hidden and apps:
         try:
             from sqlalchemy import select as _select
@@ -307,13 +270,7 @@ async def list_apps(
 
 @router.post("/sync-deployed", response_model=AppResponse)
 async def sync_deployed_with_db(request: Request) -> AppResponse:
-    """Admin: reconcile in-memory ``_deployed`` with the DB.
-
-    Drops any deploy whose ``applications`` row was removed out-of-band
-    (direct SQL cleanup, failed partial deploy, etc). Without this the
-    daemon keeps serving ghost apps from its in-memory cache until the
-    next restart. Idempotent and cheap (one SELECT + N undeploys).
-    """
+    """Admin: reconcile in-memory `_deployed` with the DB."""
     perms = list(getattr(request.state, "permissions", []) or [])
     if "*" not in perms:
         raise HTTPException(
@@ -331,16 +288,7 @@ async def sync_deployed_with_db(request: Request) -> AppResponse:
 
 @router.get("/disabled", response_model=AppResponse)
 async def list_disabled(request: Request) -> AppResponse:
-    """List disabled apps visible to the caller.
-
-    The web and Flutter clients call this for the "disabled apps"
-    drawer (re-enable / purge UX). The list includes ``has_bundle``
-    per row so the UI can hide the Re-enable button when the install
-    dir on disk is gone.
-
-    Scoping: non-admin callers see only their own user-scoped disabled
-    apps + every system-scoped disabled app. Admins see everything.
-    """
+    """List disabled apps visible to the caller."""
     manager = _get_manager(request)
     perms = list(getattr(request.state, "permissions", []) or [])
     is_admin = "*" in perms
@@ -362,15 +310,7 @@ async def list_disabled(request: Request) -> AppResponse:
 
 @router.get("/{app_id}/manifest", response_model=AppResponse)
 async def get_app_manifest(request: Request, app_id: str) -> AppResponse:
-    """Return the deployed app's manifest (flat shape consumed by the
-    Flutter and web AppManifest parsers).
-
-    The manifest is a strict subset of ``deployed.summary()``: name,
-    description, icon, color, tags, greeting, quick_prompts, features,
-    workspace_mode. Cached aggressively client-side because it's pinned
-    to the bundle hash. Returns 404 when the app isn't deployed - the
-    callers fall back to AppSummary fields.
-    """
+    """Return the deployed app's manifest (flat shape consumed by the"""
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     if deployed is None:
@@ -381,21 +321,7 @@ async def get_app_manifest(request: Request, app_id: str) -> AppResponse:
 
 @router.get("/{app_id}", response_model=AppResponse)
 async def get_app(request: Request, app_id: str) -> AppResponse:
-    """Get unified details of an installed app - runtime + installation.
-
-    Resolution:
-      1. If the app is deployed, return its full runtime summary
-         enriched with install metadata (version, is_builtin,
-         installed_at, install_status) and ``drift`` from the package
-         registry. ``runtime_status = "running"``.
-      2. Else, if the app has a registry row but isn't deployed, return
-         the install metadata with ``runtime_status`` set to
-         ``not_deployed`` or ``broken`` depending on its install_status.
-      3. Else, 404 / 503 (warming up) via ``_raise_not_deployed``.
-
-    Disabled apps are not returned here; use
-    ``GET /api/apps?include_disabled=true`` as admin to see them.
-    """
+    """Get unified details of an installed app - runtime + installation."""
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     registry = getattr(request.app.state, "package_registry", None)
@@ -427,10 +353,6 @@ async def get_app(request: Request, app_id: str) -> AppResponse:
                 data["install_status"] = (pkg.get("status") or "installed").lower()
                 data["scope"] = pkg.get("scope") or "system"
                 data["owner_user_id"] = pkg.get("owner_user_id")
-                # Source attribution - lets the client tell builtin /
-                # local / hub / git apart. Also exposes install_dir and
-                # content hash so the UI can show where the app came
-                # from and whether it has drifted from source.
                 data["source_type"] = pkg.get("source_type") or ""
                 data["source_uri"] = pkg.get("source_uri") or ""
                 data["installed_by"] = pkg.get("installed_by") or ""
@@ -475,52 +397,18 @@ async def get_app(request: Request, app_id: str) -> AppResponse:
 
 @router.post("/deploy", response_model=AppResponse)
 async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
-    """Deploy an app from a YAML file path.
-
-    The YAML file must be accessible from the daemon's filesystem.
-
-    Two modes:
-    - sync=true (default for backward compat): waits for deploy, returns result
-    - sync=false: returns 202 immediately, deploy runs in background.
-      Poll GET /api/apps/{app_id} to check when it's ready.
-    """
+    """Deploy an app from a YAML file path."""
     _require_permission(request, "apps:deploy")
     manager = _get_manager(request)
 
     if not body.yaml_path:
         raise HTTPException(status_code=400, detail="yaml_path is required")
 
-    # Scope resolution - security model.
-    #
-    # Default: ``scope="user"`` for non-admins (the install is PRIVATE
-    # to the caller, invisible to every other user, and fully managed
-    # by them). This is the safe-by-default rule: no random user can
-    # publish a system-wide app from their CLI.
-    #
-    # Admins (perm "*"): default to ``scope="system"`` (visible to
-    # everyone) - matches the historic behaviour for CI / loopback
-    # bootstrap / package admin flows.
-    #
-    # Explicit ``body.scope``:
-    #   * ``"user"``   - always allowed
-    #   * ``"system"`` - admin-only (returns 403 otherwise)
-    #
-    # ``owner_user_id`` is tracked on EVERY deploy regardless of scope.
-    # The DELETE endpoint reads it so a non-admin who created an app
-    # can still remove it, even at scope="system" if they were granted
-    # the perm to deploy there.
+    # scope default = user for non-admins (private install); system = admin-only (or YAML inside builtins dir).
     caller_user_id = _caller_user_id(request) or None
     perms = list(getattr(request.state, "permissions", []) or [])
     is_admin = "*" in perms
-    # Builtin back-channel: when the YAML path resolves to a file
-    # inside the daemon's `builtins/` directory (the source tree
-    # shipped with the wheel), `scope=system` is allowed for any
-    # caller with `apps:deploy`. Same risk model as
-    # bootstrap_builtins(): only code that ships with the daemon
-    # can be promoted to system scope. Lets the dev CLI redeploy a
-    # builtin when bootstrap timed out at boot, without needing an
-    # admin role to exist in the DB. Computed lazily — only when
-    # the request actually wants scope=system.
+    # YAML inside the daemon's builtins/ tree may deploy at scope=system without admin (same risk model as bootstrap_builtins).
     def _yaml_is_builtin() -> bool:
         try:
             from digitorn.core.packages.bootstrap import _default_builtins_dir
@@ -544,13 +432,8 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
     elif body.scope == "user":
         deploy_scope = "user"
     else:
-        # No explicit scope: secure default. Admin → system (historic),
-        # everyone else → user (private install, deletable by them).
         deploy_scope = "system" if is_admin else "user"
-    # Always track the caller as owner. For scope=system this is
-    # informational (visible-to-all, but creator known); the registry
-    # write below maps it to NULL because the registry constraint
-    # forbids owner on system scope.
+    # always track caller as owner; registry maps to NULL on scope=system but DELETE permission checks read it.
     deploy_owner = caller_user_id
 
     raw_path = Path(body.yaml_path)
@@ -565,11 +448,7 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
             detail="Only .yaml/.yml files are accepted.",
         )
 
-    # Quick compile check (fast, doesn't block) to catch YAML errors early.
-    # Forward any inline secrets so `{{env.SECRET_NAME}}` references resolve
-    # during the pre-flight compile - otherwise valid deploys fail here with
-    # bogus "Environment variable X not found" errors before the background
-    # deploy has a chance to apply the same secrets.
+    # pre-flight compile catches YAML errors fast; forward inline secrets so {{env.X}} references resolve here too.
     try:
         compiled = manager._compiler.compile_file(yaml_path, secrets=body.secrets)
         app_id = compiled.meta.app_id
@@ -577,12 +456,7 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
         errors = getattr(exc, "errors", [str(exc)])
         return AppResponse(success=False, error=f"App compilation failed ({len(errors)} error(s)): {'; '.join(str(e) for e in errors[:5])}")
 
-    # Async deploy - run in background, return immediately
-    # BUG-080: the old flow swallowed deploy failures - POST returned
-    # {status:"deploying"}, a subsequent GET /apps/{id} 404'd, and
-    # nothing explained why. Record the last error per app on the
-    # manager so /diagnostics + a new /api/apps/{id}/deploy-status
-    # route can surface it.
+    # record per-app deploy errors so /diagnostics + /deploy-status can surface async failures.
     async def _deploy_bg():
         try:
             deployed = await manager.deploy(
@@ -599,31 +473,17 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
             try:
                 if hasattr(manager, "_deploy_errors"):
                     manager._deploy_errors.pop(app_id, None)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("lifecycle best-effort block failed: %s", exc)
 
-            # Mirror the deploy as an entry in ``installed_packages``.
-            # Historically the /deploy endpoint only wrote to
-            # ``applications`` (deploy = runtime state) and skipped the
-            # registry (= "where this package came from"), so apps
-            # deployed via ``digitorn dev deploy`` showed up with
-            # scope=null / installed_by=null in the API response and
-            # the daemon's diagnostics surface treated them as "ghost
-            # installs". The registry now mirrors every deploy with
-            # source_type=local + a SHA-256 of the YAML so list_apps
-            # can honestly enrich the response and the uninstall flow
-            # can find what it should clean up.
+            # mirror the deploy as an installed_packages row so list_apps + uninstall can find it.
             try:
                 registry = getattr(request.app.state, "package_registry", None)
                 if registry is not None:
                     import hashlib as _hashlib
                     _yaml_bytes = yaml_path.read_bytes()
                     _hash = _hashlib.sha256(_yaml_bytes).hexdigest()
-                    # ``installed_packages`` strictly forbids owner on
-                    # scope=system rows (see registry.create). The
-                    # creator's user_id stays in ``applications.
-                    # owner_user_id`` regardless, which is what the
-                    # delete-permission check reads.
+                    # installed_packages forbids owner on scope=system rows.
                     _registry_owner = (
                         deploy_owner if deploy_scope == "user" else None
                     )
@@ -650,10 +510,6 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
                         app_id, deploy_scope,
                     )
             except Exception as _reg_exc:
-                # Non-fatal: the deploy already succeeded. Worst case
-                # the API will keep showing scope=null in /api/apps
-                # responses for this app, which is annoying but not
-                # broken.
                 logger.warning(
                     "deploy_registry_upsert_failed app=%s: %s",
                     app_id, _reg_exc, exc_info=True,
@@ -700,42 +556,7 @@ async def deploy_app_upload(
     assets: str | None = Form(None),
     scope: str = Form("system"),
 ) -> AppResponse:
-    """Deploy an app by uploading a YAML file + its referenced assets.
-
-    An app is almost never a single YAML file - it also needs skill
-    markdown files, agent prompt files, and any other asset the YAML
-    references with a relative path. This endpoint accepts the YAML
-    itself AND a JSON-encoded dict of ``{relative_path: content}`` for
-    every companion asset. The daemon writes everything into a single
-    temporary directory so the compiler can resolve all relative paths
-    normally.
-
-    Form fields:
-      - ``file``   : the YAML file (multipart upload, max 1 MB)
-      - ``force``  : optional, ``"true"`` to overwrite an existing deployment
-      - ``secrets``: optional, a JSON-encoded ``{"KEY": "value", ...}`` map
-                     of secrets that will be injected at compile time to
-                     resolve ``{{env.KEY}}`` references without relying on
-                     the daemon's environment.
-      - ``assets`` : optional, a JSON-encoded ``{rel_path: content}`` map
-                     of every companion file referenced by the YAML
-                     (skills/*.md, agent prompts, etc). Paths MUST be
-                     forward-slash relative paths, no absolute paths and
-                     no ``..`` segments - both are rejected for safety.
-                     Max 5 MB total across all assets.
-
-    Example::
-
-        POST /api/apps/deploy/upload
-        Content-Type: multipart/form-data
-        Authorization: Bearer <token>
-
-        file    = <bytes of app.yaml>
-        force   = "true"
-        secrets = '{"DEEPSEEK_API_KEY": "sk-..."}'
-        assets  = '{"skills/commit.md": "# Commit\\n...",
-                    "skills/review.md": "# Review\\n..."}'
-    """
+    """Deploy an app by uploading a YAML file + its referenced assets."""
     _require_permission(request, "apps:deploy")
     manager = _get_manager(request)
 
@@ -815,29 +636,19 @@ async def deploy_app_upload(
                 )
             asset_map[norm] = body
 
-    # Create a dedicated temp DIRECTORY so the YAML AND its assets live
-    # together. The compiler resolves `./skills/commit.md` from the YAML
-    # parent dir, so we need a real directory layout on disk.
+    # dedicated temp dir so the YAML + its assets share a parent (compiler resolves ./skills/X.md relative to the YAML).
     tmp_dir = Path(tempfile.mkdtemp(prefix="digitorn-deploy-"))
     yaml_filename = file.filename or "app.yaml"
-    # Strip any path separators from the filename - only the basename.
     yaml_filename = Path(yaml_filename).name or "app.yaml"
     yaml_path = tmp_dir / yaml_filename
 
     try:
-        # Bulk disk write off-loop. Deploys can ship sizable bundles
-        # (web/dist, prompts, skill assets); doing the YAML + every
-        # asset's write_text inline on the main loop accumulates
-        # hundreds of ms of GIL-held filesystem work per deploy.
+        # bulk disk write off-loop; sizeable bundles (web/dist, skills) accumulate hundreds of ms of GIL-held IO.
         def _write_bundle_to_disk() -> None:
             yaml_path.write_bytes(content)
             for rel, body in asset_map.items():
                 asset_path = tmp_dir / rel
                 asset_path.parent.mkdir(parents=True, exist_ok=True)
-                # Defence in depth: confirm we're still inside tmp_dir
-                # after path resolution (symlink tricks, mixed
-                # separators, ...). We raise here -- caller re-raises
-                # via the to_thread wrapper.
                 try:
                     asset_path.resolve().relative_to(tmp_dir.resolve())
                 except ValueError as _e:
@@ -859,9 +670,6 @@ async def deploy_app_upload(
     )
 
     try:
-        # Off-loop: ``compile_file`` parses YAML + walks the schema +
-        # resolves credentials/secrets. On a heavy app YAML (multi-agent,
-        # many MCP servers, large skill files) this can take 100ms+.
         compiled = await asyncio.to_thread(
             manager._compiler.compile_file, yaml_path, secrets=inline_secrets,
         )
@@ -870,8 +678,6 @@ async def deploy_app_upload(
         await asyncio.to_thread(shutil.rmtree, tmp_dir, True)
         errors = getattr(exc, "errors", [str(exc)])
         error_msg = f"Compilation failed: {'; '.join(str(e) for e in errors[:5])}"
-        # Add a helpful hint when the failure is clearly due to missing
-        # asset uploads rather than a YAML problem.
         if len(asset_map) == 0 and any(
             "file not found" in str(e).lower() for e in errors
         ):
@@ -884,10 +690,6 @@ async def deploy_app_upload(
             )
         return AppResponse(success=False, error=error_msg)
 
-    # Scope resolution: ``scope=user`` ties the install to the caller's
-    # JWT user_id; ``scope=system`` installs globally. Non-admin callers
-    # cannot deploy a system install when a ``scope=user`` was requested
-    # because the manager would try to read user_id and fail.
     caller_user_id = _caller_user_id(request) or None
     deploy_scope = scope if scope in ("system", "user") else "system"
     deploy_owner = (
@@ -931,11 +733,7 @@ async def deploy_app_upload(
 
 @router.post("/validate", response_model=AppResponse)
 async def validate_app(request: Request, body: ValidateRequest) -> AppResponse:
-    """Validate an app YAML file without deploying it.
-
-    Compiles the YAML against the loaded module registry and returns
-    app metadata (modules, agents, security) or compilation errors.
-    """
+    """Validate an app YAML file without deploying it."""
     raw_path = Path(body.yaml_path)
     if raw_path.is_symlink():
         raise HTTPException(status_code=400, detail="Symlinks are not allowed.")
@@ -975,17 +773,7 @@ async def disable_app(
     scope: str | None = None,
     owner_user_id: str | None = None,
 ) -> AppResponse:
-    """Disable a scoped app install - hide it + refuse interaction.
-
-    Permission model identical to DELETE:
-    - Non-admin caller: only their own user-scope install. ``?scope=system``
-      and ``?owner_user_id`` are forbidden (403).
-    - Admin caller: full control - ``?scope=system`` disables the
-      global install, ``?scope=user&owner_user_id=<uid>`` targets
-      another user's private install.
-
-    Built-in apps cannot be disabled.
-    """
+    """Disable a scoped app install - hide it + refuse interaction."""
     _require_permission(request, "apps:undeploy")
     _validate_id(app_id)
     manager = _get_manager(request)
@@ -1020,10 +808,6 @@ async def disable_app(
             reason=reason,
         )
     except RuntimeError as exc:
-        # Same rationale as BUG-065 in workspace.approve: HTTP 200 +
-        # ``success:false`` is contradictory - clients that branch on
-        # status_code think the disable succeeded. Pick a 4xx code that
-        # matches the failure mode (not_found vs builtin-protection).
         msg = str(exc)
         if "not found" in msg.lower():
             raise HTTPException(status_code=404, detail=msg)
@@ -1045,12 +829,7 @@ async def enable_app(
     scope: str | None = None,
     user_id: str | None = None,
 ) -> AppResponse:
-    """Re-enable a disabled app (ADMIN ONLY) and redeploy it.
-
-    Scope-aware: when ``?scope=user&user_id=<uid>`` is supplied the
-    admin re-enables that user's install. Otherwise the system
-    install is targeted. Fails if the install dir was wiped.
-    """
+    """Re-enable a disabled app (ADMIN ONLY) and redeploy it."""
     _validate_id(app_id)
     perms = list(getattr(request.state, "permissions", []) or [])
     is_admin = "*" in perms
@@ -1068,7 +847,6 @@ async def enable_app(
             scope=scope,
         )
     except RuntimeError as exc:
-        # Surface failure as a real HTTP error (BUG-065 pattern).
         msg = str(exc)
         if "not found" in msg.lower():
             raise HTTPException(status_code=404, detail=msg)
@@ -1090,21 +868,7 @@ async def hide_app(
     scope: str | None = None,
     owner_user_id: str | None = None,
 ) -> AppResponse:
-    """Hide an app from non-admin listings without disabling it.
-
-    Sets ``applications.hidden = True`` on the row matching
-    ``(app_id, scope, owner_user_id)``. The app stays deployed and
-    fully functional - only its visibility in ``GET /api/apps``
-    and ``GET /api/public/apps`` changes:
-
-    - Hidden at ``scope=system`` → invisible to every user
-    - Hidden at ``scope=user`` → invisible to the targeted owner only
-
-    Permission model: same as disable. Non-admins can only hide their
-    own user-scope install. Admins can target any scope.
-
-    Reversible via ``POST /api/apps/{id}/show``.
-    """
+    """Hide an app from non-admin listings without disabling it. Reversible via POST /show."""
     _validate_id(app_id)
 
     caller_user_id = _caller_user_id(request) or None
@@ -1181,11 +945,7 @@ async def show_app(
     scope: str | None = None,
     owner_user_id: str | None = None,
 ) -> AppResponse:
-    """Un-hide an app. Inverse of POST /{app_id}/hide.
-
-    Same permission model as hide. Sets ``hidden = False`` +
-    ``hidden_at = NULL`` on the matching row.
-    """
+    """Un-hide an app. Inverse of POST /{app_id}/hide."""
     _validate_id(app_id)
 
     caller_user_id = _caller_user_id(request) or None
@@ -1263,45 +1023,18 @@ async def delete_app(
     scope: str | None = None,
     owner_user_id: str | None = None,
 ) -> AppResponse:
-    """Delete a scoped app install - scope-aware removal.
-
-    **Permission model**:
-
-    - **Non-admin caller**: can ONLY delete their own user-scope
-      install. ``?scope=system`` and ``?owner_user_id`` are forbidden
-      (403). Targeting always resolves to ``(scope=user, owner=caller)``.
-    - **Admin caller**: full control. May pass ``?scope=system`` to
-      remove the global install, or ``?scope=user&owner_user_id=<uid>``
-      to remove another user's private install. Falling back to
-      defaults (no params) means "delete the admin's own user install
-      if any, else the system install".
-
-    **Destructiveness**:
-
-    - ``?undeploy_only=true``: stops in memory only; data preserved.
-      Prefer ``POST /disable`` for user-facing pause.
-    - ``?delete_history=false``: wipes app definition + bundles + disk
-      for this scope but keeps sessions / messages / activations for
-      audit. Not reversible (bundle gone).
-    - Default (``delete_history=true``): total removal of this scope.
-
-    Built-in apps cannot be deleted.
-    """
+    """Delete a scoped app install - scope-aware removal. Built-in apps cannot be deleted."""
     _require_permission(request, "apps:undeploy")
     _validate_id(app_id)
     manager = _get_manager(request)
 
-    # The app might be deployed in memory (common case) OR only in the
-    # DB (e.g. a failed deploy we want to clean up). For a full delete
-    # we accept BOTH states - otherwise only deployed apps.
+    # full delete accepts both in-memory and DB-only states; undeploy_only requires the in-memory presence.
     is_in_memory = _is_deployed(request, app_id)
     if undeploy_only and not is_in_memory:
         raise HTTPException(
             status_code=404, detail=f"App '{app_id}' not deployed",
         )
 
-    # Guard: built-in apps are off-limits. Return immediately, before
-    # touching anything persistent.
     deployed = _get_deployed(request, app_id)
     if deployed is not None and getattr(deployed, "builtin", False):
         return AppResponse(
@@ -1313,14 +1046,11 @@ async def delete_app(
     perms = list(getattr(request.state, "permissions", []) or [])
     is_admin = "*" in perms
 
-    # Permission check #1 - scope=system is admin-only.
     if scope == "system" and not is_admin:
         raise HTTPException(
             status_code=403,
             detail="Only administrators can target the system scope.",
         )
-    # Permission check #2 - non-admins cannot impersonate via
-    # ``owner_user_id``. They get clamped to their own user_id.
     if owner_user_id and not is_admin and owner_user_id != caller_user_id:
         raise HTTPException(
             status_code=403,
@@ -1346,12 +1076,6 @@ async def delete_app(
             },
         )
 
-    # Resolve which install to target.
-    # - scope=system → user_id=None (system installs have no owner).
-    # - scope=user (or default for non-admin) → owner = explicit
-    #   ``owner_user_id`` for admins, else the caller's own id. The
-    #   permission-check block above already 403'd a non-admin trying
-    #   to spoof another owner.
     if scope == "system":
         target_user_id: str | None = None
     else:
@@ -1366,8 +1090,6 @@ async def delete_app(
             delete_history=delete_history,
         )
     except RuntimeError as exc:
-        # Built-in apps raise here - map to a clean 403. Other RuntimeErrors
-        # (e.g. "not found") get the appropriate 4xx status (BUG-065).
         msg = str(exc)
         low = msg.lower()
         if "built-in" in low or "builtin" in low or "cannot delete" in low:
@@ -1379,12 +1101,7 @@ async def delete_app(
         logger.error("delete_app_failed app=%s: %s", app_id, exc, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Delete failed: {exc}")
 
-    # Also drop the matching `installed_packages` registry row so
-    # `GET /api/apps` (which fuses ``manager.list_apps()`` with
-    # ``registry.list_visible_to_user()``) doesn't keep showing the
-    # app as "installed". Two endpoints used to disagree on cleanup
-    # scope: DELETE wiped the deploy layer, POST /uninstall wiped
-    # the registry layer. Now DELETE does both.
+    # drop the matching installed_packages row so list_apps stops showing it as installed.
     try:
         from digitorn.core.api.packages import _get_registry as _get_pkg_registry
 
@@ -1406,16 +1123,7 @@ async def delete_app(
     msg_tail = " (history preserved)" if not delete_history else ""
     actually = bool(result.get("actually_deleted", True))
     if not actually:
-        # No-op: nothing to delete at the target scope. Previously we
-        # returned HTTP 200 + ``success=False`` in the body. Web /
-        # Flutter clients commonly check ``response.ok`` only and
-        # treated the no-op as a success, causing the "I clicked
-        # delete and the app is still there" UX bug. Surface this as
-        # a real 404 so any HTTP-aware client knows the delete didn't
-        # happen without having to parse the body. The detail payload
-        # still carries the same diagnostic info so the FE can show a
-        # precise message ("this is a built-in, installed under a
-        # different scope, or already removed").
+        # surface no-op deletes as a real 404 so HTTP-aware clients don't false-positive on response.ok.
         target_scope = result.get("scope") or scope or "user"
         raise HTTPException(
             status_code=404,
@@ -1459,27 +1167,7 @@ async def delete_app(
 
 @router.post("/{app_id}/reload", response_model=AppResponse)
 async def reload_app(request: Request, app_id: str) -> AppResponse:
-    """Hot-reload a deployed app from its current bundle.
-
-    Use this after updating a secret (e.g. rotating an API key) or when
-    you want to force the in-memory instance to pick up persistent
-    changes without restarting the whole daemon.
-
-    What it does:
-      - Re-reads the app's YAML + assets from the install dir on disk
-      - Re-reads the current secrets from the secret store
-      - Stops the running in-memory instance (drops active sessions)
-      - Rebuilds the app with the fresh secrets and puts it back in
-        the pool of deployed apps
-
-    What it does NOT do:
-      - Does not modify any DB row (Application, AppProfile)
-      - Does not change the install dir on disk
-      - Does not bump the version
-
-    Permission: ``apps:deploy`` (same as deploy, because reload is
-    functionally a redeploy of the same content).
-    """
+    """Hot-reload a deployed app from its current bundle."""
     _require_permission(request, "apps:deploy")
     _validate_id(app_id)
     manager = _get_manager(request)
@@ -1524,11 +1212,7 @@ async def reload_app(request: Request, app_id: str) -> AppResponse:
 
 @router.post("/{app_id}/run", response_model=AppResponse)
 async def run_app(request: Request, app_id: str, body: RunRequest) -> AppResponse:
-    """Run a deployed one-shot app.
-
-    Returns the agent's response. Only works for one_shot mode apps.
-    For conversation mode, use WebSocket/Socket.IO.
-    """
+    """Run a deployed one-shot app."""
     _validate_id(app_id)
     manager = _get_manager(request)
 
@@ -1553,11 +1237,7 @@ async def run_app(request: Request, app_id: str, body: RunRequest) -> AppRespons
 
 @router.post("/{app_id}/pipeline", response_model=AppResponse)
 async def run_pipeline(request: Request, app_id: str, body: PipelineRequest) -> AppResponse:
-    """Execute a pipeline of app calls.
-
-    If the app has a pipeline defined in YAML, uses that.
-    Otherwise, uses the steps provided in the request body.
-    """
+    """Execute a pipeline of app calls."""
     _validate_id(app_id)
     manager = _get_manager(request)
 

@@ -1,10 +1,4 @@
-"""Dataclass models extracted from manager.py.
-
-These are line-equivalent copies of ``DeployedApp`` and ``TurnState``
-from :mod:`digitorn.core.app.manager`. Other modules import them from
-the original location, so we re-export them via the package
-``__init__`` to preserve compatibility.
-"""
+"""Dataclass models extracted from manager.py."""
 
 from __future__ import annotations
 
@@ -20,13 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_mode_ids(compiled: CompiledApp) -> list[str]:
-    """Return the list of mode IDs declared in `runtime.modes`.
-
-    The client uses this list to render the composer's mode picker;
-    the picker hides itself when only one entry is present. Empty
-    runtime / missing block defaults to ``["ask"]`` so apps that
-    don't opt into modes still get a sane default.
-    """
+    """Return the list of mode IDs declared in `runtime.modes`."""
     runtime = getattr(compiled, "runtime", None) or getattr(
         compiled, "execution", None,
     )
@@ -35,24 +23,11 @@ def _extract_mode_ids(compiled: CompiledApp) -> list[str]:
     return ids if ids else ["ask"]
 
 
-# Canonical attachment-type catalogue. Kept here (server-side) so the
-# wildcard ``"*"`` expands consistently regardless of which client is
-# asking for the manifest. Adding a new type means adding it to this
-# list AND to the ``Literal`` union on ``AppMeta.attachments``.
 _ATTACHMENT_TYPES: tuple[str, ...] = ("image", "document", "audio", "video")
 
 
 def _expand_attachments(value: object) -> list[str]:
-    """Normalise ``app.attachments`` for the client manifest.
-
-    Returns:
-      - ``[]`` for ``None`` / unset / unknown shapes — no attachments
-        offered.
-      - The full ``_ATTACHMENT_TYPES`` tuple when the YAML declares
-        ``"*"`` (case-insensitive, whitespace-tolerant).
-      - The original list otherwise (Pydantic already validated each
-        entry against the ``Literal`` union, so we trust it here).
-    """
+    """Normalise `app.attachments` for the client manifest."""
     if value is None:
         return []
     if isinstance(value, str):
@@ -65,11 +40,6 @@ def _expand_attachments(value: object) -> list[str]:
 
 
 def _resolve_default_mode(compiled: CompiledApp) -> str | None:
-    # Policy: prefer ``auto`` when declared, fall back to the first
-    # mode in insertion order, return ``None`` when no modes block
-    # exists. The client uses this to pre-select the picker entry on
-    # first render and to fill the ``mode`` field in the very first
-    # POST /messages body.
     runtime = getattr(compiled, "runtime", None) or getattr(
         compiled, "execution", None,
     )
@@ -108,11 +78,6 @@ class DeployedApp:
 
     @property
     def entry_context(self) -> AgentContext:
-        # Ghost-app guard: a DeployedApp with no contexts is a broken
-        # installation that slipped past bootstrap. The old code did
-        # `next(iter({}))` here, which raised StopIteration mid-request
-        # and silently dropped POSTs. Explicit RuntimeError is caught
-        # by the API layer, which can return 503 Degraded.
         if not self.contexts:
             raise RuntimeError(
                 f"App '{self.app_id}' is registered but has no executable "
@@ -136,11 +101,6 @@ class DeployedApp:
             "app_id": self.app_id,
             "name": meta.name,
             "short_name": getattr(meta, "short_name", ""),
-            # Mode picker IDs derived from `runtime.modes.keys()`.
-            # Clients only need the list of available modes to show
-            # the picker; the full ModeDef stays daemon-side and is
-            # applied at dispatch time. Empty / single-key = picker
-            # hidden client-side.
             "modes": _extract_mode_ids(self.compiled),
             "default_mode": _resolve_default_mode(self.compiled),
             "version": meta.version,
@@ -159,36 +119,19 @@ class DeployedApp:
             "category": getattr(meta, "category", "general"),
             "author": getattr(meta, "author", ""),
             "tags": getattr(meta, "tags", []),
-            # quick_prompts is a Pydantic model list since Phase 2.
-            # Serialise to plain dicts so the API response keeps the
-            # historical contract (list of mappings, not list of objects).
+            # Serialise the Pydantic `quick_prompts` to plain dicts so the
+            # API response keeps the list-of-mappings contract.
             "quick_prompts": [
                 (p.model_dump() if hasattr(p, "model_dump") else dict(p))
                 for p in (getattr(meta, "quick_prompts", []) or [])
             ],
-            # Accepted attachment types for the composer's `+` menu.
-            # ``"*"`` from the YAML is expanded server-side so the
-            # client always sees a flat list. ``None`` / unset = no
-            # attachments (empty list = composer hides the upload
-            # entries). Mirror of `app.attachments` in schema.py.
             "attachments": _expand_attachments(
                 getattr(meta, "attachments", None)
             ),
-            # How the agent sees attached files. Surfaced on the
-            # manifest so clients + tests can verify the deployed
-            # mode without having to crack the bundle on disk.
             "attachments_mode": getattr(meta, "attachments_mode", "auto"),
             "builtin": getattr(self, "builtin", False),
         }
 
-        # ── Client manifest extensions ────────────────────────
-        # The Flutter / web client reads these three blocks to tailor
-        # the UI (hide panels, override theme, surface /commands).
-        # They're always present in the response (empty by default) so
-        # the client can rely on a stable shape.
-        # features / theme can live top-level on the YAML OR nested
-        # under `app:` - the compiler merges both locations, top-level
-        # wins on conflict.
         top_features = dict(getattr(self.compiled, "features", {}) or {})
         nested_features = dict(getattr(meta, "features", {}) or {})
         merged_features = {**nested_features, **top_features}
@@ -203,11 +146,6 @@ class DeployedApp:
             getattr(self.compiled, "slash_commands", []) or []
         )
 
-        # ── Skills (app-declared + user permission flag) ─────────
-        # ``skills`` mirrors the compiled list (command + description,
-        # NO content - the content is daemon-side only and the client
-        # never needs it). ``allow_user_skills`` lets the web client
-        # show / hide the "+ create skill" button.
         skill_list = list(getattr(self.compiled, "skills", []) or [])
         data["skills"] = [
             {
@@ -220,16 +158,8 @@ class DeployedApp:
             getattr(self.compiled, "allow_user_skills", False)
         )
 
-        # ── Compile warnings (non-fatal config smells) ──────────
-        # Surfaced so the Builder canvas, the CLI and the API can show
-        # them. The list is empty when nothing is wrong, so the client
-        # can rely on a stable shape.
         data["warnings"] = list(getattr(self.compiled, "warnings", []) or [])
 
-        # ── Flow block (declarative orchestration graph) ────────
-        # Surfaced as a thin summary so the Flutter / web client can
-        # tell whether the app has a flow without parsing it. The full
-        # graph stays on `compiled.flow` for the runtime + canvas.
         flow_block = getattr(self.compiled, "flow", None)
         if flow_block is not None:
             data["flow"] = {
@@ -240,10 +170,6 @@ class DeployedApp:
             }
         else:
             data["flow"] = None
-        # Background-mode metadata the Flutter dashboard needs to know
-        # *before* it opens an app: which trigger types are wired, which
-        # session mode applies, and the optional declarative payload
-        # schema (so the form can be built without a second round-trip).
         execution = self.compiled.execution
         trigger_types: list[str] = []
         try:
@@ -251,8 +177,8 @@ class DeployedApp:
                 ttype = getattr(t, "type", None) or getattr(t, "trigger_type", None)
                 if ttype:
                     trigger_types.append(str(ttype))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_models best-effort block failed: %s", exc)
         # Channels module providers count as triggers too. Without this,
         # a telegram-only app would look "trigger-less" in the listing.
         try:
@@ -262,18 +188,9 @@ class DeployedApp:
                 ttype = getattr(getattr(prov, "config", None), "type", None) or getattr(prov, "type", None)
                 if ttype and str(ttype) not in trigger_types:
                     trigger_types.append(str(ttype))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_models best-effort block failed: %s", exc)
 
-        # Workspace block - the client uses this to know the app has
-        # a virtual file workspace and which renderer to use. The
-        # ``position`` / ``width_pct`` / ``auto_open_on_first_tool``
-        # fields were added 2026-05-04 so a single YAML can fully
-        # describe its chat-vs-workspace layout (Lovable-style etc.).
-        # ``default_open`` (added 2026-05-14) tells the client to
-        # pre-open the workspace pane on mount, before any agent
-        # action — for Lovable-style apps where the workspace IS
-        # the product surface.
         ws_block = getattr(self.compiled, "workspace", None)
         if ws_block is not None:
             ws_data: dict[str, Any] = {
@@ -306,14 +223,6 @@ class DeployedApp:
                 }
             data["workspace"] = ws_data
 
-        # ── Chat layout / behaviour blocks (added 2026-05-04) ─────
-        # Pure display - the daemon never reads these. The Flutter /
-        # web clients parse them out of the manifest to pick the
-        # right layout / collapse defaults / accent / etc. The
-        # compiler exposes them as flat ``chat_*`` fields on
-        # ``CompiledApp`` (compiler.py); forwarded untouched here.
-        # Defaults (= every block omitted in YAML) preserve the
-        # historical chat UI.
         data["chat_layout"] = getattr(self.compiled, "chat_layout", "default")
         data["chat_density"] = getattr(self.compiled, "chat_density", "comfortable")
         thinking = getattr(self.compiled, "chat_thinking", None)
@@ -331,12 +240,6 @@ class DeployedApp:
                 "hide_details": getattr(tool_calls_blk, "hide_details", False),
                 "strict_mode": getattr(tool_calls_blk, "strict_mode", False),
             }
-            # Surface the static phrase matrix on the manifest so the
-            # frontend has a deterministic default to cycle through
-            # before / instead of the LLM-generated intent_phrases
-            # event. We always ship the static block (it's cheap, a
-            # few hundred bytes) — the frontend ignores it when
-            # strict_mode is off.
             phrases_cfg = getattr(tool_calls_blk, "intent_phrases", None)
             if phrases_cfg is not None:
                 static_cfg = getattr(phrases_cfg, "static", None)
@@ -366,11 +269,6 @@ class DeployedApp:
                     visual, "user_bubble_alignment", "right",
                 ),
             }
-        # Slots (Phase 1, 2026-05-04). Five named placements the
-        # YAML can fill independently. Each slot references an
-        # entry from ``ui.widgets.inline`` by name. Serialised
-        # only when at least one slot is set so consumers can
-        # short-circuit when ``chat_slots`` is absent.
         slots = getattr(self.compiled, "chat_slots", None)
         if slots is not None:
             slot_payload: dict[str, Any] = {}
@@ -387,11 +285,6 @@ class DeployedApp:
                 }
             if slot_payload:
                 data["chat_slots"] = slot_payload
-        # Tool renderers (Phase 3, 2026-05-06). Forward the block
-        # untouched - the dispatcher logic + ``{{tool.*}}`` template
-        # bindings live in each client's ``tool-renderer`` module.
-        # Surfaced only when set so the legacy chip path stays the
-        # default for apps that don't opt in.
         tr = getattr(self.compiled, "chat_tool_renderers", None)
         if tr is not None:
             tr_payload: dict[str, Any] = {
@@ -411,9 +304,6 @@ class DeployedApp:
                     for pat, entry in by_pattern.items()
                 }
             data["tool_renderers"] = tr_payload
-        # Message actions (Phase 2, 2026-05-06). Forward the rules
-        # array untouched - the dispatcher logic + bindings live in
-        # each client's ``message-actions`` module.
         ma = getattr(self.compiled, "chat_message_actions", None)
         if ma is not None:
             ma_payload: dict[str, Any] = {
@@ -445,10 +335,6 @@ class DeployedApp:
                 for r in rules
             ]
             data["message_actions"] = ma_payload
-        # Activity pane (opt-in). Surfaced only when the YAML set
-        # ``ui.activity`` — clients hide the Activity mode entry
-        # when this key is absent. The block itself is forwarded
-        # untouched (no daemon-side interpretation).
         activity = getattr(self.compiled, "chat_activity", None)
         if activity is not None:
             data["activity"] = {
@@ -465,13 +351,6 @@ class DeployedApp:
                 ),
             }
 
-        # Inline widgets (Phase 1, 2026-05-04). Serialised on the
-        # manifest so the client can resolve ``slots.X.ref`` in a
-        # single fetch instead of paying a second round-trip on
-        # every chat panel mount. Mirrors the structure expected
-        # by the v1 widgets engine (each value carries a ``tree``
-        # WidgetNode at minimum). When the YAML doesn't declare
-        # any inline widget, the field is omitted.
         widgets_cfg = getattr(self.compiled, "widgets", None)
         inline_widgets = getattr(widgets_cfg, "inline", None) if widgets_cfg else None
         if inline_widgets:
@@ -512,22 +391,7 @@ class DeployedApp:
 
 @dataclass
 class TurnState:
-    """Per-session in-flight turn state - the single source of truth the
-    state envelope reports to the client.
-
-    The client's UI (animated send button, progress bar, queue chip) is
-    derived exclusively from this dataclass at snapshot time. An event
-    stream merely carries deltas that the server applies to this
-    dataclass, and the client mirrors them. If the client is ever
-    unsure (reconnect, session switch, missed event), it pulls the
-    envelope and rebuilds its UI from scratch.
-
-    Lifecycle: created at ``_chat_locked`` start, updated on each
-    provider / tool event, removed on ``message_done`` /
-    ``message_cancelled`` / ``error`` terminal events. Also removed
-    (and flagged ``interrupted=True``) by the stale-turn watchdog
-    when ``last_activity_at`` lags by > 5 minutes.
-    """
+    """Per-session in-flight turn state - the single source of truth the"""
 
     correlation_id: str
     started_at: float                 # unix seconds (time.time())
@@ -549,37 +413,16 @@ class TurnState:
             "tokens_out": self.tokens_out,
             "tokens_in": self.tokens_in,
             "interrupted": self.interrupted,
-            # Derived convenience for the client - duration the turn
-            # has been running, ms since last observable activity. The
-            # client can compute these too from ``server_time`` but
-            # pre-computing avoids clock-skew confusion.
             "duration_ms": int((time.time() - self.started_at) * 1000),
             "idle_ms": int((time.time() - self.last_activity_at) * 1000),
         }
 
 
-# ── Multi-tenant scoping helpers ──────────────────────────────────
-# An app install is uniquely identified by (app_id, scope, owner_user_id):
-#   - scope="system", owner=""     → install visible to everyone
-#   - scope="user",   owner="<uid>"→ Alice's private install
-#
-# These helpers normalise the two tuple-ish values that callers pass
-# around (user_id + scope) into canonical pair, and derive a single
-# "slug" used as the BundleStore/disk key so user and system bundles
-# never overwrite each other.
 def _normalize_scope(
     user_id: str | None = None,
     scope: str | None = None,
 ) -> tuple[str, str]:
-    """Return (scope, owner_user_id) from the caller's args.
-
-    Rules:
-      - Explicit ``scope="user"`` requires a non-empty user_id.
-      - Explicit ``scope="system"`` always wins (admin path) - owner
-        is coerced to "".
-      - When ``scope`` is None: user_id present → ("user", user_id);
-        user_id absent → ("system", "").
-    """
+    """Return (scope, owner_user_id) from the caller's args."""
     if scope == "user":
         if not user_id:
             raise ValueError("scope='user' requires a user_id")
@@ -592,14 +435,7 @@ def _normalize_scope(
 
 
 def _scoped_slug(app_id: str, scope: str, owner_user_id: str) -> str:
-    """Disk/bundle key for a scoped install.
-
-    System scope returns the bare app_id so legacy deployments
-    (~/.digitorn/apps/{app_id}/) keep their existing location unchanged.
-    User scope prefixes with ``_@<uid>__`` - a pattern that is invalid
-    as a real app_id (app_ids are [a-z0-9_-]) so there can never be a
-    collision with a genuine system app.
-    """
+    """Disk/bundle key for a scoped install."""
     if scope == "user" and owner_user_id:
         safe_owner = owner_user_id.replace("/", "_").replace("\\", "_")
         return f"_@{safe_owner}__{app_id}"
@@ -609,14 +445,7 @@ def _scoped_slug(app_id: str, scope: str, owner_user_id: str) -> str:
 def _resolve_tool_display(
     deployed: Any, name: str, params: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    """Build the ``display`` dict for a tool_call / tool_start SSE event.
-
-    Looks up the action's ``ActionSpec`` via the deployed app's
-    module registry when possible, then delegates to
-    ``build_display`` which handles the full resolution cascade
-    (ActionSpec → legacy labels → regex fallbacks → defaults).
-    Never raises - a failure returns the final-defaults display.
-    """
+    """Build the `display` dict for a tool_call / tool_start SSE event."""
     try:
         from digitorn.core.runtime.tool_display import build_display
         from digitorn.core.runtime.tool_names import to_fqn
@@ -656,18 +485,7 @@ def _resolve_tool_display(
 
 
 def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
-    """Recover an interrupted session by handling orphaned tool_calls.
-
-    When a session crashes mid-turn, the last assistant message may have
-    tool_calls with no corresponding tool results. Instead of deleting
-    those tool_calls (losing info), we inject synthetic "interrupted"
-    results for each. The LLM sees these and can re-execute the tools.
-
-    Also handles orphaned sub-agent spawn calls by injecting a result
-    telling the LLM to re-spawn them.
-
-    Returns the number of recovered tool_calls.
-    """
+    """Recover an interrupted session by handling orphaned tool_calls."""
     if not messages:
         return 0
 
@@ -703,7 +521,7 @@ def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
 
     orphaned_ids = expected_ids - found_ids
     if not orphaned_ids:
-        # All tool results present — clean resume directive.
+        # All tool results present - clean resume directive.
         messages.append({"role": "system", "content": SYS_RESUME_CLEAN})
         return 0
 

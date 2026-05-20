@@ -17,6 +17,8 @@ Usage::
 from __future__ import annotations
 
 import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
@@ -33,11 +35,7 @@ from digitorn.core.config import Settings
 def _is_asyncpg_teardown_noise(exc: BaseException | None) -> bool:
     if exc is None:
         return False
-    # Bare ``CancelledError`` raised during connection cleanup is the
-    # cleanest possible Ctrl+C shutdown signature - the user pressed
-    # Ctrl+C, the loop cancelled the close coroutine, asyncpg surfaces
-    # it. Type-level check because ``str(CancelledError())`` is empty,
-    # so substring matching alone wouldn't catch it.
+    # Type check `CancelledError` directly; `str(exc)` is empty.
     import asyncio as _asyncio
     if isinstance(exc, _asyncio.CancelledError):
         return True
@@ -46,21 +44,17 @@ def _is_asyncpg_teardown_noise(exc: BaseException | None) -> bool:
         "attached to a different loop" in s
         or "unknown protocol state" in s
         or "InternalClientError" in s
-        # Ctrl+C / SIGTERM during an in-flight turn - the persist /
-        # connection-cleanup path tries to schedule futures while the
-        # event loop is already closing. Harmless: the daemon was
-        # shutting down anyway, the next boot reads the same state from
-        # DB and resumes cleanly.
+        # Shutdown-time futures harmless: the daemon resumes from DB.
         or "cannot schedule new futures after shutdown" in s
         or "Event loop is closed" in s
     )
 
 
 class _SuppressAsyncpgTeardownFilter(logging.Filter):
-    """Silences ``Exception terminating connection`` tracebacks from the
+    """Silences `Exception terminating connection` tracebacks from the
     SQLA pool when the underlying error is the known-harmless asyncpg
     cross-loop close race. Attached directly to the pool instance's
-    per-instance logger (``sqlalchemy.pool.impl.<Pool>.0xXXXX``), which
+    per-instance logger (`sqlalchemy.pool.impl.<Pool>.0xXXXX`), which
     is where SA actually emits the record, so there's no propagation /
     ancestor-filter issue.
     """
@@ -78,10 +72,10 @@ class _SuppressAsyncpgTeardownFilter(logging.Filter):
 def _install_pool_logger_filter(engine: AsyncEngine) -> None:
     """Attach the suppression filter to this engine's pool logger.
 
-    SA creates a per-pool logger via ``instance_logger``; the name is
-    predictable once the pool exists (``sqlalchemy.pool.impl.<Class>.0xXXXX``)
+    SA creates a per-pool logger via `instance_logger`; the name is
+    predictable once the pool exists (`sqlalchemy.pool.impl.<Class>.0xXXXX`)
     but we don't have to construct it - the pool object exposes it
-    directly as ``pool.logger``.
+    directly as `pool.logger`.
     """
     try:
         sync_engine = engine.sync_engine
@@ -103,9 +97,9 @@ def _install_pool_logger_filter(engine: AsyncEngine) -> None:
 
 
 def _install_loop_exception_handler() -> None:
-    """Mute the ``Future exception was never retrieved`` twin that
+    """Mute the `Future exception was never retrieved` twin that
     asyncio prints when SA's shielded teardown future completes with
-    the same asyncpg error. Wraps ``new_event_loop`` so freshly-created
+    the same asyncpg error. Wraps `new_event_loop` so freshly-created
     loops (worker_pool, tests) inherit the handler too.
     """
     import asyncio as _asyncio
@@ -135,8 +129,8 @@ def _install_loop_exception_handler() -> None:
         try:
             prev = target_loop.get_exception_handler()
             target_loop.set_exception_handler(_handler_factory(prev))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("database best-effort block failed: %s", exc)
 
     try:
         _install_on(_asyncio.get_event_loop())
@@ -172,7 +166,7 @@ _session_factory: async_sessionmaker[AsyncSession] | None = None
 # (a thread with its own asyncio loop and its own engine + pool)
 # sets this contextvar before running each persist job so all DB
 # code inside the worker uses connections bound to the worker loop.
-# Default ``None`` means "use the module-level _session_factory" -
+# Default `None` means "use the module-level _session_factory" -
 # i.e. the daemon's main engine - so nothing changes for code paths
 # that aren't routed through the worker.
 from contextvars import ContextVar as _ContextVar
@@ -186,15 +180,15 @@ def set_session_factory_override(
 ) -> Any:
     """Push a session-factory override onto the current async context.
 
-    Returns the contextvars Token so the caller can ``reset()`` later.
-    Used exclusively by ``runtime/persist_worker.py``; everywhere else
+    Returns the contextvars Token so the caller can `reset()` later.
+    Used exclusively by `runtime/persist_worker.py`; everywhere else
     relies on the default (module-level factory).
     """
     return _session_factory_override.set(factory)
 
 
 def reset_session_factory_override(token: Any) -> None:
-    """Pop the override pushed by ``set_session_factory_override``."""
+    """Pop the override pushed by `set_session_factory_override`."""
     try:
         _session_factory_override.reset(token)
     except (LookupError, ValueError):
@@ -218,47 +212,20 @@ async def init_db(settings: Settings) -> AsyncEngine:
     if is_sqlite:
         connect_args["check_same_thread"] = False
     if is_asyncpg:
-        # Neon (and any PgBouncer transaction-pool fronted Postgres) is
-        # incompatible with asyncpg's default prepared-statement cache:
-        # the pooler rotates the underlying connection between queries,
-        # so a cached statement handle from query #1 points at a
-        # different session by query #2 - asyncpg surfaces that as
-        # ``InternalClientError: got result for unknown protocol state 3``
-        # and subsequent retries hit
-        # ``RuntimeError: Task got Future attached to a different loop``.
-        # Disabling both caches makes every query self-contained.
+        # Disable the asyncpg prepared-statement cache for PgBouncer /
+        # Neon transaction-pool compatibility (cached handles point at
+        # the wrong session after the pooler rotates).
         connect_args["statement_cache_size"] = 0
         connect_args["prepared_statement_cache_size"] = 0
-        # Generous command timeout - serverless Postgres (Neon) can
-        # take up to 10 s to wake from idle, and the introspection
-        # queries SQLAlchemy runs at startup (``get_columns`` in
-        # ``_migrate_missing_columns``) sometimes time out at the
-        # default if the pooler is also waking. Setting it explicitly
-        # keeps ``command_timeout`` from inheriting whatever Windows
-        # decides for the underlying socket semaphore.
+        # 30 s command timeout: Neon cold-starts can take 10 s+.
         connect_args["command_timeout"] = 30.0
 
     pool_kwargs: dict[str, Any] = {}
     if is_sqlite:
         pool_kwargs["pool_pre_ping"] = True
     elif is_asyncpg:
-        # Small persistent pool reuses the resolved Neon address and
-        # keeps the TLS handshake cost off the hot path.
-        # ``pool_recycle=300`` drops connections before Neon's
-        # idle-close can surprise us.
-        #
-        # ``pool_pre_ping`` is DISABLED on purpose here: SQLAlchemy's
-        # asyncpg pre-ping fires a ``SELECT 1`` on the underlying
-        # asyncpg connection at every checkout. On Windows IOCP the
-        # ``ssl.write`` syscall inside asyncpg blocks the event loop
-        # synchronously when SSL renegotiates -- watchdog measured
-        # 20+ second stalls from this exact path (loop-stall.log
-        # ``asyncpg/connection.py:_do_execute``). ``pool_recycle=300``
-        # already drops idle connections before they go stale; the
-        # only remaining failure mode is "connection died silently
-        # while in the pool", which the FIRST query will surface as
-        # a normal error and SQLA will retry against a fresh
-        # connection.
+        # `pool_pre_ping` stays off: SA's `SELECT 1` would call
+        # `ssl.write` synchronously and stall the loop.
         pool_kwargs.update(
             pool_size=5, max_overflow=10, pool_timeout=30,
             pool_recycle=300, pool_pre_ping=False,
@@ -275,18 +242,12 @@ async def init_db(settings: Settings) -> AsyncEngine:
         **pool_kwargs,
     )
 
-    # Silence the cosmetic cross-loop asyncpg teardown traceback on this
-    # engine's pool. Attached to ``pool.logger`` - the per-instance
-    # logger SA actually emits from, so the filter's reached (ancestor
-    # filters aren't consulted during ``callHandlers`` propagation).
+    # Silence the cosmetic cross-loop asyncpg teardown traceback.
     if is_asyncpg:
         _install_pool_logger_filter(_engine)
 
-    # SQLite under concurrent write load: without WAL mode, any second
-    # writer gets "database is locked" immediately. WAL + busy_timeout
-    # lets readers proceed during writes AND makes writers wait (up to
-    # 5s) on a held lock instead of failing. Measured at N=20 parallel
-    # auth calls: ~35% failure without, 0% with.
+    # WAL + busy_timeout so concurrent SQLite writers don't get
+    # `database is locked`.
     if is_sqlite:
         from sqlalchemy import event as _sa_event
 
@@ -297,25 +258,13 @@ async def init_db(settings: Settings) -> AsyncEngine:
             cur = dbapi_conn.cursor()
             try:
                 cur.execute("PRAGMA journal_mode=WAL")
-                # BANK-GRADE durability: FULL forces fsync on every
-                # commit so the WAL is persisted before the API
-                # returns. Costs ~2-4× on write throughput vs NORMAL
-                # but guarantees NO committed transaction is ever lost
-                # on crash / power failure. For an audit-grade system
-                # this is the right trade: we care about "did this
-                # user really say that" surviving an outage, not about
-                # squeezing the last few hundred TPS out of SQLite.
+                # `synchronous=FULL` fsyncs every commit so no
+                # committed transaction is lost on crash.
                 cur.execute("PRAGMA synchronous=FULL")
-                # 30 s is long enough to absorb bursts of parallel
-                # writes (N=20 registers serialised over WAL took a
-                # couple of seconds in measurement). Raising from 5 s
-                # eliminated the remaining "database is locked" 500s
-                # under N=20 load without affecting the happy path.
+                # 30 s busy timeout absorbs bursts of parallel writes.
                 cur.execute("PRAGMA busy_timeout=30000")
-                # NOTE: PRAGMA foreign_keys=ON exposes a pre-existing
-                # "users → applications" FK mismatch in the schema.
-                # Fix the schema separately before turning this on -
-                # otherwise register/login fails immediately.
+                # `PRAGMA foreign_keys=ON` left off: it exposes a
+                # pre-existing `users -> applications` FK mismatch.
             finally:
                 cur.close()
 
@@ -325,19 +274,9 @@ async def init_db(settings: Settings) -> AsyncEngine:
         expire_on_commit=False,
     )
 
-    # Migration block with retry-with-backoff. Serverless Postgres
-    # providers (Neon, Supabase) suspend the DB after a few minutes
-    # of idle and take 5-10 s to wake on the next connection. The
-    # first connection attempt routinely sees one of:
-    #   - ``OSError [WinError 121]: semaphore timeout`` (Windows
-    #     socket dies during the wake handshake)
-    #   - ``ConnectionDoesNotExistError: connection was closed in
-    #     the middle of operation``
-    #   - ``CannotConnectNowError: the database system is starting up``
-    # Without retry, the daemon fails its lifespan and exits, requiring
-    # the user to manually re-run ``digitorn start``. With retry, the
-    # second attempt almost always succeeds because the wake-up has
-    # completed by then.
+    # Retry-with-backoff to ride out serverless-Postgres cold starts
+    # (Neon, Supabase) that surface as `OSError [WinError 121]`,
+    # `ConnectionDoesNotExistError` or `CannotConnectNowError`.
     import asyncio as _asyncio
     _init_log = logging.getLogger(__name__)
     _MAX_INIT_RETRIES = 4
@@ -350,14 +289,9 @@ async def init_db(settings: Settings) -> AsyncEngine:
                 await conn.run_sync(_migrate_installed_packages_unique_constraint)
                 await conn.run_sync(_migrate_applications_drop_app_id_unique)
                 await conn.run_sync(_migrate_history_log_seq_unique)
-                # history_log is the single source of truth. The ``ts``
-                # column is declared ``unique=True, index=True`` in the
-                # ORM model, so ``create_all`` above produces the
-                # UNIQUE index directly on fresh DBs. The seq-uniqueness
-                # pair (per-session and per-user for kind='event') is
-                # added explicitly by ``_migrate_history_log_seq_unique``
-                # so existing DBs upgrade cleanly even when create_all
-                # would have skipped them.
+                # `create_all` covers the `ts` unique index on fresh
+                # DBs; the explicit migration adds the seq uniqueness to
+                # existing DBs.
             break
         except (OSError, ConnectionError, _asyncio.TimeoutError) as exc:
             last_exc = exc
@@ -370,10 +304,8 @@ async def init_db(settings: Settings) -> AsyncEngine:
             )
             await _asyncio.sleep(backoff_s)
         except Exception as exc:
-            # Catch SQLAlchemy / asyncpg wrappers that obscure the
-            # underlying network error. We inspect the type name and
-            # the cause chain rather than importing the exact classes
-            # (asyncpg is a transitive dep, fine to import lazily).
+            # Inspect the type name + cause chain so we don't import the
+            # asyncpg wrapper classes eagerly.
             text_repr = f"{type(exc).__name__}: {exc}"
             cause = getattr(exc, "__cause__", None)
             cause_text = f"{type(cause).__name__}: {cause}" if cause else ""
@@ -491,22 +423,22 @@ def _migrate_missing_columns(conn) -> None:
 
 
 def _migrate_installed_packages_unique_constraint(conn) -> None:
-    """Drop the legacy unique constraint on ``installed_packages.package_id``.
+    """Drop the legacy unique constraint on `installed_packages.package_id`.
 
     The original schema shipped before per-user scoping had
-    ``package_id`` as a standalone UNIQUE column (or the primary key).
+    `package_id` as a standalone UNIQUE column (or the primary key).
     When we added scoping we replaced that with a composite unique
-    index on ``(package_id, scope, owner_user_id)`` in the model, but
-    SQLAlchemy's ``create_all()`` cannot drop constraints from an
+    index on `(package_id, scope, owner_user_id)` in the model, but
+    SQLAlchemy's `create_all()` cannot drop constraints from an
     existing table - so daemons upgraded from an old build still carry
     the legacy column-level UNIQUE and fail to install a second scope
     of the same package with::
 
         UNIQUE constraint failed: installed_packages.package_id
 
-    Detect the old constraint by inspecting ``sqlite_master`` for the
+    Detect the old constraint by inspecting `sqlite_master` for the
     CREATE TABLE statement and, if the legacy UNIQUE (or PRIMARY KEY
-    on ``package_id`` alone) is present, rebuild the table with the
+    on `package_id` alone) is present, rebuild the table with the
     correct schema preserving all rows.
 
     This is SQLite-specific; PostgreSQL deployments pre-dating the
@@ -524,10 +456,8 @@ def _migrate_installed_packages_unique_constraint(conn) -> None:
     if has_table is None:
         return
 
-    # The definitive signal is the primary key column. The legacy
-    # schema had ``package_id`` as the PK; the current schema has
-    # the surrogate ``id``. PRAGMA table_info returns ``pk=1`` for
-    # the column that's part of the (non-composite) primary key.
+    # The legacy schema had `package_id` as the PK; the current
+    # schema uses the surrogate `id`. Check via `PRAGMA table_info`.
     pk_columns: list[str] = []
     for row in conn.execute(text("PRAGMA table_info(installed_packages)")).fetchall():
         # Row shape: (cid, name, type, notnull, dflt_value, pk)
@@ -546,13 +476,8 @@ def _migrate_installed_packages_unique_constraint(conn) -> None:
         "rebuilding table with composite (package_id, scope, owner_user_id)"
     )
 
-    # Rebuild strategy (SQLite-safe):
-    # 1. Drop all named indexes on the legacy table (they'd collide
-    #    when we recreate the correct ones)
-    # 2. Rename old table
-    # 3. Re-create the correct schema + new indexes via SQLAlchemy
-    # 4. Copy rows from legacy → new, coalescing scope/id
-    # 5. Drop the legacy table
+    # SQLite-safe rebuild: drop named indexes, rename, recreate,
+    # copy rows, drop the legacy table.
     try:
         legacy_indexes = conn.execute(text(
             "SELECT name FROM sqlite_master "
@@ -580,13 +505,8 @@ def _migrate_installed_packages_unique_constraint(conn) -> None:
         new_cols = [c.name for c in Base.metadata.tables["installed_packages"].columns]
         shared_cols = [c for c in new_cols if c in legacy_cols]
 
-        # Build per-column SELECT expressions that normalise legacy
-        # defaults to the new schema's expected values:
-        # - ``scope=''``  →  ``scope='system'``  (built-ins shipped
-        #   before per-user scoping are all system-scoped)
-        # - ``id=''``     →  generate a fresh hex uuid inline
-        #
-        # Everything else is passed through verbatim.
+        # Normalise legacy defaults: empty `scope` → `'system'`;
+        # empty `id` → fresh hex uuid.
         select_exprs: list[str] = []
         for col in shared_cols:
             if col == "scope":
@@ -624,25 +544,25 @@ def _migrate_installed_packages_unique_constraint(conn) -> None:
             conn.execute(text(
                 "ALTER TABLE installed_packages_legacy RENAME TO installed_packages"
             ))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("database best-effort block failed: %s", exc)
         raise
 
 
 def _migrate_applications_drop_app_id_unique(conn) -> None:
-    """Replace the legacy ``app_id`` UNIQUE with a composite scope-aware index.
+    """Replace the legacy `app_id` UNIQUE with a composite scope-aware index.
 
-    Pre-multi-tenant, ``applications.app_id`` was declared UNIQUE, which
+    Pre-multi-tenant, `applications.app_id` was declared UNIQUE, which
     prevents the same app_id from being installed by two users (or a user
     install coexisting with a system install). The new schema drops that
     column-level UNIQUE and adds a composite unique index on
-    ``(app_id, scope, owner_user_id)`` instead.
+    `(app_id, scope, owner_user_id)` instead.
 
     SQLite cannot drop a column-level UNIQUE in-place - the only way is to
     rebuild the table. This helper is idempotent: it detects the legacy
     constraint, rebuilds the table while preserving every row and every
     FK-pointing bundle/profile/session, and then populates the new
-    ``scope`` / ``owner_user_id`` columns with ``'system'`` / ``''`` for
+    `scope` / `owner_user_id` columns with `'system'` / `''` for
     existing rows (backwards-compatible - legacy deploys were all system).
 
     Runs only on SQLite. Other engines get a warning and are expected to
@@ -697,8 +617,8 @@ def _migrate_applications_drop_app_id_unique(conn) -> None:
                 if idx.name == "ix_applications_scope_key":
                     idx.create(conn, checkfirst=True)
                     break
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("database best-effort block failed: %s", exc)
         import logging
         _log = logging.getLogger(__name__)
         _log.info(
@@ -782,26 +702,26 @@ def _migrate_applications_drop_app_id_unique(conn) -> None:
             conn.execute(text(
                 "ALTER TABLE applications_legacy RENAME TO applications"
             ))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("database best-effort block failed: %s", exc)
         raise
 
 
 def _migrate_history_log_seq_unique(conn) -> None:
     """Add the partial UNIQUE indexes that enforce per-scope monotonic
-    seq on ``history_log`` for ``kind='event'`` rows.
+    seq on `history_log` for `kind='event'` rows.
 
-    The model declares the indexes via ``__table_args__`` so a fresh
-    ``create_all`` already produces them. Existing DBs need the
-    explicit ``CREATE UNIQUE INDEX IF NOT EXISTS`` because SQLAlchemy
+    The model declares the indexes via `__table_args__` so a fresh
+    `create_all` already produces them. Existing DBs need the
+    explicit `CREATE UNIQUE INDEX IF NOT EXISTS` because SQLAlchemy
     skips index creation on tables that already exist.
 
     Ordering invariant the indexes enforce:
 
-        - per session  : ``UNIQUE (session_id, seq) WHERE kind='event'
-                          AND session_id IS NOT NULL``
-        - per user-only: ``UNIQUE (user_id,    seq) WHERE kind='event'
-                          AND session_id IS NULL``
+        - per session  : `UNIQUE (session_id, seq) WHERE kind='event'
+                          AND session_id IS NOT NULL`
+        - per user-only: `UNIQUE (user_id,    seq) WHERE kind='event'
+                          AND session_id IS NULL`
 
     If existing rows already violate the invariant (legacy rows from
     the seq-seed bug where module events restarted the counter at 1
@@ -811,7 +731,7 @@ def _migrate_history_log_seq_unique(conn) -> None:
     rather than refusing to start. New rows still go through the
     fixed in-memory counter, so duplicates stop happening.
 
-    Both SQLite (3.8+) and Postgres support the ``WHERE`` clause on
+    Both SQLite (3.8+) and Postgres support the `WHERE` clause on
     UNIQUE INDEX. Older SQLite would silently ignore the WHERE; the
     daemon already documents Python 3.12 + a recent SQLite, so this
     is fine.
@@ -837,24 +757,8 @@ def _migrate_history_log_seq_unique(conn) -> None:
     if has_table is None:
         return
 
-    # Authoritative chat-ordering invariant: ``(session_id, seq, kind)``
-    # is unique across every chat-relevant row. The seq is the SOLE
-    # source of truth for transcript reconstruction (clients do NOT
-    # ship local seqs; the daemon allocates them at user_message
-    # RUNNING / agent emit time and returns them in the POST response
-    # for the user side, embeds them in the SSE envelope for the
-    # agent side). Without this constraint, a daemon retry / replay
-    # bug can persist the same logical row twice and history replay
-    # interleaves nonsense - exactly the regression that produced
-    # 6.5k legacy dups in prod (cleaned 2026-05-02).
-    #
-    # The legacy partial-event-only attempts (commented below) failed
-    # in prod because of the same dups they were trying to prevent -
-    # CREATE UNIQUE INDEX errored on every restart and was skipped.
-    # The 2026-05-02 migration deleted the dups, so this fresh name
-    # creates cleanly going forward. ``kind`` is part of the key so
-    # ``message`` and ``event`` rows can legitimately share a
-    # session_id+seq pair (different streams, both useful).
+    # `(session_id, seq, kind)` is the chat-ordering invariant; the
+    # `kind` axis lets `message` and `event` share a seq.
     statements = [
         (
             "ix_history_session_seq_unique",
@@ -905,15 +809,15 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 def get_session_factory() -> "async_sessionmaker[AsyncSession]":
     """Return the session factory honouring the per-coro override.
 
-    The off-loop persist worker (``runtime/persist_worker.py``) sets
-    ``_session_factory_override`` to its own loop-bound factory before
+    The off-loop persist worker (`runtime/persist_worker.py`) sets
+    `_session_factory_override` to its own loop-bound factory before
     running each job. Without this routing, persist coros would try
     to grab connections from the daemon's main pool - whose asyncpg
     connections are bound to the main event loop - and crash with
-    ``Future attached to a different loop``.
+    `Future attached to a different loop`.
 
-    ContextVars propagate through ``await`` chains and through
-    ``asyncio.create_task`` (Python 3.7+ semantics), so the override
+    ContextVars propagate through `await` chains and through
+    `asyncio.create_task` (Python 3.7+ semantics), so the override
     automatically reaches every nested coroutine without any
     parameter threading.
     """

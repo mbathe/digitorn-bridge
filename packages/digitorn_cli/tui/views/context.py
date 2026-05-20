@@ -1,8 +1,4 @@
-"""Context view - visual context window breakdown with progress bars.
-
-Shows token usage, pressure, breakdown (system prompt, tools, messages),
-and context configuration.
-"""
+"""Context view - visual context window breakdown with progress bars."""
 
 from __future__ import annotations
 

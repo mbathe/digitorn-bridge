@@ -2,12 +2,12 @@
 
 The chat attachments pipeline needs to pull TEXT out of binary files
 (PDF, DOCX, PPTX, ODT, ODS, RTF, XLSX) without depending on the
-``rag`` module being loaded by the app. Pure-chat apps don't need
+`rag` module being loaded by the app. Pure-chat apps don't need
 retrieval - they just need to put the document's text in front of
-the agent (direct mode) or under ``attachments/`` for WsRead (tool
+the agent (direct mode) or under `attachments/` for WsRead (tool
 mode).
 
-This helper reuses the same per-format ingestors that ``rag``
+This helper reuses the same per-format ingestors that `rag`
 already implements, but exposes them through a single async
 function that:
 
@@ -34,9 +34,9 @@ async def extract_text(
     *,
     format_hint: str = "",
 ) -> str:
-    """Return the plain-text content of ``path``.
+    """Return the plain-text content of `path`.
 
-    ``format_hint`` is the canonical suffix (``".pdf"``, ``".docx"``,
+    `format_hint` is the canonical suffix (`".pdf"`, `".docx"`,
     …) typically obtained from :func:`sniff_format` at upload time.
     When empty, the file's on-disk extension is used. Unknown
     extensions fall through to a UTF-8-with-replace read so even

@@ -1,34 +1,8 @@
-"""Compile-time expression linter for ``when:`` and ``expr:`` clauses.
-
-The runtime evaluates these clauses with ``eval()`` against a runtime
-namespace. Phase 4 adds a SYNTACTIC check at compile time so typos
-surface before deploy:
-
-  - Unbalanced parens
-  - Operator typos (``coantains``, ``=>``)
-  - Dangling operators (``a ==``)
-  - Malformed identifier paths (``a..b``, ``.a``)
-  - Unterminated strings
-
-Phase 5 (after the flow runtime ships) will add identifier-vs-namespace
-validation by passing in per-context allowed root names.
-
-Public API::
-
-    parse_expression(expr)          -> Node (AST root)
-    validate_expression(expr, ctx)  -> list[str]   (error messages)
-    collect_identifiers(node)       -> list[str]   (referenced paths)
-
-The dialect is intentionally a strict subset of Python so the runtime
-``eval()`` path keeps working unchanged.
-"""
+"""Compile-time expression linter for `when:` and `expr:` clauses."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
-
-
-# ─── Tokens ────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
@@ -46,7 +20,6 @@ _KEYWORDS = {"true", "false", "null", "default"} | _BOOL_OPS | _UNARY_OPS | _MEM
 
 
 def _tokenize(expr: str) -> tuple[list[_Tok], list[str]]:
-    """Tokenize the expression. Returns (tokens, errors)."""
     tokens: list[_Tok] = []
     errors: list[str] = []
     i = 0
@@ -134,7 +107,6 @@ def _tokenize(expr: str) -> tuple[list[_Tok], list[str]]:
 
 
 def _check_identifier_shape(raw: str, col: int) -> Optional[str]:
-    """Reject malformed identifier paths like ``a..b``, ``.a``, ``a.``."""
     if raw.startswith("."):
         return f"identifier '{raw}' at column {col + 1} starts with a dot"
     if raw.endswith("."):
@@ -144,9 +116,6 @@ def _check_identifier_shape(raw: str, col: int) -> Optional[str]:
     return None
 
 
-# ─── AST ───────────────────────────────────────────────────────────
-
-
 @dataclass
 class Node:
     kind: str  # 'binop', 'unop', 'literal', 'ident', 'keyword'
@@ -154,14 +123,8 @@ class Node:
     children: list["Node"] = field(default_factory=list)
 
 
-# ─── Parser (recursive descent) ────────────────────────────────────
-
-
 class _Parser:
-    """Pratt-ish recursive descent. Precedence:
-
-         or  <  and  <  not  <  comparators / membership  <  primary
-    """
+    """Pratt-ish recursive descent. Precedence:"""
 
     def __init__(self, tokens: list[_Tok]) -> None:
         self.tokens = tokens
@@ -317,15 +280,8 @@ class _Parser:
         return None
 
 
-# ─── Public API ────────────────────────────────────────────────────
-
-
 def parse_expression(expr: str) -> Optional[Node]:
-    """Parse and return the AST root, or None when the expression is empty.
-
-    Errors are silently swallowed - call :func:`validate_expression` for
-    a list of human-readable error messages.
-    """
+    """Parse and return the AST root, or None when the expression is empty."""
     if not expr or not expr.strip():
         return None
     tokens, _ = _tokenize(expr)
@@ -333,11 +289,7 @@ def parse_expression(expr: str) -> Optional[Node]:
 
 
 def validate_expression(expr: str, *, ctx: str = "expression") -> list[str]:
-    """Return the list of error messages for ``expr``. Empty list on success.
-
-    ``ctx`` is a short label prepended to each message so the caller can
-    pin the error to a specific YAML location (e.g. ``"flow.routes[0].when"``).
-    """
+    """Return the list of error messages for `expr`. Empty list on success."""
     if not expr or not expr.strip():
         return [f"{ctx}: empty expression"]
     tokens, lex_errors = _tokenize(expr)
@@ -350,10 +302,7 @@ def validate_expression(expr: str, *, ctx: str = "expression") -> list[str]:
 
 
 def collect_identifiers(node: Optional[Node]) -> list[str]:
-    """Walk the AST and return every identifier path referenced.
-
-    Useful for the future runtime-context validator (Phase 5) that
-    will check ``input.x`` against the actual runtime namespace."""
+    """Walk the AST and return every identifier path referenced."""
     out: list[str] = []
     if node is None:
         return out
@@ -370,19 +319,6 @@ def expression_uses_identifiers(expr: str) -> Iterable[str]:
     return collect_identifiers(parse_expression(expr))
 
 
-# ─── Context schemas ────────────────────────────────────────────
-
-
-# Each expression site has a fixed set of root identifiers the runtime
-# eval namespace exposes. Anything else is a typo and the compile must
-# reject it - that is the Phase 9 strictness upgrade over Phase 4
-# (which only validated syntax).
-
-# HOOK condition.expr context: matches what
-# `digitorn.core.runtime.hooks._eval_expression` puts in the eval()
-# namespace. Adding a key here without adding it to the runtime
-# namespace would break the contract - the linter and the runtime
-# must stay in lockstep.
 HOOK_CONTEXT_ROOTS: frozenset[str] = frozenset({
     "turn",        # int, current turn index
     "tools",       # int, total tool calls so far
@@ -395,16 +331,10 @@ HOOK_CONTEXT_ROOTS: frozenset[str] = frozenset({
     "tool",
     "session",
     "state",
-    # Reserved scalars for future expansion - silently accepted so a
-    # YAML that references them does not break when the runtime gains
-    # support. Mirrors the runtime's permissive eval namespace.
     "True", "False", "None", "true", "false", "null",
 })
 
 
-# FLOW route.when AND flow.decision.expr context: what the flow runtime
-# exposes when evaluating routing conditions. Designed to match what
-# the user's runtime implementation will plumb in tomorrow.
 FLOW_CONTEXT_ROOTS: frozenset[str] = frozenset({
     "input",       # the user input that triggered this flow
     "output",      # the current node's output (after agent / tool ran)
@@ -424,16 +354,7 @@ def validate_expression_against_context(
     ctx: str,
     allowed_roots: frozenset[str],
 ) -> list[str]:
-    """Lint an expression for both syntactic correctness AND identifier
-    references that resolve to ``allowed_roots``.
-
-    Returns a list of error strings prefixed with ``ctx``. Empty when
-    the expression is sound.
-
-    This is the Phase 9 upgrade over :func:`validate_expression`: the
-    function still catches every syntactic mistake (paren imbalance,
-    typo in operator, ...) AND now also flags ``input.kndr`` (when the
-    user meant ``input.kind``) because ``kndr`` won't be a valid path."""
+    """Lint an expression for both syntactic correctness AND identifier"""
     syntactic = validate_expression(expr, ctx=ctx)
     if syntactic:
         return syntactic

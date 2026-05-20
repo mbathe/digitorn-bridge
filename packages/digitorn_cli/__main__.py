@@ -1,10 +1,11 @@
-"""Entry point: python -m digitorn_cli
-
-Standalone CLI client for the Digitorn daemon.
-"""
+"""Entry point: python -m digitorn_cli"""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 import typer
 
 from digitorn_cli.run import run_cli
@@ -58,8 +59,8 @@ def _reset_terminal() -> None:
         # Disable mouse tracking + restore cursor + reset modes
         sys.stdout.write("\033[?1000l\033[?1003l\033[?1006l\033[?25h\033[?1049l")
         sys.stdout.flush()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("__main__ best-effort block failed: %s", exc)
 
 
 def main() -> None:

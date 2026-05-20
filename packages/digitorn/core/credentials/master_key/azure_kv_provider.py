@@ -1,24 +1,4 @@
-"""AzureKeyVaultProvider - envelope encryption via Azure Key Vault.
-
-Same envelope pattern. The CMK is a Key in an Azure Key Vault, accessed
-via Azure AD authentication (managed identity, service principal, or
-Azure CLI).
-
-Configuration:
-
-    DIGITORN_KMS=azure_kv
-    AZURE_KV_VAULT_URL=https://digitorn-kv.vault.azure.net
-    AZURE_KV_KEY_NAME=digitorn-master
-    AZURE_KV_KEY_VERSION=  (optional; defaults to current)
-    # Auth via DefaultAzureCredential chain:
-    #   - AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_CLIENT_SECRET
-    #   - or managed identity if running on Azure VM/AKS
-
-The Azure Key Vault Encrypt/Decrypt API works with `RSA-OAEP-256` for
-asymmetric keys or `AES256GCM` / `AES-KW` for symmetric. We use
-`RSA-OAEP-256` by default (most widely supported) but the algorithm is
-configurable via env var if you need symmetric.
-"""
+"""AzureKeyVaultProvider - envelope encryption via Azure Key Vault."""
 
 from __future__ import annotations
 
@@ -150,10 +130,6 @@ class AzureKeyVaultProvider:
         import asyncio
         try:
             client = self._ensure_client()
-            # CryptographyClient doesn't have a cheap probe; the
-            # cheapest thing is to fetch the key metadata via
-            # `get_key_operations()` (which the SDK calls lazily on
-            # first use). Trigger by trying to access `.key`.
             def _call() -> Any:
                 return client.key
 
@@ -167,6 +143,6 @@ class AzureKeyVaultProvider:
         try:
             if self._client is not None and hasattr(self._client, "close"):
                 self._client.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("azure_kv_provider best-effort block failed: %s", exc)
         self._client = None

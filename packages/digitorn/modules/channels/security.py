@@ -1,17 +1,4 @@
-"""Channel security primitives.
-
-Every security check is isolated in this module so it can be tested
-independently and audited in one place. No security logic lives in
-adapters or the pipeline - they all delegate here.
-
-Security layers:
-1. Payload size - checked BEFORE JSON parsing (prevents OOM).
-2. Signature verification - HMAC-SHA256, constant-time comparison.
-3. API key verification - constant-time comparison.
-4. Payload sanitization - strip dangerous keys, limit depth/size.
-5. Outbound secret filtering - redact API keys/tokens before sending.
-6. Rate limiting - per-source sliding window.
-"""
+"""Channel security primitives."""
 
 from __future__ import annotations
 
@@ -23,8 +10,6 @@ import secrets
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
-# ── Constants ────────────────────────────────────────────────────────
 
 # Maximum nesting depth for inbound payloads
 MAX_PAYLOAD_DEPTH = 10
@@ -59,21 +44,9 @@ _DANGEROUS_KEYS = frozenset({
     "__globals__", "__builtins__", "__subclasses__",
 })
 
-
-# ── Webhook token generation ─────────────────────────────────────────
-
-
 def generate_webhook_token() -> str:
-    """Generate a cryptographically secure webhook path token.
-
-    32 bytes = 64 hex chars. Used in webhook URL paths to prevent
-    endpoint enumeration: /channels/{app_id}/hook/{instance}/{token}
-    """
+    """Generate a cryptographically secure webhook path token."""
     return secrets.token_hex(32)
-
-
-# ── Signature verification ───────────────────────────────────────────
-
 
 def verify_hmac_signature(
     payload_bytes: bytes,
@@ -81,21 +54,7 @@ def verify_hmac_signature(
     secret: str,
     algorithm: str = "sha256",
 ) -> bool:
-    """Verify HMAC signature with constant-time comparison.
-
-    Supports common webhook signature formats:
-    - Raw hex: ``abc123def...``
-    - Prefixed: ``sha256=abc123def...``
-
-    Args:
-        payload_bytes: Raw request body bytes.
-        signature: Signature from the request header.
-        secret: Shared secret (from SecretStore).
-        algorithm: Hash algorithm (sha256, sha1).
-
-    Returns:
-        True if signature is valid.
-    """
+    """Verify HMAC signature with constant-time comparison."""
     if not signature or not secret:
         return False
 
@@ -116,40 +75,14 @@ def verify_hmac_signature(
 
     return hmac.compare_digest(expected, signature)
 
-
 def verify_api_key(provided: str, expected: str) -> bool:
-    """Verify API key with constant-time comparison.
-
-    Args:
-        provided: Key from request header (X-API-Key).
-        expected: Expected key (from SecretStore).
-
-    Returns:
-        True if keys match.
-    """
+    """Verify API key with constant-time comparison."""
     if not provided or not expected:
         return False
     return hmac.compare_digest(provided, expected)
 
-
-# ── Payload sanitization ─────────────────────────────────────────────
-
-
 def sanitize_payload(data: Any, *, _depth: int = 0) -> Any:
-    """Sanitize an inbound payload to prevent injection and DoS.
-
-    Recursively processes dicts and lists:
-    - Strips keys starting with ``__`` or ``$$`` (prototype pollution).
-    - Removes known dangerous keys (``__proto__``, ``constructor``, etc.).
-    - Truncates strings longer than MAX_STRING_LENGTH.
-    - Limits nesting depth to MAX_PAYLOAD_DEPTH.
-    - Limits dict keys to MAX_DICT_KEYS per level.
-    - Limits list items to MAX_LIST_ITEMS per level.
-    - Converts non-UTF8 bytes to empty string.
-
-    Returns:
-        Sanitized copy of the data (original is not mutated).
-    """
+    """Sanitize an inbound payload to prevent injection and DoS."""
     if _depth > MAX_PAYLOAD_DEPTH:
         return "[depth_limit_exceeded]"
 
@@ -194,17 +127,8 @@ def sanitize_payload(data: Any, *, _depth: int = 0) -> Any:
     # Unknown type - convert to string safely
     return str(data)[:MAX_STRING_LENGTH]
 
-
 def check_payload_size(raw_bytes: bytes, max_bytes: int) -> tuple[bool, str]:
-    """Check raw payload size BEFORE parsing.
-
-    Args:
-        raw_bytes: Raw request body.
-        max_bytes: Maximum allowed size.
-
-    Returns:
-        (is_ok, error_message).
-    """
+    """Check raw payload size BEFORE parsing."""
     size = len(raw_bytes)
     if size > max_bytes:
         return False, (
@@ -213,20 +137,11 @@ def check_payload_size(raw_bytes: bytes, max_bytes: int) -> tuple[bool, str]:
         )
     return True, ""
 
-
 def check_content_type(
     content_type: str,
     allowed: frozenset[str] | None = None,
 ) -> tuple[bool, str]:
-    """Validate Content-Type against whitelist.
-
-    Args:
-        content_type: Value from Content-Type header.
-        allowed: Allowed MIME types. Default: JSON + form.
-
-    Returns:
-        (is_ok, error_message).
-    """
+    """Validate Content-Type against whitelist."""
     if allowed is None:
         allowed = frozenset({
             "application/json",
@@ -244,26 +159,11 @@ def check_content_type(
         )
     return True, ""
 
-
-# ── Outbound secret filtering ────────────────────────────────────────
-
-
 def filter_secrets(text: str) -> str:
-    """Scan outbound text for secret-like patterns and redact them.
-
-    Used before sending agent responses through any channel to prevent
-    accidental credential leakage.
-
-    Args:
-        text: The agent's response text.
-
-    Returns:
-        Text with secrets replaced by [REDACTED].
-    """
+    """Scan outbound text for secret-like patterns and redact them."""
     for pattern in _SECRET_PATTERNS:
         text = pattern.sub("[REDACTED]", text)
     return text
-
 
 def filter_secrets_in_dict(data: dict[str, Any]) -> dict[str, Any]:
     """Recursively filter secrets from a dict (e.g., structured_data)."""

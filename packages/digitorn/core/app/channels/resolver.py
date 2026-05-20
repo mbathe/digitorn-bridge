@@ -1,55 +1,4 @@
-"""UserResolver - auto-resolve user-specific delivery targets for channels.
-
-Channels like SMS, email, or Telegram need to know *where* to send a
-notification for a given user.  Instead of requiring the LLM agent to
-specify ``output_config`` manually for every delivery, the resolver
-automatically fetches user contact info from a data source (database,
-HTTP API, etc.) using the existing module system.
-
-Think of it like authentication middleware: the system knows who the user
-is (via ``session_id``), and the resolver maps that identity to delivery
-targets (phone number, email address, Telegram chat ID).
-
-Configuration (YAML)::
-
-    channels:
-      sms_alerts:
-        type: sms
-        config:
-          account_sid: "{{env.TWILIO_SID}}"
-          from_number: "+33600000000"
-        user_resolver:
-          module: database
-          action: fetch_results
-          params:
-            query: "SELECT phone, email FROM users WHERE session_id = :session_id"
-          mapping:
-            to_number: phone
-
-      email_reports:
-        type: email
-        config:
-          smtp_host: "smtp.example.com"
-        user_resolver:
-          module: database
-          action: fetch_results
-          params:
-            query: "SELECT email, name FROM users WHERE session_id = :session_id"
-          mapping:
-            to_address: email
-            recipient_name: name
-
-At delivery time:
-
-1. If the channel has a ``user_resolver`` and ``session_id`` is known:
-   - Execute ``module.action(params)`` with ``:session_id`` replaced
-   - Map result fields to per-delivery config fields via ``mapping``
-   - Merge with any explicit ``output_config`` (explicit wins)
-2. Otherwise: use ``output_config`` as-is (backward compatible)
-
-The resolver uses the **same modules** the agent uses (database, http, etc.),
-so there's zero new infrastructure to set up.
-"""
+"""UserResolver - auto-resolve user-specific delivery targets for channels."""
 
 from __future__ import annotations
 
@@ -61,29 +10,14 @@ logger = logging.getLogger(__name__)
 
 
 class ModuleExecutor(Protocol):
-    """Protocol for executing a module action.
-
-    Any object with an ``execute(action, params)`` async method qualifies.
-    In practice this is a module instance from the registry.
-    """
+    """Protocol for executing a module action."""
 
     async def execute(self, action: str, params: dict[str, Any]) -> Any: ...
 
 
 @dataclass
 class UserResolverConfig:
-    """Configuration for auto-resolving user delivery targets.
-
-    Attributes:
-        module: Module ID to query (e.g. "database", "http").
-        action: Action to call on the module (e.g. "fetch_results", "get").
-        params: Parameters for the action. The placeholder ``:session_id``
-            is replaced with the actual session_id at resolve time.
-        mapping: Maps result field names to per-delivery config field names.
-            e.g. ``{"to_number": "phone"}`` means: take the ``phone`` field
-            from the query result and put it in ``to_number``.
-        cache_ttl: How long to cache resolved results (seconds). 0 = no cache.
-    """
+    """Configuration for auto-resolving user delivery targets."""
 
     module: str
     action: str
@@ -93,11 +27,7 @@ class UserResolverConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> UserResolverConfig:
-        """Build a UserResolverConfig from a dict, validating field types.
-
-        Raises ValueError with a clear message if the config is malformed,
-        instead of crashing later with a cryptic AttributeError or TypeError.
-        """
+        """Build a UserResolverConfig from a dict, validating field types."""
         if not isinstance(data, dict):
             raise ValueError(f"UserResolverConfig requires a dict, got {type(data).__name__}")
 
@@ -134,15 +64,7 @@ class UserResolverConfig:
 
 
 class UserResolver:
-    """Resolves user-specific delivery config from a data source.
-
-    One resolver per channel instance (created at deploy time).
-    Uses the app's module instances for queries (no new connections needed).
-
-    Args:
-        config: Resolver configuration from YAML.
-        modules: Map of module_id → module instance (from bootstrap).
-    """
+    """Resolves user-specific delivery config from a data source."""
 
     def __init__(
         self,
@@ -167,16 +89,7 @@ class UserResolver:
         session_id: str | None,
         output_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Resolve per-delivery config for a user.
-
-        Args:
-            session_id: User's session ID. If None, returns output_config as-is.
-            output_config: Explicit per-delivery overrides. These always win
-                over auto-resolved values.
-
-        Returns:
-            Final per-delivery config dict for the channel.
-        """
+        """Resolve per-delivery config for a user."""
         output_config = output_config or {}
 
         if not session_id:
@@ -209,21 +122,10 @@ class UserResolver:
     async def _resolve_from_user_store(
         self, session_id: str
     ) -> dict[str, Any] | None:
-        """Identity-from-UserStore is no longer supported.
-
-        The daemon does not own user identity anymore - it lives at
-        the central auth service. Channel routing must rely on the
-        configured module resolver (``self._query`` below) which can
-        fetch contact info from any module the app declares (typically
-        a passthrough to the auth service via http.get).
-
-        Kept as a no-op so the resolver call chain stays unchanged
-        and the falls-through-to-module path keeps working.
-        """
+        """Identity-from-UserStore is no longer supported."""
         return None
 
     async def _query(self, session_id: str) -> dict[str, Any] | None:
-        """Execute the configured module action to look up user info."""
         module = self._modules.get(self._config.module)
         if module is None:
             logger.error(
@@ -267,7 +169,6 @@ class UserResolver:
             return None
 
     def _get_cached(self, session_id: str) -> dict[str, Any] | None:
-        """Get cached result if still valid."""
         if self._config.cache_ttl <= 0:
             return None
         entry = self._cache.get(session_id)
@@ -281,7 +182,6 @@ class UserResolver:
         return resolved
 
     def _set_cached(self, session_id: str, resolved: dict[str, Any]) -> None:
-        """Cache a resolved result."""
         if self._config.cache_ttl <= 0:
             return
         import time
@@ -301,14 +201,7 @@ class UserResolver:
 
 
 def _inject_session_id(params: dict[str, Any], session_id: str) -> dict[str, Any]:
-    """Replace :session_id placeholders in param values.
-
-    Works recursively on string values in the dict. The placeholder
-    ``:session_id`` in string values is replaced with the actual session_id.
-
-    Also supports ``{{session_id}}`` template syntax for consistency with
-    the rest of the YAML variable system.
-    """
+    """Replace :session_id placeholders in param values."""
     result: dict[str, Any] = {}
     for key, value in params.items():
         if isinstance(value, str):

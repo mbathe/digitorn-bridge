@@ -1,35 +1,4 @@
-"""Tool-call detector - robust, format-agnostic, balanced-bracket aware.
-
-Replaces a dozen ad-hoc regexes with one module that:
-
-1. ``find_balanced_close(text, start)`` - generic matcher that finds
-   the matching ``]`` / ``}`` / ``)`` for an opening bracket at *start*.
-   Respects strings (`"..."`, `'...'`) and escape sequences so a quoted
-   bracket inside a value doesn't confuse the match.
-
-2. ``parse_call_object(json_text)`` - recognises every common shape of
-   a "call" JSON object:
-        {"name": X, "arguments": {...}}
-        {"name": X, "params": {...}}
-        {"name": X, "args": {...}}
-        {"tool": X, "params": {...}}
-   Returns ``(name, args_dict)`` or ``None``.
-
-3. Format extractors - each is a small function that returns a list of
-   ``(name, args)`` tuples. Registered formats so far:
-        - ``<tool_call>{...}</tool_call>`` - open/close tags (also
-          tolerates missing close)
-        - ``tool_calls: [ {...} , {...} ]`` - JSON array after a label
-        - ``run_parallel(actions=[...])`` - Python-style function call
-        - Bare ``{...}`` object containing a ``name`` + args key
-        - ``工具调用:`` + JSON / tag (CJK label variants)
-
-4. ``extract_all_calls(content)`` - runs every extractor, returns the
-   first non-empty result plus the text preceding it (to preserve any
-   explanatory prose the model emitted before the calls).
-
-Adding a new format = one function + a line in the registry.
-"""
+"""Tool-call detector - robust, format-agnostic, balanced-bracket aware."""
 from __future__ import annotations
 
 import json
@@ -40,19 +9,11 @@ from typing import Any, Callable, Iterable
 logger = logging.getLogger(__name__)
 
 
-# ── Bracket matchers (strings + escapes aware) ─────────────────────
-
 _BRACKET_PAIRS = {"[": "]", "{": "}", "(": ")"}
 
 
 def find_balanced_close(text: str, start: int) -> int:
-    """Return the index of the matching closer for the bracket at *start*.
-
-    Returns -1 if no match is found.
-
-    Respects string literals ``"..."`` / ``'...'`` and ``\\``-escapes
-    so brackets inside strings don't count toward the balance.
-    """
+    """Return the index of the matching closer for the bracket at *start*."""
     if start >= len(text):
         return -1
     opener = text[start]
@@ -87,12 +48,7 @@ def find_balanced_close(text: str, start: int) -> int:
 
 
 def try_parse_json_relaxed(text: str) -> Any:
-    """Try strict JSON then several gentle repairs.
-
-    - Strips trailing commas
-    - Fixes bare Windows backslashes (``C:\\Users`` → ``C:\\\\Users``)
-    - Strips surrounding whitespace / outer parens
-    """
+    """Try strict JSON then several gentle repairs."""
     text = text.strip()
     if not text:
         return None
@@ -115,17 +71,12 @@ def try_parse_json_relaxed(text: str) -> Any:
         return None
 
 
-# ── Call-object parser ──────────────────────────────────────────────
-
 _NAME_KEYS = ("name", "tool", "function", "action", "tool_name")
 _ARGS_KEYS = ("arguments", "params", "args", "parameters", "input")
 
 
 def parse_call_object(obj: Any) -> tuple[str, dict] | None:
-    """Extract (name, args) from a parsed JSON-like dict.
-
-    Accepts the full cross-section of call shapes emitted by LLMs.
-    """
+    """Extract (name, args) from a parsed JSON-like dict."""
     if not isinstance(obj, dict):
         return None
     name = None
@@ -151,16 +102,12 @@ def parse_call_object(obj: Any) -> tuple[str, dict] | None:
     return (name, args)
 
 
-# ── Helpers to scan for structured blocks ──────────────────────────
-
 def _strip_call_noise(body: str) -> str:
-    """Remove inner ``<tool_call>``/``</tool_call>`` tags that some
-    models nest inside their arrays."""
+    """Remove inner `<tool_call>`/`</tool_call>` tags that some"""
     return re.sub(r"</?tool_call\s*/?>", "", body, flags=re.IGNORECASE)
 
 
 def _iter_json_objects(body: str) -> Iterable[str]:
-    """Yield each balanced ``{...}`` substring in *body*."""
     i = 0
     while i < len(body):
         if body[i] == "{":
@@ -185,8 +132,7 @@ _LABEL_MARKERS = (
 
 
 def _trim_preceding_label(content: str, pos: int) -> int:
-    """Walk back from *pos* skipping whitespace + any known label
-    (CJK/English/Spanish) so text_before doesn't include the marker."""
+    """Walk back from *pos* skipping whitespace + any known label"""
     i = pos
     while i > 0 and content[i - 1] in " \t\n\r":
         i -= 1
@@ -199,14 +145,8 @@ def _trim_preceding_label(content: str, pos: int) -> int:
     return i
 
 
-# ── Format extractors (return list of (name, args_dict)) ────────────
-
 def extract_tool_call_tags(content: str) -> tuple[int, list[tuple[str, dict]]] | None:
-    """Matches ``<tool_call>{...}</tool_call>`` and unterminated variants.
-
-    Also strips any preceding label marker (``工具调用:``, etc.) from
-    the reported start position so text_before is clean.
-    """
+    """Matches `<tool_call>{...}</tool_call>` and unterminated variants."""
     start = content.lower().find("<tool_call>")
     if start == -1:
         return None
@@ -242,10 +182,7 @@ def extract_tool_call_tags(content: str) -> tuple[int, list[tuple[str, dict]]] |
 
 
 def extract_tool_calls_label(content: str) -> tuple[int, list[tuple[str, dict]]] | None:
-    """Matches ``tool_calls: [ ... ]`` / ``tool_call: [...]`` labels.
-
-    Also covers the CJK/ES variants via the aliased labels list.
-    """
+    """Matches `tool_calls: [ ... ]` / `tool_call: [...]` labels."""
     labels = [
         "tool_calls:",
         "tool_call:",
@@ -283,11 +220,7 @@ def extract_tool_calls_label(content: str) -> tuple[int, list[tuple[str, dict]]]
 
 
 def extract_python_call(content: str) -> tuple[int, list[tuple[str, dict]]] | None:
-    """Matches Python-style function calls that wrap an array of tool calls.
-
-    Recognised prefixes: ``run_parallel``, ``parallel_tool_use``,
-    ``parallel_tools``, ``batch_tools``, ``execute_tools``, ``invoke_tools``.
-    """
+    """Matches Python-style function calls that wrap an array of tool calls."""
     fn_names = (
         "run_parallel", "parallel_tool_use", "parallel_tools",
         "batch_tools", "execute_tools", "invoke_tools",
@@ -337,12 +270,7 @@ def extract_python_call(content: str) -> tuple[int, list[tuple[str, dict]]] | No
 
 
 def extract_bare_object(content: str) -> tuple[int, list[tuple[str, dict]]] | None:
-    """Matches a bare ``{"name": "X", "arguments": {...}}`` with no wrapper.
-
-    Last-resort extractor - only fires when stricter formats didn't
-    match. Scans every ``{...}`` in the content for one that has a
-    ``name`` + args shape.
-    """
+    """Matches a bare `{"name": "X", "arguments": {...}}` with no wrapper."""
     for i, ch in enumerate(content):
         if ch != "{":
             continue
@@ -357,8 +285,6 @@ def extract_bare_object(content: str) -> tuple[int, list[tuple[str, dict]]] | No
     return None
 
 
-# ── Registry + master entry point ───────────────────────────────────
-
 # Order matters: more specific formats first so their text_before is
 # preserved, then fallbacks.
 _EXTRACTORS: list[Callable[[str], tuple[int, list[tuple[str, dict]]] | None]] = [
@@ -372,10 +298,7 @@ _EXTRACTORS: list[Callable[[str], tuple[int, list[tuple[str, dict]]] | None]] = 
 def extract_all_calls(
     content: str,
 ) -> tuple[str, list[tuple[str, dict]]] | None:
-    """Run every registered extractor and return the earliest match.
-
-    Returns (text_before_match, calls_list) or None.
-    """
+    """Run every registered extractor and return the earliest match."""
     best: tuple[str, int, list[tuple[str, dict]]] | None = None  # (label, pos, calls)
     for extractor in _EXTRACTORS:
         try:

@@ -1,9 +1,4 @@
-"""Event classification helpers for TUI backends.
-
-Pure functions that classify tool names as memory/agent tools
-and extract result data from various response formats.
-No runtime dependencies - usable by any client.
-"""
+"""Event classification helpers for TUI backends."""
 
 from __future__ import annotations
 

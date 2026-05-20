@@ -1,8 +1,4 @@
-"""File watcher adapter - trigger on new files.
-
-Inbound-only. Polls glob patterns for new files. Ported from
-``core/runtime/modes/background.py._watch_loop``.
-"""
+"""File watcher adapter - trigger on new files."""
 
 from __future__ import annotations
 
@@ -22,7 +18,6 @@ from digitorn.modules.channels.adapter import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 class FileWatcherAdapter(BaseChannelAdapter):
     """File watcher trigger - inbound only."""
@@ -53,22 +48,13 @@ class FileWatcherAdapter(BaseChannelAdapter):
             logger.error("file_watcher_no_paths")
             return
 
-        # BUG-108: compute the resolved root of each watched pattern
-        # up front so the polling loop can reject symlinks whose
-        # target escapes that root. Without this, a symlink dropped
-        # into a watched dir triggered an activation with the agent's
-        # message carrying arbitrary file content (e.g. /etc/passwd),
-        # effectively turning file_watcher into a data-exfiltration
-        # channel. We resolve ``pattern`` down to its literal prefix
-        # (everything before the first glob metachar) and enforce
-        # ``resolved.is_relative_to(prefix_resolved)``.
+        # Resolve each watched pattern to its literal prefix so the loop can reject
+        # symlinks whose target escapes that root (data-exfiltration guard).
         import re as _re
 
         def _pattern_prefix(pat: str) -> Path:
-            # Split on the first glob metacharacter.
             m = _re.search(r"[\*\?\[]", pat)
             head = pat[:m.start()] if m else pat
-            # Strip trailing separator for clean resolution.
             p = Path(head).expanduser()
             if not head.rstrip("/\\"):
                 p = Path.cwd()
@@ -77,7 +63,6 @@ class FileWatcherAdapter(BaseChannelAdapter):
         self._pattern_roots = [(p, _pattern_prefix(p)) for p in self._paths]
 
         def _is_safe(match_path: str) -> tuple[bool, str]:
-            """Return (ok, reason). Rejects symlinks leaving the root."""
             try:
                 target = Path(match_path)
                 if target.is_symlink():

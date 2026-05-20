@@ -47,7 +47,6 @@ from .reranker import CrossEncoderReranker
 
 logger = logging.getLogger(__name__)
 
-
 class _KBMeta:
     __slots__ = (
         "name", "description", "embedding_model", "vector_dim",
@@ -84,7 +83,6 @@ class _KBMeta:
             "content_hashes": dict(self.content_hashes),
             "bm25": self.bm25.to_dict(),
         }
-
 
 class RagModule(BaseModule):
     MODULE_ID = "rag"
@@ -123,8 +121,6 @@ class RagModule(BaseModule):
         self._indexing: IndexingEngine | None = None
         self._kbs: dict[str, _KBMeta] = {}
         self._app_id: str = "default"
-
-    # ── Lifecycle ─────────────────────────────────────────────────────
 
     async def on_start(self) -> None:
         self._app_id = getattr(self, "_app_id_override", "default")
@@ -189,13 +185,7 @@ class RagModule(BaseModule):
         )
 
     async def on_config_update(self, config: dict[str, Any]) -> None:
-        """Re-init the backend when the per-app config arrives.
-
-        The base ``on_config_update`` only stores the config dict;
-        the rag module needs to actually rebuild the qdrant client
-        with the new path so per-app stores work even when the module
-        is loaded as ``shared``.
-        """
+        """Re-init the backend when the per-app config arrives."""
         if not isinstance(config, dict):
             return
         new_cfg = RagConfig.model_validate(config)
@@ -240,15 +230,6 @@ class RagModule(BaseModule):
             await self._discover_existing_collections()
 
     async def _discover_existing_collections(self) -> None:
-        """Rebuild ``_kbs`` metadata from collections already on disk.
-
-        Collections may exist independently of the daemon's lifecycle:
-        ``knowledge_base/build.py`` (and other offline tools) write
-        directly to the qdrant store. Without this scan, the in-memory
-        ``_kbs`` would stay empty after a daemon restart and every
-        ``query`` would return "Knowledge base not found" even though
-        the data is right there.
-        """
         if self._backend is None:
             return
         prefix = f"rag_{self._app_id}_"
@@ -289,8 +270,8 @@ class RagModule(BaseModule):
                     res = close_fn()
                     if hasattr(res, "__await__"):
                         await res
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
             self._embedding_mgr = None
         self._pipeline = None
         self._reranker = None
@@ -335,8 +316,6 @@ class RagModule(BaseModule):
         logger.warning("Unknown backend %r, falling back to Qdrant", cfg.type)
         from .backends.qdrant import QdrantBackend
         return QdrantBackend(path=cfg.path, url=cfg.url, quantization=cfg.quantization)
-
-    # ── Helpers ───────────────────────────────────────────────────────
 
     def _collection_name(self, kb_name: str) -> str:
         return f"rag_{self._app_id}_{kb_name}"
@@ -549,8 +528,6 @@ class RagModule(BaseModule):
             source.connection_id, len(source.tables),
         )
 
-    # ── Actions ───────────────────────────────────────────────────────
-
     @action(
         description="Create a new knowledge base for storing and searching documents.",
         params_model=CreateKnowledgeBaseParams,
@@ -728,11 +705,8 @@ class RagModule(BaseModule):
         cli_param="path",
     )
     async def ingest_file(self, params: IngestFileParams) -> ActionResult:
-        # ``extract_only`` lets the caller fetch the parsed text
-        # WITHOUT running the embed / upsert pipeline, so no KB is
-        # required for that path. Saves the chat attachments hot
-        # path from a fastembed cold-start every time a small doc
-        # comes in (full-inject will cover retrieval anyway).
+        # `extract_only` returns parsed text without embed/upsert, so
+        # the chat-attachments hot path avoids the fastembed cold-start.
         kb = self._check_kb_exists(params.knowledge_base)
         if kb is None and not params.extract_only:
             return ActionResult(
@@ -746,35 +720,18 @@ class RagModule(BaseModule):
         if not file_path.is_file():
             return ActionResult(success=False, error=f"Not a file: {params.path}")
 
-        # Dispatch by canonical format. Priority order:
-        #   1. ``metadata["format"]`` - set by the chat attachments
-        #      pipeline after sniffing magic bytes. Always trustworthy
-        #      because it's derived from the actual file contents.
-        #   2. On-disk extension - works for the conventional case
-        #      where the user uploaded ``report.pdf``.
-        #   3. Default to ``.txt`` so unknown formats still go through
-        #      the UTF-8-with-replace fallback (long tail of plain
-        #      text). The fallback never CRASHES on binary; it just
-        #      yields no useful chunks.
+        # Dispatch: `metadata.format` (magic-byte sniffed) wins over
+        # the on-disk extension; `.txt` is the final fallback.
         sniffed = ""
         if isinstance(params.metadata, dict):
             sniffed = str(params.metadata.get("format") or "").lower()
         ext = sniffed or file_path.suffix.lower() or ".txt"
 
-        # Build a list of ``IngestDocument`` (one per page for PDFs,
-        # one per section for Markdown, one per row for CSV, ...) so
-        # the per-doc metadata (``page``, ``section``, ...) survives
-        # all the way down to chunk metadata → query hits → citation
-        # block. Without this loop, joining doc texts with ``\n\n``
-        # erases the page numbers and the agent can only cite
-        # ``[file.pdf]`` instead of ``[file.pdf · page 3]``.
+        # One `IngestDocument` per page / section / row so per-doc
+        # metadata (`page`, `section`, ...) survives into citations.
         from .indexing.ingestors import IngestDocument as _IngDoc
         try:
             if params.text_override:
-                # Caller already has the parsed text (typically from
-                # an earlier ``extract_only`` call). Skip extraction,
-                # synthesise a single-doc list so the rest of the
-                # pipeline keeps its uniform shape.
                 docs = [_IngDoc(
                     text=params.text_override,
                     doc_id=str(file_path),
@@ -804,7 +761,7 @@ class RagModule(BaseModule):
         except Exception as e:
             return ActionResult(success=False, error=f"Cannot read file: {e}")
 
-        # Empty-content fast path. ``content_hash`` is computed on the
+        # Empty-content fast path. `content_hash` is computed on the
         # full concatenation so the unchanged-file shortcut still
         # works across multi-doc files.
         combined = "\n\n".join(d.text for d in docs if d.text and d.text.strip())
@@ -816,7 +773,7 @@ class RagModule(BaseModule):
                 "text": "",
             })
 
-        # ``extract_only``: return the parsed text and stop. No KB
+        # `extract_only`: return the parsed text and stop. No KB
         # touch, no chunking, no embedding. The caller can decide
         # later whether the size warrants a real indexing pass.
         if params.extract_only:
@@ -846,10 +803,7 @@ class RagModule(BaseModule):
             kb.bm25.remove_documents(old_ids)
             kb.chunk_count -= len(old_ids)
 
-        # Per-doc chunking so we keep the page / section anchor on
-        # every chunk. ``params.metadata`` (caller-provided fields:
-        # original_name, mime, sha256, format) is merged LAST so it
-        # overrides ingestor defaults like ``source_type``.
+        # Per-doc chunking; caller metadata wins over ingestor defaults.
         chunk_records: list[tuple[Any, dict[str, Any], int]] = []
         for doc_idx, doc in enumerate(docs):
             doc_text = (doc.text or "").strip()
@@ -912,12 +866,6 @@ class RagModule(BaseModule):
             "chunks": len(chunk_records),
             "added": added,
             "strategy": params.chunk_strategy or self._cfg.chunking.strategy,
-            # The caller (chat attachments dispatch) decides whether
-            # to cache this in memory for the full-inject path. We
-            # return the concatenated extracted text once - bigger
-            # docs let the caller drop it on the floor; smaller ones
-            # land on the FileRef so the next turn can prepend the
-            # whole document instead of relying on top-k retrieval.
             "text": combined,
         })
 
@@ -1424,8 +1372,6 @@ class RagModule(BaseModule):
             "current_dimensions": self._default_model.dimensions if self._default_model else 0,
         })
 
-    # ── State ─────────────────────────────────────────────────────────
-
     def state_snapshot(self) -> dict[str, Any]:
         snap: dict[str, Any] = {
             "app_id": self._app_id,
@@ -1474,8 +1420,6 @@ class RagModule(BaseModule):
                 self._cache.stats.cache_hits = cs.get("cache_hits", 0)
                 self._cache.stats.cache_misses = cs.get("cache_misses", 0)
                 self._cache.stats.evictions = cs.get("evictions", 0)
-
-    # ── Manifest ──────────────────────────────────────────────────────
 
     def get_prompt_sections(self) -> list[dict[str, Any]]:
         return []

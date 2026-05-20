@@ -6,7 +6,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-
 class CreateKnowledgeBaseParams(BaseModel):
     """Create a new knowledge base (vector collection + BM25 index)."""
 
@@ -17,23 +16,19 @@ class CreateKnowledgeBaseParams(BaseModel):
         description="Override the default embedding model for this KB. Empty = use module default.",
     )
 
-
 class DeleteKnowledgeBaseParams(BaseModel):
     """Delete a knowledge base and all its data."""
 
     name: str = Field(..., min_length=1, description="Knowledge base name to delete.")
 
-
 class ListKnowledgeBasesParams(BaseModel):
     """List all knowledge bases."""
     pass
-
 
 class KnowledgeBaseStatsParams(BaseModel):
     """Get detailed stats for a knowledge base."""
 
     name: str = Field(..., min_length=1, description="Knowledge base name.")
-
 
 class IngestParams(BaseModel):
     """Ingest raw text documents into a knowledge base."""
@@ -46,7 +41,6 @@ class IngestParams(BaseModel):
     )
     source_type: str = Field("manual", description="Source type for citations (manual, file, database, web).")
     source_id: str = Field("", description="Source identifier for citations.")
-
 
 class IngestFileParams(BaseModel):
     """Ingest a file into a knowledge base with automatic format detection."""
@@ -63,13 +57,13 @@ class IngestFileParams(BaseModel):
         False,
         description=(
             "When True, run the format-aware ingestor to extract text "
-            "and RETURN it in ``data.text`` without creating any KB row, "
+            "and RETURN it in `data.text` without creating any KB row, "
             "chunks, embeddings or BM25 entries. Used by the chat "
             "attachments pipeline to fetch the extracted text cheaply "
             "(no fastembed cold-start, no event-loop stall) when "
             "full-inject will cover retrieval anyway. The caller can "
             "decide later to re-call with the cached text via "
-            "``text_override`` for actual indexing."
+            "`text_override` for actual indexing."
         ),
     )
     text_override: str = Field(
@@ -77,12 +71,11 @@ class IngestFileParams(BaseModel):
         description=(
             "Skip extraction and use this text verbatim. When set, the "
             "file path is still used for source_id / dedup keys, but no "
-            "ingestor is invoked. Pairs with ``extract_only`` to avoid "
+            "ingestor is invoked. Pairs with `extract_only` to avoid "
             "double-parsing a big PDF when the caller already cached "
-            "the extracted text from a prior ``extract_only`` call."
+            "the extracted text from a prior `extract_only` call."
         ),
     )
-
 
 class IngestDirectoryParams(BaseModel):
     """Ingest all matching files from a directory."""
@@ -99,7 +92,6 @@ class IngestDirectoryParams(BaseModel):
     chunk_size: int = Field(0, ge=0, description="Chunk size override.")
     chunk_overlap: int = Field(-1, ge=-1, description="Chunk overlap override.")
 
-
 class QueryParams(BaseModel):
     """Search a knowledge base with the configured pipeline."""
 
@@ -112,12 +104,10 @@ class QueryParams(BaseModel):
     )
     filter: dict[str, Any] | None = Field(None, description="Metadata filter (backend-specific).")
 
-
 class ClearCacheParams(BaseModel):
     """Clear the semantic cache."""
 
     knowledge_base: str = Field("", description="Clear cache for a specific KB. Empty = clear all.")
-
 
 class IngestDatabaseParams(BaseModel):
     knowledge_base: str = Field(..., min_length=1, description="Target knowledge base.")
@@ -125,7 +115,6 @@ class IngestDatabaseParams(BaseModel):
     tables: dict[str, dict[str, Any]] = Field(
         ..., description="Table configs: {table_name: {columns, mode, template, max_rows}}.",
     )
-
 
 class MultiQueryParams(BaseModel):
     knowledge_base: str = Field(..., min_length=1, description="Knowledge base to search.")
@@ -135,18 +124,15 @@ class MultiQueryParams(BaseModel):
     min_score: float = Field(0.0, ge=0.0, le=1.0, description="Minimum relevance score filter.")
     filter: dict[str, Any] | None = Field(None, description="Metadata filter.")
 
-
 class SQLQueryParams(BaseModel):
     query: str = Field(..., min_length=1, description="Natural language question.")
     connection_id: str = Field(..., min_length=1, description="Database connection ID.")
     knowledge_base: str = Field("", description="KB with schema info. Empty = auto-detect.")
     top_k: int = Field(5, ge=1, le=100, description="Max results.")
 
-
 class MigrateEmbeddingsParams(BaseModel):
     knowledge_base: str = Field(..., min_length=1, description="Knowledge base to migrate.")
     target_model: str = Field(..., min_length=1, description="New embedding model (shortcut or ID).")
-
 
 class ListModelsParams(BaseModel):
     """List available embedding models."""

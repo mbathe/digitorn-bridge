@@ -1,23 +1,4 @@
-"""Behavior Module - runtime behavioral enforcement + semantic classification.
-
-Two enforcement layers:
-  1. **Rule engine** - checks every tool call pre/post, detects violations,
-     injects warnings/blocks/reminders into the conversation.
-  2. **Semantic classifier** (optional) - a configurable LLM analyzes the
-     user's message BEFORE the main agent acts, classifies the task, and
-     injects behavioral directives.
-
-The classifier is fully data-driven: complexity levels, approaches, risk
-levels, system prompt, directive format, frequency, context inclusion -
-all configurable in YAML via ``behavior.classifier``.
-
-Integration points in agent_loop.py:
-  - get_prompt_sections() → injects enforced rules into system prompt
-  - classify_turn() → runs the classifier LLM before the main agent's turn
-  - pre_tool_check() → called before each tool execution
-  - post_tool_check() → called after each tool execution
-  - on_turn_start() → called at each turn start
-"""
+"""Behavior Module - runtime behavioral enforcement + semantic classification."""
 
 from __future__ import annotations
 
@@ -32,7 +13,6 @@ from digitorn.modules.manifest import ModuleManifest
 
 logger = logging.getLogger(__name__)
 
-
 class BehaviorModule(BaseModule):
     """Behavioral enforcement - monitors and corrects agent behavior in real-time."""
 
@@ -46,12 +26,12 @@ class BehaviorModule(BaseModule):
         self._classifier_provider: Any = None
         self._classifier_config: dict[str, Any] = {}
         self._profile_name: str = ""
-        # Snapshot of the YAML config so ``set_active_profile`` can
+        # Snapshot of the YAML config so `set_active_profile` can
         # re-resolve rules without losing the user's overrides.
         self._original_config: dict[str, Any] = {}
         # Active profile override applied by the composer mode system.
-        # Empty = use the YAML-declared ``security.behavior.profile``
-        # (i.e. ``self._profile_name``).
+        # Empty = use the YAML-declared `security.behavior.profile`
+        # (i.e. `self._profile_name`).
         self._active_profile_override: str = ""
 
     def get_manifest(self) -> ModuleManifest:
@@ -65,7 +45,7 @@ class BehaviorModule(BaseModule):
 
     async def on_config_update(self, config: dict[str, Any]) -> None:
         await super().on_config_update(config)
-        # Snapshot config so a later ``set_active_profile`` swap can
+        # Snapshot config so a later `set_active_profile` swap can
         # rebuild rule definitions with the same per-app overrides
         # (rule_definitions, custom rules, tracking config).
         self._original_config = dict(config) if isinstance(config, dict) else {}
@@ -126,27 +106,8 @@ class BehaviorModule(BaseModule):
             getattr(provider, "model", "?"),
         )
 
-    # ── Composer mode integration ────────────────────────────────
-    #
-    # The mode system (``runtime.modes`` in app.yaml) can override the
-    # behavior profile on a per-mode basis via ``ModeDef.behavior_profile``.
-    # When the agent loop detects that the active mode declares a profile
-    # different from the currently-applied one, it calls this method to
-    # swap the engine's active rule set. The swap preserves the per-
-    # session state (``_sessions``) so counters / sets / flags survive
-    # the profile change.
     def set_active_profile(self, profile_name: str) -> None:
-        """Swap the engine's active behavioural profile.
-
-        Pass ``""`` to revert to the YAML-declared
-        ``security.behavior.profile``. Idempotent: a call with the same
-        profile that's already active is a no-op.
-
-        Mutates ``self._engine._rules`` and ``self._engine._rule_defs``.
-        Per-session state (counters, sets, flags, recent_tools, ...)
-        stays intact across the swap so a mid-session profile change
-        does not zero the agent's track record.
-        """
+        """Swap the engine's active behavioural profile."""
         if self._engine is None:
             return
         target = (profile_name or "").strip()
@@ -161,7 +122,7 @@ class BehaviorModule(BaseModule):
         new_rules = resolve_profile(effective_profile, rule_overrides)
 
         # Re-build rule definitions with a config copy that swaps the
-        # profile field. Keeps ``rule_definitions`` + ``custom`` from
+        # profile field. Keeps `rule_definitions` + `custom` from
         # the YAML intact.
         cfg = dict(self._original_config)
         cfg["profile"] = effective_profile
@@ -178,8 +139,6 @@ class BehaviorModule(BaseModule):
     @property
     def active_profile_override(self) -> str:
         return self._active_profile_override
-
-    # ── Prompt injection ─────────────────────────────────────────
 
     def get_prompt_sections(self) -> list[dict[str, Any]]:
         """Inject enforced rules + behavior guide into the system prompt."""
@@ -222,8 +181,6 @@ class BehaviorModule(BaseModule):
 
         return sections
 
-    # ── Semantic classification ──────────────────────────────────
-
     async def classify_turn(
         self,
         session_id: str,
@@ -236,28 +193,15 @@ class BehaviorModule(BaseModule):
         workspace_context: dict[str, Any] | None = None,
         provider_override: Any = None,
     ) -> str | None:
-        """Run the semantic classifier on a user message.
-
-        Returns a formatted directive message to inject, or None.
-        Called by agent_loop BEFORE the main LLM call.
-
-        The classifier respects ``classifier.frequency``, ``classifier.skip_followups``,
-        and ``classifier.timeout`` from the YAML config.
-
-        ``provider_override`` lets the runtime hand in a per-session
-        provider instance (e.g. a fresh gateway provider for the
-        current user's JWT) without mutating the shared singleton.
-        When None, the module-level ``_classifier_provider`` is used,
-        which preserves the legacy single-tenant behaviour.
-        """
+        """Run the semantic classifier on a user message."""
         def _trace(msg: str) -> None:
             try:
                 from pathlib import Path as _P
                 _path = _P.home() / ".digitorn" / "logs" / "coach_trace.log"
                 with open(_path, "a", encoding="utf-8") as _f:
                     _f.write(f"{msg}\n")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
 
         # Per-call provider wins over the module-level singleton -
         # this is how the BYOK / gateway resolver hands the right
@@ -285,12 +229,9 @@ class BehaviorModule(BaseModule):
 
         cfg = self._classifier_config
 
-        # ── Frequency check - should we even run this turn? ──
         if not should_run_this_turn(turn, cfg, user_message):
             logger.debug("behavior_classify: skipped turn=%d (frequency=%s)", turn, cfg.get("frequency", "every_turn"))
             return None
-
-        # ── Build the full context for the classifier ──
 
         rules = self._engine.rules
         active_rules = [k for k, v in rules.items() if v is True]
@@ -314,7 +255,6 @@ class BehaviorModule(BaseModule):
             classifier_config=cfg,
         )
 
-        # ── Call the classifier LLM ──
         timeout = cfg.get("timeout", 15) or 15
 
         try:
@@ -359,8 +299,6 @@ class BehaviorModule(BaseModule):
             logger.warning("behavior_classify: error: %s", exc)
             return None
 
-    # ── Runtime hooks (called by agent_loop) ─────────────────────
-
     def on_turn_start(self, session_id: str) -> None:
         """Called at the start of each agent turn."""
         if self._engine:
@@ -387,8 +325,8 @@ class BehaviorModule(BaseModule):
                 _path = _P.home() / ".digitorn" / "logs" / "pretool_trace.log"
                 with open(_path, "a", encoding="utf-8") as _f:
                     _f.write(f"{msg}\n")
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
         _rule_count = len(self._engine.rule_definitions) if self._engine else 0
         _cmd_preview = str(params.get("command", ""))[:80]
         _ptrace(f"pre_tool session={session_id[:12]} tool={tool_name} rules_loaded={_rule_count} cmd={_cmd_preview}")
@@ -416,12 +354,7 @@ class BehaviorModule(BaseModule):
         reminders = self._engine.post_tool(session_id, tool_name, params, result)
         return [v.format() for v in reminders]
 
-
-# ── Helpers ──────────────────────────────────────────────────────
-
-
 def _build_profile_context(rules: dict) -> dict[str, Any]:
-    """Extract custom profile metadata from the merged rules dict."""
     ctx: dict[str, Any] = {}
     pname = rules.get("_profile_display_name") or rules.get("_profile_name") or ""
     if pname:
@@ -437,10 +370,7 @@ def _build_profile_context(rules: dict) -> dict[str, Any]:
         ctx["custom_rules"] = custom_rules
     return ctx
 
-
-
 def _extract_response_text(response: Any) -> str:
-    """Extract text from various LLM provider response formats."""
     if isinstance(response, str):
         return response
     if isinstance(response, dict):
@@ -464,7 +394,6 @@ def _extract_response_text(response: Any) -> str:
                     parts.append(block.text)
             return "".join(parts)
     return ""
-
 
 # Backward-compat alias
 BhvModule = BehaviorModule  # noqa: F841

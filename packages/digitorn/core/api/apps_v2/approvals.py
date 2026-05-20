@@ -1,8 +1,4 @@
-"""Routes for the approvals group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the approvals group, extracted from the legacy `apps.py`."""
 
 from __future__ import annotations
 
@@ -103,7 +99,6 @@ from ._shared import (
 )
 
 router = APIRouter(tags=["apps"])
-
 
 
 @router.get("/{app_id}/approvals", response_model=AppResponse)

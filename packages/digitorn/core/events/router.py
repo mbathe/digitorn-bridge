@@ -1,18 +1,12 @@
-"""Digitorn - MQTT-style topic router.
-
-Supports wildcard matching on dot-separated topics:
-    *   matches exactly one segment    (digitorn.module.*.started)
-"""
+"""Digitorn - MQTT-style topic router."""
 
 from __future__ import annotations
 
 import re
 from functools import lru_cache
 
-
 @lru_cache(maxsize=1024)
 def _compile_pattern(pattern: str) -> re.Pattern[str]:
-    """Compile an MQTT-style pattern into a regex."""
     parts: list[str] = []
     for segment in pattern.split("."):
         if segment == "#":
@@ -23,32 +17,14 @@ def _compile_pattern(pattern: str) -> re.Pattern[str]:
             parts.append(re.escape(segment))
     return re.compile(r"^" + r"\.".join(parts) + r"$")
 
-
 def topic_matches(pattern: str, topic: str) -> bool:
-    """Check if *topic* matches the given wildcard *pattern*.
-
-    Examples::
-
-        topic_matches("digitorn.module.*.started", "digitorn.module.cli.started")
-        topic_matches("digitorn.#", "digitorn.module.cli.action_started")
-        topic_matches("digitorn.module.cli.*", "digitorn.module.fs.started")
-    """
+    """Check if *topic* matches the given wildcard *pattern*."""
     if pattern == "#":
         return True
     return _compile_pattern(pattern).match(topic) is not None
 
-
 class EventRouter:
-    """Route events to listeners based on MQTT-style topic patterns.
-
-    Usage::
-
-        router = EventRouter()
-        router.add("digitorn.module.*.action_started", my_handler)
-        router.add("digitorn.#", catch_all_handler)
-
-        handlers = router.match("digitorn.module.cli.action_started")
-    """
+    """Route events to listeners based on MQTT-style topic patterns."""
 
     def __init__(self) -> None:
         self._routes: dict[str, list] = {}

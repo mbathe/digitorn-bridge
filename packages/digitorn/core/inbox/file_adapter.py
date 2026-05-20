@@ -1,26 +1,4 @@
-"""File-backed adapter that exposes the ``InboxStore`` API on top of
-``FileInboxStore`` (per-user JSON files on disk).
-
-Why an adapter, not a refactor: the daemon's ``InboxProducer``,
-``NotificationDispatcher`` and ``api/user.py`` routes were written
-against a Postgres-shaped ``InboxStore`` (``create_item`` returns
-``dict``, kwargs use ``metadata=``). The new ``FileInboxStore`` was
-written with a cleaner native API (``add()`` returns dataclass,
-kwargs use ``item_metadata=``). Reconciling them at the call sites
-would touch dozens of files for zero behavioural change. An adapter
-lets the daemon load ``FileInboxStore`` for self-hosted runtimes
-WITHOUT touching the API layer.
-
-Activated automatically by ``server.py`` lifespan when
-``settings.database.url`` is empty (= no Postgres = self-hosted).
-
-Coverage: every method ``InboxProducer`` and the API routes call -
-``create_item``, ``list_for_user``, ``count_unread``, ``mark_read``,
-``mark_all_read``, ``archive``, ``prune_old``. Device tokens and
-push-notification prefs are NOT supported (push needs a server-side
-relay anyway; self-hosted users are typically on a single device).
-The methods are no-op'd to keep the API contract intact.
-"""
+"""File-backed adapter that exposes the `InboxStore` API on top of"""
 from __future__ import annotations
 
 import logging
@@ -36,8 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def _item_to_dict(item: InboxItem) -> dict[str, Any]:
-    """Mirror ``inbox.store._item_to_dict`` so the API serialisation
-    is byte-identical between Postgres and file backends."""
+    """Mirror `inbox.store._item_to_dict` so the API serialisation"""
     return {
         "id": item.id,
         "user_id": item.user_id,
@@ -56,14 +33,7 @@ def _item_to_dict(item: InboxItem) -> dict[str, Any]:
 
 
 class InboxStoreFileAdapter:
-    """Drop-in replacement for ``InboxStore`` that persists per-user
-    notifications as JSON files under ``<root>/<user_id>/<item_id>.json``.
-
-    Method shapes (signatures, return types, and live SocketIO emits)
-    are identical to the Postgres ``InboxStore`` so the daemon's
-    ``InboxProducer`` and the ``/api/users/me/inbox`` routes work
-    without any branching at the call sites.
-    """
+    """Drop-in replacement for `InboxStore` that persists per-user"""
 
     def __init__(
         self,
@@ -76,16 +46,13 @@ class InboxStoreFileAdapter:
         # constructed yet when the store is built.
         self._sio = sio
 
-    # ── DI hook used by server.py lifespan ───────────────────────────
     def attach_sio(self, sio: Any) -> None:
         self._sio = sio
 
     async def _emit_user(
         self, user_id: str, event: str, payload: Any,
     ) -> None:
-        """Best-effort live emit to ``user:<uid>``. Same behaviour as
-        the Postgres store: any failure is debug-logged, never raised.
-        """
+        """Best-effort live emit to `user:<uid>`."""
         if self._sio is None or not user_id:
             return
         try:
@@ -99,7 +66,6 @@ class InboxStoreFileAdapter:
                 event, user_id, exc,
             )
 
-    # ── Items ────────────────────────────────────────────────────────
 
     async def create_item(
         self,
@@ -231,10 +197,6 @@ class InboxStoreFileAdapter:
                         n += 1
         return n
 
-    # ── Devices / push notifs ──────────────────────────────────────
-    # No-op in file mode: a self-hosted runtime has no FCM relay.
-    # Returning empty data keeps the API contract intact so the
-    # client gracefully shows "no devices" instead of erroring.
 
     async def register_device(
         self,

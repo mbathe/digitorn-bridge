@@ -1,43 +1,4 @@
-"""File Store - disk-backed storage for arbitrary chat attachments.
-
-The image-only ``image_store.py`` covers vision payloads. ``file_store``
-is its multi-MIME sibling: PDFs, DOCX, spreadsheets, archives, code,
-plain text — anything an end-user can drag into the composer.
-
-Design intent:
-
-  * One blob = one ``FileRef`` (id, on-disk path, mime, size, hash,
-    original name, optional message_id). The reference is what the
-    daemon hands around; the raw bytes stay on disk so the message
-    envelope stays light.
-  * Storage layout (when ``app_id`` is provided, recommended):
-    ``~/.digitorn/workspaces/{app_id}/{session_id}/attachments/
-    {file_id}{ext}``. Co-located with the workspace module's own
-    per-session daemon-private directory so a session's content
-    lives in one place. Legacy layout ``{base}/files/{session_id}/``
-    stays supported for callers that don't pass ``app_id``.
-  * Session isolation is mandatory — files never leak across
-    conversations on the same daemon.
-  * ``store()`` does **not** dedupe automatically across sessions
-    (each session keeps its own copy so audit + retention stay
-    predictable). The SHA-256 is recorded on the ref so an upstream
-    RAG ingestion can short-circuit on unchanged content.
-  * **Persistence policy**: blobs uploaded into a session are kept
-    on disk forever. ``cleanup_session(sid)`` only releases the
-    in-memory ref cache; it does NOT delete files. A future hard
-    delete requires an explicit admin action (``rm -rf`` on the
-    session's workspace dir, or a dedicated retention job).
-
-Usage::
-
-    store = get_file_store()
-    ref = await store.store_base64(
-        b64_data="...", mime="application/pdf",
-        session_id=sid, original_name="report.pdf",
-        message_id="msg_42",
-    )
-    # Hand ``ref.path`` to the rag ingestion or any text extractor.
-"""
+"""File Store: disk-backed storage for arbitrary chat attachments."""
 
 from __future__ import annotations
 
@@ -52,12 +13,7 @@ from uuid import uuid4
 
 logger = logging.getLogger(__name__)
 
-# Coarse MIME → file extension. Covers the catalogue we accept in the
-# composer's ``+`` menu (image / document / audio / video). Unknown
-# MIMEs fall back to ``.bin`` so the on-disk file still has a sane
-# extension for OS tooling.
 _MIME_TO_EXT: dict[str, str] = {
-    # Documents
     "application/pdf": ".pdf",
     "application/msword": ".doc",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
@@ -70,8 +26,6 @@ _MIME_TO_EXT: dict[str, str] = {
     "application/vnd.oasis.opendocument.presentation": ".odp",
     "application/rtf": ".rtf",
     "text/rtf": ".rtf",
-    # Text / code (only the most common — `mime_for_path` falls back
-    # to the on-disk extension for the long tail of code formats).
     "text/plain": ".txt",
     "text/markdown": ".md",
     "text/csv": ".csv",
@@ -82,7 +36,6 @@ _MIME_TO_EXT: dict[str, str] = {
     "application/xml": ".xml",
     "application/x-yaml": ".yaml",
     "application/toml": ".toml",
-    # Audio
     "audio/mpeg": ".mp3",
     "audio/mp3": ".mp3",
     "audio/wav": ".wav",
@@ -92,13 +45,10 @@ _MIME_TO_EXT: dict[str, str] = {
     "audio/x-m4a": ".m4a",
     "audio/flac": ".flac",
     "audio/aac": ".aac",
-    # Video
     "video/mp4": ".mp4",
     "video/quicktime": ".mov",
     "video/webm": ".webm",
     "video/x-matroska": ".mkv",
-    # Archives (kept for completeness — RAG will likely refuse to
-    # ingest these directly, but the store accepts them).
     "application/zip": ".zip",
     "application/x-tar": ".tar",
     "application/gzip": ".gz",
@@ -112,10 +62,6 @@ def ext_for_mime(mime: str) -> str:
 
 
 def _resolve_extension(mime: str, original_name: str) -> str:
-    """Prefer the original filename's extension when the MIME table
-    doesn't recognise the type (e.g. ``application/octet-stream`` for
-    a ``.py`` file from a browser that didn't sniff it). Falls back to
-    ``.bin`` only when both are absent."""
     mime_ext = _MIME_TO_EXT.get((mime or "").lower())
     if mime_ext:
         return mime_ext
@@ -135,43 +81,16 @@ class FileRef:
     size: int
     sha256: str
     original_name: str = ""
-    # Anchor back to the user message that carried the upload. Useful
-    # when a file is referenced months later and we want to surface
-    # which conversation turn introduced it.
     message_id: str = ""
     created_at: float = field(default_factory=time.time)
-    # ── Indexing status (RAG pipeline) ──────────────────────────────
-    # Canonical suffix sniffed from the bytes (``.pdf``, ``.docx``,
-    # ...). Trusted by downstream ingestors over the on-disk extension
-    # so a file uploaded without a suffix still hits the right parser.
     format: str = ""
-    # ``pending`` (uploaded, indexing in flight), ``indexed`` (added to
-    # the session RAG KB, retrievable), ``failed`` (parser / ingestor
-    # raised - see ``index_error``), ``not_indexable`` (app didn't load
-    # the rag module, file kept on disk for manifest only),
-    # ``empty`` (parser succeeded but the document carried no text).
     index_status: str = "pending"
     index_chunks: int = 0
     index_error: str = ""
-    # Cached extracted text for the small-doc full-inject path in
-    # ``_dispatch._maybe_inject_rag_context``. Empty for big docs (the
-    # daemon enforces a cap before storing so RAM stays bounded) or
-    # for files where extraction failed.
     extracted_text: str = ""
-    # Tracks whether the dispatch layer has already told the LLM
-    # about this file (either via the tool-mode manifest or the
-    # direct-mode full-inject block). Re-injection on every turn
-    # makes the agent re-read the same attachment after each user
-    # message, even when the new message contains no new files.
-    # Set by ``_dispatch._maybe_inject_rag_context`` after the first
-    # successful announcement; cleared on daemon restart (in-memory).
     announced: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        # Note: ``extracted_text`` is deliberately omitted from the
-        # serialised form. It's a daemon-internal cache (potentially
-        # multi-KB of contract / paper text) - we don't want it in
-        # every HTTP response that echoes the file ref.
         return {
             "file_id": self.file_id,
             "mime": self.mime,
@@ -188,12 +107,7 @@ class FileRef:
 
 
 class FileStore:
-    """Disk-backed file storage with session isolation.
-
-    Mirrors the surface of ``ImageStore``: store / get / get_ref /
-    list_refs / cleanup_session. Async write/read for parity with the
-    image side; everything heavy stays on disk.
-    """
+    """Disk-backed file storage with session isolation."""
 
     def __init__(self, base_dir: str | Path | None = None) -> None:
         if base_dir:
@@ -213,22 +127,10 @@ class FileStore:
             except Exception:
                 self._base_dir = Path.home() / ".digitorn" / "files"
         self._base_dir.mkdir(parents=True, exist_ok=True)
-        # Workspace-aligned root: every app-scoped attachment lands
-        # under ``~/.digitorn/workspaces/{app_id}/{session_id}/
-        # attachments/`` so the on-disk layout matches the agent's
-        # WsRead view AND ``rm -rf .../workspaces/{app}/{sid}/`` wipes
-        # the whole session (workspace state + attachments) in one
-        # shot. The legacy ``~/.digitorn/files/{sid}/`` layout is
-        # still honoured for callers that don't pass ``app_id``
-        # (background tasks, tests, pre-refactor sessions).
         self._workspaces_root = Path.home() / ".digitorn" / "workspaces"
-        # session_id → {file_id → ref}
         self._refs: dict[str, dict[str, FileRef]] = {}
 
     def _resolve_session_dir(self, session_id: str, app_id: str) -> Path:
-        """Return the directory that owns this session's attachment
-        blobs. Workspace-aligned when ``app_id`` is provided, legacy
-        ``files/<sid>/`` otherwise."""
         if app_id:
             return self._workspaces_root / app_id / session_id / "attachments"
         return self._base_dir / session_id
@@ -242,25 +144,9 @@ class FileStore:
         message_id: str = "",
         app_id: str = "",
     ) -> FileRef:
-        """Persist ``data`` for ``session_id`` and return a ``FileRef``.
-
-        Dedupes within a single session: if the same SHA-256 was
-        already stored for this session, the existing ref is returned
-        and no new bytes are written.
-
-        Path layout when ``app_id`` is provided (recommended): the
-        blob lands under ``~/.digitorn/workspaces/{app_id}/
-        {session_id}/attachments/<file_id>.<ext>``. This co-locates
-        attachments with the workspace's own session-private dir so a
-        single recursive delete cleans everything up. When ``app_id``
-        is empty (legacy callers, tests), falls back to
-        ``~/.digitorn/files/{session_id}/<file_id>.<ext>``.
-        """
+        """Persist data for session_id and return a FileRef."""
         sha256 = hashlib.sha256(data).hexdigest()
 
-        # In-session dedup. Cross-session dedup is intentionally
-        # absent so ``cleanup_session`` can drop files without
-        # bookkeeping.
         existing = self._refs.get(session_id) or {}
         for ref in existing.values():
             if ref.sha256 == sha256:
@@ -304,8 +190,7 @@ class FileStore:
         message_id: str = "",
         app_id: str = "",
     ) -> FileRef:
-        """Decode the base64 payload (with or without ``data:`` URI
-        prefix) and hand off to :meth:`store`."""
+        """Decode the base64 payload and hand off to store()."""
         if "," in b64_data and b64_data.lstrip().startswith("data:"):
             b64_data = b64_data.split(",", 1)[1]
         data = base64.b64decode(b64_data)
@@ -342,18 +227,7 @@ class FileStore:
         format: str | None = None,
         extracted_text: str | None = None,
     ) -> FileRef | None:
-        """Patch the RAG pipeline status fields on an existing ref.
-
-        Returns the updated ref, or ``None`` when the file_id is
-        unknown for this session. ``status`` is the canonical state
-        (``indexed`` / ``failed`` / ``not_indexable`` / ``empty``);
-        ``chunks`` and ``error`` are written verbatim when supplied.
-        ``format`` is the sniffed canonical suffix - persisted on the
-        ref so a later debug session knows exactly what the ingestor
-        thought the file was. ``extracted_text`` caches the full
-        document text so the dispatch layer can inject it whole for
-        small docs instead of relying on top-k retrieval.
-        """
+        """Patch the RAG pipeline status fields on an existing ref."""
         ref = self._refs.get(session_id, {}).get(file_id)
         if ref is None:
             return None
@@ -370,8 +244,7 @@ class FileStore:
         return ref
 
     def mark_announced(self, file_ids: list[str], session_id: str) -> None:
-        """Flag refs as already-announced to the LLM. Subsequent turns
-        skip re-injecting the same attachment manifest."""
+        """Flag refs as already-announced to the LLM."""
         bucket = self._refs.get(session_id, {})
         for fid in file_ids:
             ref = bucket.get(fid)
@@ -379,17 +252,7 @@ class FileStore:
                 ref.announced = True
 
     def cleanup_session(self, session_id: str) -> int:
-        """Drop the in-memory refs for ``session_id``.
-
-        Persistence rule: anything the user uploaded in a session
-        stays on disk forever. We only release the RAM cache. The
-        next ``get_ref()`` for any of these files will rehydrate
-        the ref from disk via the fallback scan in :meth:`_get_ref`.
-
-        Returns the number of refs released from memory (purely
-        informational - callers should treat the call as fire-and-
-        forget).
-        """
+        """Drop the in-memory refs for session_id."""
         refs = self._refs.pop(session_id, {})
         return len(refs)
 
@@ -398,15 +261,8 @@ class FileStore:
         ref = refs.get(file_id)
         if ref is not None:
             return ref
-        # Fallback: scan the candidate session directories so a daemon
-        # restart doesn't lose track of on-disk files. We try the
-        # workspace-aligned layout (every app variant of this session)
-        # first, then the legacy flat layout. Rehydrated refs carry
-        # the absolute path so subsequent reads bypass this scan.
         candidates: list[Path] = []
         if self._workspaces_root.exists():
-            # Wildcard the app_id: we don't know which app this
-            # session belongs to from inside the store.
             for app_dir in self._workspaces_root.iterdir():
                 if not app_dir.is_dir():
                     continue
@@ -431,8 +287,6 @@ class FileStore:
                     return ref
         return None
 
-
-# ── Singleton ─────────────────────────────────────────────────────
 
 _store: FileStore | None = None
 

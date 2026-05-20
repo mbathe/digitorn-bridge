@@ -1,15 +1,10 @@
-"""Pydantic parameter models for context_builder actions.
-
-Meta-tools (5) + primitive capabilities (7) + watchers (7) + user interaction = actions total.
-Each has a dedicated params model so the LLM sees the full JSON schema.
-"""
+"""Pydantic parameter models for context_builder actions."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from pydantic import BaseModel, Field
-
 
 class SearchToolsParams(BaseModel):
     """Search for tools by natural-language description."""
@@ -30,7 +25,6 @@ class SearchToolsParams(BaseModel):
         description="Maximum number of results to return.",
     )
 
-
 class GetToolParams(BaseModel):
     """Get the full schema and metadata for a specific tool."""
 
@@ -43,7 +37,6 @@ class GetToolParams(BaseModel):
             "(e.g. 'database.fetch_results', 'filesystem.read_file')."
         ),
     )
-
 
 class ExecuteToolParams(BaseModel):
     """Execute a tool with the given parameters."""
@@ -70,10 +63,8 @@ class ExecuteToolParams(BaseModel):
             data["name"] = data.pop("tool_name")
         super().__init__(**data)
 
-
 class ListCategoriesParams(BaseModel):
     """List all available tool categories (modules)."""
-
 
 class BrowseCategoryParams(BaseModel):
     """Browse tools in a specific category (module)."""
@@ -93,7 +84,6 @@ class BrowseCategoryParams(BaseModel):
         description="Page number for pagination (20 tools per page).",
     )
 
-
 class ParallelAction(BaseModel):
     """A single action within a parallel batch."""
 
@@ -111,14 +101,8 @@ class ParallelAction(BaseModel):
         description="Parameters for this action (must match the tool's schema).",
     )
 
-
 class RunParallelParams(BaseModel):
-    """Execute multiple actions in parallel.
-
-    All actions run concurrently via asyncio.gather(). Each action is
-    independent - failures in one do not cancel the others. Results are
-    returned in the same order as the input actions.
-    """
+    """Execute multiple actions in parallel."""
 
     actions: list[ParallelAction] = Field(
         ...,
@@ -130,17 +114,11 @@ class RunParallelParams(BaseModel):
         ),
     )
 
-
 _HIDDEN = {"hidden": True}
 
-
 class BackgroundRunParams(BaseModel):
-    """Run any tool in the background - returns task_id immediately.
+    """Run any tool in the background - returns task_id immediately."""
 
-    For shell commands, use Bash(command='...', run_in_background=true).
-    """
-
-    # ── Visible to LLM (2 params) ──
     name: str | None = Field(
         default=None,
         max_length=256,
@@ -151,7 +129,6 @@ class BackgroundRunParams(BaseModel):
         description="Parameters for the tool.",
     )
 
-    # ── Hidden: mode dispatch ──
     task_id: str | None = Field(default=None, json_schema_extra=_HIDDEN,
         description="Task ID - for status/cancel/wait.")
     cancel: bool = Field(default=False, json_schema_extra=_HIDDEN,
@@ -163,21 +140,13 @@ class BackgroundRunParams(BaseModel):
     timeout: float = Field(default=60.0, ge=1.0, le=3600.0, json_schema_extra=_HIDDEN,
         description="Max seconds to wait (for wait mode).")
 
-
 # Legacy aliases - kept for backward compat with existing API consumers
 BackgroundTaskIdParams = BackgroundRunParams
 BackgroundWaitParams = BackgroundRunParams
 BackgroundListParams = BackgroundRunParams
 
-
 class WatchStartParams(BaseModel):
-    """Start a persistent watcher that periodically executes a tool and
-    reports back only when something interesting happens.
-
-    The watcher runs in the background and pushes notifications based on
-    the ``notify_when`` strategy - so the LLM is NOT called on every
-    check, only when the condition triggers.
-    """
+    """Start a persistent watcher; notifications fire only when `notify_when` triggers."""
 
     name: str = Field(
         ...,
@@ -230,7 +199,6 @@ class WatchStartParams(BaseModel):
         ),
     )
 
-
 class WatcherIdParams(BaseModel):
     """Identify a watcher by its ID."""
 
@@ -240,7 +208,6 @@ class WatcherIdParams(BaseModel):
         max_length=64,
         description="Watcher ID returned by watch_start.",
     )
-
 
 class WatchHistoryParams(BaseModel):
     """Get the last N check results from a watcher."""
@@ -258,17 +225,11 @@ class WatchHistoryParams(BaseModel):
         description="Number of recent check results to return.",
     )
 
-
 class WatchListParams(BaseModel):
     """List all watchers."""
 
-
 class SendNotificationParams(BaseModel):
-    """Send a notification through an output channel (email, webhook, log, etc.).
-
-    Use this to proactively communicate with the user via external channels
-    when a condition is met, a task completes, or any event warrants it.
-    """
+    """Send a notification through an output channel (email, webhook, log, etc.)."""
 
     channel: str = Field(
         ...,
@@ -313,7 +274,6 @@ class SendNotificationParams(BaseModel):
         ),
     )
 
-
 class UseSkillParams(BaseModel):
     """Load a skill to get detailed instructions for a specific workflow."""
 
@@ -322,35 +282,14 @@ class UseSkillParams(BaseModel):
         description="Skill command to load (e.g. '/commit', '/review')",
     )
 
-
 class CallAppParams(BaseModel):
     """Parameters for calling another deployed app."""
     app_id: str = Field(..., description="The app_id of the deployed app to call.")
     input: str = Field(..., description="The input to send to the app.")
     timeout: float = Field(default=120.0, description="Timeout in seconds.")
 
-
-
-# ── User interaction ─────────────────────────────────────────────
-
-
 class AskUserParams(BaseModel):
-    """Ask the user a question and wait for their response.
-
-    Use this to get confirmation, clarification, or approval before proceeding.
-    The agent's execution pauses until the user responds.
-
-    When 'content' is provided, the user can VIEW and optionally EDIT it
-    before approving. This is perfect for plans, code reviews, configs, etc.
-
-    IMPORTANT: Parameters are 'question' (required) and optionally 'content'.
-
-    Examples:
-        ask_user(question="Should I proceed with this implementation plan?")
-        ask_user(question="Which approach do you prefer: A (middleware) or B (decorator)?")
-        ask_user(question="Here is the implementation plan. Review and approve to proceed.", content="## Plan\\n1. Create auth middleware\\n2. Add JWT validation\\n3. Update routes\\n4. Write tests")
-        ask_user(question="I found 3 potential bugs. Should I fix all of them or just the critical one?")
-    """
+    """Ask the user a question (blocks until they answer)."""
 
     question: str = Field(
         ...,

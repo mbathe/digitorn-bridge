@@ -1,12 +1,4 @@
-"""Named connection pool for the database module.
-
-Each connection is identified by a ``connection_id`` string. The pool
-manages adapter lifecycle (connect/disconnect) and ensures cleanup on
-module stop.
-
-Thread-safety: All operations are async and run on the event loop.
-No locking is needed - asyncio is single-threaded.
-"""
+"""Named connection pool for the database module."""
 
 from __future__ import annotations
 
@@ -22,18 +14,13 @@ from .adapters.sql import SQLAdapter
 
 logger = structlog.get_logger(__name__)
 
-
 def _get_mongo_adapter_class() -> type:
-    """Lazy import to avoid hard dependency on motor."""
     from .adapters.mongo import MongoAdapter
     return MongoAdapter
 
-
 def _get_redis_adapter_class() -> type:
-    """Lazy import to avoid hard dependency on redis."""
     from .adapters.redis import RedisAdapter
     return RedisAdapter
-
 
 _ADAPTER_FACTORIES: dict[str, type | callable] = {
     "sqlite": SQLAdapter,
@@ -55,7 +42,6 @@ _URL_SCHEMES: dict[str, str] = {
     "redis": "redis",
 }
 
-
 @dataclass
 class ConnectionEntry:
     """Metadata for a named connection."""
@@ -66,7 +52,6 @@ class ConnectionEntry:
     url_display: str
     created_at: float = field(default_factory=time.time)
     guard: Any = None
-
 
 class ConnectionPool:
     """Named connection pool - maps connection_id → adapter."""
@@ -108,11 +93,7 @@ class ConnectionPool:
         options: dict[str, Any] | None = None,
         allowed_hosts: list[str] | None = None,
     ) -> ConnectionEntry:
-        """Open a new named connection.
-
-        Either provide ``url`` directly, or ``driver`` + connection params
-        to build the URL automatically.
-        """
+        """Open a new named connection."""
         if connection_id in self._connections:
             await self.disconnect(connection_id)
 
@@ -178,7 +159,6 @@ class ConnectionPool:
             for e in self._connections.values()
         ]
 
-
     @staticmethod
     def _build_url(
         driver: str,
@@ -189,7 +169,6 @@ class ConnectionPool:
         password: str | None,
         allowed_hosts: list[str] | None = None,
     ) -> str:
-        """Build a connection URL from components."""
         scheme = _URL_SCHEMES.get(driver)
         if not scheme:
             raise ValueError(f"No URL scheme for driver: {driver!r}")
@@ -256,16 +235,13 @@ class ConnectionPool:
 
         return f"{scheme}://{userinfo}{hostport}/{database}"
 
-
 def _sanitize_url(url: str) -> str:
-    """Remove password from URL for display."""
     if "@" in url and ":" in url.split("@")[0]:
         parts = url.split("@")
         creds = parts[0]
         scheme_user = creds.rsplit(":", 1)[0]
         return f"{scheme_user}:****@{parts[1]}"
     return url
-
 
 def _build_mongo_url(
     database: str | None,
@@ -274,7 +250,6 @@ def _build_mongo_url(
     username: str | None,
     password: str | None,
 ) -> str:
-    """Build a MongoDB connection URL."""
     userinfo = ""
     if username:
         userinfo = username
@@ -291,14 +266,12 @@ def _build_mongo_url(
     db = f"/{database}" if database else "/test"
     return f"mongodb://{userinfo}{hostport}{db}"
 
-
 def _build_redis_url(
     host: str | None,
     port: int | None,
     password: str | None,
     database: str | None,
 ) -> str:
-    """Build a Redis connection URL."""
     auth = ""
     if password:
         auth = f":{password}@"

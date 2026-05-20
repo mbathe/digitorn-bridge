@@ -1,15 +1,4 @@
-"""Digitorn - ORM models for persistence.
-
-Tables follow the isolation hierarchy (post v2 schema):
-
-    Application → UserSession → SessionAgent → AgentRun → ActionExecution
-                                                       └→ AgentRunEvent
-
-A `SessionAgent` is one specialist per session. An `AgentRun` is one
-spawn / wait-for cycle of that specialist (queued → active → terminal).
-`AgentRunEvent` is the append-only timeline within a run. Tool calls
-land in `ActionExecution` linked to the parent `AgentRun`.
-"""
+"""Digitorn - ORM models for persistence."""
 
 from __future__ import annotations
 
@@ -28,12 +17,6 @@ from sqlalchemy.types import TypeDecorator
 from digitorn.core.database import Base
 
 
-# Cross-dialect JSON type. JSONB on Postgres (GIN index, native ops),
-# plain JSON (text-backed) on SQLite for self-hosted local runtimes.
-# Using ``with_variant`` keeps the model declaration single-sourced
-# while ``Base.metadata.create_all`` produces the right DDL for each
-# dialect. Migration 0002 still ALTERs JSON->JSONB on Postgres for any
-# legacy column that landed via create_all before this typing change.
 _JSON_X = JSON().with_variant(JSONB(), "postgresql")
 
 
@@ -41,11 +24,6 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# Strictly-monotonic UTC clock - used as the default for every
-# history/audit column that MUST carry a unique timestamp. Collision
-# under burst writes is avoided in-process; cross-process collisions
-# are caught by the DB UNIQUE constraint and handled by the caller
-# via ``unique_ts_retry`` (see ``digitorn.core.unique_clock``).
 from digitorn.core.unique_clock import unique_utc_now as _unique_utcnow  # noqa: E402
 
 
@@ -54,14 +32,7 @@ def _uuid() -> str:
 
 
 class EncryptedJSON(TypeDecorator):
-    """SQLAlchemy type that stores JSON data encrypted at rest.
-
-    On write: Python dict/list -> JSON string -> Fernet encrypt -> LargeBinary
-    On read:  LargeBinary -> Fernet decrypt -> JSON parse -> Python dict/list
-
-    Uses the server-level key from ~/.digitorn/server.key (auto-generated).
-    Backward-compatible: reads plain JSON for data written before encryption.
-    """
+    """SQLAlchemy type that stores JSON data encrypted at rest."""
 
     impl = LargeBinary
     cache_ok = True
@@ -91,31 +62,12 @@ class EncryptedJSON(TypeDecorator):
 
 
 class Application(Base):
-    """A registered application that connects to Digitorn.
-
-    A deployed app lives on disk at ``~/.digitorn/apps/<scoped>/`` -
-    the install dir IS the source of truth. The daemon reloads each
-    app by recompiling that dir at startup. ``yaml_content`` on this
-    row is kept as a fallback for content-only deploys whose install
-    dir is missing.
-    """
+    """A registered application that connects to Digitorn."""
 
     __tablename__ = "applications"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    # ── Multi-tenant scoping ─────────────────────────────────
-    # An `app_id` by itself is NOT unique anymore. Two users can each have
-    # their own "my-app", and the same name can also exist as a system
-    # install. Uniqueness is enforced on the composite
-    # (app_id, scope, owner_user_id).
-    #
-    # - scope="system", owner_user_id="" → install visible to every user
-    # - scope="user",   owner_user_id="alice" → private to Alice
-    #
-    # We store "" (empty string) instead of NULL for owner_user_id in the
-    # system case so the unique index works reliably on SQLite, which
-    # otherwise treats NULL as distinct inside unique constraints.
     scope: Mapped[str] = mapped_column(
         String(16), default="system", server_default="system", nullable=False,
         comment="Install scope: 'system' (global) or 'user' (per-user install).",
@@ -139,12 +91,6 @@ class Application(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
-    # ── App Packages support (v1: source attribution) ──
-    # When an app was installed via the AppPackages system, these
-    # fields tell us which package it came from. Existing apps
-    # deployed via the legacy /api/apps/deploy route get
-    # source_type="local" and package_id=NULL automatically at boot
-    # (see digitorn.core.packages.migration.classify_existing_apps).
     package_id: Mapped[str | None] = mapped_column(
         String(64), nullable=True,
         comment="Links to installed_packages.package_id when this app came from a package",
@@ -158,11 +104,6 @@ class Application(Base):
         comment="SHA-256 of the package content at install time, for drift detection",
     )
 
-    # ── Disable support ────────────────────────────────────────
-    # When `disabled=True`, the app is NOT reloaded at daemon startup, is
-    # hidden from list_apps/get for non-admins, and session creation is
-    # refused. Only an admin can re-enable (via POST /api/apps/{id}/enable).
-    # History + sessions are preserved - disable is reversible.
     disabled: Mapped[bool] = mapped_column(
         default=False, server_default="0", nullable=False,
         comment="True = app hidden + unusable; only admin can re-enable.",
@@ -176,16 +117,6 @@ class Application(Base):
         comment="Optional free-text reason supplied by the caller.",
     )
 
-    # ── Hidden support (visual only, app stays running) ──────────
-    # When `hidden=True`, the app is filtered out of list_apps for
-    # non-admin callers (respecting scope: a system-scope hide excludes
-    # everyone, a user-scope hide excludes that user only). UNLIKE
-    # ``disabled``, the app stays DEPLOYED and FUNCTIONAL - hide is
-    # cosmetic. Used to declutter the user-facing dashboard while
-    # keeping the app reachable for admin or programmatic flows (e.g.
-    # the in-chat ``digitorn-builder`` is needed for deploy-from-chat
-    # but doesn't have to clutter every user's app list). Reversible
-    # via POST /api/apps/{id}/show.
     hidden: Mapped[bool] = mapped_column(
         default=False, server_default="0", nullable=False,
         comment="True = app filtered out of non-admin lists. App stays deployed.",
@@ -195,14 +126,6 @@ class Application(Base):
         comment="When the app was hidden (UTC).",
     )
 
-    # Cross-table relationships joined on ``app_id``. There is no
-    # DB-level FK between these children and ``applications`` because
-    # ``applications.app_id`` is composite-unique (see __table_args__),
-    # not unique alone. ``primaryjoin`` + ``foreign()`` tells the ORM
-    # how to link without requiring a FK. ``viewonly=True`` on these
-    # reverse collections because cascade delete is handled explicitly
-    # at the application layer (``manager.delete_app``) rather than by
-    # SQLA cascade, which can't traverse a non-FK join safely.
     sessions: Mapped[list["UserSession"]] = relationship(
         back_populates="application",
         primaryjoin="foreign(UserSession.app_id) == Application.app_id",
@@ -232,26 +155,13 @@ class Application(Base):
 
 
 class AppProfile(Base):
-    """Security profile for an application.
-
-    Each application has exactly one profile that defines:
-    - Default action policy (auto/approve/block)
-    - Per-risk-level approval rules
-    - Granted permissions (glob patterns supported)
-    - Maximum risk level the app can handle
-    """
+    """Security profile for an application."""
 
     __tablename__ = "app_profiles"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        # No DB-level FK: ``applications.app_id`` is not unique on its own
-        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
-        # multi-tenant support). Postgres rejects FKs to non-unique columns;
-        # SQLite silently accepted them but it was never valid. Cascade
-        # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``).
         unique=True,
         nullable=False,
     )
@@ -277,14 +187,7 @@ class AppProfile(Base):
 
 
 class AppModuleGrant(Base):
-    """Per-module security configuration for an application.
-
-    Controls:
-    - visibility: "full" (agent sees the module) or "hidden" (invisible)
-    - default_action_policy: default policy for actions in this module
-    - action_overrides: per-action policy overrides (JSON dict)
-      e.g. {"read_file": "auto", "delete_file": "block"}
-    """
+    """Per-module security configuration for an application."""
 
     __tablename__ = "app_module_grants"
 
@@ -307,24 +210,13 @@ class AppModuleGrant(Base):
 
 
 class AppModuleConfig(Base):
-    """Per-module configuration and constraints from the app YAML.
-
-    Persists the ``config`` (static settings) and ``constraints`` (runtime
-    restrictions) sections of each module block.  The YAML is the source
-    of truth - this table is rebuilt on every sync.
-    """
+    """Per-module configuration and constraints from the app YAML."""
 
     __tablename__ = "app_module_configs"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        # No DB-level FK: ``applications.app_id`` is not unique on its own
-        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
-        # multi-tenant support). Postgres rejects FKs to non-unique columns;
-        # SQLite silently accepted them but it was never valid. Cascade
-        # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``).
         nullable=False,
     )
     module_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -343,24 +235,13 @@ class AppModuleConfig(Base):
 
 
 class AppSecret(Base):
-    """Encrypted secret for an application.
-
-    Secrets are stored encrypted at rest using Fernet symmetric encryption
-    (same key as OAuth tokens).  They are resolved via ``{{secret.KEY}}``
-    in app YAML and injected at compile time.
-    """
+    """Encrypted secret for an application."""
 
     __tablename__ = "app_secrets"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        # No DB-level FK: ``applications.app_id`` is not unique on its own
-        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
-        # multi-tenant support). Postgres rejects FKs to non-unique columns;
-        # SQLite silently accepted them but it was never valid. Cascade
-        # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``).
         nullable=False,
     )
     key: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -375,36 +256,8 @@ class AppSecret(Base):
     )
 
 
-# The ``users`` table is owned by the central digitorn-auth service.
-# The daemon reads identity by calling GET /auth/me on that service
-# and references users by their opaque ``user_id`` (the JWT ``sub``
-# claim).
-#
-# We keep a tiny stub class here ONLY so SQLAlchemy can resolve the
-# ``ForeignKey("users.id")`` declarations that downstream tables
-# (user_oauth_tokens, user_sessions, user_roles, api_keys, …) still
-# carry for DB-level referential integrity. The class has no fields
-# beyond the PK, no relationships, and is never queried by the
-# daemon. Reading user identity from this stub is intentionally
-# impossible - if you find yourself wanting to, call the auth
-# service via httpx instead.
-
-
 class _UserRef(Base):
-    """FK-target stub for the ``users`` table - schema mirrors the
-    auth-service-owned ``digitorn_auth.models.User``.
-
-    On Postgres prod the auth service owns the table and creates it
-    with the full schema first; ``create_all`` is a no-op and
-    ``_migrate_missing_columns`` has nothing to add. On SQLite local
-    (self-hosted daemon, no separate auth service), the daemon owns
-    the table - declaring the full schema here lets the JIT mirror
-    (``digitorn_auth.fastapi``) INSERT into a complete table instead
-    of failing on missing columns.
-
-    Do NOT query this class from daemon code. Do NOT attach
-    relationships to it. The auth service is the source of truth.
-    """
+    """FK-target stub for the `users` table - schema mirrors the"""
 
     __tablename__ = "users"
     __table_args__ = {"extend_existing": True}
@@ -430,12 +283,7 @@ class _UserRef(Base):
 
 
 class UserOAuthToken(Base):
-    """OAuth2 tokens for a user.
-
-    Tokens are encrypted at rest using Fernet symmetric encryption.
-    The encryption key is stored in ``~/.digitorn/server.key`` (auto-
-    generated on first use) or overridden via ``server.token_encryption_key``.
-    """
+    """OAuth2 tokens for a user."""
 
     __tablename__ = "user_oauth_tokens"
 
@@ -460,18 +308,7 @@ class UserOAuthToken(Base):
 
 
 class UserSnippet(Base):
-    """Per-user, per-app reusable prompt template the chat composer's
-    "Insert snippet" menu hands the user.
-
-    Scoped on (``user_id``, ``app_id``) so the snippets the user
-    builds while talking to one app don't bleed into another. The CRUD endpoints under
-    ``/api/apps/{app_id}/snippets`` filter on the calling user's id
-    transparently.
-
-    ``body`` may contain ``{{variable}}`` placeholders the composer
-    cycles through with Tab. Sanitisation lives at insertion-time
-    in the composer; the daemon stores the body verbatim.
-    """
+    """Per-user, per-app reusable prompt template the chat composer's"""
 
     __tablename__ = "user_snippets"
 
@@ -497,36 +334,17 @@ class UserSnippet(Base):
 
 
 class UserSkill(Base):
-    """Per-user, per-app authored skill (system-prompt directive).
-
-    Gated behind ``dev.allow_user_skills: true`` in the app YAML.
-    When the user sends ``/use_skill <name> <prompt>``, the daemon
-    looks up the row by ``(user_id, app_id, name)``, strips the
-    prefix from the message, and injects ``instructions`` as a
-    turn-scoped ``role: system`` message (same mechanism as
-    ``template_id``) so the agent must follow it for that turn only.
-
-    Distinct from ``app_skills`` declared in ``dev.skills`` of the
-    YAML: those are author-time, .md-backed, agent-callable via the
-    ``use_skill`` tool; these are user-time, DB-backed, user-callable
-    via the ``/use_skill`` composer command.
-    """
+    """Per-user, per-app authored skill (system-prompt directive)."""
 
     __tablename__ = "user_skills"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     app_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    # Short slug used as both the picker label and the ``/use_skill <name>``
-    # lookup key. Lowercase letters, digits, hyphens; the API rejects
-    # anything else.
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str] = mapped_column(
         String(300), nullable=False, default="",
     )
-    # Markdown body. Becomes the turn-scoped system prompt verbatim;
-    # the agent loop is expected to wrap it in a leading "MANDATORY"
-    # framing line so the LLM treats it as an authoritative directive.
     instructions: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False,
@@ -537,9 +355,6 @@ class UserSkill(Base):
 
     __table_args__ = (
         Index("ix_user_skills_user_app", "user_id", "app_id"),
-        # Unique per (user, app, name) so the `/use_skill <name>` lookup
-        # is unambiguous. Two users CAN share a name; two apps for the
-        # same user CAN share a name; same (user, app) pair cannot.
         Index(
             "ux_user_skills_user_app_name",
             "user_id", "app_id", "name",
@@ -556,17 +371,8 @@ class UserSession(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        # No DB-level FK: ``applications.app_id`` is not unique on its own
-        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
-        # multi-tenant support). Postgres rejects FKs to non-unique columns;
-        # SQLite silently accepted them but it was never valid. Cascade
-        # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``).
         nullable=False,
     )
-    # Python attribute stays ``session_id`` (every call site reads
-    # ``UserSession.session_id``) but the DB column is ``external_sid``
-    # post v2 - same opaque client-supplied key, clearer name.
     session_id: Mapped[str] = mapped_column(
         "external_sid", String(255), nullable=False, index=True,
     )
@@ -581,7 +387,6 @@ class UserSession(Base):
     workspace: Mapped[str] = mapped_column(String(1024), default="")
     workdir: Mapped[str] = mapped_column(String(1024), default="")
 
-    # ── Sprint D additions ─────────────────────────────────────
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="active", server_default="active",
     )
@@ -608,13 +413,7 @@ class UserSession(Base):
 
 
 class SessionAgent(Base):
-    """A specialist registered for a user session.
-
-    Renamed from ``Agent`` (table ``agents``) in v2. One row per
-    (session, agent_id) pair: the same specialist key registered
-    twice in a session reuses the same row. Each individual run /
-    spawn of this specialist is recorded in ``agent_runs``.
-    """
+    """A specialist registered for a user session."""
 
     __tablename__ = "session_agents"
 
@@ -645,27 +444,11 @@ class SessionAgent(Base):
     )
 
 
-# Backwards-compat alias - some legacy imports still reference ``Agent``.
-# Prefer ``SessionAgent`` going forward; this alias will be removed
-# once every call site is updated.
 Agent = SessionAgent
 
 
 class AgentRun(Base):
-    """One spawn / wait-for cycle of a SessionAgent.
-
-    Lifecycle: queued → active → (completed | failed | cancelled |
-    timeout | paused). All token / cost / turn counters live here so
-    the dashboard can answer "what's running now?" and "who spent
-    the most this week?" with one query against this table.
-
-    Generated columns (Postgres 12+):
-        * total_tokens   = prompt + completion + cache_read + cache_write
-        * duration_ms    = completed_at - started_at, ms
-
-    Trigger-materialised:
-        * total_cost_usd = SUM(cost_breakdown[*].total_usd)
-    """
+    """One spawn / wait-for cycle of a SessionAgent."""
 
     __tablename__ = "agent_runs"
 
@@ -764,10 +547,6 @@ class AgentRun(Base):
         DateTime(timezone=True), nullable=True,
     )
 
-    # Computed columns - the DB owns the value (GENERATED ALWAYS for
-    # total_tokens / duration_ms, trigger-materialised for
-    # total_cost_usd). FetchedValue() tells SQLAlchemy NOT to include
-    # the column in INSERTs; it'll be read back after.
     total_tokens: Mapped[int | None] = mapped_column(
         BigInteger, nullable=True, server_default=FetchedValue(),
     )
@@ -786,12 +565,7 @@ class AgentRun(Base):
 
 
 class AgentRunEvent(Base):
-    """Append-only timeline event inside an AgentRun.
-
-    ``sequence`` is per-run monotonic (starts at 1). ``event_type``
-    is one of: lifecycle | turn | llm | tool | sub_agent | compaction
-    | streaming. The ``data`` JSONB carries the event-specific payload.
-    """
+    """Append-only timeline event inside an AgentRun."""
 
     __tablename__ = "agent_run_events"
 
@@ -864,23 +638,13 @@ class ActionExecution(Base):
 
 
 class SessionCheckpoint(Base):
-    """Durable checkpoint of a session's execution state.
-
-    Saved after each agent turn. Contains everything needed to resume
-    the session exactly where it left off after a daemon restart.
-    """
+    """Durable checkpoint of a session's execution state."""
 
     __tablename__ = "session_checkpoints"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        # No DB-level FK: ``applications.app_id`` is not unique on its own
-        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
-        # multi-tenant support). Postgres rejects FKs to non-unique columns;
-        # SQLite silently accepted them but it was never valid. Cascade
-        # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``).
         nullable=False,
     )
     session_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -907,14 +671,7 @@ class SessionCheckpoint(Base):
 
 
 class ManagedMCPServer(Base):
-    """An MCP server installed and managed at the daemon level.
-
-    MCP servers are first-class daemon resources - they must be installed
-    and tested via the daemon before any app can reference them.  This
-    ensures security, configuration, and health are validated centrally.
-
-    Lifecycle:  search → install → test → configure → assign to app(s)
-    """
+    """An MCP server installed and managed at the daemon level."""
 
     __tablename__ = "managed_mcp_servers"
 
@@ -959,11 +716,7 @@ class ManagedMCPServer(Base):
 
 
 class Role(Base):
-    """A role defines a set of permissions.
-
-    Built-in roles: admin, developer, viewer.
-    Custom roles can be created via API.
-    """
+    """A role defines a set of permissions."""
 
     __tablename__ = "roles"
 
@@ -980,11 +733,7 @@ class Role(Base):
 
 
 class UserRole(Base):
-    """Association between users and roles.
-
-    A user can have multiple roles. Permissions are merged (union).
-    Scoped by app_id: NULL means the role applies globally.
-    """
+    """Association between users and roles."""
 
     __tablename__ = "user_roles"
 
@@ -1001,12 +750,6 @@ class UserRole(Base):
     )
     app_id: Mapped[str | None] = mapped_column(
         String(255),
-        # No DB-level FK: ``applications.app_id`` is not unique on its own
-        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
-        # multi-tenant support). Postgres rejects FKs to non-unique columns;
-        # SQLite silently accepted them but it was never valid. Cascade
-        # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``).
         nullable=True,
     )
     granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -1021,100 +764,51 @@ class UserRole(Base):
 
 
 class HistoryLog(Base):
-    """Unified bank-grade ledger - messages, events, admin actions.
-
-    One table to read "everything that ever happened". Supersedes the
-    earlier triplet (``session_messages`` + ``session_events`` +
-    ``audit_log``). Those 3 stay around for a transition window during
-    which we dual-write for safety; ``history_log`` is authoritative
-    on the read path.
-
-    Columns carry enough shape to express all three kinds:
-
-      - **message**  - a turn exchange. ``role`` / ``content`` /
-                         ``tool_calls`` set; ``payload`` carries usage
-                         metadata (tokens, cost, …).
-      - **event**    - any event the session bus emitted (tokens,
-                         thinking, tool_start, compaction, hook,
-                         quota_exceeded, approval_request, …).
-                         ``type`` carries the envelope type;
-                         ``payload`` the full envelope.
-      - **audit**    - an admin action (quota change, user disable,
-                         app deploy, …). ``actor_user_id``/``actor_roles``
-                         set; ``before``/``after`` JSON snapshots;
-                         ``ip_address``/``user_agent`` forensic fields.
-
-    Ordering:
-
-      - ``ts`` is UNIQUE - globally monotonic via the process-wide
-        ``unique_utc_now`` clock. Collision under burst is avoided
-        pre-insert; the UNIQUE constraint is a belt for multi-process.
-      - ``seq`` is a per-session monotonic counter preserved from the
-        legacy schema for client-side pagination.
-
-    Every query is indexed. Common patterns:
-
-      - Load full chronology of a chat:
-        ``WHERE session_id = ? ORDER BY ts``
-      - Show tool-call timeline: add ``AND type LIKE 'tool_%'``
-      - Audit report for an admin:
-        ``WHERE actor_user_id = ? AND kind = 'audit' ORDER BY ts``
-      - Compliance export by time window: ``WHERE ts BETWEEN ? AND ?``
-    """
+    """Unified bank-grade ledger - messages, events, admin actions."""
     __tablename__ = "history_log"
 
-    # ── Identity ────────────────────────────────────────────────
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
 
-    # ── Ordering keys ───────────────────────────────────────────
-    # ``ts`` is the **globally unique** ordering key. UNIQUE + INDEX.
+    # `ts` is the **globally unique** ordering key. UNIQUE + INDEX.
     ts: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_unique_utcnow,
         nullable=False, unique=True, index=True,
     )
-    # ``seq`` is monotonic within a session (used for pagination +
+    # `seq` is monotonic within a session (used for pagination +
     # ring-buffer replay). Not unique across sessions.
     seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
 
-    # ── Classification ──────────────────────────────────────────
     # Coarse kind so readers can filter at index-scan speed.
     kind: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     # Fine type, e.g. "user_message", "tool_call", "thinking_delta",
     # "quota.set_app", "user.disable".
     type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
 
-    # ── Scoping (nullable) ──────────────────────────────────────
     app_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     session_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
 
-    # ── Actor (who performed the action) ────────────────────────
     actor_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     actor_roles: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
 
-    # ── Message-shape fields (populated when kind='message') ───
     role: Mapped[str | None] = mapped_column(String(32), nullable=True)
     content: Mapped[str | None] = mapped_column(Text, nullable=True)
     tool_call_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     tool_calls: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    # ── Generic payload (events + full audit body) ─────────────
     payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
 
-    # ── Audit-specific (populated when kind='audit') ───────────
     before: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     after: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     target_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     target_app_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     target_resource: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
-    # ── Forensic (IP / UA / correlation) ───────────────────────
     ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     correlation_id: Mapped[str] = mapped_column(String(64), default="", nullable=False, index=True)
 
-    # ── Outcome ─────────────────────────────────────────────────
     success: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     message: Mapped[str] = mapped_column(Text, default="", nullable=False)
 
@@ -1127,15 +821,6 @@ class HistoryLog(Base):
         Index("ix_history_actor_ts", "actor_user_id", "ts"),
         Index("ix_history_kind_ts", "kind", "ts"),
         Index("ix_history_type_ts", "type", "ts"),
-        # Universal-truth invariant for the seq column: per-session
-        # monotonicity is enforced at the DB level so any code path
-        # that mints a duplicate seq fails loudly instead of silently
-        # corrupting the timeline. Partial index keyed on kind='event'
-        # (audit / message rows are allowed to share seq=0). Two
-        # variants - one for session-scoped events, one for user-scoped
-        # events - mirror the in-memory scope key in
-        # ``EventBuffer.next_seq``. Supported on SQLite >= 3.8.0 and
-        # Postgres - both backends the daemon targets.
         Index(
             "ix_history_session_seq_event_unique",
             "session_id", "seq",
@@ -1154,11 +839,7 @@ class HistoryLog(Base):
 
 
 class RefreshToken(Base):
-    """Stored refresh tokens - revocable, trackable.
-
-    Access tokens are stateless (JWT). Refresh tokens are stored in DB
-    so they can be revoked (logout, security incident).
-    """
+    """Stored refresh tokens - revocable, trackable."""
 
     __tablename__ = "refresh_tokens"
 
@@ -1180,11 +861,7 @@ class RefreshToken(Base):
 
 
 class APIKey(Base):
-    """API keys for machine-to-machine authentication.
-
-    Keys are hashed (SHA-256). The raw key is shown once at creation.
-    Scoped by app_id: NULL means the key works across all apps.
-    """
+    """API keys for machine-to-machine authentication."""
 
     __tablename__ = "api_keys"
 
@@ -1199,12 +876,6 @@ class APIKey(Base):
     key_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
     app_id: Mapped[str | None] = mapped_column(
         String(255),
-        # No DB-level FK: ``applications.app_id`` is not unique on its own
-        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
-        # multi-tenant support). Postgres rejects FKs to non-unique columns;
-        # SQLite silently accepted them but it was never valid. Cascade
-        # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``).
         nullable=True,
     )
     permissions: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -1220,23 +891,13 @@ class APIKey(Base):
 
 
 class BackgroundSession(Base):
-    """A background session - one per user (mono) or many per user (multi).
-
-    Each background session has its own agent context, memory, and routing keys.
-    Triggers are routed to the correct session via routing_keys.
-    """
+    """A background session - one per user (mono) or many per user (multi)."""
 
     __tablename__ = "background_sessions"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        # No DB-level FK: ``applications.app_id`` is not unique on its own
-        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
-        # multi-tenant support). Postgres rejects FKs to non-unique columns;
-        # SQLite silently accepted them but it was never valid. Cascade
-        # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``).
         nullable=False,
     )
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -1267,23 +928,13 @@ class BackgroundSession(Base):
 
 
 class Activation(Base):
-    """Record of a background trigger activation.
-
-    Every time a background trigger fires and the agent runs, one row
-    is created. Used for monitoring, debugging, and billing.
-    """
+    """Record of a background trigger activation."""
 
     __tablename__ = "activations"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        # No DB-level FK: ``applications.app_id`` is not unique on its own
-        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
-        # multi-tenant support). Postgres rejects FKs to non-unique columns;
-        # SQLite silently accepted them but it was never valid. Cascade
-        # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``).
         nullable=False,
     )
     trigger_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -1328,32 +979,7 @@ class Activation(Base):
 
 
 class ActivationEvent(Base):
-    """Timeline event emitted during a background activation.
-
-    Every tool call, thinking block, artifact creation and channel send
-    that happens between an activation's ``started_at`` and
-    ``completed_at`` is persisted here as a row, keyed by
-    ``activation_id`` and ordered by ``sequence``. This is what the
-    Flutter dashboard's activation drawer reads to render the
-    ⟶ tool ⟶ thinking ⟶ artifact ⟶ channel timeline.
-
-    Event types currently persisted by ``background.run_background``:
-
-    - ``tool_call``   - a tool executed during the turn
-                        (payload: name, params, success, duration_ms,
-                        error, summary of the result)
-    - ``thinking``    - a block of reasoning text from the model
-                        (payload: text, truncated)
-    - ``channel_sent``- a channel delivered a message
-                        (payload: channel_name, target, success, error)
-    - ``artifact``    - a file-producing tool call normalised to an
-                        artifact row (payload: path, size_bytes, action)
-    - ``turn_start``  - boundary marker so the drawer can split by turn
-    - ``turn_end``    - boundary marker
-
-    ``data`` carries the payload as JSON; its shape is event-specific
-    but stable enough for the frontend to switch on ``event_type``.
-    """
+    """Timeline event emitted during a background activation."""
 
     __tablename__ = "activation_events"
 
@@ -1363,9 +989,6 @@ class ActivationEvent(Base):
         ForeignKey("activations.id", ondelete="CASCADE"),
         nullable=False,
     )
-    # Monotonically increasing per activation - the frontend sorts by
-    # this field to guarantee a stable order even when multiple events
-    # hit the database inside the same millisecond.
     sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False,
@@ -1382,52 +1005,7 @@ class ActivationEvent(Base):
 
 
 class Credential(Base):
-    """One encrypted credential - the foundation of the universal
-    credentials/secrets/integrations system.
-
-    A Credential is the unit of authentication for an external
-    service. Its shape is intentionally open so the same row can
-    represent:
-
-    - a plain API key (``provider_type='api_key'``),
-    - a multi-field credential like Slack (3 tokens) or AWS,
-    - an OAuth 2 refresh + access token pair,
-    - a database connection string,
-    - an MCP server config (fields + env + command template).
-
-    Every actual *field value* lives inside ``encrypted_fields`` as an
-    AES-256-GCM ciphertext - nothing secret ever touches the database
-    in plaintext. The ``display_metadata`` column carries the
-    non-secret info needed by the UI (masked previews, OAuth account
-    display name, scope list, etc.).
-
-    Scope - **how the credential is resolved**::
-
-        per_app_per_user   specific override : (user_id, app_id, provider)
-        per_user           cross-app user secret : (user_id, NULL, provider)
-        per_app_shared     rare: admin sets one key for all users of an app
-        system_wide        daemon-level config (OAuth client_id, Twilio SID, …)
-
-    A resolver walks this order from most specific to least specific
-    at both compile time (for ``{{secret.X}}`` in YAML) and runtime
-    (for per-user secrets inside rendered templates).
-
-    Status lifecycle::
-
-        pending   - created, fields not filled yet (OAuth flow started, …)
-        filled    - fields present, not yet tested against the live service
-        valid     - tested OK, safe to use
-        expired   - OAuth token expired, refresh will be attempted
-        invalid   - permanently broken (revoked, bad credentials)
-        refreshing- in the middle of a refresh
-        error     - last use raised an unknown error
-
-    The refresh worker (background task) watches ``expires_at`` and
-    tries to refresh credentials that are about to expire. For
-    types that cannot be refreshed (api_key), the handler's ``refresh``
-    implementation performs a ``test_live_connection`` instead and
-    updates ``last_validated_at``.
-    """
+    """One encrypted credential - the foundation of the universal"""
 
     __tablename__ = "credentials"
 
@@ -1445,21 +1023,10 @@ class Credential(Base):
     provider_type: Mapped[str] = mapped_column(String(32), nullable=False)
     scope: Mapped[str] = mapped_column(String(32), nullable=False)
 
-    # User-facing slug used by YAML `credential: <name>` references.
-    # Distinct from `provider_name` (e.g. name="openai_main",
-    # provider_name="openai"). Unique per (scope, user_id, app_id) -
-    # the same name can exist at different scopes intentionally.
-    # Defaults to provider_name + label for back-compat with rows
-    # written before this field existed.
     name: Mapped[str] = mapped_column(
         String(64), nullable=False, default="", server_default="",
     )
 
-    # Owner type - who owns this credential in the unified model.
-    # "user"   → credential belongs to ``user_id``; apps access it via
-    #            rows in ``credential_grants``.
-    # "system" → admin/global credential, no grant needed. If ``app_id``
-    #            is set, the credential is restricted to that one app.
     owner_type: Mapped[str] = mapped_column(
         String(16), nullable=False, default="user",
     )
@@ -1483,9 +1050,6 @@ class Credential(Base):
     )
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # Display metadata - NOT secret, stored as plain JSON for the UI.
-    # Contains: masked_preview, oauth_account, oauth_scopes, label,
-    # icon_url, mcp_status, …
     display_metadata: Mapped[dict] = mapped_column(JSON, default=dict)
 
     created_at: Mapped[datetime] = mapped_column(
@@ -1496,10 +1060,6 @@ class Credential(Base):
     )
 
     __table_args__ = (
-        # At most one credential per (user?, app?, provider) tuple.
-        # Note: SQLite treats NULLs as distinct in UNIQUE constraints,
-        # so system_wide can't rely on this. The store enforces
-        # uniqueness in the application layer as a safety net.
         Index("ix_credentials_user", "user_id"),
         Index("ix_credentials_app", "app_id"),
         Index("ix_credentials_user_app", "user_id", "app_id"),
@@ -1508,32 +1068,13 @@ class Credential(Base):
         Index("ix_credentials_expires", "expires_at"),
         Index("ix_credentials_owner_type", "owner_type"),
         Index("ix_credentials_user_provider", "user_id", "provider_name"),
-        # Lookup by user-facing slug (the YAML `credential: <name>` ref).
-        # Filter by scope at the SQL layer so the strict-scope resolver
-        # is a single round-trip.
         Index("ix_credentials_user_name", "user_id", "name"),
         Index("ix_credentials_scope_name", "scope", "name"),
     )
 
 
 class CredentialGrant(Base):
-    """Authorization linking a user-owned credential to a specific app.
-
-    In the unified credentials model a user stores a credential ONCE
-    (``owner_type='user'``). Apps never "own" a credential - they are
-    granted access to it. This table is the grant. One row per
-    (credential_id, app_id) pair; the user can revoke by deleting the
-    row (or by setting ``revoked_at`` - soft delete kept for audit).
-
-    For ``oauth2`` credentials, ``scopes_granted`` records which OAuth
-    scopes were requested when the grant was created so the runtime
-    can detect when a new app asks for a superset and trigger an
-    incremental scope upgrade.
-
-    System credentials (``owner_type='system'``) never appear in this
-    table - they are visible to every app implicitly (or restricted
-    to the single app named in their own ``app_id`` column).
-    """
+    """Authorization linking a user-owned credential to a specific app."""
 
     __tablename__ = "credential_grants"
 
@@ -1547,9 +1088,6 @@ class CredentialGrant(Base):
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
     app_id: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    # OAuth-specific: list of scopes that were actually granted when
-    # this row was created. Stored as JSON array of strings. For
-    # non-OAuth credentials this stays empty.
     scopes_granted: Mapped[list] = mapped_column(JSON, default=list)
 
     granted_at: Mapped[datetime] = mapped_column(
@@ -1569,29 +1107,7 @@ class CredentialGrant(Base):
 
 
 class CredentialAudit(Base):
-    """Append-only audit ledger for every credential operation.
-
-    Each row carries `prev_hash` + `this_hash` so the chain can be
-    verified end-to-end. A row that's tampered with (or one that's
-    deleted) breaks every subsequent `prev_hash` link, surfacing the
-    breach to a periodic verifier.
-
-    Hash construction:
-        this_hash = SHA-256(prev_hash || canonical_json(this_row_fields))
-
-    The genesis row uses `prev_hash = "0" * 64`. Persisted hashes are
-    hex-encoded SHA-256 (64 chars).
-
-    Operational notes:
-      - Inserted under `with_for_update` lock on the chain head to
-        serialise concurrent writers.
-      - NEVER updated. The verifier tolerates a missing row only at
-        the chain TAIL (truncated log) - any inner gap is a breach.
-      - `extra` column carries action-specific small JSON details,
-        scrubbed of secrets via the LogScrubber path before insert.
-      - Retention is policy-driven (default: keep forever; admin can
-        archive to cold storage via export).
-    """
+    """Append-only audit ledger for every credential operation."""
 
     __tablename__ = "credential_audit"
 
@@ -1604,9 +1120,6 @@ class CredentialAudit(Base):
     # WHAT: AuditAction enum value (string).
     action: Mapped[str] = mapped_column(String(32), nullable=False)
 
-    # WHEN: unix timestamp at the moment the action was attempted.
-    # Not the row insert time - the action time. Useful when the audit
-    # write itself is delayed by retries.
     when_ts: Mapped[float] = mapped_column(Float, nullable=False)
 
     # ON: the credential id targeted, or "*" for list operations.
@@ -1616,7 +1129,6 @@ class CredentialAudit(Base):
     outcome: Mapped[str] = mapped_column(String(16), nullable=False)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # WHERE: client metadata (best-effort; may be empty for
     # daemon-internal calls).
     where_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     where_ua: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -1643,31 +1155,7 @@ class CredentialAudit(Base):
 
 
 class UserAppByok(Base):
-    """Per-user, per-app "Bring Your Own Key" toggle (LOCAL mode only).
-
-    A row exists when the user has flipped the BYOK switch for one of
-    their installed apps from the Flutter desktop UI. Presence with
-    ``enabled=True`` instructs the runtime to:
-
-      1. Skip the Digitorn LLM gateway for that (user, app).
-      2. Use the user's own credential (a ``Credential`` row with scope
-         ``per_app_per_user``) when calling the LLM provider.
-      3. If no such credential exists yet, raise ``CredentialAuthRequired``
-         so the client opens the credential-picker dialog.
-
-    The table is **never consulted in cloud mode**. The cloud routing
-    layer always sends traffic through the gateway with the user's JWT;
-    this toggle is meaningful only for self-hosted / desktop daemons.
-
-    Why a separate table (not a column on ``credentials``):
-      * The toggle precedes the credential. A user can flip BYOK on
-        BEFORE they have a credential to inject - the picker is what
-        fills the credentials row.
-      * Rolling BYOK off should NOT delete the saved credential, so
-        users can re-enable later without re-entering their key.
-      * Conceptually it's an app-install setting (per (user, app)),
-        not a credential field.
-    """
+    """Per-user, per-app "Bring Your Own Key" toggle (LOCAL mode only)."""
 
     __tablename__ = "user_app_byok"
 
@@ -1690,23 +1178,7 @@ class UserAppByok(Base):
 
 
 class BuildDraft(Base):
-    """A work-in-progress YAML draft authored by the App Builder agent.
-
-    Every conversation between a user and the App Builder is persisted
-    as a ``BuildDraft`` so the user can leave, come back hours later,
-    and pick up exactly where they left off - same chat history, same
-    YAML in progress, same builder state-machine step.
-
-    The actual YAML lives in two places (mirroring the
-    ``BackgroundSession`` payload pattern): a copy in ``current_yaml``
-    for fast DB lookup, and the same bytes on disk under
-    ``~/.digitorn/drafts/<user_id>/<draft_id>/app.yaml`` so the user
-    can ``cat`` / download it without going through the API.
-
-    Each user is capped at 50 drafts (enforced by ``BuildDraftStore``)
-    to keep the table from growing unbounded when users abandon
-    experiments.
-    """
+    """A work-in-progress YAML draft authored by the App Builder agent."""
 
     __tablename__ = "build_drafts"
 
@@ -1717,19 +1189,13 @@ class BuildDraft(Base):
     # in_progress | compiled | deployed | abandoned
     status: Mapped[str] = mapped_column(String(32), default="in_progress")
 
-    # Current YAML in progress. Mirrored to ``yaml_path`` on disk by the
+    # Current YAML in progress. Mirrored to `yaml_path` on disk by the
     # store so the bytes stay in sync between DB and filesystem.
     current_yaml: Mapped[str] = mapped_column(Text, default="")
     yaml_path: Mapped[str] = mapped_column(String(1024), default="")
 
-    # Full chat history for the build session: a list of message dicts
-    # with role/content + any structured build:* events the builder
-    # emitted along the way. Capped to ~500 messages by the store.
     chat_history: Mapped[list] = mapped_column(JSON, default=list)
 
-    # State-machine bookkeeping for the builder agent: current step,
-    # collected user intent, picked template, last compile result, etc.
-    # Free-form so we don't tie the schema to one builder version.
     builder_state: Mapped[dict] = mapped_column(JSON, default=dict)
 
     # If/when this draft is deployed, we record the resulting app_id so
@@ -1749,48 +1215,14 @@ class BuildDraft(Base):
 
 
 class InstalledPackage(Base):
-    """One installed AppPackage - the unit of distribution.
-
-    Created by the AppPackages system (``digitorn.core.packages``)
-    when an app is installed via ``POST /api/packages/install`` or
-    auto-installed by the daemon's BuiltinSource scan at boot. The
-    row tracks **where the package came from**, **what version is
-    installed**, **the content hash** (for drift detection), and
-    **a frozen copy of the manifest** (for fast lookups without
-    re-reading the TOML file).
-
-    The deployed app side of the equation lives in ``Application``
-    (with the matching ``package_id`` foreign-key-like column).
-    Packages and applications are linked 1:1 - installing a package
-    deploys exactly one app, uninstalling deletes it.
-
-    Status lifecycle::
-
-        installing  - install flow in progress, files being moved
-        installed   - normal state, app is deployed
-        broken      - install succeeded but the app failed to deploy;
-                      the user can either uninstall or try to fix
-        upgrading   - upgrade in progress, old version still live
-        degraded    - new version deployed but is crashing at runtime
-                      (rolled back manually by the user)
-        uninstalling- uninstall in progress, files being removed
-    """
+    """One installed AppPackage - the unit of distribution."""
 
     __tablename__ = "installed_packages"
 
-    # Surrogate primary key - package_id alone is no longer unique
-    # because a package can be installed at two scopes (system
-    # install by admin AND a per-user override by Alice). The
-    # uniqueness is enforced by the composite index below.
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
 
     package_id: Mapped[str] = mapped_column(String(64), nullable=False)
 
-    # Scoping - who can see this install.
-    # ``system``: installed by admin, visible to every user of the
-    #   daemon. Files live under ~/.digitorn/packages/<package_id>/.
-    # ``user``: installed by a specific user, invisible to others.
-    #   Files live under ~/.digitorn/users/<owner_user_id>/packages/<package_id>/.
     scope: Mapped[str] = mapped_column(
         String(16), nullable=False, default="system",
     )
@@ -1803,10 +1235,6 @@ class InstalledPackage(Base):
     source_type: Mapped[str] = mapped_column(String(16), nullable=False)
     # builtin | local | hub | git
     source_uri: Mapped[str] = mapped_column(String(1024), default="")
-    # bundle://digitorn/builder            - for builtin
-    # file:///abs/path/to/my-app           - for local
-    # hub://alice/jobhunt@1.2.0            - for hub (future)
-    # git+https://github.com/alice/...     - for git (future)
 
     version: Mapped[str] = mapped_column(String(32), default="0.0.0")
     hash: Mapped[str] = mapped_column(String(64), default="")
@@ -1835,12 +1263,6 @@ class InstalledPackage(Base):
         Index("ix_installed_packages_updated", "updated_at"),
         Index("ix_installed_packages_package_id", "package_id"),
         Index("ix_installed_packages_owner", "owner_user_id"),
-        # Uniqueness: one install per (package_id, scope, owner_user_id).
-        # A user can have their own copy AND see the system copy at the
-        # same time - scope differentiates them. SQLite treats NULL as
-        # distinct in unique indices so system installs (owner_user_id=NULL)
-        # all collide → we enforce uniqueness in the store layer with a
-        # lookup before insert.
         Index(
             "ix_installed_packages_scope_key",
             "package_id", "scope", "owner_user_id",
@@ -1850,29 +1272,7 @@ class InstalledPackage(Base):
 
 
 class InboxItem(Base):
-    """One notification in the user's persistent inbox.
-
-    The inbox is the client's long-lived view of "things that
-    happened while I wasn't looking". It survives reloads, is
-    shared across devices, and is the canonical record the Flutter
-    ``ActivityInboxService`` syncs from on launch.
-
-    A row is created by the InboxProducer background task that
-    subscribes to the per-user event fan-out and promotes specific
-    events (session completed, approval requested, credential
-    missing, …) into durable rows. Read / archive actions come
-    from the /api/users/me/inbox/* routes.
-
-    Kinds::
-
-        session.completed           turn finished, no error
-        session.failed              turn errored or hit an auth issue
-        session.awaiting_approval   approval_request fired
-        bg.activation_completed     background trigger ran + finished
-        credential.expired          refresh worker flagged expiration
-        credential.missing          CredentialAuthRequired propagated
-        quota.warning               quota module >= warning threshold
-    """
+    """One notification in the user's persistent inbox."""
 
     __tablename__ = "inbox_items"
 
@@ -1909,12 +1309,7 @@ class InboxItem(Base):
 
 
 class InboxDevice(Base):
-    """A registered device for future push-notification delivery.
-
-    Persisted today so the Flutter client can wire register /
-    unregister calls; actual FCM/APNS delivery is deferred to
-    the push-notification PR.
-    """
+    """A registered device for future push-notification delivery."""
 
     __tablename__ = "inbox_devices"
 
@@ -1937,13 +1332,8 @@ class InboxDevice(Base):
     )
 
 
-
 class InboxNotificationPrefs(Base):
-    """Server-side mirror of the client's notification prefs.
-
-    One row per user. Stored as JSON so the schema can evolve
-    without migrations.
-    """
+    """Server-side mirror of the client's notification prefs."""
 
     __tablename__ = "inbox_notification_prefs"
 
@@ -1954,15 +1344,8 @@ class InboxNotificationPrefs(Base):
     )
 
 
-
 class HubSession(Base):
-    """One row per (daemon user, hub URL) - caches the hub JWT for that user.
-
-    The daemon never stores a hub password. The user logs into the hub via
-    the daemon (`POST /api/hub/login`), the daemon forwards credentials to
-    the hub, and the returned JWT is cached here. Hub browsing/installs
-    initiated by that user reuse the JWT until it expires.
-    """
+    """One row per (daemon user, hub URL) - caches the hub JWT for that user."""
 
     __tablename__ = "hub_sessions"
 
@@ -1984,17 +1367,8 @@ class HubSession(Base):
     )
 
 
-# ── v2 schema additions (Sprint F + gateway sprint E) ─────────────
-
-
 class UserDevice(Base):
-    """A registered device with per-device notification preferences.
-
-    Replaces the old (``inbox_devices`` + ``inbox_notification_prefs``)
-    pair. One row per (user_id, fcm_token); ``prefs`` and
-    ``subscribed_topics`` are JSONB so the schema can evolve without
-    migration. ``active=False`` is a soft-delete (FCM 410, user logout).
-    """
+    """A registered device with per-device notification preferences."""
 
     __tablename__ = "user_devices"
 
@@ -2069,13 +1443,7 @@ class FeatureFlag(Base):
 
 
 class AuditActionsCatalog(Base):
-    """Catalog of every audit ``action_key`` we emit, with retention.
-
-    Seeded with 18 canonical action_keys at migration time. Operators
-    can add custom rows. The retention sweeper reads ``retention_days``
-    to know how long to keep matching rows in ``history_log`` and
-    ``credential_audit``.
-    """
+    """Catalog of every audit `action_key` we emit, with retention."""
 
     __tablename__ = "audit_actions_catalog"
 

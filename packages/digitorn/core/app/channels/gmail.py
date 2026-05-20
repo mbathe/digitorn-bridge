@@ -1,46 +1,4 @@
-"""Gmail Output Channel - send emails via Gmail SMTP.
-
-Uses Gmail's SMTP server with an App Password (no OAuth complexity).
-Supports HTML emails, plain text fallback, and attachments.
-
-Prerequisites:
-    1. Enable 2-Step Verification on your Google Account
-    2. Generate an App Password: https://myaccount.google.com/apppasswords
-    3. Use the app password as ``smtp_password`` in your YAML config
-
-YAML example::
-
-    channels:
-      email_alerts:
-        type: gmail
-        config:
-          from_address: "your.email@gmail.com"
-          smtp_password: "{{env.GMAIL_APP_PASSWORD}}"
-          from_name: "Digitorn Bot"
-          timeout: 10
-
-      email_personal:
-        type: gmail
-        config:
-          from_address: "bot@gmail.com"
-          smtp_password: "{{env.GMAIL_APP_PASSWORD}}"
-        user_resolver:
-          module: database
-          action: fetch_results
-          params:
-            query: "SELECT email, full_name FROM users WHERE session_id = ':session_id'"
-          mapping:
-            to_address: email
-            recipient_name: full_name
-
-Per-delivery config (from ``output_config`` or ``user_resolver``)::
-
-    to_address: "recipient@example.com"
-    recipient_name: "Alice Dupont"
-    cc: "cc1@example.com, cc2@example.com"
-    bcc: "bcc@example.com"
-    reply_to: "noreply@example.com"
-"""
+"""Gmail Output Channel - send emails via Gmail SMTP."""
 
 from __future__ import annotations
 
@@ -65,12 +23,7 @@ _GMAIL_SMTP_PORT = 587
 
 
 class GmailChannel(BaseOutputChannel):
-    """Send emails via Gmail SMTP with App Password authentication.
-
-    Supports HTML and plain text emails. Uses ``payload.title`` as the
-    email subject and ``payload.rich_message`` (or ``payload.message``)
-    as the body.
-    """
+    """Send emails via Gmail SMTP with App Password authentication."""
 
     CHANNEL_ID = "gmail"
     CHANNEL_NAME = "Gmail (SMTP)"
@@ -244,7 +197,6 @@ class GmailChannel(BaseOutputChannel):
         message: str,
         timeout: int,
     ) -> str:
-        """Blocking SMTP send (runs in thread)."""
         import smtplib
 
         with smtplib.SMTP(host, port, timeout=timeout) as server:
@@ -256,7 +208,6 @@ class GmailChannel(BaseOutputChannel):
             return f"gmail-{id(message)}"
 
     def _build_html(self, payload: ChannelPayload) -> str:
-        """Build an HTML email body from the payload."""
         if payload.rich_message:
             return payload.rich_message
 

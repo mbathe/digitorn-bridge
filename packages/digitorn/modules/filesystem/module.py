@@ -1,21 +1,4 @@
-"""Filesystem module - 5 ultra-powerful actions for AI agents.
-
-Design:
-  1. MINIMAL params → LLM makes fewer mistakes
-  2. POWERFUL implementations → fuzzy matching, auto-detection, smart errors
-  3. RICH feedback → metadata, diffs, recovery hints for preview/frontend
-  4. ERROR-FRIENDLY → closest matches, suggestions on failure
-
-Actions:
-  - Read: text, images, PDFs, notebooks with auto-detection
-  - Write: creates parent dirs automatically, atomic writes
-  - Edit: fuzzy matching + insert_at_line + recovery hints
-  - Grep: ripgrep-powered search with multiline + context
-  - Glob: pattern-based file finding with type filtering
-
-Removed (use Bash instead):
-  - ls, mv, cp, rm, mkdir, insert, find, file_stat, undo
-"""
+"""Filesystem module - 5 ultra-powerful actions for AI agents."""
 
 from __future__ import annotations
 
@@ -55,13 +38,8 @@ _SYNC_THRESHOLD = 512 * 1024
 _MAX_PDF_PAGES_PER_REQUEST = 20
 _MAX_LINES_TO_READ = 2000
 
-
-# BUG-077 + BUG-083: secrets that would let a caller forge tokens,
-# decrypt every user's credentials, or impersonate the admin. These
-# files MUST NOT be reachable from any agent-facing tool. The check is
-# applied at the lowest layer (``_resolve_path``) so it catches
-# ``filesystem.read``, ``filesystem.write``, ``filesystem.grep``, and
-# ``filesystem.glob`` in one place. ``shell`` has its own equivalent.
+# Block daemon-secret paths at the lowest filesystem layer so every action
+# (read/write/grep/glob) honours the deny-list. `shell` has its own equivalent.
 def _assert_not_daemon_secret(abs_path: str) -> None:
     from digitorn.modules.exceptions import PermissionDeniedError
 
@@ -106,9 +84,7 @@ def _assert_not_daemon_secret(abs_path: str) -> None:
                 profile="daemon-secret-denylist",
             )
 
-
 from pydantic import BaseModel, Field
-
 
 class FilesystemConfig(BaseModel):
     """Filesystem config declared in app.yaml -> modules.filesystem.config."""
@@ -130,16 +106,15 @@ class FilesystemConfig(BaseModel):
             "files exist on disk and the SDK / web client can read+write "
             "them via HTTP, but the filesystem tools (Read, Write, Edit, "
             "Glob, Grep) treat them as if they didn't exist. Mirrors "
-            "``workspace.hidden_paths`` so you can declare it once in "
+            "`workspace.hidden_paths` so you can declare it once in "
             "either module and both apply.\n\n"
             "Always-hidden defaults (no config needed):\n"
-            "  - ``__sdk__/**``\n  - ``.app/**``\n  - ``.digitorn/**``"
+            "  - `__sdk__/**`\n  - `.app/**`\n  - `.digitorn/**`"
         ),
     )
 
-
 class FilesystemModule(BaseModule):
-    """Filesystem module with 5 ultra-powerful actions."""
+    """Filesystem module with 5 actions."""
 
     MODULE_ID = "filesystem"
     VERSION = "1.0.0"
@@ -153,15 +128,7 @@ class FilesystemModule(BaseModule):
         # without them, just without post-write diagnostics push.
         self._lsp: Any | None = None
         self._preview: Any | None = None
-        # Per-(session, path) generation counter - same pattern as
-        # workspace module. Prevents cross-session payload pollution
-        # since FilesystemModule is also isolation=shared.
         self._diag_gen: dict[tuple[str, str], int] = {}
-        # Hidden-from-agent globs - applied in read/write/edit/glob/grep.
-        # Loaded from YAML config + the always-hidden defaults. The
-        # workspace module's hidden_globs is also pulled in via the
-        # service bus when both modules are loaded together (typical
-        # for SDK apps), so the user can declare hidden_paths once.
         _DEFAULT_HIDDEN = ["__sdk__/**", ".app/**", ".digitorn/**"]
         self._hidden_globs: list[str] = list(_DEFAULT_HIDDEN)
 
@@ -185,18 +152,11 @@ class FilesystemModule(BaseModule):
                     for pat in peer_hidden:
                         if pat not in merged:
                             merged.append(pat)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("module best-effort block failed: %s", exc)
         self._hidden_globs = merged
 
     def _is_hidden_from_agent(self, abs_path: str) -> bool:
-        """True when the path matches a hidden glob.
-
-        Compared workspace-relative when the path is under the workspace,
-        and against the bare basename + full POSIX path otherwise. The
-        SDK iframe / HTTP routes bypass this filter - it only gates the
-        agent's tool surface.
-        """
         if not self._hidden_globs or not abs_path:
             return False
         from fnmatch import fnmatch
@@ -207,8 +167,8 @@ class FilesystemModule(BaseModule):
             rel = norm[len(ws) + 1:]
         elif ws and norm.lower() == ws.lower():
             return False
-        # Strip leading slash so patterns like ``__sdk__/**`` match
-        # both ``/abs/path/__sdk__/foo`` and bare ``__sdk__/foo``.
+        # Strip leading slash so patterns like `__sdk__/**` match
+        # both `/abs/path/__sdk__/foo` and bare `__sdk__/foo`.
         rel = rel.lstrip("/")
         for pat in self._hidden_globs:
             p = pat.replace("\\", "/").lstrip("/")
@@ -224,7 +184,7 @@ class FilesystemModule(BaseModule):
             if fnmatch(rel, p):
                 return True
             # Also try matching the basename for patterns that don't
-            # carry a directory component (e.g. ``*.secret``).
+            # carry a directory component (e.g. `*.secret`).
             if "/" not in p and fnmatch(os.path.basename(rel), p):
                 return True
         return False
@@ -236,18 +196,6 @@ class FilesystemModule(BaseModule):
     async def _run_lint_and_publish(
         self, file_path: str, content: str,
     ) -> list[dict[str, Any]]:
-        """Run LSP diagnostics on a freshly-written file and push to the
-        `diagnostics` preview channel if available.
-
-        Resolution: real LSP server first (ruff/pyright/eslint/texlab),
-        then in-memory built-in validators (JSON/YAML/TOML/Python/LaTeX).
-        Matches the workspace module's behavior exactly.
-
-        Returns the flat-shape diagnostics (same format as workspace
-        module's inline `lint` field) so the agent sees errors directly
-        in the tool response. Also fires off an async publish to the
-        preview channel when it's wired.
-        """
         items: list[dict[str, Any]] = []
 
         # 1. Real LSP server via lsp module.
@@ -337,15 +285,6 @@ class FilesystemModule(BaseModule):
         return items
 
     def _resolve_path(self, file_path: str) -> str:
-        """Resolve a file path. Delegates to the workdir-scoped
-        ``PathPolicy`` on the current execution context so every
-        agent-facing read/write/edit/glob/grep enforces the same
-        sandbox.
-
-        Fallback path (no policy on context) preserves the legacy
-        behaviour for CLI / unit-test / module-API callers that don't
-        flow through the standard runtime bootstrap.
-        """
         ctx = self._context_var.get()
         policy = getattr(ctx, "path_policy", None) if ctx else None
         if policy is not None:
@@ -365,11 +304,6 @@ class FilesystemModule(BaseModule):
         return resolved
 
     def _to_relative(self, abs_path: str) -> str:
-        """Convert an absolute path to workspace-relative (forward slashes).
-
-        Returns the relative path the agent can pass directly to Read/Edit/Write.
-        If the path is not under the workspace, returns it as-is.
-        """
         ws = self.workspace
         if not ws:
             return abs_path.replace("\\", "/")
@@ -378,10 +312,6 @@ class FilesystemModule(BaseModule):
             return rel.replace("\\", "/")
         except ValueError:
             return abs_path.replace("\\", "/")
-
-    # ========================================================================
-    # ACTION 1: Read
-    # ========================================================================
 
     @action(
         description="Read a file from the local filesystem.",
@@ -476,7 +406,7 @@ class FilesystemModule(BaseModule):
                 return self._handle_notebook_read(file_path, file_meta)
 
             # Binary file check. Off-loop because even a 512-byte read can
-            # block on slow / network-mounted FS, and ``read`` is called
+            # block on slow / network-mounted FS, and `read` is called
             # very often.
             import asyncio as _asyncio
             def _read_sample() -> bytes:
@@ -508,9 +438,8 @@ class FilesystemModule(BaseModule):
     async def _read_text_file(
         self, file_path: str, params: ReadParams, file_meta: dict
     ) -> ActionResult:
-        """Read a regular text file."""
         try:
-            # ``readlines()`` walks the whole file synchronously - on a
+            # `readlines()` walks the whole file synchronously - on a
             # 5 MB log under load, that's enough to stall every other
             # session sharing the loop. Off-load.
             import asyncio as _asyncio
@@ -575,7 +504,6 @@ class FilesystemModule(BaseModule):
             )
 
     def _handle_image_read(self, file_path: str, file_meta: dict) -> ActionResult:
-        """Handle image file reads."""
         # For now, return metadata indicating it's an image
         return ActionResult(
             success=True,
@@ -590,7 +518,6 @@ class FilesystemModule(BaseModule):
     def _handle_pdf_read(
         self, file_path: str, params: ReadParams, file_meta: dict
     ) -> ActionResult:
-        """Handle PDF file reads."""
         # Placeholder for PDF reading
         return ActionResult(
             success=True,
@@ -603,7 +530,6 @@ class FilesystemModule(BaseModule):
         )
 
     def _handle_notebook_read(self, file_path: str, file_meta: dict) -> ActionResult:
-        """Handle Jupyter notebook reads."""
         # Placeholder for notebook reading
         return ActionResult(
             success=True,
@@ -614,10 +540,6 @@ class FilesystemModule(BaseModule):
                 "detected": "notebook auto-detection enabled",
             },
         )
-
-    # ========================================================================
-    # ACTION 2: Write
-    # ========================================================================
 
     @action(
         description="Write a file to the local filesystem.",
@@ -744,10 +666,6 @@ class FilesystemModule(BaseModule):
                 error=f"Write failed: {e}",
             )
 
-    # ========================================================================
-    # ACTION 3: Edit
-    # ========================================================================
-
     @action(
         description="Find-and-replace in a file.",
         params_model=EditParams,
@@ -807,7 +725,7 @@ class FilesystemModule(BaseModule):
                     error=f"File does not exist: {file_path}",
                 )
 
-            # Read file off-loop. ``f.read()`` is the same trap as
+            # Read file off-loop. `f.read()` is the same trap as
             # readlines - large file = stalled loop = Socket.IO drop.
             import asyncio as _asyncio
             def _read_all() -> str:
@@ -935,10 +853,8 @@ class FilesystemModule(BaseModule):
                         params.old_string, params.new_string
                     )
 
-            # Write result off-loop. newline="" disables the default
-            # Windows translation of \n → \r\n, preserving exact byte
-            # content. The LLM's \n stays \n; pre-existing \r\n pass
-            # through too.
+            # Write off-loop with `newline=""` so Windows does not
+            # translate `\n` to `\r\n`.
             def _write_result() -> None:
                 with open(file_path, "w", encoding="utf-8", newline="") as f:
                     f.write(result_content)
@@ -953,7 +869,6 @@ class FilesystemModule(BaseModule):
             )
             bytes_changed = len(result_content) - len(original_content)
 
-            # Compute a snippet around the change for the LLM to see what happened
             new_lines = result_content.split("\n")
             total_new = len(new_lines)
 
@@ -999,10 +914,6 @@ class FilesystemModule(BaseModule):
                 error=f"Edit failed: {e}",
             )
 
-    # ========================================================================
-    # ACTION 4: Glob
-    # ========================================================================
-
     @action(
         description="Find files by name pattern.",
         params_model=GlobParams,
@@ -1046,12 +957,8 @@ class FilesystemModule(BaseModule):
                 )
 
             # Offload the filesystem walk + stat calls to a thread -
-            # ``pathlib.Path.glob`` is fully synchronous and on large
-            # workspaces (or deep ``**/*`` patterns) routinely takes a
-            # few seconds, blocking the event loop. Measured at N=50
-            # concurrent turns: a stall of 2.4 s came from this call
-            # (caught by the loop watchdog). Running it off-loop keeps
-            # every other session responsive while the walk completes.
+            # Off-load the sync `glob` walk; deep `**/*` patterns
+            # routinely stall the loop for seconds.
             import asyncio as _asyncio
             p = Path(search_path)
             ws = self.workspace or str(Path.cwd())
@@ -1126,10 +1033,6 @@ class FilesystemModule(BaseModule):
                 error=f"Glob failed: {e}",
             )
 
-    # ========================================================================
-    # ACTION 5: Grep
-    # ========================================================================
-
     @action(
         description="Search file contents for a regex pattern.",
         params_model=GrepParams,
@@ -1169,11 +1072,8 @@ class FilesystemModule(BaseModule):
         try:
             search_path = self._resolve_path(params.path) if params.path else (self.workspace or ".")
 
-            # Offload the search to a worker thread - both paths are
-            # fully sync (``subprocess.run`` for rg, ``read_text`` +
-            # rglob for the Python fallback) and routinely block the
-            # event loop for 1–3 s on large workspaces. Measured at
-            # 2.0 s stall on :8000 under load before this offload.
+            # Off-load: both paths are fully sync and routinely stall
+            # the loop for seconds on large workspaces.
             import asyncio as _asyncio
 
             def _dispatch() -> ActionResult:
@@ -1192,7 +1092,6 @@ class FilesystemModule(BaseModule):
             )
 
     def _grep_rg(self, params: GrepParams, search_path: str) -> ActionResult:
-        """Grep using ripgrep (rg) - fast, handles large codebases."""
         import shutil as _shutil
         rg_exe = _shutil.which("rg") or _shutil.which("rg.exe")
         if not rg_exe:
@@ -1200,7 +1099,7 @@ class FilesystemModule(BaseModule):
         cmd = [rg_exe, params.pattern, search_path]
         if params.glob:
             cmd.extend(["--glob", params.glob])
-        # Hidden-from-agent: pass each pattern as a negative ``--glob``
+        # Hidden-from-agent: pass each pattern as a negative `--glob`
         # exclusion so ripgrep skips those directories at walk time
         # rather than us post-filtering. Faster + leaks no path counts.
         for pat in self._hidden_globs or []:
@@ -1230,7 +1129,6 @@ class FilesystemModule(BaseModule):
         )
 
     def _grep_python(self, params: GrepParams, search_path: str) -> ActionResult:
-        """Grep using pure Python - fallback when rg is not installed."""
         import fnmatch as _fnmatch
         import re as _re
 
@@ -1276,7 +1174,7 @@ class FilesystemModule(BaseModule):
 
         files = [f for f in files if not _is_in_skip_dir(f)]
         # Hidden-from-agent: drop matching paths so they never surface
-        # in grep results, mirroring the rg ``--glob !pattern`` exclusion.
+        # in grep results, mirroring the rg `--glob !pattern` exclusion.
         files = [f for f in files if not self._is_hidden_from_agent(str(f))]
 
         for fpath in files:  # scan all - like rg does
@@ -1339,12 +1237,8 @@ class FilesystemModule(BaseModule):
                 "output_mode": params.output_mode,
             })
 
-    # ========================================================================
-    # Module metadata
-    # ========================================================================
-
     def get_manifest(self) -> ModuleManifest:
         """Return module manifest."""
         return ModuleManifest.from_module(self).model_copy(update={
-            "description": "Filesystem operations - 5 ultra-powerful actions: read, write, edit, glob, grep.",
+            "description": "Filesystem operations - 5 actions: read, write, edit, glob, grep.",
         })

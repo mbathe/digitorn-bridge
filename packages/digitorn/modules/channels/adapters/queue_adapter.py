@@ -1,9 +1,4 @@
-"""Queue adapter - bridge to QueueModule.
-
-Inbound:  Subscribes to a queue and fires events on new messages.
-Outbound: Publishes messages to a queue.
-Uses the ServiceBus to call the queue module's actions.
-"""
+"""Queue adapter - bridge to QueueModule."""
 
 from __future__ import annotations
 
@@ -21,7 +16,6 @@ from digitorn.modules.channels.adapter import (
 )
 
 logger = logging.getLogger(__name__)
-
 
 class QueueAdapter(BaseChannelAdapter):
     """Queue bridge adapter - delegates to QueueModule via ServiceBus."""

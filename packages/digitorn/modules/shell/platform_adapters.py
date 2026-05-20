@@ -1,11 +1,4 @@
-"""Platform-specific adapters for the shell module.
-
-Each adapter encapsulates:
-  - The default shell executable
-  - Forbidden command patterns specific to the platform
-  - Workspace root resolution
-  - Shell-specific subprocess invocation
-"""
+"""Platform-specific adapters for the shell module."""
 
 from __future__ import annotations
 
@@ -18,7 +11,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
-
 SENSITIVE_ENV_KEYS: list[str] = [
     "key", "secret", "password", "passwd", "token",
     "api", "auth", "credential", "private", "cert",
@@ -26,7 +18,6 @@ SENSITIVE_ENV_KEYS: list[str] = [
 ]
 
 _MASKED = "***MASKED***"
-
 
 # Environment variables forced into every shell command so that any
 # tooling the agent calls runs in NON-INTERACTIVE mode by default.
@@ -36,9 +27,9 @@ _MASKED = "***MASKED***"
 # etc.) hangs forever waiting for input that never comes. Combined
 # with stdin=DEVNULL on the subprocess this guarantees zero hangs
 # from interactive prompts across npm, yarn, pnpm, git, apt, debconf,
-# pip, brew, and any tool that reads ``CI=true`` or ``NO_COLOR``.
+# pip, brew, and any tool that reads `CI=true` or `NO_COLOR`.
 #
-# These are SETDEFAULT — the agent / app YAML can still override.
+# These are SETDEFAULT - the agent / app YAML can still override.
 _NON_INTERACTIVE_ENV: dict[str, str] = {
     # Universal CI markers (most tools detect this and switch to
     # non-interactive mode automatically)
@@ -47,20 +38,12 @@ _NON_INTERACTIVE_ENV: dict[str, str] = {
     "BUILDKITE": "true",                        # buildkite agent runner pattern
     "DEBIAN_FRONTEND": "noninteractive",        # apt
     "DEBCONF_NONINTERACTIVE_SEEN": "true",      # debconf back-end
-    # Editor fallbacks — when ``git commit`` (no -m), ``git rebase -i``,
-    # ``crontab -e``, ``visudo``, etc. try to open an editor on a
-    # non-TTY shell, point them at ``true`` (a no-op binary that
-    # exits 0 without modifying the file). The tool fails fast on the
-    # next step (e.g. git aborts the commit because the message is
-    # unchanged from the template) instead of hanging on a missing
-    # editor.
+    # Editor fallbacks: `true` is a no-op so editor-spawning tools
+    # (git, crontab, visudo) fail fast instead of hanging.
     "EDITOR": "true",
     "VISUAL": "true",
     "GIT_EDITOR": "true",
-    # Pager defaults — ``less`` and ``more`` already detect non-TTY
-    # stdout and bypass paging, but some tools (``git log``, ``man``)
-    # invoke them explicitly. ``cat`` makes the output flow through
-    # without buffering.
+    # Pager defaults: `cat` avoids paging for `git log` / `man`.
     "PAGER": "cat",
     "GIT_PAGER": "cat",
     "MANPAGER": "cat",
@@ -75,7 +58,7 @@ _NON_INTERACTIVE_ENV: dict[str, str] = {
     "GIT_TERMINAL_PROMPT": "0",                 # git refuse password prompts
     "GIT_ASKPASS": "true",                      # bypass GUI askpass helper
     "SSH_ASKPASS": "true",                      # bypass GUI askpass on ssh
-    # Color / TTY signals — some tools embed ANSI even when stdout
+    # Color / TTY signals - some tools embed ANSI even when stdout
     # is a pipe; force off for clean log capture
     "NO_COLOR": "1",
     "FORCE_COLOR": "0",
@@ -90,31 +73,24 @@ _NON_INTERACTIVE_ENV: dict[str, str] = {
     "HOMEBREW_NO_AUTO_UPDATE": "1",
     "HOMEBREW_NO_INSTALL_CLEANUP": "1",
     "HOMEBREW_NO_ENV_HINTS": "1",
-    # AWS / cloud CLIs — refuse interactive paging
+    # AWS / cloud CLIs - refuse interactive paging
     "AWS_PAGER": "",
-    # Cargo / rustup — non-interactive defaults
+    # Cargo / rustup - non-interactive defaults
     "RUSTUP_INIT_SKIP_PATH_CHECK": "yes",
     "CARGO_TERM_PROGRESS_WHEN": "never",
     "CARGO_TERM_COLOR": "never",
     # Snap / flatpak / dnf
     "DNF_AUTO_INSTALL": "1",
-    # PostgreSQL / MySQL — pass connection info via env, not prompts
+    # PostgreSQL / MySQL - pass connection info via env, not prompts
     "PGCONNECT_TIMEOUT": "10",                  # bound psql probes
 }
 
-
 def inject_non_interactive_env(env: dict[str, str]) -> dict[str, str]:
-    """Return a copy of ``env`` with non-interactive defaults applied.
-
-    Pure ``setdefault`` semantics — caller-supplied values always win.
-    Keeps the side-effect surface obvious and makes it trivial to
-    test (``inject_non_interactive_env({}) == _NON_INTERACTIVE_ENV``).
-    """
+    """Return a copy of `env` with non-interactive defaults applied."""
     out = dict(env)
     for k, v in _NON_INTERACTIVE_ENV.items():
         out.setdefault(k, v)
     return out
-
 
 def mask_env(variables: dict[str, str]) -> dict[str, str]:
     result: dict[str, str] = {}
@@ -125,14 +101,12 @@ def mask_env(variables: dict[str, str]) -> dict[str, str]:
             result[k] = v
     return result
 
-
 def truncate_output(raw: bytes, max_bytes: int) -> str:
     decoded = raw.decode(errors="replace")
     if len(raw) > max_bytes:
         decoded = decoded[:max_bytes]
         decoded += f"\n... [output truncated at {max_bytes} bytes]"
     return decoded
-
 
 class PlatformAdapter(ABC):
     """Abstract base for platform-specific shell behaviour."""
@@ -164,14 +138,7 @@ class PlatformAdapter(ABC):
         "wget -o- | sh",
     ]
 
-    # Infinite-wait patterns: commands that block forever with no exit
-    # condition. LLMs invent these when "wait until X" is in their head
-    # but they pick the wrong primitive (tail -f /dev/null follows a
-    # sink that never gets new bytes; sleep infinity has no termination).
-    # The agent's intent is legitimate; the implementation freezes the
-    # turn until the framework times out. Reject early with a fix hint
-    # that points at the right pattern.
-    #
+    # Infinite-wait patterns rejected early with a fix hint.
     # Each entry: (compiled regex, hint string injected into the error).
     _INFINITE_WAIT_PATTERNS: list[tuple[Any, str]] = [
         (
@@ -240,10 +207,7 @@ class PlatformAdapter(ABC):
         return None
 
     def infinite_wait_hint(self, command: str) -> str | None:
-        """Return an actionable error message if ``command`` matches a
-        known infinite-wait pattern; ``None`` otherwise. Detects the
-        commands LLMs invent when they want "wait until X" but pick a
-        primitive that never terminates."""
+        """Return an actionable error message if `command` matches."""
         for regex, hint in self._INFINITE_WAIT_PATTERNS:
             if regex.search(command):
                 return hint
@@ -269,7 +233,6 @@ class PlatformAdapter(ABC):
         max_output_bytes: int,
     ) -> tuple[str, str, int]: ...
     """Execute a multi-line script block. Returns (stdout, stderr, exit_code)."""
-
 
 class UnixAdapter(PlatformAdapter):
 
@@ -298,12 +261,8 @@ class UnixAdapter(PlatformAdapter):
         return os.environ.get("PWD", os.getcwd())
 
     def resolve_cwd(self, requested: str | None, workspace: str | None) -> tuple[str, str | None]:
-        # SAFETY: never silently fall back to ``Path.cwd()`` — that
-        # is the daemon's startup directory (often the daemon's own
-        # source tree). The agent must operate inside the session
-        # workspace, period. When the workspace can't be resolved
-        # we return a clear error so the caller refuses the command
-        # instead of running it in the wrong place.
+        # Never silently fall back to `Path.cwd()` (= the daemon's
+        # source tree); refuse the command instead.
         if requested:
             base = Path(requested).resolve()
         elif workspace:
@@ -315,8 +274,6 @@ class UnixAdapter(PlatformAdapter):
                 "the session has a workdir set or the app declares a "
                 "workspace_mode."
             )
-        # Verify directory exists - prefer workspace root over a
-        # non-existent ``requested`` path.
         if not base.is_dir():
             if workspace and Path(workspace).resolve().is_dir():
                 base = Path(workspace).resolve()
@@ -403,7 +360,6 @@ class UnixAdapter(PlatformAdapter):
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
-
 class WindowsAdapter(PlatformAdapter):
 
     @property
@@ -412,10 +368,7 @@ class WindowsAdapter(PlatformAdapter):
 
     @property
     def default_shell(self) -> str:
-        # Prefer Git Bash on Windows - like Claude Code.
-        # IMPORTANT: Do NOT use shutil.which("bash") - it may return
-        # C:\Windows\System32\bash.exe (WSL) which fails if WSL is not installed.
-        # Search Git Bash explicitly first.
+        # Prefer Git Bash; `shutil.which("bash")` would return WSL.
         for candidate in [
             r"C:\Program Files\Git\bin\bash.exe",
             r"C:\Program Files\Git\usr\bin\bash.exe",
@@ -456,12 +409,8 @@ class WindowsAdapter(PlatformAdapter):
         return os.environ.get("CD", os.getcwd())
 
     def resolve_cwd(self, requested: str | None, workspace: str | None) -> tuple[str, str | None]:
-        # SAFETY: never silently fall back to ``Path.cwd()`` — that
-        # is the daemon's startup directory (often the daemon's own
-        # source tree). The agent must operate inside the session
-        # workspace, period. When the workspace can't be resolved
-        # we return a clear error so the caller refuses the command
-        # instead of running it in the wrong place.
+        # Never silently fall back to `Path.cwd()` (= the daemon's
+        # source tree); refuse the command instead.
         if requested:
             base = Path(requested).resolve()
         elif workspace:
@@ -473,8 +422,6 @@ class WindowsAdapter(PlatformAdapter):
                 "the session has a workdir set or the app declares a "
                 "workspace_mode."
             )
-        # Verify directory exists - prefer workspace root over a
-        # non-existent ``requested`` path.
         if not base.is_dir():
             if workspace and Path(workspace).resolve().is_dir():
                 base = Path(workspace).resolve()
@@ -522,15 +469,9 @@ class WindowsAdapter(PlatformAdapter):
             cmd = os.environ.get("COMSPEC") or "cmd.exe"
             argv = [cmd, "/d", "/s", "/c", command]
 
-        # Native async path: works on ProactorEventLoop (the daemon's
-        # main loop). Falls back to a thread-pool subprocess.run when
-        # the current loop is a SelectorEventLoop (sub-agent threads,
-        # background workers without an explicit policy, …): on those
-        # loops ``create_subprocess_exec`` raises ``NotImplementedError``
-        # with an EMPTY ``str(exc)``. Without the fallback the agent
-        # sees ``error="NotImplementedError"`` and gives up - this is
-        # exactly the symptom the user reported (``cd web && npm install``
-        # returning ``NotImplementedError`` in 12ms with no execution).
+        # Falls back to a thread-pool `subprocess.run` on a
+        # SelectorEventLoop where `create_subprocess_exec` raises
+        # `NotImplementedError` with an empty message.
         try:
             proc = await asyncio.create_subprocess_exec(
                 *argv,
@@ -551,10 +492,6 @@ class WindowsAdapter(PlatformAdapter):
         except NotImplementedError:
             import subprocess as _subprocess
             def _sync_run() -> tuple[bytes, bytes, int]:
-                # ``communicate(timeout=...)`` is the only POSIX-portable
-                # way to bound a subprocess wait; the timeout raises
-                # ``subprocess.TimeoutExpired`` which the agent loop
-                # surfaces back to the LLM as a regular timeout error.
                 p = _subprocess.Popen(
                     argv,
                     stdin=_subprocess.DEVNULL,
@@ -601,11 +538,7 @@ class WindowsAdapter(PlatformAdapter):
                 "-ExecutionPolicy", "Bypass",
                 "-File", tmp_path,
             ]
-            # Same async-then-thread fallback as ``run_command``: if the
-            # caller's loop is a SelectorEventLoop the async path raises
-            # ``NotImplementedError`` (Windows asyncio only supports
-            # subprocess on Proactor), so we run the script through a
-            # plain ``subprocess.Popen`` in a worker thread.
+            # Same async / thread fallback as `run_command`.
             env = inject_non_interactive_env(dict(os.environ))
             try:
                 proc = await asyncio.create_subprocess_exec(
@@ -650,7 +583,6 @@ class WindowsAdapter(PlatformAdapter):
                 )
         finally:
             Path(tmp_path).unlink(missing_ok=True)
-
 
 def get_adapter() -> PlatformAdapter:
     """Return the correct adapter for the current OS."""

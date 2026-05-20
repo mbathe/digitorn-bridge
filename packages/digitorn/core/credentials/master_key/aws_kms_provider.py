@@ -1,44 +1,4 @@
-"""AwsKmsProvider - envelope encryption backed by AWS KMS.
-
-Two operational layers:
-
-1. **Master key**: a CMK (Customer Master Key) in AWS KMS, identified
-   by ARN or alias. NEVER leaves AWS. IAM controls who can call
-   `Encrypt` / `Decrypt`. Auditable via CloudTrail.
-
-2. **Per-record DEK**: the daemon calls `GenerateDataKey` to get a
-   fresh 32-byte AES key for each credential. AWS returns both the
-   plaintext DEK (used immediately to encrypt) AND a ciphertext blob
-   (the wrapped DEK encrypted with the CMK). The daemon stores ONLY
-   the ciphertext blob alongside the credential row. The plaintext
-   DEK is zeroized after use.
-
-On read: the daemon hands the wrapped DEK back to KMS via `Decrypt`,
-gets the plaintext DEK, decrypts the credential, zeroizes the DEK.
-
-Configuration via env vars (Digitorn convention):
-
-    DIGITORN_KMS=aws_kms
-    AWS_KMS_KEY_ID=arn:aws:kms:eu-west-1:123:key/...   # required
-    AWS_REGION=eu-west-1                                # required if not in env
-    AWS_PROFILE=digitorn                                # optional
-    # IAM credentials via standard chain (env / instance profile / SSO)
-
-Required IAM permissions:
-    kms:GenerateDataKey
-    kms:Decrypt
-    kms:DescribeKey   (for healthcheck)
-
-Failure modes the daemon handles:
-  - KMS unreachable → healthcheck returns False; new credential ops fail
-    cleanly. Existing credentials decrypted via cached DEKs (unwrap is
-    REQUIRED on read so a network blip = no reads either).
-  - DEK wrap rejected (rotated CMK, policy change) → UnwrapFailed,
-    surfaced as "credential decryption failed - contact admin".
-
-Note: this module imports `boto3` lazily so the daemon can run without
-the AWS SDK installed (env / file providers don't need it).
-"""
+"""AwsKmsProvider - envelope encryption backed by AWS KMS."""
 
 from __future__ import annotations
 
@@ -80,8 +40,7 @@ class AwsKmsProvider:
         )
 
     def _ensure_client(self) -> Any:
-        """Lazy-create the boto3 KMS client. Imported here so the AWS
-        SDK is only required when this provider is actually used."""
+        """Lazy-create the boto3 KMS client. Imported here so the AWS"""
         if self._client is not None:
             return self._client
         try:
@@ -114,10 +73,7 @@ class AwsKmsProvider:
         return self._key_id
 
     async def get_data_key(self) -> KeyMaterial:
-        """Call KMS GenerateDataKey to mint a fresh AES-256 DEK.
-
-        Returns the plaintext DEK (use immediately, zeroize after) AND
-        the wrapped form (persist alongside ciphertext)."""
+        """Call KMS GenerateDataKey to mint a fresh AES-256 DEK."""
         import asyncio
         client = self._ensure_client()
 
@@ -141,8 +97,7 @@ class AwsKmsProvider:
         )
 
     async def unwrap_data_key(self, wrapped: bytes) -> KeyMaterial:
-        """Call KMS Decrypt to recover the plaintext DEK from its
-        wrapped form. Used at credential read time."""
+        """Call KMS Decrypt to recover the plaintext DEK from its"""
         import asyncio
         client = self._ensure_client()
 
@@ -163,8 +118,7 @@ class AwsKmsProvider:
         )
 
     async def healthcheck(self) -> bool:
-        """Probe KMS via DescribeKey - cheap, doesn't actually generate
-        or decrypt anything but verifies IAM + reachability."""
+        """Probe KMS via DescribeKey - cheap, doesn't actually generate"""
         import asyncio
         try:
             client = self._ensure_client()
@@ -183,6 +137,6 @@ class AwsKmsProvider:
         try:
             if self._client is not None and hasattr(self._client, "close"):
                 self._client.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("aws_kms_provider best-effort block failed: %s", exc)
         self._client = None

@@ -1,9 +1,4 @@
-"""_TurnStateMixin - TurnState store + state envelope + watchdog.
-
-The contract layer that drives the client UI sync:
-``turn_state_*`` helpers, the state envelope, the heartbeat pulser
-and the stale-turn watchdog.
-"""
+"""_TurnStateMixin - TurnState store + state envelope + watchdog."""
 
 from __future__ import annotations
 
@@ -28,17 +23,7 @@ class _TurnStateMixin:
         interval: float = 30.0,
         staleness_threshold: float = 300.0,  # 5 minutes
     ) -> None:
-        """Scan the TurnState store every ``interval`` seconds and mark
-        turns with no activity for > ``staleness_threshold`` as
-        interrupted. Emits a terminal ``error`` event so clients clear
-        their "turn in progress" UI.
-
-        Covers the edge case where an agent turn hangs (LLM never
-        returns, subprocess deadlock, unhandled exception swallowed by
-        a bad try/except). Without this, the TurnState would live
-        forever, the client's send button would stay animated, and the
-        user would have no way to recover short of restarting the app.
-        """
+        """Scan the TurnState store every `interval` seconds and mark"""
         if getattr(self, "_stale_turn_watchdog_task", None) is not None:
             logger.warning("stale_turn_watchdog already running")
             return
@@ -113,14 +98,6 @@ class _TurnStateMixin:
             pass
         self._stale_turn_watchdog_task = None
 
-    # ── TurnState store - source of truth for client UI sync ───────────
-    #
-    # The following helpers manipulate ``self._turn_state`` which backs
-    # ``build_state_envelope`` and drives the client's animated send
-    # button / progress bar / queue chip. The contract is simple: every
-    # mutation happens while we hold the session lock (already true for
-    # all ``_chat_locked`` call sites); readers only get a snapshot copy
-    # so they never see a half-built turn mid-mutation.
 
     def _turn_key(self, app_id: str, session_id: str) -> str:
         return f"{app_id}:{session_id}"
@@ -128,12 +105,7 @@ class _TurnStateMixin:
     def turn_state_begin(
         self, app_id: str, session_id: str, correlation_id: str,
     ) -> TurnState:
-        """Create the TurnState for a new turn. Returns the fresh state.
-
-        Idempotent: if a TurnState already exists for this session (e.g.
-        a resumed turn after reconnect), it's overwritten - the new
-        correlation_id is authoritative.
-        """
+        """Create the TurnState for a new turn"""
         now = time.time()
         state = TurnState(
             correlation_id=correlation_id,
@@ -154,8 +126,7 @@ class _TurnStateMixin:
         tokens_out_delta: int = 0,
         tokens_in_delta: int = 0,
     ) -> TurnState | None:
-        """Mutate the live TurnState. Silently no-ops when no turn is
-        active (e.g. a late event arriving after ``message_done``)."""
+        """Mutate the live TurnState. Silently no-ops when no turn is"""
         state = self._turn_state.get(self._turn_key(app_id, session_id))
         if state is None:
             return None
@@ -173,12 +144,7 @@ class _TurnStateMixin:
     def turn_state_end(
         self, app_id: str, session_id: str, *, interrupted: bool = False,
     ) -> TurnState | None:
-        """Remove the TurnState on terminal event.
-
-        Returns the final state snapshot for the caller to log / emit
-        if useful. ``interrupted=True`` is set by the watchdog or an
-        abort; a clean ``message_done`` leaves it False.
-        """
+        """Remove the TurnState on terminal event."""
         key = self._turn_key(app_id, session_id)
         state = self._turn_state.pop(key, None)
         if state is None:
@@ -194,12 +160,7 @@ class _TurnStateMixin:
     def turn_state_get(
         self, app_id: str, session_id: str,
     ) -> TurnState | None:
-        """Return a live reference (NOT a copy) to the TurnState.
-
-        Callers must not mutate the returned object - use the
-        ``turn_state_update`` helper. For a safe external view use
-        ``turn_state_snapshot`` which returns the dict form.
-        """
+        """Return a live reference (NOT a copy) to the TurnState."""
         return self._turn_state.get(self._turn_key(app_id, session_id))
 
     def turn_state_snapshot(
@@ -212,19 +173,8 @@ class _TurnStateMixin:
         self, app_id: str, session_id: str, user_id: str,
         correlation_id: str,
     ) -> None:
-        """Spawn a background task emitting ``turn:heartbeat`` every 3s
-        until the turn ends. Lets a client watchdog distinguish "still
-        generating" from "server stuck" - without a heartbeat a 90s
-        tool call looks identical to a hung turn.
-
-        The heartbeat event carries the current TurnState snapshot so
-        even a client that missed every intermediate delta can resync
-        immediately from the pulse.
-        """
+        """Spawn a background task emitting `turn:heartbeat` every 3s"""
         key = self._turn_key(app_id, session_id)
-        # Cancel any stale heartbeat from a previous turn on the same
-        # session - shouldn't happen since turn_state_end cancels too,
-        # but cheap belt-and-braces.
         old = self._turn_heartbeat_tasks.pop(key, None)
         if old is not None and not old.done():
             old.cancel()
@@ -265,22 +215,7 @@ class _TurnStateMixin:
     async def build_state_envelope(
         self, app_id: str, session_id: str, user_id: str = "local",
     ) -> dict[str, Any]:
-        """Assemble the authoritative state envelope for a session.
-
-        This is THE contract between server and client. Anything the
-        client's UI needs to render correctly lives here. The client
-        treats whatever this function returns as "ground truth" -
-        local state is recomputed from this whenever uncertainty arises
-        (reconnect, session switch, missed event, watchdog timeout).
-
-        Safe to call from any context; read-mostly (only queue depth
-        and compaction lookup touch the DB).
-        """
-        # Current session-scoped seq - the max seq already emitted on
-        # the bus for this session. The client keeps its own
-        # ``last_seen_seq`` and compares against ``envelope.seq`` to
-        # detect whether it's caught up. Reads the in-memory counter
-        # directly so we don't accidentally bump it (``next_seq`` would).
+        """Assemble the authoritative state envelope for a session."""
         current_seq = 0
         try:
             buffer = getattr(self.event_bus, "_buffer", None)
@@ -313,17 +248,10 @@ class _TurnStateMixin:
         except Exception as exc:
             logger.debug("state_envelope queue failed: %s", exc)
 
-        # Compaction - look up the latest for this session so the
-        # client can show "context compacted at …" badges and decide
-        # whether to fetch gap events from a later seq.
         compaction_info: dict[str, Any] = {
             "had_compaction": False, "last_at_seq": None,
         }
         try:
-            # Phase 4c: read from the in-memory SessionStore. Compaction
-            # events are stored in events.jsonl with type='compaction';
-            # the projection puts ``state.applied_compaction`` to the
-            # latest one. Same answer, no Postgres roundtrip.
             from digitorn.core.runtime.session_store.bridge import (
                 get_default_bridge,
             )

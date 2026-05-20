@@ -1,8 +1,4 @@
-"""Routes for the watchers group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the watchers group, extracted from the legacy `apps.py`."""
 
 from __future__ import annotations
 
@@ -105,7 +101,6 @@ from ._shared import (
 router = APIRouter(tags=["apps"])
 
 
-
 @router.get("/{app_id}/watchers", response_model=AppResponse)
 async def list_watchers(request: Request, app_id: str) -> AppResponse:
     """List all watchers (running + paused)."""
@@ -148,11 +143,7 @@ async def get_watcher(request: Request, app_id: str, watcher_id: str) -> AppResp
 async def create_watcher(
     request: Request, app_id: str, body: WatcherCreateRequest,
 ) -> AppResponse:
-    """Create a persistent watcher that periodically executes a tool.
-
-    The watcher runs in the background and pushes notifications based
-    on the notify_when strategy. Returns the watcher_id for tracking.
-    """
+    """Create a persistent watcher that periodically executes a tool."""
     _validate_id(app_id)
     manager = _get_manager(request)
     if not _is_deployed(request, app_id):

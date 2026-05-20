@@ -1,25 +1,4 @@
-"""Daemon admin REST + WebSocket routes.
-
-Surface (all gated by admin role, all under ``/api/admin/daemon/*``):
-
-  GET    /api/admin/daemon/summary               — top-level overview
-  GET    /api/admin/daemon/diagnostics           — current snapshot
-  GET    /api/admin/daemon/diagnostics/history   — last N seconds of snapshots
-  WS     /api/admin/daemon/diagnostics/stream    — live snapshots, 1 Hz
-  GET    /api/admin/daemon/workers               — worker subprocess list
-  POST   /api/admin/daemon/workers/{id}/restart  — terminate (monitor respawns)
-  GET    /api/admin/daemon/sessions/active       — active session list
-  POST   /api/admin/daemon/sessions/{app}/{sid}/kill  — cancel an agent turn
-  GET    /api/admin/daemon/config                — full schema + current values
-  GET    /api/admin/daemon/config/overrides      — current persisted overrides
-  PUT    /api/admin/daemon/config/{key}          — set an override
-  DELETE /api/admin/daemon/config/{key}          — clear an override
-
-Every endpoint reads from the in-memory telemetry hub / config registry.
-There is NO synchronous I/O on the request path — disk writes go through
-``asyncio.to_thread`` inside the registry; psutil sampling happens on the
-hub's own background task.
-"""
+"""Daemon admin REST + WebSocket routes."""
 from __future__ import annotations
 
 import asyncio
@@ -37,14 +16,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/admin/daemon", tags=["admin", "daemon"])
 
 
-# ── Auth ─────────────────────────────────────────────────────────
-
-
 def _require_admin(request: Request) -> None:
-    """Mirror gateway_admin's gate: ``admin`` or ``developer`` role
-    accepted. The daemon's auth middleware has already validated the
-    bearer; we only check the resulting permission set.
-    """
+    """Mirror gateway_admin's gate: `admin` or `developer` role"""
     perms = getattr(request.state, "permissions", []) or []
     roles = getattr(request.state, "roles", []) or []
     if "*" in perms or "admin" in perms:
@@ -55,21 +28,14 @@ def _require_admin(request: Request) -> None:
 
 
 async def _require_admin_ws(websocket: WebSocket) -> bool:
-    """Same check for WebSocket upgrades. The auth middleware may not
-    populate ``state`` on WS depending on the routing path; fall back
-    to checking the Authorization header verbatim. Returns ``True`` on
-    accept; on reject the socket is closed with policy-violation 1008.
-    """
+    """Same check for WebSocket upgrades. The auth middleware may not"""
     perms = getattr(websocket.state, "permissions", []) or []
     roles = getattr(websocket.state, "roles", []) or []
     if "*" in perms or "admin" in perms or "admin" in roles or "developer" in roles:
         return True
-    # Middleware did not run on this upgrade — be conservative: reject.
+    # Middleware did not run on this upgrade - be conservative: reject.
     await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
     return False
-
-
-# ── Helpers ──────────────────────────────────────────────────────
 
 
 def _hub() -> Any:
@@ -88,13 +54,9 @@ def _snap_to_json(snap: Any) -> dict[str, Any] | None:
     return snap.to_dict()
 
 
-# ── Summary ──────────────────────────────────────────────────────
-
-
 @router.get("/summary")
 async def daemon_summary(request: Request) -> dict[str, Any]:
-    """Lightweight top-card data for the Overview tab. Aggregates the
-    last snapshot + counts. Cheap (no I/O)."""
+    """Lightweight top-card data for the Overview tab. Aggregates the"""
     _require_admin(request)
     hub = _hub()
     snap = hub.current() if hub is not None else None
@@ -117,9 +79,6 @@ def _count_running_workers(request: Request) -> int:
         return int(getattr(lifecycle, "worker_count", 0) or 0)
     except Exception:
         return 0
-
-
-# ── Diagnostics ──────────────────────────────────────────────────
 
 
 @router.get("/diagnostics")
@@ -146,9 +105,7 @@ async def diagnostics_history(
 
 @router.websocket("/diagnostics/stream")
 async def diagnostics_stream(websocket: WebSocket) -> None:
-    """Push live snapshots to subscribers at 1 Hz. The collector pushes
-    into a per-consumer queue with drop-oldest overflow, so a slow
-    client never back-pressures the collector."""
+    """Push live snapshots to subscribers at 1 Hz. The collector pushes"""
     await websocket.accept()
     if not await _require_admin_ws(websocket):
         return
@@ -175,9 +132,6 @@ async def diagnostics_stream(websocket: WebSocket) -> None:
         hub.unsubscribe(q)
 
 
-# ── Workers ──────────────────────────────────────────────────────
-
-
 @router.get("/workers")
 async def list_workers(request: Request) -> dict[str, Any]:
     _require_admin(request)
@@ -199,11 +153,6 @@ async def list_workers(request: Request) -> dict[str, Any]:
             "restart_count": int(getattr(rw, "restart_count", 0) or 0),
         })
 
-    # Enrich each row with the latest cpu_percent + rss_mb from the
-    # telemetry hub's snapshot. The hub samples once per second in the
-    # background, so this read is microseconds and never hits psutil
-    # on the request path. Match by worker_id (PIDs can change between
-    # the hub's last tick and this call - id is stable, pid is not).
     hub = _hub()
     if hub is not None:
         snap = hub.current()
@@ -230,10 +179,7 @@ async def restart_worker(
     request: Request,
     worker_id: str = Path(..., min_length=1, max_length=128),
 ) -> dict[str, Any]:
-    """Terminate the worker process. The per-worker monitor task
-    detects the death and respawns with the standard back-off. We do
-    NOT call any private API of the lifecycle — we just send SIGTERM
-    and let the existing supervision do its job."""
+    """Terminate the worker process. The per-worker monitor task"""
     _require_admin(request)
     lifecycle = getattr(request.app.state, "worker_lifecycle", None)
     if lifecycle is None:
@@ -268,15 +214,9 @@ async def restart_worker(
     }
 
 
-# ── Sessions ─────────────────────────────────────────────────────
-
-
 @router.get("/sessions/active")
 async def list_active_sessions(request: Request) -> dict[str, Any]:
-    """Return the active sessions as known by the daemon's app manager.
-    Reads the in-memory ``_session_tasks`` + ``_active_contexts`` dicts —
-    no DB hop, no hot-path mutation. Per-session detail is read-only.
-    """
+    """Return the active sessions as known by the daemon's app manager."""
     _require_admin(request)
     manager = _get_manager_safe(request)
     if manager is None:
@@ -321,10 +261,7 @@ async def kill_session(
     app_id: str = Path(..., min_length=1, max_length=128),
     session_id: str = Path(..., min_length=1, max_length=128),
 ) -> dict[str, Any]:
-    """Cancel a running agent turn. Re-uses the same machinery as the
-    user-facing ``/abort`` endpoint: cancels the asyncio task AND sets
-    the cooperative cancel_event so a long tool loop bails at the next
-    checkpoint."""
+    """Cancel a running agent turn. Re-uses the same machinery as the"""
     _require_admin(request)
     manager = _get_manager_safe(request)
     if manager is None:
@@ -347,12 +284,12 @@ async def kill_session(
                 try:
                     ev.set()
                     cooperative_signaled = 1
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("daemon_admin best-effort block failed: %s", exc)
             try:
                 ctx_obj.cancel_reason = "admin_kill"
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("daemon_admin best-effort block failed: %s", exc)
     except Exception as exc:
         logger.debug("admin_kill_session_ctx_signal_failed: %s", exc)
 
@@ -375,9 +312,6 @@ def _get_manager_safe(request: Request) -> Any:
         return getattr(request.app.state, "app_manager", None)
     except Exception:
         return None
-
-
-# ── Config ───────────────────────────────────────────────────────
 
 
 @router.get("/config")
@@ -417,9 +351,6 @@ async def config_set(
         )
     result = await reg.set(key, body["value"])
     if not result.get("ok"):
-        # Coercion / range failures land as 422 rather than 500 so the
-        # UI can render the underlying validation message inline next
-        # to the form field that was rejected.
         if result.get("error") == "invalid_value":
             raise HTTPException(422, detail=result)
         if result.get("error", "").startswith("unknown_key"):

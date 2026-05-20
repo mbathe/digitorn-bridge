@@ -1,9 +1,4 @@
-"""Daemon-side proxy for a sandboxed tool executor subprocess.
-
-The worker only executes individual tool actions - it does NOT run
-agent_turn, manage sessions, or call the LLM. The daemon handles all
-of that and sends "exec" requests for tool calls that need OS isolation.
-"""
+"""Daemon-side proxy for a sandboxed tool executor subprocess."""
 
 from __future__ import annotations
 
@@ -103,12 +98,7 @@ class SandboxWorker:
         await self._process.stdin.drain()
 
         try:
-            # 180s covers fastembed / ONNX cold-start on Windows when
-            # the worker spawns in parallel with the main daemon's
-            # module loading (both compete for disk + CPU + AV scans).
-            # 60s was the original budget; observed pool_warm timeouts
-            # on apps that include the ``index`` or ``rag`` module
-            # because their on_start() imports the embedding model.
+            # 180s budget covers fastembed/ONNX cold-start on Windows + AV
             line = await asyncio.wait_for(
                 self._process.stdout.readline(), timeout=180,
             )
@@ -166,8 +156,8 @@ class SandboxWorker:
 
         try:
             await self._send(IPCRequest(id=0, method="shutdown"))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("worker best-effort block failed: %s", exc)
 
         try:
             await asyncio.wait_for(self._process.wait(), timeout=5)
@@ -243,16 +233,7 @@ class SandboxWorker:
 
 
 class AppSandboxWorker:
-    """Worker with deferred sandbox - starts warm, sandboxed later per-session.
-
-    Unlike ``SandboxWorker`` which applies the OS sandbox immediately at
-    startup, ``AppSandboxWorker`` boots into a WARM state (modules loaded,
-    no sandbox) and waits for ``apply_sandbox()`` to lock it down for a
-    specific session's workspace.
-
-    This enables warm worker pools where bootstrap cost (~2-5s) is paid
-    once, and per-session sandbox application is near-instant (~0.1ms).
-    """
+    """Worker with deferred sandbox: starts warm, sandboxed later per-session."""
 
     def __init__(
         self,
@@ -286,11 +267,7 @@ class AppSandboxWorker:
         return self._process is not None and self._process.returncode is None
 
     async def start(self) -> None:
-        """Spawn and bootstrap the worker.
-
-        If warm_pool=True, the worker enters WARM state (no sandbox).
-        Otherwise behaves identically to SandboxWorker - immediate sandbox.
-        """
+        """Spawn and bootstrap the worker."""
         self._state = WorkerState.SPAWNING
 
         import os
@@ -310,7 +287,6 @@ class AppSandboxWorker:
             preexec_fn=preexec,
         )
 
-        # Build init message from compiled app
         module_ids = list(self._compiled.modules.keys())
         workspace = getattr(
             getattr(self._compiled, "execution", None), "workspace", "",
@@ -330,10 +306,7 @@ class AppSandboxWorker:
         await self._process.stdin.drain()
 
         try:
-            # 180s budget to absorb ``index`` / ``rag`` cold-start
-            # (fastembed + ONNX) when the worker spawns in parallel
-            # with the main daemon's module init - see the matching
-            # comment in AppSandboxWorker.start_warm above.
+            # 180s budget covers fastembed/ONNX cold-start (see SandboxWorker.start)
             line = await asyncio.wait_for(
                 self._process.stdout.readline(), timeout=180,
             )
@@ -372,10 +345,7 @@ class AppSandboxWorker:
         hardening: dict[str, Any] | None = None,
         audit: bool = False,
     ) -> None:
-        """Apply the OS sandbox for a specific session.
-
-        Transitions WARM -> SANDBOXED. Raises if worker is not WARM.
-        """
+        """Apply the OS sandbox for a specific session (WARM -> SANDBOXED)."""
         if self._state != WorkerState.WARM:
             raise RuntimeError(
                 f"Cannot apply sandbox: worker not warm "
@@ -456,8 +426,8 @@ class AppSandboxWorker:
 
         try:
             await self._send(IPCRequest(id=0, method="shutdown"))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("worker best-effort block failed: %s", exc)
 
         try:
             await asyncio.wait_for(self._process.wait(), timeout=5)
@@ -474,10 +444,7 @@ class AppSandboxWorker:
                 fut.set_exception(RuntimeError("Worker stopped"))
         self._pending.clear()
 
-    # ── Internal ─────────────────────────────────────────────────
-
     async def _request_raw(self, req: IPCRequest) -> IPCResponse:
-        """Send a pre-built IPCRequest and await the response."""
         fut: asyncio.Future[IPCResponse] = asyncio.get_event_loop().create_future()
         self._pending[req.id] = fut
         await self._send(req)
@@ -546,7 +513,7 @@ def _make_preexec():
         try:
             libc = ctypes.CDLL("libc.so.6", use_errno=True)
             libc.prctl(1, signal.SIGKILL)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("worker best-effort block failed: %s", exc)
 
     return preexec

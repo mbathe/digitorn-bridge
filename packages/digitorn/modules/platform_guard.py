@@ -1,39 +1,4 @@
-"""Module layer - Platform detection and compatibility guards.
-
-This module provides:
-
-1. **PlatformInfo** - Detects the current OS and hardware at startup, including
-   Raspberry Pi detection via ``/proc/cpuinfo``.
-
-2. **PlatformGuard** - Validates that a module's declared ``SUPPORTED_PLATFORMS``
-   includes the current platform before allowing it to load.  Raises
-   ``ModuleLoadError`` for incompatible modules.
-
-3. **PLATFORM_COMPATIBILITY_MATRIX** - Documents which built-in modules are
-   available on each platform, used to generate diagnostic messages and to
-   drive graceful degradation in the registry.
-
-Usage::
-
-    info = PlatformInfo.detect()
-
-    guard = PlatformGuard(info)
-    guard.assert_compatible(filesystem_module)
-    guard.assert_compatible(iot_module)
-
-    if guard.is_compatible(excel_module):
-        registry.register(ExcelModule)
-
-Design decisions:
-  - Detection happens once at startup and is cached on the PlatformInfo
-    singleton.  Do not re-detect per-request.
-  - We detect Raspberry Pi by checking ``/proc/cpuinfo`` for the
-    ``Raspberry Pi`` model string.  This is the standard approach and works
-    across all Pi generations.
-  - The compatibility matrix is advisory - modules can still declare
-    ``SUPPORTED_PLATFORMS = [Platform.ALL]`` to bypass it.  The matrix is
-    used for diagnostic messages and health endpoint reporting.
-"""
+"""Module layer - Platform detection and compatibility guards."""
 
 from __future__ import annotations
 
@@ -47,13 +12,9 @@ from typing import ClassVar
 from digitorn.modules.exceptions import ModuleLoadError
 from digitorn.modules.base import BaseModule, Platform
 
-
 @dataclass(frozen=True)
 class PlatformInfo:
-    """Immutable snapshot of the current platform.
-
-    Use :meth:`detect` to create an instance; do not instantiate directly.
-    """
+    """Immutable snapshot of the current platform."""
 
     os_type: Platform
     os_name: str
@@ -67,11 +28,7 @@ class PlatformInfo:
 
     @classmethod
     def detect(cls) -> "PlatformInfo":
-        """Detect and cache the current platform.
-
-        Returns:
-            A frozen :class:`PlatformInfo` instance.
-        """
+        """Detect and cache the current platform."""
         if cls._cache is not None:
             return cls._cache
 
@@ -118,9 +75,7 @@ class PlatformInfo:
             "architecture": self.architecture,
         }
 
-
 def _detect_raspberry_pi() -> bool:
-    """Return True if we are running on a Raspberry Pi."""
     cpuinfo = Path("/proc/cpuinfo")
     if cpuinfo.exists():
         try:
@@ -141,19 +96,8 @@ def _detect_raspberry_pi() -> bool:
 
     return False
 
-
 class PlatformGuard:
-    """Validates module platform compatibility before loading.
-
-    Usage::
-
-        guard = PlatformGuard()
-        guard = PlatformGuard(platform_info)
-
-    Args:
-        platform_info: Optional pre-detected :class:`PlatformInfo`.  If not
-            provided, :meth:`PlatformInfo.detect` is called automatically.
-    """
+    """Validates module platform compatibility before loading."""
 
     def __init__(self, platform_info: PlatformInfo | None = None) -> None:
         self._info = platform_info or PlatformInfo.detect()
@@ -170,14 +114,7 @@ class PlatformGuard:
         return self._info.os_type in supported
 
     def assert_compatible(self, module: type[BaseModule] | BaseModule) -> None:
-        """Raise :class:`~digitorn.module.exceptions.ModuleLoadError` if incompatible.
-
-        Args:
-            module: A :class:`BaseModule` subclass or instance.
-
-        Raises:
-            ModuleLoadError: If the module does not support the current OS.
-        """
+        """Raise :class:`~digitorn.module.exceptions.ModuleLoadError` if incompatible."""
         if not self.is_compatible(module):
             module_id = getattr(module, "MODULE_ID", str(module))
             supported = [p.value for p in module.SUPPORTED_PLATFORMS]
@@ -196,7 +133,6 @@ class PlatformGuard:
         """Return only the modules compatible with the current platform."""
         return [cls for cls in module_classes if self.is_compatible(cls)]
 
-
 PLATFORM_COMPATIBILITY_MATRIX: dict[str, set[Platform]] = {
     "filesystem": {Platform.LINUX, Platform.WINDOWS, Platform.MACOS, Platform.RASPBERRY_PI},
     "os_exec": {Platform.LINUX, Platform.WINDOWS, Platform.MACOS, Platform.RASPBERRY_PI},
@@ -209,20 +145,12 @@ PLATFORM_COMPATIBILITY_MATRIX: dict[str, set[Platform]] = {
     "iot": {Platform.RASPBERRY_PI, Platform.LINUX},
 }
 
-
 def get_module_platforms(module_id: str) -> set[Platform]:
-    """Return the set of platforms for *module_id* from the compatibility matrix.
-
-    Falls back to ``{Platform.ALL}`` if the module is not listed.
-    """
+    """Return the set of platforms for *module_id* from the compatibility matrix."""
     return PLATFORM_COMPATIBILITY_MATRIX.get(module_id, {Platform.ALL})
 
-
 def list_available_modules_for_platform(platform_info: PlatformInfo) -> list[str]:
-    """Return module IDs available on *platform_info*.
-
-    Modules not in the matrix are assumed available everywhere.
-    """
+    """Return module IDs available on *platform_info*."""
     result: list[str] = []
     for module_id, platforms in PLATFORM_COMPATIBILITY_MATRIX.items():
         if Platform.ALL in platforms or platform_info.os_type in platforms:

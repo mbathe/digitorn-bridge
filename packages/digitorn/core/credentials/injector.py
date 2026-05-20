@@ -1,35 +1,4 @@
-"""CredentialInjector - resolve YAML refs at activation time and
-write the decrypted fields into the module config tree.
-
-Called from the bootstrap path after Pydantic parsing + module
-construction, BEFORE any module's `on_config_update(config)`. The
-injector:
-
-  1. Walks the parsed app definition (`AppDefinition`).
-  2. For every block carrying a `credential:` ref, resolves it via
-     `CredentialStore.get_credential_by_name(...)` at the EXACT
-     declared scope (no fallback cascade).
-  3. Decrypts the credential fields.
-  4. Writes each `field_name → target_path` mapping declared by the
-     consumer module's `CredentialSlot.inject` into the module's
-     compiled config dict.
-  5. Records an `inject` audit row per resolution + registers the
-     plaintext value with the LogScrubber so it gets redacted from
-     subsequent log lines.
-  6. Zeroizes the plaintext from local references after pushing.
-
-If a `required` slot can't be resolved (credential missing, expired,
-invalid status), the injector raises `CredentialInjectError` and the
-activation aborts cleanly. Non-required slots emit a warning and
-leave the consumer config untouched - the module sees the YAML's
-inline values (which may be `{{secret.X}}` legacy templates that
-the runtime resolver handles separately).
-
-Threading model: synchronous I/O only via the cipher's `decrypt_sync`
-on direct-mode providers (env/file). For envelope-mode (KMS)
-providers, the injector uses the async API and the bootstrap path
-must be in an async context.
-"""
+"""CredentialInjector - resolve YAML refs at activation time and"""
 
 from __future__ import annotations
 
@@ -55,12 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class CredentialInjectError(Exception):
-    """Raised when a required credential ref cannot be resolved.
-
-    Carries the block path, the ref, and a structured reason so the
-    activation flow can surface a clean error to the user with all the
-    info needed to fix it (which scope, which provider, etc.).
-    """
+    """Raised when a required credential ref cannot be resolved."""
 
     def __init__(
         self,
@@ -75,12 +39,6 @@ class CredentialInjectError(Exception):
         self.ref = ref
         self.scope = scope
         self.reason = reason
-        # Provider name the YAML's `credential:` block declared
-        # (when present). The SSE classifier uses it to render a
-        # picker that targets the right provider catalogue entry,
-        # not just the bare ref - otherwise the picker's
-        # disambiguation falls through to "_extractProviderFromError"
-        # heuristics and may pick the wrong handler.
         self.provider = provider
         super().__init__(
             f"{block_path}: cannot resolve credential ref={ref!r} "
@@ -89,13 +47,7 @@ class CredentialInjectError(Exception):
 
 
 class CredentialInjector:
-    """Per-activation worker that resolves credential refs into a
-    compiled app definition.
-
-    Construct ONE per activation (cheap, holds no state across calls).
-    The injector instance carries the (user_id, app_id) tuple of the
-    activating session so resolution is scoped correctly.
-    """
+    """Per-activation worker that resolves credential refs into a"""
 
     def __init__(
         self,
@@ -117,27 +69,7 @@ class CredentialInjector:
         module_slots: dict[str, list[CredentialSlot]],
         compiled_blocks: dict[str, dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Resolve every `credential:` ref in `app_def` and inject
-        the decrypted fields into the matching `compiled_blocks`
-        entries.
-
-        Args:
-          app_def: parsed AppDefinition.
-          module_slots: `{module_id: [CredentialSlot, ...]}` collected
-            from instantiated modules.
-          compiled_blocks: `{block_path: <mutable config dict>}` where
-            block_path is e.g. ``"brain"``, ``"agents.scout.brain"``,
-            ``"modules.git"``. The injector mutates the dicts in place.
-
-        Returns:
-          List of injection records (for telemetry / debug). Each
-          record carries `block_path`, `ref`, `scope`, `provider`, and
-          which target paths were written. NEVER carries plaintext.
-
-        Raises:
-          CredentialInjectError on any required slot that fails to
-          resolve.
-        """
+        """Resolve every `credential:` ref in `app_def` and inject"""
         injections: list[dict[str, Any]] = []
 
         for block_path, ref_raw, module_id in self._collect_refs(app_def):
@@ -169,13 +101,11 @@ class CredentialInjector:
 
         return injections
 
-    # ── Private helpers ──────────────────────────────────────────────
 
     def _collect_refs(
         self, app_def: Any,
     ) -> list[tuple[str, Any, str]]:
-        """Yield (block_path, raw_credential_value, module_id) tuples
-        for every block in the app that may carry a credential ref."""
+        """Yield (block_path, raw_credential_value, module_id) tuples"""
         out: list[tuple[str, Any, str]] = []
 
         # brain
@@ -211,8 +141,7 @@ class CredentialInjector:
         module_id: str,
         module_slots: dict[str, list[CredentialSlot]],
     ) -> CredentialSlot:
-        """Find the matching slot, falling back to a permissive
-        synthesised slot if the module didn't declare any."""
+        """Find the matching slot, falling back to a permissive"""
         slots = module_slots.get(module_id) or []
         if slots:
             return slots[0]
@@ -236,7 +165,6 @@ class CredentialInjector:
         slot: CredentialSlot,
         compiled_blocks: dict[str, dict[str, Any]],
     ) -> dict[str, Any]:
-        """Strict-scope vault lookup + decrypt + inject."""
         try:
             row = await self._store.get_credential_by_name(
                 name=ref.ref,
@@ -294,17 +222,11 @@ class CredentialInjector:
                 if isinstance(v, str):
                     scrubber.add_dynamic(v, label=ref.ref)
 
-        # Determine the target paths from the slot's inject mapping.
-        # When the slot has no explicit inject, fall back to the
-        # handler's inject_path_default per FieldSpec.
         inject_map = self._build_inject_map(slot, row.get("provider_type") or "")
 
         # Mutate the compiled block's config in place.
         target_block = compiled_blocks.get(block_path)
         if target_block is None:
-            # Block not pre-registered. Skip but record - the slot's
-            # consumer module will surface the missing config later
-            # if it actually needed it.
             logger.warning(
                 "credential_inject_no_block block=%s ref=%s "
                 "(compiled_blocks did not register this path)",
@@ -331,9 +253,6 @@ class CredentialInjector:
             },
         )
 
-        # Best-effort zeroize: drop the local reference. Underlying
-        # bytes objects in CPython are immutable so this just hands
-        # them to the GC sooner.
         del fields
 
         return {
@@ -349,13 +268,7 @@ class CredentialInjector:
     def _build_inject_map(
         slot: CredentialSlot, provider_type: str,
     ) -> dict[str, str]:
-        """Return the `field_name → target_path` mapping to use.
-
-        Order of preference:
-          1. Explicit `slot.inject` (declared by the module).
-          2. Handler default `inject_path_default` per FieldSpec.
-          3. Empty (no injection - the resolver wrote nothing).
-        """
+        """Return the `field_name → target_path` mapping to use."""
         if slot.inject:
             return dict(slot.inject)
         try:
@@ -377,8 +290,7 @@ class CredentialInjector:
         block_path: str,
         target_block: dict[str, Any],
     ) -> list[str]:
-        """Apply each (field, target) write. Returns the list of
-        target paths actually written (for audit/telemetry)."""
+        """Apply each (field, target) write"""
         written: list[str] = []
         for field_name, target_template in inject_map.items():
             if field_name not in fields:
@@ -389,9 +301,6 @@ class CredentialInjector:
                 continue
             # Resolve `{block}` placeholder to the consumer block path.
             target = target_template.replace("{block}", block_path)
-            # Strip the `{block}.` prefix to get a path RELATIVE to
-            # the block's config dict (the keys we got from the
-            # caller are already block-rooted).
             if target.startswith(block_path + "."):
                 target = target[len(block_path) + 1:]
             else:
@@ -434,8 +343,7 @@ class CredentialInjector:
 
 
 def _set_dotted(target: dict[str, Any], path: str, value: Any) -> None:
-    """Set `target[path]` where `path` is a dotted key (e.g.
-    `config.api_key`). Creates intermediate dicts as needed."""
+    """Set `target[path]` where `path` is a dotted key (e.g."""
     if not path:
         return
     parts = path.split(".")

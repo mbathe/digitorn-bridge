@@ -1,10 +1,4 @@
-"""CLI commands for session management (user's own sessions).
-
-    digitorn-cli sessions list <app_id>      List my sessions
-    digitorn-cli sessions resume <app_id> <session_id>  Resume a session
-    digitorn-cli sessions delete <app_id> <session_id>  Delete a session
-    digitorn-cli sessions history <app_id> <session_id> Show session history
-"""
+"""CLI commands for session management (user's own sessions)."""
 
 from __future__ import annotations
 

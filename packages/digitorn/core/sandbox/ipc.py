@@ -1,16 +1,4 @@
-"""JSON lines IPC protocol for daemon ↔ sandbox worker communication.
-
-Messages are newline-delimited JSON objects on stdin/stdout.
-Each request has an ``id`` for correlation.  Streaming responses
-use the same ``id`` with ``event`` fields.
-
-Protocol:
-    Request:  {"id": 1, "method": "chat", "session_id": "...", ...}
-    Response: {"id": 1, "success": true, "data": {...}}
-    Stream:   {"id": 2, "event": "token", "data": "Hello"}
-              {"id": 2, "event": "done", "data": {...}}
-    Shutdown: {"id": 0, "method": "shutdown"}
-"""
+"""JSON-lines IPC protocol for daemon to sandbox worker communication."""
 
 from __future__ import annotations
 
@@ -78,11 +66,6 @@ def decode_response(line: bytes) -> IPCResponse:
     )
 
 
-# ── Async reader for worker stdout ───────────────────────────────
-
-
-# ── Helper factories for warm-pool IPC ───────────────────────────
-
 _next_helper_id = 1000
 
 
@@ -114,9 +97,6 @@ def make_health_request() -> IPCRequest:
     global _next_helper_id
     _next_helper_id += 1
     return IPCRequest(id=_next_helper_id, method="health")
-
-
-# ── Async reader for worker stdout ───────────────────────────────
 
 
 async def read_responses(

@@ -1,26 +1,4 @@
-"""GcpKmsProvider - envelope encryption via Google Cloud KMS.
-
-Same envelope pattern as AwsKmsProvider, but the wrap/unwrap calls go
-to Google Cloud KMS via the Cloud KMS API. The CMK lives in a Google
-Cloud key ring; the daemon's service account has `cloudkms.cryptoKeyVersions.useToEncrypt`
-and `useToDecrypt` permissions.
-
-Configuration:
-
-    DIGITORN_KMS=gcp_kms
-    GCP_KMS_KEY_NAME=projects/PRJ/locations/LOC/keyRings/RING/cryptoKeys/KEY
-    GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa.json   # standard ADC
-
-The GCP KMS CryptoKey purpose must be `ENCRYPT_DECRYPT` (the
-default). For HSM-backed keys, choose protection level
-`HSM` at key creation time - this provider doesn't care, the API is
-identical.
-
-Note: GCP KMS Encrypt/Decrypt take arbitrary plaintext (not data
-keys), so we hand it the actual DEK bytes for wrap and the
-returned ciphertext IS the wrapped DEK. No GenerateDataKey-equivalent
-is needed (we use cryptography.hazmat to generate the DEK locally).
-"""
+"""GcpKmsProvider - envelope encryption via Google Cloud KMS."""
 
 from __future__ import annotations
 
@@ -156,6 +134,6 @@ class GcpKmsProvider:
                 t = self._client.transport
                 if hasattr(t, "close"):
                     t.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("gcp_kms_provider best-effort block failed: %s", exc)
         self._client = None

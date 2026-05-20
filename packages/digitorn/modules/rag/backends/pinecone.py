@@ -1,8 +1,4 @@
-"""Pinecone vector backend - cloud-hosted, serverless.
-
-Requires: pip install pinecone
-Cloud-only. Requires API key + index name in config.
-"""
+"""Pinecone vector backend - cloud-hosted, serverless."""
 
 from __future__ import annotations
 
@@ -13,7 +9,6 @@ from typing import Any
 from .base import CollectionInfo, Document, SearchResult, VectorBackend
 
 logger = logging.getLogger(__name__)
-
 
 class PineconeBackend(VectorBackend):
 

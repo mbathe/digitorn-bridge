@@ -1,18 +1,4 @@
-"""MCPModule - MCP server integration for Digitorn agents.
-
-Connects to MCP (Model Context Protocol) servers and exposes their
-tools, resources, and prompts to Digitorn agents.  MCP tools are
-indexed alongside native tools in the context_builder's ToolIndex
-for seamless discovery and execution.
-
-Supports all MCP transports:
-- stdio: subprocess via stdin/stdout (most common)
-- SSE: HTTP Server-Sent Events
-- Streamable HTTP: HTTP POST with optional streaming
-
-Each app gets its own MCPModule instance (per-app isolation via
-registry.create()), so MCP server connections don't leak between apps.
-"""
+"""MCPModule - MCP server integration for Digitorn agents."""
 
 from __future__ import annotations
 
@@ -52,18 +38,8 @@ from digitorn.modules.mcp.transports import MCPTransportError
 
 logger = logging.getLogger(__name__)
 
-# ── Config model (compile-time validation via CONFIG_MODEL) ──────
-
-
 class McpConfig(BaseModel):
-    """Pydantic config for the mcp module (validated at compile time).
-
-    ``servers`` stays permissive - each MCP server carries free-form
-    ``command``/``args``/``env``/``url`` keys depending on transport.
-    It also accepts a **list** of server ids (referring to daemon-managed
-    installs) — both forms are normalised to ``dict[str, dict]`` by the
-    validator so the runtime sees one shape.
-    """
+    """Pydantic config for the mcp module (validated at compile time)."""
 
     model_config = {"extra": "forbid"}
 
@@ -72,9 +48,9 @@ class McpConfig(BaseModel):
         default_factory=dict,
         description=(
             "Named MCP server configs. Accepts three YAML shapes: "
-            "``- github`` (bare reference list), "
-            "``github: {}`` (dict reference) or "
-            "``custom: {transport: stdio, command: ...}`` (inline config)."
+            "`- github` (bare reference list), "
+            "`github: {}` (dict reference) or "
+            "`custom: {transport: stdio, command: ...}` (inline config)."
         ),
     )
     cache: dict[str, Any] = Field(default_factory=dict)
@@ -83,35 +59,12 @@ class McpConfig(BaseModel):
     @field_validator("servers", mode="before")
     @classmethod
     def _normalise_servers(cls, raw: Any) -> dict[str, dict[str, Any]]:
-        """Accept a list of bare server ids alongside the dict form.
-
-        Users write ``servers: [github, notion]`` to reference daemon-
-        managed installs without repeating config. That shorthand also
-        carries an implicit "trust the daemon install" contract: the
-        list-form server is allowed the standard MCP sandbox permissions
-        (``process.exec`` for stdio subprocess transports, ``net.http``
-        for SSE / streamable_http). Users who need a tighter sandbox
-        must spell the entry out as ``server: {sandbox: {...}}``.
-
-        Without this default, the runtime's deny-by-default sandbox
-        check at dispatch time blocks every tool call on list-form
-        references — the LLM emits a ``tool_call`` event, the dispatch
-        rejects it with ``mcp_sandbox_blocked``, and the user sees a
-        cryptic "no sandbox permissions declared" error even though
-        they followed the documented shorthand. Detected via the live
-        E2E proof in ``tools/live_tests/_mcp_proof.py``.
-        """
         if raw is None:
             return {}
         default_sandbox = {
             "sandbox": {"permissions": ["process.exec", "net.http"]},
         }
         if isinstance(raw, dict):
-            # ``servers: {fetch: {}}`` is semantically the same as
-            # ``- fetch`` — a bare reference to a daemon-managed install.
-            # Apply the same default sandbox so dispatch doesn't reject
-            # the call. Users with stricter needs spell the sandbox out
-            # in the per-server config block.
             out: dict[str, dict[str, Any]] = {}
             for key, val in raw.items():
                 if isinstance(val, dict) and val:
@@ -131,26 +84,16 @@ class McpConfig(BaseModel):
                         else:
                             # Empty / non-dict value → bare reference.
                             out[str(key)] = dict(default_sandbox)
-                # Anything else falls through silently — the runtime
-                # logs ``mcp_invalid_server_entry`` for unrecognised items.
+                # Anything else falls through silently - the runtime
+                # logs `mcp_invalid_server_entry` for unrecognised items.
             return out
         return {}
-
 
 _MCP_ACTION_RE = re.compile(r"^mcp_([^_]+(?:_[^_]+)*)__(.+)$")
 
 _INTERNAL_KEYS = frozenset({"_approved", "_agent_id", "_turn_id", "_request_id"})
 
-
 def _resolve_schema_type(prop_schema: dict[str, Any]) -> str | None:
-    """Extract the effective type from a JSON Schema property.
-
-    Handles:
-    - ``{"type": "string"}`` → ``"string"``
-    - ``{"anyOf": [{"type": "string"}, {"type": "null"}]}`` → ``"string"``
-    - ``{"oneOf": [...]}`` → first non-null type
-    - ``{"type": ["string", "null"]}`` → ``"string"``  (JSON Schema draft-04)
-    """
     t = prop_schema.get("type")
     if isinstance(t, str):
         return t
@@ -170,18 +113,8 @@ def _resolve_schema_type(prop_schema: dict[str, Any]) -> str | None:
 
     return None
 
-
 class MCPModule(BaseModule):
-    """MCP server integration module.
-
-    Manages connections to MCP servers and exposes their tools
-    to the Digitorn agent system via the context_builder's ToolIndex.
-
-    The module itself has management actions (connect, disconnect, etc.)
-    while MCP tools are indexed as virtual tools with FQN
-    ``mcp_{server_id}.{tool_name}`` and routed through this module's
-    ``execute()`` method.
-    """
+    """MCP server integration module."""
 
     MODULE_ID = "mcp"
     VERSION = "1.0.0"
@@ -218,7 +151,6 @@ class MCPModule(BaseModule):
         ),
     ]
 
-
     def get_prompt_sections(self) -> list[dict[str, Any]]:
         return []  # MCP tools are indexed as virtual tools, no extra instructions needed
 
@@ -248,10 +180,6 @@ class MCPModule(BaseModule):
         # Per-server sandbox permissions (deny-by-default).
         # None = no sandbox declared (server blocked), set() = declared but empty.
         self._server_sandbox: dict[str, set[str] | None] = {}
-        # Server IDs the app referenced (by short name) but that aren't
-        # installed in the daemon and don't have a catalog entry. Kept
-        # for diagnostic surfacing; the agent can ``mcp.diagnose`` to
-        # see them.
         self._missing_refs: set[str] = set()
 
     def get_manifest(self) -> ModuleManifest:
@@ -261,12 +189,8 @@ class MCPModule(BaseModule):
         pass
 
     async def on_stop(self) -> None:
-        # All shutdown phases run in PARALLEL with bounded timeouts.
-        # The previous sequential loop could take up to 10s × N user
-        # pools (default 20) = 200s, longer than typical process
-        # supervisors wait before SIGKILL. SIGKILL leaves stdio MCP
-        # children orphaned. Parallel + per-task timeout caps the
-        # whole shutdown at 10s regardless of how many servers/pools.
+        # Parallel shutdown with per-task timeout so the total stays
+        # under 10 s regardless of how many pools/servers are open.
         self._tool_cache.invalidate_all()
 
         if self._daemon_pool is not None and self._app_id:
@@ -320,43 +244,12 @@ class MCPModule(BaseModule):
             logger.warning("mcp_stop: app pool disconnect failed: %s", exc)
 
     async def on_config_update(self, config: dict[str, Any]) -> None:
-        """Auto-connect to servers declared in YAML config.
-
-        When a daemon pool is available, tries to acquire a shared connection
-        from it first (for servers installed via ``digitorn mcp install``).
-        Falls back to per-app connection for custom/inline configs.
-
-        Supported formats::
-
-            servers:
-              - github
-              - notion
-
-            servers:
-              github: {}
-
-            servers:
-              github:
-                token: "{{secret.GITHUB_TOKEN}}"
-
-            servers:
-              custom:
-                transport: stdio
-                command: npx
-                args: ["@org/mcp-server"]
-                env:
-                  API_KEY: "xxx"
-        """
+        """Auto-connect to servers declared in YAML config."""
         await super().on_config_update(config)
         raw_servers = config.get("servers", {})
 
-        # Default sandbox applied to bare references (list-form, or
-        # dict-form with empty value). Encodes the "trust the daemon
-        # install" contract of the shorthand syntax — without it the
-        # runtime dispatch ``self._server_sandbox[server_id] = None``
-        # blocks every tool call with the cryptic
-        # ``mcp_sandbox_blocked`` error. Users who need a tighter
-        # sandbox must spell it out in the per-server config dict.
+        # Sandbox defaults applied to shorthand server references so
+        # the dispatch isn't blocked by `_server_sandbox[id] = None`.
         _DEFAULT_BARE_SERVER_CONFIG: dict[str, Any] = {
             "sandbox": {"permissions": ["process.exec", "net.http"]},
         }
@@ -434,11 +327,9 @@ class MCPModule(BaseModule):
                         server_id, len(mw_names), mw_names,
                     )
 
-            # Per-server tuning (rate limit + cache shape) must be applied
-            # BEFORE the daemon-pool branch — otherwise servers resolved
-            # through the shared pool ``continue`` past lines 563-575
-            # silently and the YAML knobs are dead. Discovered via the
-            # live ``rate_limit`` audit scenario.
+            # Per-server rate limit + cache shape MUST be applied
+            # before the daemon-pool branch or the shared-pool path
+            # `continue`s past them and the YAML knobs go dead.
             if raw_rate_limit is not None:
                 self._rate_limits[server_id] = int(raw_rate_limit)
                 self._rate_windows.setdefault(server_id, [])
@@ -456,11 +347,6 @@ class MCPModule(BaseModule):
 
             if not server_config:
                 if get_catalog_entry(server_id) is None:
-                    # The app references this server by name only — neither
-                    # the live pool, the managed_mcp_servers table, nor
-                    # the Hub catalog match. Three actionable fixes for
-                    # the operator; we surface them all so support tickets
-                    # don't need a code dive.
                     self._missing_refs.add(server_id)
                     logger.error(
                         "mcp_server_not_installed server=%s app=%s\n"
@@ -475,7 +361,6 @@ class MCPModule(BaseModule):
                         server_id, server_id, server_id,
                     )
                     continue
-
 
             store_kwargs = await self._try_store_connect_kwargs(server_id)
             if store_kwargs is not None:
@@ -587,12 +472,6 @@ class MCPModule(BaseModule):
 
     @staticmethod
     def _find_server_install_dir(server_id: str) -> str | None:
-        """Return the daemon install directory for a server, if it exists.
-
-        This allows standalone mode to use the same cwd as daemon mode,
-        so servers that need files from their install dir (OAuth keyfiles,
-        credentials.json, etc.) can find them.
-        """
         try:
             from digitorn.core.mcp_store import _server_dir
             server_dir = _server_dir(server_id)
@@ -604,12 +483,6 @@ class MCPModule(BaseModule):
 
     @staticmethod
     async def _try_store_connect_kwargs(server_id: str) -> dict[str, Any] | None:
-        """Build connect kwargs from the daemon store if installed.
-
-        Uses the same ``_build_connect_kwargs`` as the daemon, which resolves
-        local binaries, injects OAuth env vars, and sets the correct cwd.
-        Returns None if the server is not installed in the store.
-        """
         try:
             from digitorn.core.mcp_store import (
                 get_server_for_app,
@@ -641,27 +514,12 @@ class MCPModule(BaseModule):
         server_id: str,
         user_config: dict[str, Any],
     ) -> bool:
-        """Try to use a daemon-managed server from the shared pool.
-
-        Resolution order:
-        1. If the daemon pool already has this server connected → acquire ref
-        2. If the server is in daemon DB (installed/ready) → connect via pool
-        3. Otherwise → return False (caller falls back to per-app connection)
-
-        For servers with empty user_config (name-only references), the daemon
-        DB provides the full connection config (transport, command, env, etc.).
-        """
         if self._daemon_pool is None or self._app_id is None:
             return False
 
         daemon_entry = self._daemon_pool.get_server(server_id)
         if daemon_entry is not None:
             try:
-                # ``_connect_kwargs`` stores transport_type alongside the
-                # transport-specific args (see connections.py:137). We
-                # already pass ``daemon_entry.transport_type`` positionally
-                # below, so drop the duplicate to avoid
-                # ``connect() got multiple values for argument 'transport_type'``.
                 _kw = {
                     k: v for k, v in (daemon_entry._connect_kwargs or {}).items()
                     if k != "transport_type"
@@ -716,13 +574,6 @@ class MCPModule(BaseModule):
             return False
 
     async def _preload_oauth_tokens(self) -> None:
-        """Pre-inject stored OAuth tokens into MCP servers at startup.
-
-        For each server with auth_config, check if there's a valid token
-        in the DB.  If so, inject it into the transport so the server
-        starts with the right credentials.  This avoids re-authentication
-        on every run.
-        """
         if self._user_store is None:
             return
 
@@ -751,14 +602,9 @@ class MCPModule(BaseModule):
                     server_id, exc_info=True,
                 )
 
-
     async def _try_auto_install(
         self, server_id: str, package: str,
     ) -> bool:
-        """Try to auto-install a pip package via uv or pip.
-
-        Returns True if install succeeded (command now available).
-        """
         import shutil
         import subprocess
 
@@ -799,19 +645,13 @@ class MCPModule(BaseModule):
             )
         return False
 
-
     async def execute(
         self,
         action_name: str,
         params: dict[str, Any],
         context: ExecutionContext | None = None,
     ) -> Any:
-        """Execute an action or route to an MCP server tool.
-
-        MCP tool FQNs are sanitized by the context_builder to
-        ``mcp_{server_id}__{tool_name}`` (dots → double underscore).
-        This method detects and routes them to the correct server.
-        """
+        """Execute an action or route to an MCP server tool."""
         logger.debug("mcp_execute action_name=%s", action_name)
         match = _MCP_ACTION_RE.match(action_name)
         if match:
@@ -828,27 +668,6 @@ class MCPModule(BaseModule):
         params: dict[str, Any],
         context: ExecutionContext | None = None,
     ) -> ActionResult:
-        """Route a tool call to an MCP server.
-
-        Sandbox enforcement: if the server has no sandbox declaration,
-        the call is rejected immediately.  This is the application-level
-        gate - the OS-level sandbox (seccomp/Landlock) provides the
-        second layer of enforcement.
-
-        If the server has an OAuth auth config, checks for a valid user
-        token and injects it. Returns a ``requires_oauth`` error with an
-        ``auth_url`` if no token is available.
-
-        For stdio servers with per-user OAuth, uses a dedicated subprocess
-        per user (via ``_user_pools``) so that tokens are never shared
-        across users.
-
-        Applies automatic parameter coercion (dict→JSON string) when the
-        MCP tool schema expects a string but the LLM sends a structured
-        object.  On error, the response includes the tool's expected
-        inputSchema so the LLM can self-correct.
-        """
-        # ── Sandbox enforcement gate ──────────────────────────────
         sandbox_perms = self._server_sandbox.get(server_id)
         if sandbox_perms is None:
             logger.warning(
@@ -877,7 +696,6 @@ class MCPModule(BaseModule):
 
         logger.debug("mcp_execute_tool server=%s tool=%s", server_id, tool_name)
 
-        # --- OAuth resolution ---
         # Returns (error_result, call_pool) - error_result is None on success.
         # call_pool is the pool to use for the actual tool call (may be a
         # per-user pool for stdio servers).
@@ -925,12 +743,6 @@ class MCPModule(BaseModule):
 
         params = self._coerce_params(server_id, tool_name, params)
 
-        # Workdir sandbox: walk the tool args and enforce the agent's
-        # ``PathPolicy`` on every path-like value. Schema-driven for
-        # fields whose name / description marks them as paths, plus a
-        # value-driven heuristic for the long tail of MCP tools that
-        # don't annotate. Out-of-sandbox values return a structured
-        # error without ever reaching the remote MCP server.
         sandbox_error = self._enforce_path_sandbox(server_id, tool_name, params)
         if sandbox_error is not None:
             return ActionResult(success=False, error=sandbox_error)
@@ -991,27 +803,17 @@ class MCPModule(BaseModule):
 
         return normalized
 
-
     async def _raw_mcp_call(
         self, server_id: str, tool_name: str, params: dict[str, Any],
     ) -> Any:
-        """Single MCP call - used by the middleware pipeline."""
         return await self._pool.call_tool(server_id, tool_name, params)
 
-    # Hard ceiling on a single MCP call. MCP servers are user-installable
-    # plugins (HTTP, stdio, SSE) - any of them can hang indefinitely
-    # (network MCP without read-timeout, hung stdio subprocess, server
-    # bug). Without a per-call timeout the only ceiling was the agent's
-    # ``tool_timeout`` (default 600s = 10 min frozen tool from the
-    # user's perspective). We cap at 120s by default - configurable via
-    # ``MCPModule._mcp_call_timeout`` if a long-running tool needs more.
     _MCP_CALL_TIMEOUT_S: float = 120.0
 
     async def _raw_mcp_call_with_reconnect(
         self, server_id: str, tool_name: str, params: dict[str, Any],
         *, pool: MCPConnectionPool | None = None,
     ) -> Any:
-        """MCP call with one auto-reconnect attempt (no pipeline path)."""
         _pool = pool or self._pool
         timeout = float(getattr(self, "_mcp_call_timeout", self._MCP_CALL_TIMEOUT_S))
         for attempt in range(2):
@@ -1021,10 +823,6 @@ class MCPModule(BaseModule):
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:
-                # Map the timeout to a transport error so the agent_loop's
-                # generic tool-error handler surfaces a clear message to
-                # the LLM. Don't retry on timeout - the call succeeded
-                # to start, the tool itself is wedged.
                 logger.warning(
                     "mcp_call_timeout server=%s tool=%s timeout_s=%.1f",
                     server_id, tool_name, timeout,
@@ -1047,13 +845,12 @@ class MCPModule(BaseModule):
                         # stale results are not served after a reconnect.
                         try:
                             self._tool_cache.invalidate_server(server_id)
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("module best-effort block failed: %s", exc)
                         continue
                     except MCPTransportError:
                         pass
                 raise
-
 
     @staticmethod
     def _normalize_mcp_result(
@@ -1061,19 +858,6 @@ class MCPModule(BaseModule):
         tool_name: str,
         result: Any,
     ) -> ActionResult:
-        """Transform raw MCP tool output into a clean, structured ActionResult.
-
-        MCP servers return a list of Content items (text, image, resource).
-        LLMs struggle with raw MCP content - they may see ``"text": ""`` and
-        conclude "no data" even when content exists.  This method:
-
-        1. Extracts and flattens text content into a single ``output`` string.
-        2. Provides explicit ``status`` ("ok" / "empty") so the LLM always
-           knows whether the call produced data.
-        3. Counts items and separates images/resources for clarity.
-        4. Keeps ``_source`` for provenance, moves the injection warning to
-           a short ``_note`` that doesn't dominate the payload.
-        """
         import json as _json
 
         text_parts: list[str] = []
@@ -1174,10 +958,6 @@ class MCPModule(BaseModule):
         server_id: str,
         params: dict[str, Any],
     ) -> str | None:
-        """Reject obvious placeholder IDs and guide the LLM to search first.
-
-        Returns an error message if a placeholder is detected, None otherwise.
-        """
         for param_name, value in params.items():
             if not self._ID_PARAM_RE.search(param_name):
                 continue
@@ -1205,10 +985,6 @@ class MCPModule(BaseModule):
     def _validate_required_params(
         self, server_id: str, tool_name: str, params: dict[str, Any],
     ) -> str | None:
-        """Check that required params are present per the MCP tool schema.
-
-        Returns an error message if required params are missing, None otherwise.
-        """
         entry = self._pool.get_server(server_id)
         if entry is None:
             return None
@@ -1240,7 +1016,6 @@ class MCPModule(BaseModule):
         return None
 
     def _check_rate_limit(self, server_id: str) -> str | None:
-        """Check per-server rate limit. Returns error message or None."""
         max_rpm = self._rate_limits.get(server_id)
         if max_rpm is None:
             return None
@@ -1263,7 +1038,6 @@ class MCPModule(BaseModule):
         return None
 
     def _wire_auto_heal_resolvers(self) -> None:
-        """Attach the tool resolver to any AutoHealMiddleware instances."""
         from digitorn.modules.mcp.middleware import AutoHealMiddleware
         for pipeline in [self._global_pipeline, *self._server_pipelines.values()]:
             if pipeline is None:
@@ -1275,11 +1049,6 @@ class MCPModule(BaseModule):
     def _resolve_similar_tools(
         self, server_id: str, tool_name: str,
     ) -> list[tuple[str, str, str]]:
-        """Find tools similar to ``tool_name`` across all connected servers.
-
-        Returns list of (server_id, tool_name, description) tuples.
-        Uses keyword matching on tool names.
-        """
         keywords = set(tool_name.lower().replace("-", "_").split("_"))
         keywords.discard("")
 
@@ -1300,7 +1069,6 @@ class MCPModule(BaseModule):
         return [(s[0], s[1], s[2]) for s in suggestions]
 
     def _find_search_tools(self, server_id: str) -> list[str]:
-        """Find search/list/query tools on the same MCP server."""
         entry = self._pool.get_server(server_id)
         if entry is None:
             return []
@@ -1317,18 +1085,6 @@ class MCPModule(BaseModule):
         tool_name: str,
         params: dict[str, Any],
     ) -> dict[str, Any]:
-        """Auto-coerce parameter types to match the MCP tool's inputSchema.
-
-        Handles three cases:
-        1. Schema says ``string`` but LLM sends dict/list → serialize to JSON
-        2. Schema says ``object``/``array`` but LLM sends str → parse JSON
-        3. Schema has no type but param name suggests JSON (``*_json``,
-           ``*_str``, etc.) and value is dict/list → serialize to JSON
-
-        Case 3 is critical for MCP servers like mcp-notion whose
-        ``inputSchema`` omits the type yet whose Pydantic model expects
-        a JSON-encoded string.
-        """
         entry = self._pool.get_server(server_id)
         if entry is None:
             return params
@@ -1391,21 +1147,6 @@ class MCPModule(BaseModule):
     def _enforce_path_sandbox(
         self, server_id: str, tool_name: str, params: dict[str, Any],
     ) -> str | None:
-        """Walk ``params`` and enforce the workdir-scoped ``PathPolicy``
-        on every path-like value before dispatch to the MCP server.
-
-        Two layers cooperate:
-          1. Schema-driven: fields the input schema marks as paths
-             (``path``, ``file_path``, ``cwd``, ``format=path``,
-             ``description=...path...``) are unconditionally enforced.
-          2. Heuristic: every other string is checked with
-             ``_looks_like_path`` (rooted by ``/``, ``\\``, ``~``, or
-             a drive letter, and not a URL / pseudo-path).
-
-        Returns ``None`` when allowed, an error string when blocked.
-        Skips entirely when no ``path_policy`` is in scope (admin /
-        CLI paths that don't flow through ``apply_workspace_override``).
-        """
         ctx = getattr(self, "_context", None)
         policy = getattr(ctx, "path_policy", None) if ctx else None
         if policy is None:
@@ -1443,17 +1184,12 @@ class MCPModule(BaseModule):
                 f"MCP tool '{tool_name}' on '{server_id}' refused: a "
                 "path argument falls outside the agent workspace. "
                 "Pass paths relative to the workdir, or declare "
-                "``constraints.allowed_paths`` in the app YAML for "
+                "`constraints.allowed_paths` in the app YAML for "
                 f"this server. (action={exc.action} module={exc.module})"
             )
         return None
 
     def _build_schema_hint(self, server_id: str, tool_name: str) -> str:
-        """Build a schema hint from the MCP tool's inputSchema.
-
-        Returns a formatted string showing the expected parameters,
-        or empty string if the schema is not available or trivial.
-        """
         entry = self._pool.get_server(server_id)
         if entry is None:
             return ""
@@ -1512,11 +1248,6 @@ class MCPModule(BaseModule):
 
     @staticmethod
     def _build_example_from_schema(schema: dict[str, Any]) -> dict[str, Any] | None:
-        """Generate a minimal example from a JSON Schema.
-
-        Only generates examples for schemas with <=6 required properties
-        to avoid overwhelming the LLM with huge examples.
-        """
         properties = schema.get("properties", {})
         required = set(schema.get("required", []))
 
@@ -1549,18 +1280,6 @@ class MCPModule(BaseModule):
         auth_config: OAuthProviderConfig,
         context: ExecutionContext | None,
     ) -> tuple[ActionResult | None, MCPConnectionPool | None]:
-        """Check for a valid OAuth token, refreshing if needed.
-
-        Returns ``(error, pool)``:
-        - ``(None, None)``      - token valid, use the shared pool
-        - ``(None, user_pool)`` - token valid, use this per-user pool
-        - ``(error, None)``     - auth failed, return error to agent
-
-        For **stdio** servers with OAuth, each user gets a dedicated
-        subprocess (via ``_user_pools``) so tokens are never shared.
-        For **HTTP** servers, the token is injected as a per-request
-        header on the shared connection - no per-user pool needed.
-        """
         if self._user_store is None:
             entry = self._pool.get_server(server_id)
             if entry and auth_config.env_token_var:
@@ -1699,12 +1418,6 @@ class MCPModule(BaseModule):
         *,
         token_type: str | None = None,
     ) -> MCPConnectionPool:
-        """Get or create a per-user connection pool for a stdio OAuth server.
-
-        Each user gets their own subprocess with their token injected as
-        an env var (e.g. ``NOTION_API_KEY``).  Pools are LRU-evicted when
-        ``_MAX_USER_POOLS`` is reached.
-        """
         pool = self._user_pools.get(user_id)
         if pool is not None:
             entry = pool.get_server(server_id)
@@ -1757,7 +1470,6 @@ class MCPModule(BaseModule):
         return pool
 
     def _touch_user_lru(self, user_id: str) -> None:
-        """Move user_id to end of LRU list (most recently used)."""
         try:
             self._user_pool_lru.remove(user_id)
         except ValueError:
@@ -1773,16 +1485,6 @@ class MCPModule(BaseModule):
         *,
         token_type: str | None = None,
     ) -> None:
-        """Inject an OAuth token into the MCP server transport.
-
-        For HTTP-based transports (SSE, streamable_http): sets the
-        Authorization header directly on the transport.
-
-        For stdio transports with ``env_token_var`` configured: reconnects
-        the subprocess with the token injected as an environment variable.
-        This enables OAuth for servers like mcp-notion that read their
-        token from ``NOTION_API_KEY`` env var.
-        """
         if hasattr(entry.transport, "_headers"):
             entry.transport._headers["Authorization"] = (
                 f"{token_type or 'Bearer'} {access_token}"
@@ -1809,7 +1511,6 @@ class MCPModule(BaseModule):
                 server_id, auth_config.env_token_var,
             )
             await self._pool.reconnect(server_id)
-
 
     @action(
         description="Connect to an MCP server (stdio subprocess, SSE, or HTTP)",
@@ -1867,8 +1568,8 @@ class MCPModule(BaseModule):
             entry = await self._pool.reconnect(params.server_id)
             try:
                 self._tool_cache.invalidate_server(params.server_id)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("module best-effort block failed: %s", exc)
             return ActionResult(success=True, data=entry.to_dict())
         except MCPTransportError as exc:
             return ActionResult(success=False, error=str(exc))
@@ -1923,8 +1624,6 @@ class MCPModule(BaseModule):
                     success=False,
                     error=f"MCP server '{params.server_id}' not in allowed_servers: {allowed}",
                 )
-        # Same per-call timeout as ``_raw_mcp_call_with_reconnect``.
-        # See the comment on ``_MCP_CALL_TIMEOUT_S`` for why this matters.
         timeout = float(getattr(self, "_mcp_call_timeout", self._MCP_CALL_TIMEOUT_S))
         try:
             result = await asyncio.wait_for(
@@ -2045,13 +1744,6 @@ class MCPModule(BaseModule):
     async def health_check(  # type: ignore[override]
         self, params: HealthCheckParams | None = None,
     ) -> Any:
-        # Dual-purpose method:
-        #   - LLM-callable action with ``params`` (the original action contract)
-        #   - ``BaseModule.health_check()`` no-arg override invoked by the
-        #     module health endpoint at ``GET /api/modules/mcp/health``.
-        # When called with no params (the second case) we return the same
-        # ``{status, module_id, version}`` dict shape the dispatcher
-        # expects from every other module.
         if params is None:
             return {
                 "status": "ok",

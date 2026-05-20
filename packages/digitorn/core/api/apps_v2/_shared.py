@@ -1,9 +1,4 @@
-"""Shared helpers, models, and module-level state for apps_v2 package.
-
-Extracted verbatim from the legacy ``apps.py`` so every sub-router can
-import the exact same primitives. Do NOT add new logic here - this file
-is a transparent re-export of the original helpers.
-"""
+"""Shared helpers, models, and module-level state for apps_v2 package."""
 
 from __future__ import annotations
 
@@ -26,7 +21,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
 
-# ── Concurrency control for agent turns ──────────────────────────────
 # Limits how many agent turns can run concurrently across all apps.
 # Beyond this, /messages returns 503 so the event loop is never starved.
 _MAX_CONCURRENT_TURNS = int(os.environ.get("DIGITORN_MAX_CONCURRENT_TURNS", "400"))
@@ -34,31 +28,23 @@ _turn_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_TURNS)
 # Tracked tasks - prevents GC of fire-and-forget tasks + enables diagnostics
 _active_turn_tasks: set[asyncio.Task] = set()
 
-# Dots are allowed in app IDs (e.g. "my-org.app") but consecutive dots
-# ("..") are forbidden to prevent path-traversal when the ID is used in
-# filesystem or URL path construction.
 _SAFE_ID_RE = _re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_\-\.]{0,127}$')
 
 _agent_turns_lock = asyncio.Lock()
 
-_MESSAGE_MAX_BYTES = 1_048_576  # 1 MiB - BUG-062 guard against DoS
+_MESSAGE_MAX_BYTES = 1_048_576  # 1 MiB DoS guard
 
-# Sanity-check artifact downloads (Flutter dashboard preview).
+# Sanity-check artifact downloads (dashboard preview).
 _MAX_ARTIFACT_DOWNLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
-# Match ``{{env.NAME}}`` / ``{{secret.NAME}}`` references in raw YAML.
+# Match `{{env.NAME}}` / `{{secret.NAME}}` references in raw YAML.
 _SECRET_REF_RE = re.compile(
     r"\{\{\s*(env|secret)\.([A-Za-z_][A-Za-z0-9_]*)\s*(?:\?\?[^}]*)?\}\}",
 )
 
 
 def _format_quota_message(exc: Any) -> str:
-    """Build a Claude-style human-friendly error message for a
-    ``QuotaExceededError``. Uses the structured fields when available
-    so the user sees ``"Daily token limit reached (65,728 / 50,000).
-    Resets in 2h 7m."`` instead of the bare ``"Error code: 429"`` from
-    ``str(exc)``.
-    """
+    """Build a Claude-style human-friendly error message for a"""
     parts: list[str] = []
 
     metric = getattr(exc, "metric", None) or ""
@@ -111,30 +97,19 @@ def _format_quota_message(exc: Any) -> str:
                     parts.append(f"Resets in {h} hour{'s' if h != 1 else ''}")
                 else:
                     parts.append(f"Resets in {h}h {m}m")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_shared best-effort block failed: %s", exc)
 
     return ". ".join(parts) + "."
 
 
 def _try_parse_quota_from_str(msg: str) -> dict[str, Any] | None:
-    """Recover the gateway's structured ``quota_exceeded`` body from a
-    stringified exception. LiteLLM / the openai-python SDK wrap a 429
-    as ``"Error code: 429 - {'detail': {...}}"`` (Python repr form),
-    which loses the ``QuotaExceededError`` type but keeps every field
-    we need. ``ast.literal_eval`` is safe to run on this — it evaluates
-    only literals (dicts, strings, numbers, None), never call
-    expressions, so no code injection vector even if the upstream got
-    creative with the body.
-
-    Returns the inner ``detail`` dict when ``code == "quota_exceeded"``,
-    otherwise None.
-    """
+    """Recover the gateway's structured `quota_exceeded` body from a"""
     if not msg or "quota_exceeded" not in msg:
         return None
     import ast
-    # Find the first ``{`` and the matching last ``}`` — the dict
-    # follows the leading ``Error code: 429 - `` (or any wrapper).
+    # Find the first `{` and the matching last `}` - the dict
+    # follows the leading `Error code: 429 - ` (or any wrapper).
     start = msg.find("{")
     end = msg.rfind("}")
     if start < 0 or end < 0 or end <= start:
@@ -154,11 +129,7 @@ def _try_parse_quota_from_str(msg: str) -> dict[str, Any] | None:
 
 
 class _QuotaShim:
-    """Minimal duck-typed object that satisfies ``_format_quota_message``'s
-    ``getattr(exc, ...)`` reads. Used when we recovered the quota fields
-    from a stringified exception (no typed ``QuotaExceededError`` to
-    pass directly).
-    """
+    """Minimal duck-typed object that satisfies `_format_quota_message`'s"""
 
     __slots__ = ("metric", "window", "limit_value", "actual_value", "retry_after")
 
@@ -171,19 +142,11 @@ class _QuotaShim:
 
 
 def _classify_error(exc: Exception) -> dict[str, Any]:
-    """Classify an exception into a structured error dict for SSE clients.
-
-    Returns a dict with:
-        error:    Human-readable message
-        code:     Machine-readable error code for the client to switch on
-        category: Error category (billing, auth, rate_limit, provider, network, internal)
-        retry:    Whether the client should offer a retry button
-    """
+    """Classify an exception into a structured error dict for SSE clients."""
     msg = str(exc)
     msg_lower = msg.lower()
     exc_type = type(exc).__name__
 
-    # ── Credential first-use flow (picker dialog) ────────────────
     try:
         from digitorn.core.credentials import CredentialAuthRequired
         from digitorn.core.credentials.store import CredentialMissing
@@ -207,17 +170,8 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
                 ),
             })
             return data
-        # New-style declarative `credential:` ref injection failure -
-        # raised by `inject_session_time` when a required user-scoped
-        # ref can't be resolved at chat start. Maps to the same
-        # picker flow as `CredentialMissing`.
         from digitorn.core.credentials.injector import CredentialInjectError
         if isinstance(exc, CredentialInjectError):
-            # Build the field_spec from the catalogue so the
-            # picker has the right form schema. Without this the
-            # picker only has the bare ref name and renders an
-            # empty Label-only form (the same loop the gate-side
-            # fix addresses for app-open).
             field_spec_payload: dict[str, Any] = {}
             provider = getattr(exc, "provider", None) or ""
             if provider:
@@ -263,14 +217,6 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
                 "ref": exc.ref,
                 "scope": exc.scope,
                 "block": exc.block_path,
-                # Picker-shape payload: when the client supports the
-                # declarative `credential:` block (web ≥ 2026-05,
-                # Flutter ≥ 2026-05), it threads `target_name` /
-                # `target_scope` back into create / OAuth so the
-                # post-resolution credential lands under the EXACT
-                # ref the injector expects. Without this fix, the
-                # client falls back to `provider_name` as the cred
-                # name → injector misses → picker re-emits forever.
                 "target_name": exc.ref,
                 "target_scope": exc.scope,
                 "provider": provider,
@@ -280,15 +226,9 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
                 "field_spec": field_spec_payload,
                 "candidates": [],
             }
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("_shared best-effort block failed: %s", exc)
 
-    # Structured quota_exceeded from the gateway (digitorn-gateway raises
-    # ``QuotaExceededError`` with metric / limit / actual / retry_after).
-    # We KEEP ``code: "insufficient_balance"`` so the existing frontend
-    # branch keeps rendering the toast, but enrich the payload with the
-    # structured fields so a v2 client can show "quota resets at ...",
-    # the precise metric that ran out, etc.
     try:
         from digitorn.modules.llm_provider.errors import QuotaExceededError
         if isinstance(exc, QuotaExceededError):
@@ -302,16 +242,9 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
             }
             payload.update(exc.to_payload())
             return payload
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("_shared best-effort block failed: %s", exc)
 
-    # Fallback: when the exception is NOT a typed ``QuotaExceededError``
-    # but its ``str()`` carries the gateway's structured 429 body
-    # (LiteLLM / openai-sdk wraps it as
-    # ``"Error code: 429 - {'detail': {'code': 'quota_exceeded', ...}}"``).
-    # Recover the structured fields by safely parsing the dict literal
-    # so the frontend can render the same nicely-formatted "Daily
-    # message limit reached, resets in X" UI as the typed path.
     try:
         parsed_quota = _try_parse_quota_from_str(msg)
         if parsed_quota is not None:
@@ -329,12 +262,9 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
                 if v is not None:
                     payload[k] = v
             return payload
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("_shared best-effort block failed: %s", exc)
 
-    # Gateway 404 ``model_not_provided_by_digitorn`` - the user's app
-    # uses a model the gateway has no key for. Frontend renders this
-    # with a "Configure credentials for X" call to action.
     if "model_not_provided_by_digitorn" in msg or "is not provided by Digitorn" in msg:
         provider_hint = None
         model_hint = None
@@ -350,8 +280,8 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
                 if isinstance(detail_obj, dict):
                     provider_hint = detail_obj.get("provider")
                     model_hint = detail_obj.get("model")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_shared best-effort block failed: %s", exc)
         return {
             "error": (
                 f"The model '{model_hint}' is not provided by Digitorn. "
@@ -448,12 +378,6 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
             "retry": True,
             "detail": msg[:500],
         }
-    # Loop guard hard kill: the agent ran into a runaway pattern (same
-    # failing tool call repeated past the hard cap). The technical
-    # message ``loop_guard_hard_kill: tool 'X' failed N times in a row``
-    # is set by ``loop_guards._check_consecutive_failures`` and surfaced
-    # via ``TurnResult.error``. Translate to a user-friendly message
-    # that tells the user what to do.
     if "loop_guard_hard_kill" in msg_lower or "turn aborted to prevent runaway" in msg_lower:
         return {
             "error": (
@@ -475,9 +399,7 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
     }
 
 
-
 def _validate_app_id(app_id: str) -> str | None:
-    """Return an error string if *app_id* is unsafe, else None."""
     if not _SAFE_ID_RE.match(app_id):
         return f"Invalid app_id: '{app_id}'"
     if ".." in app_id:
@@ -488,20 +410,7 @@ def _validate_app_id(app_id: str) -> str | None:
 
 
 def _build_history_turns(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Convert raw LLM messages into structured turns for the web UI.
-
-    Groups assistant tool_calls + tool results into segments, filters system messages,
-    and produces a clean list of {role, content, seq, toolCalls?, thinking?} objects.
-
-    ``seq`` is propagated from the input dicts when present (the
-    history endpoint feeds this function with HistoryLog rows that
-    carry their canonical daemon-allocated seq). Clients use ``seq``
-    as the SOLE source of truth for chat ordering AND replay
-    reconstruction - no synthetic indexes, no client-side counters.
-    Unset only when called from a non-DB code path (legacy in-memory
-    replay) - those paths fall back to generation order, which is
-    the existing behavior.
-    """
+    """Convert raw LLM messages into structured turns for the web UI."""
     from digitorn.core.cli.ui import _tool_label
 
     turns: list[dict[str, Any]] = []
@@ -561,9 +470,6 @@ def _build_history_turns(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
             seq = seq if isinstance(seq, int) and seq > 0 else None
 
             if tool_calls and not content.strip():
-                # Emit both snake_case (Python SDK + spec) and camelCase
-                # (legacy Flutter client) so existing consumers keep
-                # working. The canonical key is `tool_calls`.
                 turn: dict[str, Any] = {
                     "role": "assistant",
                     "content": "",
@@ -592,7 +498,6 @@ def _build_history_turns(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def _get_workspace_status(workspace: str) -> dict[str, Any]:
-    """Get git status for a workspace - server-side, all clients benefit."""
     import subprocess
     result: dict[str, Any] = {}
     try:
@@ -617,8 +522,8 @@ def _get_workspace_status(workspace: str) -> dict[str, Any]:
                 if len(parts) == 2:
                     result["ahead"] = int(parts[0])
                     result["behind"] = int(parts[1])
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("_shared best-effort block failed: %s", exc)
 
         # Changed files
         r = subprocess.run(
@@ -641,13 +546,12 @@ def _get_workspace_status(workspace: str) -> dict[str, Any]:
                 short_name = full_path.rsplit("/", 1)[-1] if "/" in full_path else full_path
                 changes.append({"status": st, "path": short_name, "full_path": full_path})
             result["changes"] = changes
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("_shared best-effort block failed: %s", exc)
     return result
 
 
 def _validate_id(value: str, name: str = "app_id") -> str:
-    """Validate app_id / session_id - alphanumeric + dash/underscore/dot, 1-128 chars."""
     err = _validate_app_id(value)
     if err:
         raise HTTPException(status_code=400, detail=err)
@@ -655,7 +559,6 @@ def _validate_id(value: str, name: str = "app_id") -> str:
 
 
 async def _inc_agent_turns(request: Request, delta: int = 1) -> None:
-    """Atomically increment/decrement the active agent turns counter."""
     state = request.app.state
     if hasattr(state, "_active_agent_turns"):
         async with _agent_turns_lock:
@@ -670,27 +573,11 @@ async def _activate_preview_session(
     user_id: str | None = None,
     set_active: bool = False,
 ):
-    """Resolve the session's workspace and activate it on the preview module.
-
-    Centralises the wiring so every API entry point that mutates preview
-    state correctly selects the filesystem vs DB backend based on whether
-    the session has a user-chosen workspace. Returns the activated
-    ``PreviewSessionState`` (or ``None`` if the module doesn't support it).
-
-    ``set_active`` controls whether the preview module's ``_active_session_id``
-    is updated. Observation paths (e.g. the Socket.IO rejoin snapshot)
-    leave it alone so concurrent mutations keep their own scope. Mutation
-    paths (e.g. ``/tools/{name}/execute``) must pass ``set_active=True``
-    - otherwise the upcoming write resolves against whichever session
-    happened to run last, leaking state across sessions.
-    """
+    """Resolve the session's workspace and activate it on the preview module."""
     if preview_module is None or not session_id:
         return None
     manager = _get_manager(request)
     ws = ""
-    # Use the RAW request.state.user_id for session lookup (loopback keeps
-    # "system" as the owner). `_caller_user_id` strips system/anonymous and
-    # would cause a lookup mismatch against a session saved under "system".
     raw_uid = (
         getattr(request.state, "user_id", None)
         or user_id
@@ -700,10 +587,6 @@ async def _activate_preview_session(
         sess = await manager.get_session(
             app_id, session_id, user_id=raw_uid,
         )
-        # Pass both paths to preview:
-        #   - workspace = WORKDIR (agent-facing, where sync_to_disk writes)
-        #   - daemon_dir = the ~/.digitorn/workspaces/{app}/{sid}/ path
-        #     where state.json + baselines + SDK-private files live
         if sess:
             ws = (
                 getattr(sess, "workdir", "")
@@ -738,15 +621,7 @@ async def _activate_preview_session(
 
 
 def _caller_user_id(request: Request) -> str | None:
-    """Pull the authenticated caller's user_id. Returns None in
-    dev mode (no auth).
-
-    The loopback auth bypass (in-process agent self-calls, 127.0.0.1)
-    sets ``user_id='system'`` as a sentinel. That's admin context, not
-    a real user scope - so we return None for it too. Otherwise the
-    scope resolver would treat it as "user='system'" and fail to find
-    the system install.
-    """
+    """Pull the authenticated caller's user_id"""
     uid = getattr(request.state, "user_id", None)
     if not uid or uid in ("anonymous", "system"):
         return None
@@ -754,29 +629,13 @@ def _caller_user_id(request: Request) -> str | None:
 
 
 def _get_deployed(request: Request, app_id: str):
-    """Helper: look up a deployed app in the caller's visibility
-    scope. Returns the DeployedApp or None.
-
-    Resolution order (inside manager.get):
-      1. Caller's user-scoped deploy
-      2. System-scoped deploy
-      3. Legacy bare-key deploy (backwards compat)
-
-    Use this everywhere instead of bare ``manager.get(app_id)``.
-    """
+    """Helper: look up a deployed app in the caller's visibility"""
     manager = _get_manager(request)
     return manager.get(app_id, user_id=_caller_user_id(request))
 
 
 def _raise_not_deployed(request: Request, app_id: str) -> None:
-    """Raise the right HTTPException when an app_id isn't found.
-
-    While the daemon is still warming up (``reload_from_db`` still
-    running in the background), a missing app may just not have
-    finished loading yet - we return 503 with a ``Retry-After`` header
-    so well-behaved clients can back off instead of treating it as a
-    permanent 404.
-    """
+    """Raise the right HTTPException when an app_id isn't found."""
     warming = bool(getattr(request.app.state, "warming_up", False))
     if warming:
         raise HTTPException(
@@ -791,17 +650,12 @@ def _raise_not_deployed(request: Request, app_id: str) -> None:
 
 
 def _is_deployed(request: Request, app_id: str) -> bool:
-    """Helper: is an app visible to the caller?"""
     manager = _get_manager(request)
     return manager.is_deployed(app_id, user_id=_caller_user_id(request))
 
 
 def _require_permission(request: Request, permission: str) -> None:
-    """Raise 403 if the authenticated user lacks the required permission.
-
-    Permissions are populated by AuthMiddleware from the JWT token.
-    The ``*`` wildcard (admin role) matches everything.
-    """
+    """Raise 403 if the authenticated user lacks the required permission."""
     perms: list[str] = getattr(request.state, "permissions", [])
     if "*" in perms:
         return
@@ -820,15 +674,7 @@ def _turn_event(
     op_state,
     payload: dict | None = None,
 ) -> Any:
-    """Build a turn-scoped :class:`SessionEvent` with the universal
-    contract pre-filled. Helper for every ``/messages`` / queue /
-    abort / resume path in this module so each emitter only writes
-    the fields it actually owns.
-
-    ``op_id`` defaults to the turn's ``correlation_id`` (so every
-    event in one turn groups together), ``op_type`` is always
-    ``TURN`` for this family of events.
-    """
+    """Build a turn-scoped :class:`SessionEvent` with the universal"""
     from digitorn.core.events.envelope import (
         SessionEvent as _SE, OpType as _OT,
     )
@@ -848,23 +694,7 @@ def _turn_event(
 async def _require_session_create_or_owner(
     request: Request, app_id: str, session_id: str,
 ) -> Any:
-    """Variant of ``_require_session_access`` for POST /messages.
-
-    POST /messages is the ONE endpoint where a fresh ``session_id`` is
-    a legitimate thing (the first message creates the session on the
-    fly, bound to the caller). So the rule here is:
-
-      * anonymous → 401 (same as the strict check).
-      * authenticated, session doesn't exist yet → pass through; the
-        handler will create it bound to this caller.
-      * authenticated, session exists under this caller → pass.
-      * authenticated, session exists under ANOTHER caller → 404.
-
-    The last branch is BUG-072: user B could inject a prompt into user
-    A's live conversation and the LLM would reply to A as if A had
-    written it. The 404 is deliberately indistinguishable from "no
-    such session" to avoid leaking session-existence oracles.
-    """
+    """Variant of `_require_session_access` for POST /messages."""
     uid = getattr(request.state, "user_id", None)
     if not uid or uid == "anonymous":
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -877,10 +707,6 @@ async def _require_session_create_or_owner(
         own = None
     if own is not None:
         return own
-    # The session may still exist under a different owner - look it up
-    # at the store level with no user filter. If something comes back
-    # that isn't ours, refuse; otherwise it's a genuinely new sid the
-    # caller is allowed to use.
     store = getattr(manager, "_session_store", None)
     if store is None:
         return None
@@ -898,36 +724,8 @@ async def _require_session_create_or_owner(
 async def _require_session_access(
     request: Request, app_id: str, session_id: str,
 ) -> Any:
-    """Ensure the caller is authenticated AND owns this session.
-
-    Centralises the authorization check that EVERY ``/sessions/{sid}/*``
-    handler must perform. Without it, Round 5 found seven CVE-level
-    cross-user/anonymous leaks (BUG-070..076): ``/events``, ``/abort``,
-    ``/messages``, ``/fork``, ``/export``, ``/queue``,
-    ``/context-breakdown``, ``/workspace`` were all reachable by
-    anybody holding the session_id, no matter who owned it.
-
-    Behaviour:
-      * anonymous caller (no JWT, no loopback, no dev-mode) → **401**
-        - we intentionally do NOT fall through to the 404 path because
-        an unauthenticated client should never enumerate session ids.
-      * authenticated caller whose ``user_id`` does not own the session
-        → **404** (no info-leak: a stolen sid is indistinguishable from
-        a non-existent one).
-      * owner → returns the ``ConversationSession`` object for reuse by
-        the handler (saves one extra DB lookup).
-
-    The helper uses ``manager.get_session`` which already enforces the
-    ``user_id`` filter at the store level - we're promoting that same
-    check from "nice fallback" to "non-bypassable precondition".
-    """
+    """Ensure the caller is authenticated AND owns this session."""
     uid = getattr(request.state, "user_id", None)
-    # ``system`` is the sentinel the loopback bypass uses for
-    # unauthenticated in-process calls. Internal agents never reach
-    # /api/apps/{id}/sessions/{sid}/* through HTTP (they use
-    # AgentContext directly), so treating ``system`` the same as
-    # ``anonymous`` here is safe and closes an anonymous-local-
-    # process oracle on session endpoints.
     if not uid or uid in ("anonymous", "system"):
         raise HTTPException(
             status_code=401,
@@ -952,11 +750,7 @@ async def _require_session_access(
 
 
 def _refresh_deployed_agent_tools(deployed: Any, new_index: Any) -> None:
-    """Refresh all agent contexts' tool lists after index rebuild.
-
-    Called after MCP OAuth token injection when new tools become available.
-    Updates ctx.tools and ctx.system_prompt so the LLM sees new tools.
-    """
+    """Refresh all agent contexts' tool lists after index rebuild."""
     from digitorn.modules.context_builder.builder import build_direct_tools
     from digitorn.modules.context_builder.prompt import build_system_prompt
     from digitorn.core.runtime.bootstrap import (
@@ -966,9 +760,6 @@ def _refresh_deployed_agent_tools(deployed: Any, new_index: Any) -> None:
     )
 
     cb = deployed.context_builder
-    # Read inject_intent from the deployed compiled config so the
-    # ``intent`` first-property is applied here too (rebuild path
-    # triggered after a redeploy / module hot-reload).
     _compiled = getattr(deployed, "compiled", None)
     _tc_block = getattr(getattr(_compiled, "ui", None), "chat_tool_calls", None)
     _inject_intent = bool(getattr(_tc_block, "inject_intent", False)) if _tc_block else False
@@ -1025,38 +816,14 @@ async def _drain_queue_next(
     session_id: str,
     user_id: str,
 ) -> None:
-    """Kick a fresh drain of the session's queue. Pops the head and
-    dispatches it; from there ``dispatch_turn`` chains the rest.
-
-    Used by:
-
-    * the orphan-queue watchdog in ``session_send_message`` (when a
-      previous drain chain died unexpectedly), and
-    * the post-abort resume path in ``abort_session_turn`` (after the
-      user cancels a running turn, the next queued entry should still
-      get dispatched).
-
-    Normal chain dispatch (after a turn completes) is handled inside
-    ``dispatch_turn`` itself via ``_schedule_chain`` - this helper is
-    only the kick-starter for sessions that have a queue but no
-    in-flight task.
-    """
+    """Kick a fresh drain of the session's queue. Pops the head and"""
     from digitorn.core.app import message_queue as _mq
     entry = await _mq.next_queued(session_id)
     if entry is None:
         return  # queue empty - done
-    # Pop the JWT stashed at enqueue. Re-publishing it on the inbound
-    # ContextVar before dispatch_turn lets a gateway-routed turn keep
-    # working even when the original HTTP request scope is gone.
     queued_jwt = _mq.pop_jwt(entry.id)
 
     async def _run_next():
-        # Single source of truth: dispatch_turn owns cred check,
-        # heartbeat, manager.chat(), error classification + event
-        # emission. We just translate the outcome into a queue
-        # terminal status and recursively chain to the next entry
-        # (unless PAUSED, in which case the row stays alive for a
-        # later resume signal - Step 5).
         from ._dispatch import (
             dispatch_turn, TurnEntry, TurnSource, TurnStatus,
         )
@@ -1084,11 +851,6 @@ async def _drain_queue_next(
             if _jwt_token is not None:
                 reset_inbound_user_jwt(_jwt_token)
         if outcome.status == TurnStatus.PAUSED:
-            # Mark the row terminal with `credential_required` so
-            # is_turn_running stops returning True. The user retries
-            # via the bubble's RETRY pill, which sends a fresh
-            # message. Don't chain: the next queued entry likely
-            # needs the same missing credential.
             try:
                 await _mq.mark_failed(
                     entry.id, error_code="credential_required",
@@ -1097,12 +859,9 @@ async def _drain_queue_next(
                     entry.correlation_id,
                     RuntimeError("credential_required"),
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("_shared best-effort block failed: %s", exc)
             return
-        # COMPLETED / FAILED / CANCELLED: dispatch_turn already flipped
-        # the row + scheduled the next chain dispatch internally.
-        # Nothing more for us to do.
 
     async def _guarded_next():
         async with _turn_semaphore:
@@ -1120,7 +879,6 @@ def _context_advice(
     total: int, effective: int,
     sys_tokens: int, tools_tokens: int, msg_tokens: int, mem_tokens: int,
 ) -> list[str]:
-    """Heuristic hints shown when context is tight."""
     tips: list[str] = []
     if total > effective:
         tips.append(
@@ -1133,18 +891,18 @@ def _context_advice(
     if tools_tokens > sys_tokens and tools_tokens > 30000:
         tips.append(
             "Tool schemas dominate. Consider granting fewer tools per agent "
-            "(``agents[].modules: [{filesystem: [read, write]}]``), or "
-            "switch ``tool_injection: discovery`` to defer tool exposure."
+            "(`agents[].modules: [{filesystem: [read, write]}]`), or "
+            "switch `tool_injection: discovery` to defer tool exposure."
         )
     if mem_tokens > 10000:
         tips.append(
             f"Memory snippet is {mem_tokens} tokens - check memory module "
-            "``get_prompt_sections`` for oversized facts/procedures."
+            "`get_prompt_sections` for oversized facts/procedures."
         )
     if msg_tokens > effective * 0.5:
         tips.append(
             "Message history is large - auto-compact should trigger soon. "
-            "Force manually via the ``/compact`` hook or /abort + new session."
+            "Force manually via the `/compact` hook or /abort + new session."
         )
     return tips
 
@@ -1153,7 +911,6 @@ def _merge_resources(
     base: dict[str, dict[str, Any]],
     incoming: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    """Deep-merge snapshot resources - incoming wins on per-id conflicts."""
     out: dict[str, dict[str, Any]] = {
         ch: {rid: dict(payload) for rid, payload in items.items()}
         for ch, items in base.items()
@@ -1168,7 +925,6 @@ def _merge_resources(
 async def _resolve_deployed_preview(
     request: Request, app_id: str,
 ) -> tuple[Any, Any]:
-    """Common path: validate deploy, resolve deployed + preview_module."""
     _validate_id(app_id)
     manager = _get_manager(request)
     if not _is_deployed(request, app_id):
@@ -1183,12 +939,7 @@ async def _resolve_deployed_preview(
 
 
 def _strip_content_from_files(resources: dict[str, Any]) -> dict[str, Any]:
-    """Return resources with file `content` stripped but everything else kept.
-
-    For the lightweight code-snapshot endpoint - Flutter's explorer + SCM
-    panel never need the raw content up front; it's fetched lazily when
-    the user opens a file.
-    """
+    """Return resources with file `content` stripped but everything else kept."""
     out: dict[str, Any] = {}
     for ch, items in (resources or {}).items():
         if ch != "files":
@@ -1207,15 +958,7 @@ def _validate_payload_against_schema(
     schema: dict[str, Any] | None,
     payload: dict[str, Any],
 ) -> list[str]:
-    """Check a session payload against an app's declared schema.
-
-    Returns the list of human-readable validation errors. Empty list
-    means the payload is valid (or no schema is declared).
-
-    Only enforces ``required`` constraints + presence/type sanity. We
-    keep this deliberately lightweight: the form on the client already
-    constrains values, this is just the server-side safety net.
-    """
+    """Check a session payload against an app's declared schema."""
     if not schema:
         return []
 
@@ -1243,9 +986,6 @@ def _validate_payload_against_schema(
         ):
             errors.append(f"payload.metadata.{name} is required")
 
-    # File slots - at least ``max_count`` ≥ 1 file matching the slot's
-    # mime list when required. We match by mime since slot ``name`` is
-    # logical and never appears on uploaded files.
     for slot in files_cfg:
         if not slot.get("required"):
             continue
@@ -1262,7 +1002,6 @@ def _validate_payload_against_schema(
 
 
 def _mime_matches(mime: str, accepted: list[str]) -> bool:
-    """``image/png`` matches both ``image/png`` and ``image/*``."""
     mime = (mime or "").lower()
     for pat in accepted:
         pat = pat.lower()
@@ -1274,7 +1013,6 @@ def _mime_matches(mime: str, accepted: list[str]) -> bool:
 
 
 def _assert_session_visible(session: dict[str, Any] | None, app_id: str, request: Request) -> dict[str, Any]:
-    """Guard: session must exist, belong to this app, and be visible to caller."""
     if session is None:
         raise HTTPException(status_code=404, detail="Background session not found")
     if session.get("app_id") != app_id:
@@ -1287,7 +1025,6 @@ def _assert_session_visible(session: dict[str, Any] | None, app_id: str, request
 
 
 def _get_bg_session_store(request: Request):
-    """Get or create the BackgroundSessionStore."""
     from digitorn.core.app.background_session_store import BackgroundSessionStore
     manager = _get_manager(request)
     store = getattr(manager, "_bg_session_store", None)
@@ -1299,7 +1036,6 @@ def _get_bg_session_store(request: Request):
 
 
 def _get_activation_store(request: Request):
-    """Get or create the ActivationStore from the database session factory."""
     from digitorn.core.app.activation_store import ActivationStore
     manager = _get_manager(request)
     store = getattr(manager, "_activation_store", None)
@@ -1311,33 +1047,22 @@ def _get_activation_store(request: Request):
 
 
 def _resolve_app_bundle_dir(request: Request, app_id: str, manager) -> Any:
-    """Return the on-disk directory that contains a deployed app's
-    companion files (YAML, icon, README, skills, assets/...).
-
-    Uses the deterministic install dir under
-    ``~/.digitorn/apps/<scoped>/``.
-    """
+    """Return the on-disk directory that contains a deployed app's"""
     from pathlib import Path
     from digitorn.core.packages.resolver import _app_dir
     try:
         p = _app_dir(app_id)
         if p.is_dir():
             return p
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("_shared best-effort block failed: %s", exc)
     return None
 
 
 def _try_resize_image(
     bundle_dir: Any, source: Any, max_size: int,
 ) -> Any:
-    """Return a resized variant of ``source`` at most ``max_size``
-    pixels on the longest side. Returns the cached file path on
-    success, or None when the asset isn't a resizable raster or
-    Pillow isn't installed.
-
-    Result is cached under ``<bundle_dir>/.digitorn/resized/``.
-    """
+    """Return a resized variant of `source` at most `max_size`"""
     try:
         from PIL import Image
     except ImportError:
@@ -1387,7 +1112,6 @@ def _try_resize_image(
 
 
 def _serialise_widget_node(node: Any) -> dict[str, Any]:
-    """Pydantic WidgetNode → JSON dict, recursively flattening children."""
     if node is None:
         return None
     if hasattr(node, "model_dump"):
@@ -1407,13 +1131,7 @@ async def _execute_widget_tool(
     args: dict[str, Any],
     session_id: str | None = None,
 ) -> Any:
-    """Resolve a tool by name and execute it through the app's modules.
-
-    Walks the deployed app's modules until one accepts the action.
-    Tool naming convention: ``module.action`` (e.g. ``filesystem.read``)
-    or short PascalCase (e.g. ``Read``) - both routed via the runtime
-    tool name resolver.
-    """
+    """Resolve a tool by name and execute it through the app's modules."""
     from digitorn.core.runtime.tool_names import to_fqn
 
     fqn = to_fqn(tool)
@@ -1448,13 +1166,7 @@ async def _execute_widget_tool(
 def _usage_snapshot(
     limiter: Any, app_id: str, user_id: str | None = None,
 ) -> dict[str, Any]:
-    """Current rolling counters (what's already been consumed).
-
-    For v1 we only track request RPM counters through the rate limiter.
-    Token / cost / message counters need provider-side hooks and are
-    reported as zero until those hooks ship - the admin UI should still
-    display the limit itself.
-    """
+    """Current rolling counters (what's already been consumed)."""
     try:
         u = limiter.get_usage(app_id, user_id=user_id)
     except Exception as exc:
@@ -1489,22 +1201,7 @@ def _walk_yaml_for_secrets(
     provider_hint: str | None = None,
     agent_hint: str | None = None,
 ) -> None:
-    """Recursive DFS over the parsed YAML, collecting every secret reference
-    AND the owning provider / agent when it can be inferred from the
-    surrounding structure.
-
-    ``hits`` maps ``secret_key`` → dict with:
-        - ``locations``: dotted paths where the secret appears
-        - ``providers``: set of canonical provider names inferred
-          from the enclosing ``agents[i].brain.provider`` or
-          ``modules.llm_provider.config.providers.{pid}.provider``
-        - ``agents``: set of agent ids (when the reference lives
-          inside an ``agents[i]`` block)
-
-    The inference is best-effort and conservative - when the walker
-    cannot tell, the fields stay empty and the client is left to
-    infer from the secret name itself.
-    """
+    """Recursive DFS over the parsed YAML, collecting every secret reference"""
     if isinstance(node, str):
         for match in _SECRET_REF_RE.finditer(node):
             key = match.group(2)
@@ -1526,11 +1223,6 @@ def _walk_yaml_for_secrets(
             child_provider = provider_hint
             child_agent = agent_hint
 
-            # ── agents[i] - inline brains ────────────────────────
-            # ``agents[i].brain`` carries a ``provider:`` field
-            # (deepseek, anthropic, …). When we dive into the
-            # brain subtree, adopt it as the enclosing provider
-            # and the agent id as the enclosing agent.
             if k == "brain" and isinstance(v, dict):
                 p = v.get("provider")
                 if isinstance(p, str) and p:
@@ -1540,10 +1232,6 @@ def _walk_yaml_for_secrets(
                 if isinstance(parent_id, str) and parent_id:
                     child_agent = parent_id
 
-            # ── modules.llm_provider.config.providers.{pid} ─────
-            # Each named provider entry has its own ``provider``
-            # field; if missing, the dict key itself IS the
-            # provider name in the single-provider flat form.
             if (
                 len(path) >= 3
                 and path[-3:] == ["modules", "llm_provider", "config"]
@@ -1580,7 +1268,6 @@ def _walk_yaml_for_secrets(
 
 
 def _get_manager(request: Request):
-    """Get the AppManager from app state."""
     manager = getattr(request.app.state, "app_manager", None)
     if manager is None:
         raise HTTPException(
@@ -1591,7 +1278,6 @@ def _get_manager(request: Request):
 
 
 def _get_rate_limiter(request: Request):
-    """Get the RateLimiter from app state."""
     limiter = getattr(request.app.state, "rate_limiter", None)
     if limiter is None:
         raise HTTPException(
@@ -1607,18 +1293,6 @@ class DeployRequest(BaseModel):
     yaml_path: str | None = None
     force: bool = False
     secrets: dict[str, str] | None = None
-    # Scope of the install:
-    #   - ``"user"``  : the install belongs to the caller (the default
-    #                   for non-admin callers). Visible only to them
-    #                   AND fully manageable (delete / redeploy) by
-    #                   them via the same DELETE / POST endpoints
-    #                   without needing admin perms.
-    #   - ``"system"``: install is global, visible to every user.
-    #                   Only an admin caller (perm "*") can deploy at
-    #                   this scope; non-admins requesting it get
-    #                   downgraded to "user" by the endpoint.
-    #   - ``None``    : let the endpoint pick — admins get system,
-    #                   everyone else gets user.
     scope: Literal["system", "user"] | None = None
 
 
@@ -1678,12 +1352,7 @@ class NotificationCheckRequest(BaseModel):
 
 
 class SessionMessageRequest(BaseModel):
-    # BUG-091 + BUG-092: reject ONLY the audio/audios/audio_refs
-    # fields that used to be silently dropped - any other unknown
-    # field is still tolerated so new client-side additions don't
-    # break the chat. The previous revision used ``extra="forbid"``
-    # which rejected ANY unknown field and broke sending messages
-    # from clients that ship fields like ``metadata``/``attachments``.
+    # reject only the audio fields that used to be silently dropped; tolerate other unknown fields for forward-compat.
     model_config = {"extra": "allow"}
 
     @model_validator(mode="before")
@@ -1692,8 +1361,6 @@ class SessionMessageRequest(BaseModel):
         if isinstance(data, dict):
             for _k in ("audio", "audios", "audio_refs", "audio_ref"):
                 if _k in data and data[_k] not in (None, "", [], {}):
-                    # Raise as ValueError - FastAPI converts it to a
-                    # clean 422 with the field name + guidance.
                     raise ValueError(
                         f"Field '{_k}' is not accepted. POST the blob "
                         f"to /api/transcribe and include the returned "
@@ -1701,11 +1368,7 @@ class SessionMessageRequest(BaseModel):
                     )
         return data
 
-    # BUG-062: a 50 MiB message was accepted in 2.6s with zero
-    # protection, and four of them in parallel stalled the event loop
-    # ~60s (BUG-063). Pydantic enforces the cap before the body ever
-    # reaches the handler - the client gets a clean 422 instead of a
-    # silent stall.
+    # enforce the message cap at the Pydantic layer so oversized bodies get a clean 422 instead of stalling the loop.
     message: str = Field(..., max_length=_MESSAGE_MAX_BYTES)
     workspace: str | None = None
     images: list[dict[str, Any]] | None = None  # [{data: "base64...", mime: "image/png", name: "screenshot.png"}]
@@ -1715,9 +1378,9 @@ class SessionMessageRequest(BaseModel):
             "Non-image attachments shipped with the user message. "
             "Each entry: {data: 'base64...', mime: 'application/pdf', "
             "name: 'report.pdf'}. The daemon persists every blob via "
-            "the file_store and, when the app loads the ``rag`` module, "
+            "the file_store and, when the app loads the `rag` module, "
             "ingests it into the session-scoped knowledge base "
-            "``chat-session-<session_id>``. Excerpts are surfaced back "
+            "`chat-session-<session_id>`. Excerpts are surfaced back "
             "to the LLM via the pre-turn context injection - the rag "
             "tools themselves stay daemon-internal."
         ),
@@ -1755,12 +1418,12 @@ class SessionMessageRequest(BaseModel):
         description=(
             "When set, the daemon applies the named template before "
             "dispatching this message: (1) recursively copies the "
-            "template's ``seed_dir`` into the session workspace, "
-            "(2) injects the template's ``system_prompt`` as a "
-            "one-turn ``role: system`` message at the head of the "
+            "template's `seed_dir` into the session workspace, "
+            "(2) injects the template's `system_prompt` as a "
+            "one-turn `role: system` message at the head of the "
             "conversation for THIS turn only. The id must match an "
-            "entry declared under ``templates:`` in the app YAML "
-            "(see ``TemplateBlock``). Unknown id => 404."
+            "entry declared under `templates:` in the app YAML "
+            "(see `TemplateBlock`). Unknown id => 404."
         ),
     )
     system_addendum: str | None = Field(
@@ -1768,8 +1431,8 @@ class SessionMessageRequest(BaseModel):
         max_length=16_000,
         description=(
             "Optional one-turn system prompt fragment injected by the "
-            "client (typically the preview SDK's ``useTurnEnricher`` / "
-            "``usePendingHints`` hooks). Lets an iframe app pass "
+            "client (typically the preview SDK's `useTurnEnricher` / "
+            "`usePendingHints` hooks). Lets an iframe app pass "
             "ephemeral context to the agent BEFORE the next user turn "
             "without polluting the visible chat history: 'user just "
             "added X via the iframe', 'a new attachment landed under "
@@ -1781,44 +1444,20 @@ class SessionMessageRequest(BaseModel):
 
 
 class CreateSessionRequest(BaseModel):
-    """Body for `POST /sessions` - atomic session creation + first message.
-
-    Sessions can no longer be created empty: every new session is born
-    with a first user message. This eliminates "ghost sessions" - rows
-    in the DB created by a curious client that opens a session and
-    walks away without ever sending anything. The frontend never sees
-    a session it can't list a message in.
-
-    The message is dispatched through the same per-session FIFO queue
-    as ``POST /sessions/{sid}/messages``; the response includes the
-    correlation_id + state envelope so the caller can wire its UI to
-    the live event stream immediately. Subsequent messages reuse
-    ``POST /sessions/{sid}/messages`` (existing endpoint, unchanged).
-
-    When ``workspace_path`` is provided, the session is bound to that
-    filesystem directory and the preview/workspace persistence backend
-    switches to filesystem mode (state lives in
-    ``{workspace_path}/.digitorn/sessions/{sid}/`` instead of the daemon DB).
-    Apps that declare ``execution.workspace_mode: required`` MUST receive
-    a ``workspace_path`` here - otherwise the request is rejected with a
-    400 ``workspace_required`` before any DB write.
-    """
+    """Body for `POST /sessions` - atomic session creation + first message."""
     message: str = Field(..., min_length=1, max_length=_MESSAGE_MAX_BYTES)
-    # Legacy alias for ``workdir``. Kept so existing clients keep working
-    # unchanged; the canonical name is ``workdir`` which matches the
-    # ``runtime.workdir`` YAML field. New code should send ``workdir``.
     workspace_path: str | None = None
     workdir: str | None = Field(
         default=None,
         description=(
             "User-supplied working directory for the agent. The daemon "
             "still creates a per-session WORKSPACE under "
-            "``~/.digitorn/workspaces/{app}/{sid}/`` for state.json, "
-            "baselines, SDK-private files. The ``workdir`` is where the "
+            "`~/.digitorn/workspaces/{app}/{sid}/` for state.json, "
+            "baselines, SDK-private files. The `workdir` is where the "
             "agent reads/writes user-visible files (Read/Write/Edit/Bash). "
-            "When omitted, ``workdir`` defaults to the auto workspace "
+            "When omitted, `workdir` defaults to the auto workspace "
             "(legacy behaviour). Required when the app declares "
-            "``runtime.workdir_mode: required``."
+            "`runtime.workdir_mode: required`."
         ),
     )
     images: list[dict[str, Any]] | None = None
@@ -1827,7 +1466,7 @@ class CreateSessionRequest(BaseModel):
         description=(
             "Document attachments for the first turn ([{data: "
             "'base64...', mime: 'application/pdf', name: 'x.pdf'}]). "
-            "Same shape as ``SessionMessageRequest.files``; forwarded "
+            "Same shape as `SessionMessageRequest.files`; forwarded "
             "to the file_store + workspace mirror so the agent can "
             "read them in this very first message. Web clients send "
             "this on the session-create POST because the session "
@@ -1846,7 +1485,7 @@ class CreateSessionRequest(BaseModel):
         default=None,
         description=(
             "Optional client-generated idempotency key. Echoed back in "
-            "the ``user_message`` event so the optimistic bubble can "
+            "the `user_message` event so the optimistic bubble can "
             "be reconciled."
         ),
     )
@@ -1862,10 +1501,10 @@ class CreateSessionRequest(BaseModel):
         default=None,
         description=(
             "Optional template attached to the first message. Forwarded "
-            "to the underlying ``POST /messages`` dispatch so the "
-            "daemon (1) copies the template's ``seed_dir`` into the "
-            "session workspace and (2) injects its ``system_prompt`` as "
-            "a one-turn directive. See ``SessionMessageRequest.template_id``."
+            "to the underlying `POST /messages` dispatch so the "
+            "daemon (1) copies the template's `seed_dir` into the "
+            "session workspace and (2) injects its `system_prompt` as "
+            "a one-turn directive. See `SessionMessageRequest.template_id`."
         ),
     )
     system_addendum: str | None = Field(
@@ -1874,7 +1513,7 @@ class CreateSessionRequest(BaseModel):
         description=(
             "Optional one-turn system prompt fragment for the FIRST "
             "message of a freshly created session. See "
-            "``SessionMessageRequest.system_addendum`` for semantics."
+            "`SessionMessageRequest.system_addendum` for semantics."
         ),
     )
 
@@ -1934,24 +1573,7 @@ class CommitRequest(BaseModel):
 
 
 class LspRpcRequest(BaseModel):
-    """Body for ``POST /lsp/request``.
-
-    ``method`` + ``params`` follow the Language Server Protocol spec
-    (textDocument/hover, textDocument/definition, textDocument/references,
-    textDocument/completion, textDocument/rename, textDocument/signatureHelp,
-    textDocument/documentSymbol, …).
-
-    **Phase 3 additions** - abort + debounce semantics:
-
-    - ``request_id`` (optional client uuid) - correlation id for the
-      companion ``POST /lsp/cancel`` endpoint. When omitted, the daemon
-      mints one and returns it in the response.
-    - ``supersede_previous`` (default ``true``) - auto-cancel any
-      in-flight request for the same ``(session, path, method)`` triple
-      when it's a keystroke-driven method (completion, hover,
-      signatureHelp). Set ``false`` on user-initiated references / rename
-      so the result always lands.
-    """
+    """Body for `POST /lsp/request`."""
     path: str = Field(
         ..., description=(
             "File path. Absolute or workspace-relative. Used to route "
@@ -1964,8 +1586,8 @@ class LspRpcRequest(BaseModel):
     params: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "Raw LSP request params. ``textDocument.uri`` auto-filled "
-            "from ``path`` if omitted; everything else is passed through."
+            "Raw LSP request params. `textDocument.uri` auto-filled "
+            "from `path` if omitted; everything else is passed through."
         ),
     )
     timeout_seconds: float = Field(
@@ -1991,7 +1613,7 @@ class LspRpcRequest(BaseModel):
 
 
 class LspCancelRequest(BaseModel):
-    """Body for ``POST /lsp/cancel`` - cancel an in-flight LSP request."""
+    """Body for `POST /lsp/cancel` - cancel an in-flight LSP request."""
     request_id: str = Field(
         ..., description="Correlation id returned by /lsp/request.",
     )
@@ -2055,25 +1677,12 @@ class InteractRequest(BaseModel):
 
 
 class DisableRequest(BaseModel):
-    """Optional body for POST /api/apps/{id}/disable.
-
-    A free-text ``reason`` is persisted on the DB row so other admins
-    can see why the app was taken down (e.g. "security incident
-    2026-04-17", "migrating to new API key", "user request via
-    support ticket #1234").
-    """
+    """Optional body for POST /api/apps/{id}/disable."""
     reason: str | None = None
 
 
 class ApprovalResolveRequest(BaseModel):
-    """Request body for approving/denying a pending action.
-
-    Accepts the user's response under any of these field names so the
-    Flutter / web clients can use whatever convention they prefer:
-    ``message``, ``response``, ``answer``, ``value``, ``reply``,
-    ``user_response``. The first non-empty one wins. ``message``
-    remains the canonical name for backwards compat.
-    """
+    """Request body for approving/denying a pending action."""
 
     model_config = {"extra": "allow"}
 

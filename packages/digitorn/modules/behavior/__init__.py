@@ -1,9 +1,4 @@
-"""Behavior Module - runtime behavioral enforcement engine.
-
-Monitors every tool call, detects rule violations, and signals
-the agent immediately. Rules are defined in the app YAML and
-enforced in real-time - not just suggested in prompts.
-"""
+"""Behavior Module - runtime behavioral enforcement engine."""
 
 try:
     from digitorn.modules.behavior.module import BehaviorModule

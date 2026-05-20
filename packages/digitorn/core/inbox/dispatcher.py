@@ -1,44 +1,4 @@
-"""NotificationDispatcher - delivery orchestrator for inbox events.
-
-Architecture::
-
-    InboxProducer.create_item(...)
-          │
-          ▼
-    NotificationDispatcher.dispatch(user_id, item)
-          │
-          ├── NotificationPolicy → which channels to fire
-          │
-          ├── for each channel:
-          │     └── backend.send(user_id, item)
-          │
-          └── Backends:
-                  desktop → no-op (client SSE already delivers)
-                  push    → FCMBackend (if configured)
-                  email   → SmtpBackend (if configured)
-
-The dispatcher is **always safe to call**: when a backend is not
-configured or its dependencies (``firebase-admin``, SMTP creds)
-are missing, the backend logs a debug line and returns without
-raising. This keeps the inbox producer simple - it always calls
-``dispatcher.dispatch(...)`` and never has to know about which
-backends exist.
-
-Configuration is via environment variables (no config.py section
-needed for this round):
-
-- ``DIGITORN_FCM_CREDENTIALS_PATH``   path to Firebase service account JSON
-- ``DIGITORN_FCM_PROJECT_ID``         (optional, read from cred file if absent)
-- ``DIGITORN_SMTP_HOST``              SMTP server
-- ``DIGITORN_SMTP_PORT``              default 587
-- ``DIGITORN_SMTP_USER``
-- ``DIGITORN_SMTP_PASSWORD``
-- ``DIGITORN_SMTP_FROM``              from address
-
-If any of these is missing the corresponding backend is disabled
-and logs ``notification_backend_disabled: fcm reason=no_creds`` at
-startup so the admin can tell what's missing without grep'ing.
-"""
+"""NotificationDispatcher - delivery orchestrator for inbox events."""
 
 from __future__ import annotations
 
@@ -69,16 +29,11 @@ class NotificationBackend:
         item: dict[str, Any],
         context: dict[str, Any],
     ) -> bool:
-        """Deliver one inbox item. Return True on success, False on
-        silent no-op. Raise only for unexpected errors (caller logs
-        + swallows). ``context`` carries per-user extras like
-        device tokens or email addresses."""
+        """Deliver one inbox item."""
         return False
 
 
-# ────────────────────────────────────────────────────────────────────
 # FCM backend - firebase-admin, lazy import
-# ────────────────────────────────────────────────────────────────────
 
 
 class FCMBackend(NotificationBackend):
@@ -160,10 +115,6 @@ class FCMBackend(NotificationBackend):
                 )
                 sent += 1
             except Exception as exc:
-                # Per-device failure: log, continue. Flask tokens
-                # that were revoked come back as FCM errors - the
-                # device cleanup loop (not implemented here) should
-                # prune them on 404/410.
                 logger.warning(
                     "FCMBackend send failed user=%s device=%s: %s",
                     user_id, dev.get("id"), exc,
@@ -176,8 +127,7 @@ class FCMBackend(NotificationBackend):
 
     @staticmethod
     def _serialize_data(item: dict[str, Any]) -> dict[str, str]:
-        """FCM ``data`` payload must be strings. Stringify the minimal
-        set the client needs to route the notification tap."""
+        """FCM `data` payload must be strings."""
         out: dict[str, str] = {
             "kind": str(item.get("kind") or ""),
             "inbox_id": str(item.get("id") or ""),
@@ -191,9 +141,7 @@ class FCMBackend(NotificationBackend):
         return out
 
 
-# ────────────────────────────────────────────────────────────────────
 # SMTP backend - stdlib smtplib, graceful degrade
-# ────────────────────────────────────────────────────────────────────
 
 
 class SmtpBackend(NotificationBackend):
@@ -261,25 +209,11 @@ class SmtpBackend(NotificationBackend):
             s.send_message(msg)
 
 
-# ────────────────────────────────────────────────────────────────────
 # Dispatcher - glue between policy, backends, and the inbox store
-# ────────────────────────────────────────────────────────────────────
 
 
 class NotificationDispatcher:
-    """One instance per daemon. Wired into InboxProducer.
-
-    Call flow::
-
-        await dispatcher.dispatch(user_id, item)
-          → load prefs + devices for user
-          → policy.channels_for(kind, prefs)
-          → for channel in channels: backends[channel].send(...)
-
-    Errors are swallowed - the producer cannot know about delivery
-    failures, and a flaky backend should never break the inbox
-    write path.
-    """
+    """One instance per daemon."""
 
     def __init__(
         self,
@@ -291,9 +225,6 @@ class NotificationDispatcher:
         self._store = store
         self._fcm = fcm or FCMBackend()
         self._smtp = smtp or SmtpBackend()
-        # The "desktop" channel is handled by the SSE stream - the
-        # dispatcher has no desktop backend. Included in the
-        # summary logs so admins know it's covered.
         logger.info(
             "NotificationDispatcher: fcm=%s (reason=%s) smtp=%s (reason=%s)",
             self._fcm.is_configured(),
@@ -305,17 +236,7 @@ class NotificationDispatcher:
     async def dispatch(
         self, user_id: str, item: dict[str, Any],
     ) -> dict[str, Any]:
-        """Deliver one inbox item. Returns a diagnostic dict the
-        caller can log (never raises).
-
-        Shape::
-
-            {
-                "channels": ["push", "email"],
-                "delivered": {"push": True, "email": False},
-                "skipped_reason": None,
-            }
-        """
+        """Deliver one inbox item."""
         kind = item.get("kind", "")
         try:
             prefs = await self._store.get_notification_prefs(user_id=user_id)
@@ -358,9 +279,6 @@ class NotificationDispatcher:
                 logger.warning("email dispatch failed: %s", exc)
                 delivered["email"] = False
 
-        # "desktop" is a pass-through: the event is already on the
-        # client's SSE stream, no server-side action needed. We
-        # report it as "delivered" so the log shows the decision.
         if "desktop" in channels:
             delivered["desktop"] = True
 

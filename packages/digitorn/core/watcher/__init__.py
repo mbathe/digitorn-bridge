@@ -4,7 +4,7 @@ Generic, event-driven change detection for any data source.
 Ships with two backends:
 
     FilesystemWatcher  - native OS notifications (inotify/fsevents/kqueue)
-                         via the ``watchfiles`` library (Rust ``notify`` crate).
+                         via the `watchfiles` library (Rust `notify` crate).
     PollingWatcher     - hash-based fallback for databases, APIs, etc.
 
 The SourceWatcherService orchestrates all active watchers and publishes

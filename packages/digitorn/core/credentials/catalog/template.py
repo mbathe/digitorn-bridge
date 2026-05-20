@@ -1,39 +1,4 @@
-"""ProviderTemplate dataclass + TOML loader.
-
-TOML schema:
-
-    [provider]
-    name = "openai"
-    display_name = "OpenAI"
-    handler_type = "api_key"
-    icon = "openai"
-    category = "llm"
-    description = "OpenAI GPT models, embeddings, audio."
-    homepage = "https://platform.openai.com/api-keys"
-
-    # Override / supplement the handler's default fields.
-    [[fields]]
-    name = "api_key"
-    label = "API Key"
-    help = "Get yours at https://platform.openai.com/api-keys"
-    placeholder = "sk-proj-..."
-    prefix_check = "sk-"
-
-    [verify]
-    endpoint = "https://api.openai.com/v1/models"
-    auth_template = "Authorization: Bearer {api_key}"
-    method = "GET"
-    success_codes = [200]
-
-    [oauth]                      # only for oauth2 / oauth2_pkce / device_code
-    auth_url = "https://accounts.google.com/o/oauth2/v2/auth"
-    token_url = "https://oauth2.googleapis.com/token"
-    scopes = ["openid", "email", "profile"]
-    extra_auth_params = { access_type = "offline", prompt = "consent" }
-
-A template MUST declare `name` and `handler_type`. Everything else is
-optional.
-"""
+"""ProviderTemplate dataclass + TOML loader."""
 
 from __future__ import annotations
 
@@ -50,14 +15,7 @@ else:  # pragma: no cover - we require 3.12 anyway
 
 @dataclass(frozen=True)
 class ProviderField:
-    """Field-level overrides for a provider template.
-
-    Merged on top of the handler's default `schema_fields()` by
-    `effective_fields()`. Only set the keys you want to override -
-    label, help, placeholder, prefix_check, validation_regex,
-    required, default. The base FieldSpec from the handler provides
-    the rest (type, masked, min/max).
-    """
+    """Field-level overrides for a provider template."""
 
     name: str
     label: str | None = None
@@ -114,9 +72,7 @@ class ProviderTemplate:
     source_path: str | None = None  # populated by loader for debugging
 
     def effective_fields(self, handler_default_fields: list[Any]) -> list[Any]:
-        """Merge `fields` overrides on top of the handler's default
-        FieldSpec list. Returns a list of FieldSpec (typed) for the UI
-        and validator to use."""
+        """Merge `fields` overrides on top of the handler's default"""
         from digitorn.core.credentials.field_spec import FieldSpec
         from dataclasses import replace
 
@@ -125,10 +81,6 @@ class ProviderTemplate:
         # Index template overrides by name.
         overrides: dict[str, ProviderField] = {f.name: f for f in self.fields}
 
-        # Merge: every default field, with template overrides applied.
-        # Plus: any template field not in defaults (lets the catalog
-        # ADD fields beyond what the handler proposes - useful for
-        # e.g. multi_field where the handler has no defaults).
         result: list[FieldSpec] = []
         seen: set[str] = set()
         for d in handler_default_fields:
@@ -162,12 +114,6 @@ class ProviderTemplate:
         for ov in self.fields:
             if ov.name in seen:
                 continue
-            # We need a sensible default type; lacking one in the
-            # override, fall back to TEXT. The catalog SHOULD provide
-            # a more specific entry via `type=` in TOML if needed -
-            # ProviderField doesn't carry it currently. We'll improve
-            # in a future iteration; for now catalog-only fields are
-            # plain TEXT.
             from digitorn.core.credentials.field_spec import FieldType
             spec = FieldSpec(
                 name=ov.name,
@@ -217,13 +163,7 @@ class ProviderTemplate:
 
 
 def load_template_from_toml(path: Path) -> ProviderTemplate:
-    """Parse a TOML file into a ProviderTemplate.
-
-    Raises ValueError on malformed input. The loader is strict about
-    required keys (`provider.name`, `provider.handler_type`) but
-    lenient on optional sections - missing oauth/verify just becomes
-    None.
-    """
+    """Parse a TOML file into a ProviderTemplate."""
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     prov = data.get("provider", {})
     if not isinstance(prov, dict):

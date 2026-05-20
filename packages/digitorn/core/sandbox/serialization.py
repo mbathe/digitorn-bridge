@@ -1,9 +1,4 @@
-"""Serialize/deserialize CompiledApp for worker IPC.
-
-Converts CompiledApp dataclass trees to JSON and back.
-Handles special types: Path, frozenset, Pydantic BaseModel,
-SecurityProfile, and CompiledApp's nested dataclass hierarchy.
-"""
+"""Serialize/deserialize CompiledApp for worker IPC."""
 
 from __future__ import annotations
 
@@ -62,9 +57,6 @@ def compiled_app_from_json(data: str) -> Any:
     return _from_serializable(raw, registry)
 
 
-# ── Serialization ─────────────────────────────────────────────────
-
-
 def _to_serializable(obj: Any) -> Any:
     if obj is None or isinstance(obj, (str, int, float, bool)):
         return obj
@@ -79,7 +71,7 @@ def _to_serializable(obj: Any) -> Any:
         return {"__set__": sorted(obj, key=str)}
 
     if isinstance(obj, type):
-        return None  # params_model - not serializable, not needed in worker
+        return None
 
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         fields = {}
@@ -91,7 +83,6 @@ def _to_serializable(obj: Any) -> Any:
             **fields,
         }
 
-    # Pydantic BaseModel (AppMeta)
     if hasattr(obj, "model_dump"):
         dump = obj.model_dump()
         return {
@@ -106,9 +97,6 @@ def _to_serializable(obj: Any) -> Any:
         return [_to_serializable(item) for item in obj]
 
     return str(obj)
-
-
-# ── Deserialization ───────────────────────────────────────────────
 
 
 def _from_serializable(obj: Any, registry: dict[str, type]) -> Any:
@@ -148,18 +136,15 @@ def _reconstruct_dataclass(
 
     fields_data = {k: v for k, v in obj.items() if k != "__dc__"}
 
-    # Pydantic BaseModel
     if hasattr(cls, "model_validate"):
         return cls.model_validate(fields_data)
 
-    # Dataclass - resolve nested types
     resolved = {}
     if dataclasses.is_dataclass(cls):
         field_types = {f.name: f for f in dataclasses.fields(cls)}
         for key, value in fields_data.items():
             resolved[key] = _from_serializable(value, registry)
 
-        # Filter to only fields the class knows about
         valid_keys = set(field_types.keys())
         resolved = {k: v for k, v in resolved.items() if k in valid_keys}
 

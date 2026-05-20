@@ -1,36 +1,4 @@
-"""YAML loader that preserves line/column info for compiler error reports.
-
-Two things are exposed:
-
-``load_with_positions(text, source)``
-    Parses YAML and returns ``(data, positions)``. ``data`` is a regular
-    Python dict/list/scalar tree (drop-in for ``yaml.safe_load``);
-    ``positions`` is a mapping from JSON-path tuples to ``Position``.
-
-``Position(source, line, column)``
-    Location of the node in the original text. ``line`` is 1-indexed.
-
-``format_location(positions, path)``
-    Human-readable ``"app.yaml:42:7"`` style string for a given path.
-    Falls back gracefully when the exact path wasn't recorded.
-
-The loader uses a subclass of ``yaml.SafeLoader`` to capture each node's
-``start_mark`` and ``end_mark`` during construction, then indexes them
-by path. We walk the parsed tree afterwards to build the index so that
-Pydantic and downstream compilers can still use plain dicts - no
-special wrappers, no attribute tricks, no AttributeError landmines.
-
-We also override the implicit boolean resolver to drop the YAML 1.1
-"Norway problem" aliases. PyYAML's ``SafeLoader`` follows YAML 1.1
-which silently coerces bareword ``on/off/yes/no/y/n`` (and their
-capitalised variants) to booleans. That bites Digitorn YAMLs across
-the board: a hook ``on: tool_end`` becomes ``{True: "tool_end"}``,
-a module config ``debug: no`` becomes ``debug: False`` instead of
-the string ``"no"``, and so on. Fixed centrally here — only the
-YAML 1.2 strict set (``true/True/TRUE/false/False/FALSE``) is now
-recognised as boolean. Every other "truthy" bareword stays a string,
-which is the right behaviour for configuration files.
-"""
+"""YAML loader that preserves line/column info for compiler error reports."""
 from __future__ import annotations
 
 import re
@@ -57,31 +25,11 @@ class _PositionedLoader(yaml.SafeLoader):
     pass
 
 
-# ── YAML 1.2 strict boolean resolver ───────────────────────────────
-# Replace the default YAML 1.1 boolean implicit resolver, which
-# matches the 22 truthy/falsy aliases (yes/Yes/YES/no/No/NO/on/On/
-# ON/off/Off/OFF/y/Y/n/N + true/false variants), with a tight YAML
-# 1.2 version that only matches ``true/True/TRUE/false/False/FALSE``.
-# This eliminates the "Norway problem" across every Digitorn YAML
-# without per-field workarounds.
-#
-# Implementation note: ``yaml_implicit_resolvers`` is a dict mapping
-# first-characters to lists of ``(tag, regex)`` tuples. We strip
-# every entry tagged ``tag:yaml.org,2002:bool`` then add back the
-# strict pattern under ``t`` (true) and ``f`` (false) keys plus
-# their capitalised variants. Strings like "yes", "no", "on", "off"
-# now flow through as plain ``str`` values — the right behaviour
-# for config files.
-
 _BOOL_TAG = "tag:yaml.org,2002:bool"
 _STRICT_BOOL_RE = re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$")
 
 
 def _install_strict_bool_resolver(loader_cls: type) -> None:
-    """Remove YAML 1.1 bool aliases from ``loader_cls`` and add YAML 1.2 only."""
-    # Copy-on-write the inherited resolver map so we don't mutate
-    # the shared ``yaml.SafeLoader`` class-level dict and accidentally
-    # affect other callers (``yaml.safe_load`` elsewhere in the app).
     cls_resolvers = dict(loader_cls.yaml_implicit_resolvers)
     for first_char, resolvers in list(cls_resolvers.items()):
         filtered = [
@@ -92,9 +40,6 @@ def _install_strict_bool_resolver(loader_cls: type) -> None:
         else:
             cls_resolvers.pop(first_char, None)
     loader_cls.yaml_implicit_resolvers = cls_resolvers
-    # Re-register the strict bool resolver under its first chars.
-    # ``add_implicit_resolver`` mutates the class-level dict, which
-    # we've already copied above, so this is safe.
     for first_char in "tTfF":
         loader_cls.add_implicit_resolver(
             _BOOL_TAG, _STRICT_BOOL_RE, [first_char],
@@ -143,7 +88,6 @@ _PositionedLoader.add_constructor(
 
 
 def _strip_meta(node: Any, path: tuple, source: str, positions: PositionMap) -> Any:
-    """Walk the positioned tree, record positions, return a clean tree."""
     if isinstance(node, dict) and "__seq__" in node:
         child_pos = node.get("__child_pos__", [])
         items = node["__seq__"]
@@ -170,13 +114,7 @@ def _strip_meta(node: Any, path: tuple, source: str, positions: PositionMap) -> 
 def load_with_positions(
     text: str, source: str = "<string>",
 ) -> tuple[Any, PositionMap]:
-    """Parse YAML and return ``(data, positions)``.
-
-    ``data`` is a plain dict/list/scalar tree, identical to
-    ``yaml.safe_load(text)`` in shape (so existing Pydantic models and
-    compiler code keep working). ``positions`` maps tuple-paths to
-    ``Position`` for every mapping key and sequence item.
-    """
+    """Parse YAML and return `(data, positions)`."""
     raw = yaml.load(text, Loader=_PositionedLoader)
     positions: PositionMap = {}
     if raw is None:
@@ -186,12 +124,7 @@ def load_with_positions(
 
 
 def format_location(positions: PositionMap, path: tuple, source: str = "") -> str:
-    """Return ``"app.yaml:42:7"`` for ``path``, with fallback walks.
-
-    If the exact path isn't indexed (e.g. it points inside a scalar),
-    progressively drop trailing segments until a position is found. If
-    nothing at all is found, returns just the source filename.
-    """
+    """Return `"app.yaml:42:7"` for `path`, with fallback walks."""
     cur = path
     while cur:
         pos = positions.get(cur)
@@ -202,7 +135,7 @@ def format_location(positions: PositionMap, path: tuple, source: str = "") -> st
 
 
 def pydantic_loc_to_path(loc: tuple) -> tuple:
-    """Normalize a Pydantic error ``loc`` to a position-map key tuple."""
+    """Normalize a Pydantic error `loc` to a position-map key tuple."""
     out: list = []
     for part in loc:
         if isinstance(part, int):
@@ -217,13 +150,7 @@ def merge_positions(
     sub: PositionMap,
     prefix: tuple,
 ) -> None:
-    """Merge positions from a sub-file's map into the main map under ``prefix``.
-
-    Used when a fragment (behavior/strict.yaml, prompts/main.md, etc.)
-    is inlined into the main app tree at a known logical path. Each
-    Position keeps its original ``source`` (the fragment's filename),
-    so downstream error reporting cites the correct file.
-    """
+    """Merge positions from a sub-file's map into the main map under `prefix`."""
     for sub_path, pos in sub.items():
         main[prefix + sub_path] = pos
     if prefix and prefix not in main and sub:
@@ -233,45 +160,21 @@ def merge_positions(
 
 
 class _StrictBoolLoader(yaml.SafeLoader):
-    """SafeLoader with YAML 1.2 strict bool semantics — no position tracking.
-
-    Same data shape as ``yaml.safe_load`` (plain dicts / lists / scalars)
-    BUT bareword ``on/off/yes/no/y/n`` stay strings instead of being
-    coerced to booleans. This is the loader used by ``safe_load_strict``;
-    the positioned loader above extends a different code path that also
-    wraps nodes with ``__positions__`` metadata.
-    """
+    """SafeLoader with YAML 1.2 strict bool semantics - no position tracking."""
 
 
 _install_strict_bool_resolver(_StrictBoolLoader)
 
 
 def safe_load_strict(text: str) -> Any:
-    """Drop-in replacement for ``yaml.safe_load`` with YAML 1.2 bool rules.
-
-    Same shape as the stdlib call but the bareword ``on / off / yes /
-    no / y / n`` (and capitalised variants) stay as strings instead of
-    being silently coerced to booleans. Use this everywhere we parse
-    Digitorn YAML — app.yaml, widgets, includes, deploy manifests.
-
-    For Digitorn YAML loaded with line/column tracking, prefer
-    ``load_with_positions`` instead — it applies the same strict bool
-    rules AND records positions for friendly error messages.
-    """
+    """Drop-in replacement for `yaml.safe_load` with YAML 1.2 bool rules."""
     return yaml.load(text, Loader=_StrictBoolLoader)
 
 
 def load_frontmatter_with_positions(
     text: str, source: str,
 ) -> tuple[dict[str, Any], str, PositionMap]:
-    """Parse a Markdown file with YAML frontmatter, returning
-    ``(frontmatter_dict, body_text, positions)``.
-
-    The frontmatter block must be delimited by ``---`` at the very top.
-    Position tracking starts from the frontmatter content (line 2 of
-    the file, since line 1 is the opening delimiter). Returns empty
-    dict + full body if no frontmatter is present.
-    """
+    """Parse a Markdown file with YAML frontmatter, returning"""
     lines = text.split("\n")
     if not lines or lines[0].strip() != "---":
         return {}, text, {}

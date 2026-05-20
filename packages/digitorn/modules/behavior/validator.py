@@ -1,12 +1,4 @@
-"""Deep static validator for behavior config.
-
-Goal: if the compiler accepts a YAML, the behavior engine is guaranteed
-to run without runtime errors. Every reference is verified, every type
-is checked, every regex compiles, every enum is valid.
-
-Errors include structured (path, message) so the compiler can map them
-to file:line locations using a SourceMap.
-"""
+"""Deep static validator for behavior config."""
 
 from __future__ import annotations
 
@@ -14,8 +6,6 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
-
-# ── Valid enum values ──
 _VALID_WHEN = {"pre_tool", "post_tool", "on_text"}
 _VALID_ACTION = {"block", "warn", "remind"}
 _VALID_FREQUENCY = {"every_turn", "first_turn", "every_n_turns", "on_new_message"}
@@ -64,7 +54,6 @@ _HIGH_RISK_WARNING_VARS = {"risk", "complexity"}
 _TYPED_PLACEHOLDER_RE = re.compile(r"\{(param|counter|set_count|flag):(\w+)\}")
 _SIMPLE_PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 
-
 @dataclass
 class ValidationError:
     """Structured error with path for file:line lookup."""
@@ -74,30 +63,20 @@ class ValidationError:
     def __str__(self) -> str:
         return f"{self.path}: {self.message}" if self.path else self.message
 
-
 def validate_behavior_config(
     config: dict[str, Any],
     *,
     known_tools: set[str] | None = None,
 ) -> list[str]:
-    """Validate a behavior config. Returns list of error strings.
-
-    For structured errors with path info, use validate_behavior_config_structured.
-    """
+    """Validate a behavior config. Returns list of error strings."""
     return [str(e) for e in validate_behavior_config_structured(config, known_tools=known_tools)]
-
 
 def validate_behavior_config_structured(
     config: dict[str, Any],
     *,
     known_tools: set[str] | None = None,
 ) -> list[ValidationError]:
-    """Validate a behavior config. Returns structured errors.
-
-    Args:
-        config: The ``behavior:`` block (raw dict or Pydantic-dumped).
-        known_tools: Optional set of tool names the app has access to.
-    """
+    """Validate a behavior config. Returns structured errors."""
     errors: list[ValidationError] = []
 
     if hasattr(config, "model_dump"):
@@ -127,7 +106,6 @@ def validate_behavior_config_structured(
             tool_short.add(short)
     check_tools = known_tools is not None
 
-    # ── 0. Profile name (top-level behavior.profile) ──
     profile = config.get("profile")
     if profile is not None:
         if not isinstance(profile, str):
@@ -142,7 +120,6 @@ def validate_behavior_config_structured(
                     f"For custom profiles, use '{{{{behavior.X}}}}' with a file in ./behavior/"
                 ))
 
-    # ── 0b. Legacy boolean rules ──
     rules_block = config.get("rules") or {}
     if rules_block and not isinstance(rules_block, dict):
         errors.append(_E("rules", f"expected dict, got {type(rules_block).__name__}"))
@@ -166,12 +143,10 @@ def validate_behavior_config_structured(
                     f"{_suggest(k, _LEGACY_BOOLEAN_RULES | _LEGACY_INT_RULES | _LEGACY_STR_RULES)}?"
                 ))
 
-    # ── 1. classify_turns flag ──
     ct = config.get("classify_turns")
     if ct is not None and not isinstance(ct, bool):
         errors.append(_E("classify_turns", f"expected bool, got {type(ct).__name__}"))
 
-    # ── 2. Rule definitions ──
     errors.extend(_validate_rule_definitions(
         config.get("rule_definitions") or [],
         known_sets=known_sets,
@@ -182,7 +157,6 @@ def validate_behavior_config_structured(
         check_tools=check_tools,
     ))
 
-    # ── 3. State tracking ──
     errors.extend(_validate_state_tracking(
         tracking,
         tool_short=tool_short,
@@ -190,13 +164,11 @@ def validate_behavior_config_structured(
         check_tools=check_tools,
     ))
 
-    # ── 4. Classifier ──
     classifier = config.get("classifier") or {}
     if hasattr(classifier, "model_dump"):
         classifier = classifier.model_dump()
     errors.extend(_validate_classifier(classifier))
 
-    # ── 5. Brain (classifier LLM) ──
     brain = config.get("brain")
     if brain is not None:
         if hasattr(brain, "model_dump"):
@@ -211,7 +183,6 @@ def validate_behavior_config_structured(
             if not isinstance(model, str) or not model:
                 errors.append(_E("brain.model", "expected non-empty string (e.g. 'deepseek-chat', 'claude-haiku-4-5')"))
 
-    # ── 6. Custom (legacy rules list) ──
     for i, custom in enumerate(config.get("custom") or []):
         if hasattr(custom, "model_dump"):
             custom = custom.model_dump()
@@ -235,19 +206,13 @@ def validate_behavior_config_structured(
 
     return errors
 
-
-# ── Helpers ──
-
 def _E(path: str, message: str) -> ValidationError:
     return ValidationError(path, message)
 
-
 def _suggest(bad: str, candidates: set[str], n: int = 3) -> str:
-    """Return the top N closest candidates for a misspelled key."""
     from difflib import get_close_matches
     matches = get_close_matches(bad, candidates, n=n, cutoff=0.6)
     return ", ".join(matches) if matches else "(no close match)"
-
 
 def _normalize_tracking(tracking: Any) -> dict[str, Any]:
     if tracking is None:
@@ -268,7 +233,6 @@ def _normalize_tracking(tracking: Any) -> dict[str, Any]:
                 out[section][name] = cfg
     return out
 
-
 def _normalize_trigger(trigger: Any) -> list[str] | None:
     if isinstance(trigger, str):
         return [trigger]
@@ -276,9 +240,6 @@ def _normalize_trigger(trigger: Any) -> list[str] | None:
         if all(isinstance(t, str) for t in trigger):
             return trigger
     return None
-
-
-# ── Rule definitions ──
 
 def _validate_rule_definitions(
     rules: list,
@@ -387,7 +348,6 @@ def _validate_rule_definitions(
                 ))
 
     return errors
-
 
 def _validate_condition(
     cond: dict,
@@ -528,9 +488,6 @@ def _validate_condition(
 
     return errors
 
-
-# ── State tracking ──
-
 def _validate_state_tracking(
     tracking: dict,
     *,
@@ -614,9 +571,6 @@ def _validate_state_tracking(
         _check_tool_list(cfg.get("unset_on", []), f"{base}.unset_on")
 
     return errors
-
-
-# ── Classifier ──
 
 def _validate_classifier(classifier: dict) -> list[ValidationError]:
     errors: list[ValidationError] = []
@@ -739,7 +693,6 @@ def _validate_classifier(classifier: dict) -> list[ValidationError]:
                 ))
 
     return errors
-
 
 def _validate_message_placeholders(
     msg: str,

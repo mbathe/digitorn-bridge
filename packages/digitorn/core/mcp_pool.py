@@ -51,7 +51,7 @@ class _ServerRef:
 class DaemonMCPPool:
     """Daemon-level shared MCP connection pool with ref-counting.
 
-    One instance per daemon, stored in ``app.state.mcp_pool``.
+    One instance per daemon, stored in `app.state.mcp_pool`.
     Apps acquire/release servers, and the pool manages connections.
     """
 
@@ -66,7 +66,7 @@ class DaemonMCPPool:
     def set_on_event(self, callback: ServerEventCallback) -> None:
         """Register a callback invoked when a server changes state.
 
-        The callback receives ``(event, server_id)`` and should update
+        The callback receives `(event, server_id)` and should update
         tool indexes for any apps that depend on this server.
         """
         self._on_event = callback

@@ -1,6 +1,6 @@
 """DevClient - the main testing interface.
 
-Like a human using the Flutter client, but programmable.
+Like a human using the chat client, but programmable.
 Handles: deploy, credentials, sessions, multi-turn chat,
 auto-approval, history inspection, abort/resume.
 """
@@ -357,8 +357,8 @@ class DevClient:
             if callback:
                 try:
                     callback(evt)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("client best-effort block failed: %s", exc)
 
         # Send message
         r = self._post(
@@ -421,8 +421,8 @@ class DevClient:
                             _emit(LiveEvent(type="behavior", data={"content": content[:300]}))
 
                     seen_msg_count = len(msgs)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("client best-effort block failed: %s", exc)
 
             # Check session status (is the turn done?)
             try:
@@ -439,8 +439,8 @@ class DevClient:
                     data = r.json().get("data", {})
                     if data.get("is_active") is False and data.get("turn_count", 0) > 0:
                         break
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("client best-effort block failed: %s", exc)
 
             time.sleep(_POLL_INTERVAL)
         else:
@@ -511,7 +511,7 @@ class DevClient:
 
         Args:
             include_system: If True (default for dev SDK), includes system messages
-                like behavior directives and violations. Flutter clients get False.
+                like behavior directives and violations. Production clients pass False.
         """
         r = self._get(
             f"/api/apps/{session.app_id}/sessions/{session.session_id}/history",
@@ -794,8 +794,8 @@ class DevClient:
                         self._post(f"/api/apps/{app_id}/approve",
                             json={"request_id": rid, "approved": True})
                         count += 1
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("client best-effort block failed: %s", exc)
             return count
         except Exception:
             return 0
@@ -808,8 +808,8 @@ class DevClient:
             )
             if r.status_code == 200:
                 return len(r.json().get("data", {}).get("messages", []))
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("client best-effort block failed: %s", exc)
         return 0
 
     def _extract_turn_result(
@@ -864,8 +864,8 @@ class DevClient:
                         parsed = json.loads(content)
                         if isinstance(parsed, dict) and parsed.get("success") is False:
                             ok = False
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("client best-effort block failed: %s", exc)
                 if tool_calls:
                     tool_calls[-1].result = str(content)[:500]
                     tool_calls[-1].success = ok
@@ -896,8 +896,8 @@ class DevClient:
                             result=str(d.get("result", ""))[:500] if d.get("result") else "",
                         )
                         tool_calls.append(tc)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("client best-effort block failed: %s", exc)
 
         return TurnResult(
             success=True,
@@ -1449,8 +1449,8 @@ class DevClient:
         finally:
             try:
                 _os.remove(tmp)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("client best-effort block failed: %s", exc)
 
     # ── Security profiles ───────────────────────────────────────
 

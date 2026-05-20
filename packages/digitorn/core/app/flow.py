@@ -1,27 +1,4 @@
-"""Flow block - declarative orchestration graph for multi-agent apps.
-
-A flow describes how nodes (agents, tools, decisions, gates, ...) chain
-together: who runs first, what comes next, what happens on success vs
-error, when to fan-out and when to gate on a human.
-
-The flow lives at the top level under ``flow:`` and is OPTIONAL. When
-present, the runtime drives the app along the explicit graph instead of
-relying on the agents' system prompts to coordinate themselves.
-
-The schema is enforced at compile time via Pydantic. Cross-references
-(node ids, agent ids, tool names, reachability, cycles) are validated
-in :func:`validate_flow_references`.
-
-Public API::
-
-    from digitorn.core.app.flow import FlowConfig, validate_flow_references
-
-The compiler integrates this module via two hooks:
-
-  1. ``AppDefinition.flow: FlowConfig | None`` (Pydantic field).
-  2. ``_compile_body`` calls ``validate_flow_references`` after the
-     dependency graph validation pass.
-"""
+"""Flow block - declarative orchestration graph for multi-agent apps."""
 from __future__ import annotations
 
 from typing import Annotated, Any, Literal, Union
@@ -29,20 +6,8 @@ from typing import Annotated, Any, Literal, Union
 from pydantic import BaseModel, Field, model_validator
 
 
-# ─── Routes ─────────────────────────────────────────────────────
-
-
 class FlowRoute(BaseModel):
-    """A directed edge from the current node to ``to`` under condition ``when``.
-
-    ``when`` is either a literal expression (``"input.kind == 'refund'"``)
-    or the sentinel ``"default"`` meaning "match if no other route matched
-    first". Routes are evaluated top-to-bottom; the first matching route
-    wins.
-
-    The expression syntax is intentionally NOT validated here - that
-    happens in the runtime's expression engine. The schema only checks
-    that ``when`` is a non-empty string and ``to`` references something."""
+    """A directed edge from the current node to `to` under condition `when`."""
 
     model_config = {"extra": "forbid"}
 
@@ -57,11 +22,7 @@ class FlowRoute(BaseModel):
 
 
 class FlowOnErrorRoute(BaseModel):
-    """Error-handling edge. Matched when the source node raises.
-
-    Either ``match`` (regex on the error type/message) plus ``to``, or
-    ``default: True`` plus ``to`` for the catch-all branch. Listed in
-    order; first match wins. ``default`` must be the last entry."""
+    """Error-handling edge. Matched when the source node raises."""
 
     model_config = {"extra": "forbid"}
 
@@ -79,19 +40,8 @@ class FlowOnErrorRoute(BaseModel):
     )
 
 
-# ─── Join policy for parallel ───────────────────────────────────
-
-
 class FlowJoin(BaseModel):
-    """Join policy for parallel fan-outs.
-
-    - ``all`` (default): wait for every branch to complete.
-    - ``any``: continue as soon as one branch returns.
-    - ``first``: same as ``any``, alias for clarity.
-    - ``count``: wait for exactly ``count`` branches.
-
-    ``timeout`` is the per-join wall-clock cap in seconds. Any branch
-    still running when it elapses is cancelled and treated as failed."""
+    """Join policy for parallel fan-outs."""
 
     model_config = {"extra": "forbid"}
 
@@ -119,16 +69,8 @@ class FlowJoin(BaseModel):
         return self
 
 
-# ─── Node base + variants ───────────────────────────────────────
-
-
 class _BaseNode(BaseModel):
-    """Common fields shared by every node type.
-
-    Subclasses add a ``type`` literal and the type-specific fields. Each
-    subclass keeps ``extra: forbid`` so that bogus fields surface
-    immediately as schema errors with the right type's allowed-fields
-    list in the message."""
+    """Common fields shared by every node type."""
 
     id: str = Field(..., description="Unique node identifier within the flow.")
     description: str = Field(
@@ -159,11 +101,7 @@ class _BaseNode(BaseModel):
 
 
 class AgentNode(_BaseNode):
-    """Run an existing declared agent for one turn.
-
-    The agent is identified by the ``agent`` field which must reference
-    a declared ``agents[].id`` (validated in
-    :func:`validate_flow_references`)."""
+    """Run an existing declared agent for one turn."""
 
     model_config = {"extra": "forbid"}
 
@@ -176,10 +114,7 @@ class AgentNode(_BaseNode):
 
 
 class ToolNode(_BaseNode):
-    """Direct tool invocation, no LLM in the loop.
-
-    The ``tool`` field must be a ``module.action`` FQN that resolves to
-    a real action of a declared module."""
+    """Direct tool invocation, no LLM in the loop."""
 
     model_config = {"extra": "forbid"}
 
@@ -192,12 +127,7 @@ class ToolNode(_BaseNode):
 
 
 class ParallelNode(_BaseNode):
-    """Fan-out into N parallel branches, join, then continue.
-
-    Each branch is a ``FlowRoute`` whose ``to`` points to a node that
-    runs concurrently with its siblings. The ``join`` field specifies
-    how many branches must complete before the flow continues via the
-    parent's ``routes``."""
+    """Fan-out into N parallel branches, join, then continue."""
 
     model_config = {"extra": "forbid"}
 
@@ -214,11 +144,7 @@ class ParallelNode(_BaseNode):
 
 
 class ApprovalNode(_BaseNode):
-    """Human-in-the-loop gate. Pauses until a human chooses an option.
-
-    The decision becomes part of the flow context as
-    ``approvals.<node_id>`` so downstream routes can branch on it via
-    ``when: "approvals.<id> == 'approve'"``."""
+    """Human-in-the-loop gate. Pauses until a human chooses an option."""
 
     model_config = {"extra": "forbid"}
 
@@ -232,10 +158,7 @@ class ApprovalNode(_BaseNode):
 
 
 class DecisionNode(_BaseNode):
-    """Pure routing decision - no LLM, no tool, just an expression.
-
-    ``expr`` is evaluated against the flow context. The result is
-    matched against ``routes[].when`` clauses to pick the next hop."""
+    """Pure routing decision - no LLM, no tool, just an expression."""
 
     model_config = {"extra": "forbid"}
 
@@ -244,12 +167,7 @@ class DecisionNode(_BaseNode):
 
 
 class TerminalNode(_BaseNode):
-    """End of a flow path. Carries an optional output payload.
-
-    Terminal nodes typically have empty ``routes`` (the flow stops here).
-    If they do declare routes, they're treated as a sub-flow continuation
-    point useful for subflow node returns - but the runtime treats the
-    path as ended for the caller's purposes."""
+    """End of a flow path. Carries an optional output payload."""
 
     model_config = {"extra": "forbid"}
 
@@ -273,37 +191,8 @@ FlowNode = Annotated[
 ]
 
 
-# ─── Top-level flow config ──────────────────────────────────────
-
-
 class FlowConfig(BaseModel):
-    """Declarative orchestration graph for a Digitorn app.
-
-    Example::
-
-        flow:
-          id: support_main
-          entry: triage
-          max_iterations: 100
-          nodes:
-            - id: triage
-              type: agent
-              agent: triage
-              routes:
-                - { when: "category == 'refund'", to: refund }
-                - { when: "default", to: end }
-            - id: refund
-              type: agent
-              agent: refund_specialist
-              routes:
-                - { to: gate }
-            - id: gate
-              type: approval
-              message: "Confirm refund?"
-              routes:
-                - { when: "approvals.gate == 'approve'", to: end }
-                - { when: "default", to: end }
-    """
+    """Declarative orchestration graph for a Digitorn app."""
 
     model_config = {"extra": "forbid"}
 
@@ -326,15 +215,11 @@ class FlowConfig(BaseModel):
     )
 
 
-# ─── Cross-reference validator (called from compiler) ───────────
-
-
 _END_SENTINEL = "end"
 
 
 def _node_outgoing_targets(node: Any) -> list[str]:
-    """Collect every outgoing target id from a node (routes + branches +
-    on_error). Used for reachability and cycle detection."""
+    """Collect every outgoing target id from a node (routes + branches +"""
     out: list[str] = [r.to for r in (getattr(node, "routes", []) or [])]
     if getattr(node, "type", "") == "parallel":
         out.extend(r.to for r in (getattr(node, "branches", []) or []))
@@ -349,22 +234,7 @@ def validate_flow_references(
     known_tools: set[str],
     errors: list[str],
 ) -> None:
-    """Compile-time cross-reference check on a parsed flow.
-
-    Errors are appended to ``errors`` rather than raised so the compiler
-    can collect every problem in a single pass.
-
-    Checks performed:
-
-      1. Node ids unique within the flow.
-      2. Entry references a declared node.
-      3. Every route target ('routes', 'branches', 'on_error') resolves
-         to a declared node id or the literal 'end'.
-      4. Every ``agent`` node references a declared agent.
-      5. Every ``tool`` node references a known tool FQN.
-      6. Every non-entry node is reachable from entry.
-      7. Cycles require ``flow.max_iterations >= 1``.
-    """
+    """Compile-time cross-reference check on a parsed flow."""
     if not flow.nodes:
         errors.append("flow.nodes: at least one node is required.")
         return
@@ -372,10 +242,6 @@ def validate_flow_references(
     seen: dict[str, Any] = {}
     for n in flow.nodes:
         nid = n.id
-        # 'end' is the reserved sentinel meaning 'terminate the flow'.
-        # Allowing a node to take that id would collide with route
-        # targets (`to: end`) and with the reachability walker which
-        # treats the sentinel as a no-op terminal.
         if nid == _END_SENTINEL:
             errors.append(
                 f"flow.nodes: node id '{nid}' is reserved as the flow "
@@ -471,7 +337,6 @@ def validate_flow_references(
 
 
 def _has_cycle(nodes: dict[str, Any]) -> bool:
-    """DFS-based cycle detection over the node graph (routes + branches)."""
     WHITE, GRAY, BLACK = 0, 1, 2
     color: dict[str, int] = {nid: WHITE for nid in nodes}
 

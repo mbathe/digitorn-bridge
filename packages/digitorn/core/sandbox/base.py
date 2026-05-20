@@ -1,4 +1,4 @@
-"""Sandbox backend protocol - interface for OS-specific implementations."""
+"""Sandbox backend protocol."""
 
 from __future__ import annotations
 
@@ -14,10 +14,6 @@ class SandboxBackend(Protocol):
     @property
     def name(self) -> str: ...
 
-    def probe(self) -> list[str]:
-        """Return available features on this platform (e.g. ['landlock_v3', 'seccomp'])."""
-        ...
+    def probe(self) -> list[str]: ...
 
-    def apply(self, profile: SandboxProfile) -> SandboxGuard:
-        """Apply OS-level isolation.  Irreversible for the calling process."""
-        ...
+    def apply(self, profile: SandboxProfile) -> SandboxGuard: ...

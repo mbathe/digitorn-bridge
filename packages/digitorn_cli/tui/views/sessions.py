@@ -1,15 +1,11 @@
-"""Sessions view - browse, preview, resume, delete sessions.
-
-Full interactive modal:
-  ↑/↓    Navigate sessions
-  Enter  Resume selected session
-  d      Delete selected session
-  /      Filter sessions
-  Esc    Close
-"""
+"""Sessions view - browse, preview, resume, delete sessions."""
 
 from __future__ import annotations
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 import time
 from typing import Any, Callable
 
@@ -116,10 +112,7 @@ class SessionPreview(Static):
 
 
 class SessionsScreen(Screen):
-    """Modal screen for browsing sessions.
-
-    Returns the session_id to resume, or None if cancelled.
-    """
+    """Modal screen for browsing sessions."""
 
     BINDINGS = [
         Binding("escape", "cancel", "Close", priority=True),
@@ -264,5 +257,5 @@ class SessionsScreen(Screen):
                 try:
                     await self._delete_session(self._app_id, sid)
                     await self._load_sessions()  # Refresh list
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("sessions best-effort block failed: %s", exc)

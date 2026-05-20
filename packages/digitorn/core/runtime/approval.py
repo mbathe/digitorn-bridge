@@ -1,16 +1,4 @@
-"""Approval queue - async-native pending approval management.
-
-When an agent calls a tool that requires user approval (policy="approve"),
-the call is enqueued here as an asyncio.Future.  The agent's coroutine
-awaits the future (non-blocking to the event loop).  A consumer (CLI
-prompt, API endpoint) resolves the future to approve or deny.
-
-Key design:
-    - One queue per app, shared across all agents
-    - Each request has its own Future → only the requesting agent blocks
-    - Other agents and other tool calls continue executing in parallel
-    - Timeout prevents zombie requests (default 5 min)
-"""
+"""Approval queue - async-native pending approval management."""
 
 from __future__ import annotations
 
@@ -64,21 +52,11 @@ class ApprovalRequest:
 
 
 class ApprovalQueue:
-    """Per-app approval queue backed by asyncio.Future.
-
-    All operations are synchronous dict ops + Future resolution.
-    Safe for single event loop usage (which is how asyncio works).
-    For multi-worker deployments, each worker has its own queue.
-    """
+    """Per-app approval queue backed by asyncio.Future."""
 
     def __init__(self, default_timeout: float = 300.0) -> None:
         self._pending: dict[str, ApprovalRequest] = {}
         self._on_request_callbacks: list[OnRequestCallback] = []
-        # Resolution callbacks - fire on approve/deny/timeout so clients
-        # can drop the pending badge and the frontend list stays in sync
-        # with the server-side queue. Without this, the UI showed
-        # "pending" indefinitely even after the user resolved the
-        # request or the timeout fired.
         self._on_resolve_callbacks: list[OnResolveCallback] = []
         self._default_timeout = default_timeout
 
@@ -109,20 +87,13 @@ class ApprovalQueue:
         return len(self._pending)
 
     def set_on_request(self, callback: OnRequestCallback | None) -> None:
-        """Legacy single-callback setter - replaces all callbacks.
-
-        Prefer add_on_request() for multi-subscriber support.
-        """
+        """Legacy single-callback setter - replaces all callbacks."""
         self._on_request_callbacks.clear()
         if callback is not None:
             self._on_request_callbacks.append(callback)
 
     def add_on_request(self, callback: OnRequestCallback) -> None:
-        """Register a callback invoked when a new approval request is enqueued.
-
-        Multiple callbacks are supported (e.g. multiple SSE connections).
-        Signature: async (request: ApprovalRequest) -> None
-        """
+        """Register a callback invoked when a new approval request is enqueued."""
         self._on_request_callbacks.append(callback)
 
     def remove_on_request(self, callback: OnRequestCallback) -> None:
@@ -144,17 +115,7 @@ class ApprovalQueue:
         app_id: str = "",
         session_id: str = "",
     ) -> tuple[bool, str]:
-        """Enqueue a tool call for approval and wait for resolution.
-
-        Returns:
-            (approved, message) tuple:
-            - (True, "")   → approved, re-execute the tool
-            - (False, "")  → denied, no explanation
-            - (False, msg) → denied with user message for the LLM
-
-        The calling coroutine awaits the Future - other coroutines
-        (other agents, other tool calls) continue executing.
-        """
+        """Enqueue a tool call for approval and wait for resolution."""
         loop = asyncio.get_running_loop()
         future: asyncio.Future[tuple[bool, str]] = loop.create_future()
 
@@ -185,11 +146,6 @@ class ApprovalQueue:
 
         effective_timeout = timeout if timeout is not None else self._default_timeout
 
-        # BUG-008: the old code just awaited the future for 300 s and
-        # emitted nothing until timeout, so the client spinner looked
-        # frozen and had no way to tell the user "still waiting on your
-        # approval". Periodically fire a progress callback on the same
-        # resolve channel so the UI can show a countdown / banner.
         heartbeat_interval = 15.0
         progress_task: asyncio.Task[None] | None = None
 
@@ -240,9 +196,7 @@ class ApprovalQueue:
             await self._fire_resolved(request, False, timeout_msg)
             return (False, timeout_msg)
         finally:
-            # BUG-012: pop BEFORE firing any trailing callback so
-            # ``list_pending()`` can never report a resolved request as
-            # pending. The dict pop + _fire_resolved ordering matters.
+            # pop before any trailing callback so list_pending() never reports a resolved request as pending.
             self._pending.pop(request.request_id, None)
             if progress_task is not None and not progress_task.done():
                 progress_task.cancel()
@@ -258,21 +212,7 @@ class ApprovalQueue:
         self, request_id: str, approved: bool, message: str = "",
         user_id: str | None = None,
     ) -> bool:
-        """Resolve a pending request.
-
-        Args:
-            request_id: The request to resolve.
-            approved: True to approve, False to deny.
-            message: Free-form payload from the user. For ``ask_user``
-                tools this carries the user's actual answer (option id,
-                CSV of multi-select, free text, JSON form). For pure
-                tool-approval flows it carries an optional reason.
-                ALWAYS propagated regardless of ``approved`` - the
-                caller decides what it means.
-            user_id: If provided, validates that the resolver owns the request.
-
-        Returns False if not found, already resolved, or wrong user.
-        """
+        """Resolve a pending request."""
         request = self._pending.get(request_id)
         if request is None:
             return False

@@ -7,7 +7,6 @@ from typing import Any
 
 from ..citations import RetrievalResult
 
-
 class RetrievalStrategy(ABC):
 
     @abstractmethod

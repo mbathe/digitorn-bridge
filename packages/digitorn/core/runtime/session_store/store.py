@@ -1,22 +1,4 @@
-"""InMemorySessionStore: orchestrates seq allocation, projections,
-in-memory cache, and disk write-behind.
-
-Single entry point for ``append_event``. The ordering of operations
-inside ``append_event`` is the universal-truth invariant of the whole
-subsystem:
-
-  1. Allocate seq atomically (threading.Lock under the hood)
-  2. Stamp ts
-  3. Append to in-memory journal (state.events)
-  4. Update live projections (state.messages, tool_calls, ...)
-  5. Enqueue for disk flush
-  6. Return seq to caller
-
-Step 5 is awaited (in spirit -- ``put_nowait`` is sync but logically
-ordered before the return). Callers MUST broadcast to clients only
-AFTER ``append_event`` returns. That preserves the persist-before-
-broadcast contract that the Postgres-based path enforces today.
-"""
+"""InMemorySessionStore: orchestrates seq allocation, projections,"""
 
 from __future__ import annotations
 
@@ -52,8 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class InMemorySessionStore:
-    """Process-wide in-memory store for active + recently-accessed
-    sessions, with disk-backed durability."""
+    """Process-wide in-memory store for active + recently-accessed"""
 
     def __init__(
         self,
@@ -76,24 +57,11 @@ class InMemorySessionStore:
         self._current_bytes = 0
         self._index = index
 
-        # Phase 2: per-session async lock map. The legacy SessionStore
-        # exposed ``session_lock(app_id, sid, uid)`` so manager_v2 chat
-        # turns serialise on the same session without blocking turns
-        # in OTHER sessions. We replicate the contract here -- one
-        # ``asyncio.Lock`` per session, lazy-allocated via
-        # ``dict.setdefault`` (GIL-atomic, no separate meta lock
-        # needed). Cleared on eviction / delete so the map stays
-        # bounded by active session count.
+        # per-session asyncio.Lock so chat turns serialise on the same session without blocking other sessions.
         self._per_session_locks: dict[str, asyncio.Lock] = {}
 
         self._allocator = SeqAllocator(seed_loader=self._seed_seq_from_disk)
-        # Hook called after an INTERNAL allocation (caller passed no
-        # seq, store had to assign one). Lets the wire-side allocator
-        # (EventBuffer) learn about the burned seq so its next
-        # ``next_seq`` doesn't return the same value and produce a
-        # duplicate. Signature: ``(session_id: str, seq: int) -> None``.
-        # Wired in server.py once both bus and store are constructed.
-        # ``None`` keeps the legacy behaviour for tests / standalone use.
+        # hook lets the wire-side allocator (EventBuffer) sync to internal allocations so it doesn't burn a duplicate seq.
         self._on_internal_seq_alloc = on_internal_seq_alloc
         self._flusher = DiskFlusher(
             session_dir_resolver=self._session_dir,
@@ -103,30 +71,16 @@ class InMemorySessionStore:
             durability_mode=durability_mode,
         )
 
-        # Phase 6: bg eviction worker. Hot path sets the signal; the
-        # worker drains it. Replaces the per-append asyncio.create_task
-        # which was wasteful (one task allocation per overflowing event).
+        # signal + worker pattern replaces a per-append create_task that allocated one task per overflowing event.
         self._evict_signal = asyncio.Event()
         self._evict_task: asyncio.Task | None = None
 
-        # Phase 6: bg snapshot worker. Periodically writes snapshot.json
-        # for "ripe" sessions (>= SNAPSHOT_DELTA new events AND idle for
-        # IDLE_THRESHOLD_S). Reduces cold-start reload time after crash.
+        # periodic snapshot of ripe-and-idle sessions to reduce cold-start reload time after crash.
         self._snapshot_task: asyncio.Task | None = None
 
-        # Phase 6: latency ring buffer for ``append_event``. p50/p95/p99
-        # exposed via ``stats()`` so ops can see hot-path health without
-        # lighting up a profiler. Bounded so memory stays flat.
         self._append_durations_ms: deque[float] = deque(maxlen=1024)
 
-        # Strong references for fire-and-forget index-upsert tasks
-        # spawned every 20 events. Without this, ``asyncio.ensure_future``
-        # returns a weakly-held Task that the GC can collect mid-await,
-        # silently dropping the SessionIndex sqlite upsert. Symptom:
-        # the cross-session ``list_sessions`` API returns stale
-        # ``last_seq`` / ``last_event_at`` for active chats. Set is
-        # bounded by concurrent index upserts (typically <= num active
-        # sessions / 20-event window) and auto-pruned via done_callback.
+        # strong refs prevent GC from collecting fire-and-forget index-upsert tasks before they run.
         self._index_upsert_tasks: set[asyncio.Task[Any]] = set()
 
     async def start(self) -> None:
@@ -169,17 +123,6 @@ class InMemorySessionStore:
         return self._index
 
     async def _maybe_index_upsert(self, state: SessionState) -> None:
-        """Push the live summary to the cross-session index. No-op
-        when no index is wired. Errors are logged but never raised
-        so an index hiccup never breaks the agent loop.
-
-        Skips orphan sessions (no user_id). The index schema has
-        ``user_id TEXT NOT NULL`` and the lookup is exact-match, so
-        rows with an empty user_id would land but never surface in
-        any "list sessions for user X" query -- they'd just clog the
-        index with unreachable rows. Better to leave them out and
-        rely on the meta.json on disk for forensic recovery.
-        """
         if self._index is None:
             return
         if not getattr(state, "user_id", None):
@@ -198,26 +141,12 @@ class InMemorySessionStore:
         return self._root / h[:2] / h[2:4] / sid
 
     def _chat_meta_for_flush(self, sid: str) -> dict:
-        """Phase 1+2: snapshot of the live chat-level state, merged
-        into meta.json on every flush batch by the DiskFlusher.
-
-        Includes ``app_id`` + ``user_id`` so cross-session lookups
-        (``list_for_app``, ``get_any_owner``, ``delete_for_app``) can
-        scan meta.json files without needing to load events.jsonl or
-        the SQLite index. Returns ``{}`` when the session is not
-        loaded (already evicted) -- in that case meta.json keeps
-        whatever was last written.
-        """
         st = self._sessions.get(sid)
         if st is None:
             return {}
         return {
-            # Identity (Phase 2): needed by list_for_app / get_any_owner FS
-            # fallback. Without these the meta.json is opaque about who
-            # owns the session and the lookups fail silently.
             "app_id": st.app_id,
             "user_id": st.user_id,
-            # Phase 1 chat-level fields.
             "title": st.title,
             "turn_count": st.turn_count,
             "workspace": st.workspace,
@@ -230,13 +159,6 @@ class InMemorySessionStore:
         }
 
     def _seed_seq_from_disk(self, scope_key: str) -> int:
-        """SeqAllocator seed_loader: read meta.json's last_seq for the
-        scope's session. User-scope keys (no session_id) seed at 0
-        because user-scope events are not persisted per-session.
-
-        O(1) when meta.json exists. O(file-size) fallback to JSONL
-        tail scan when meta is missing (cold restart edge case).
-        """
         if not scope_key.startswith("session::"):
             return 0
         sid = scope_key[len("session::"):]
@@ -255,9 +177,7 @@ class InMemorySessionStore:
         create_if_missing: bool = True,
         pin: bool = True,
     ) -> SessionState:
-        """Open (or create) a session. If it exists on disk, reload
-        its state from events.jsonl. Pin=True (default) means it is
-        an actively-being-written session and will not be evicted."""
+        """Open (or create) a session. If it exists on disk, reload"""
         async with self._sessions_lock:
             state = self._sessions.get(sid)
             was_loaded = state is None
@@ -272,31 +192,10 @@ class InMemorySessionStore:
             self._sessions.move_to_end(sid)
             if pin:
                 state.pinned = True
-        # Index upsert OUTSIDE the sessions_lock to avoid holding it
-        # during the SQLite I/O. Only fires on first open per process
-        # (was_loaded) and on a real user-bound session -- ``_maybe_
-        # index_upsert`` itself skips orphans. Without this call, a
-        # freshly-opened session is on disk + in RAM but invisible to
-        # ``list_for_user`` until close_session / compact_session
-        # fires; the frontend's "list my sessions" returns 0 for
-        # active sessions.
+        # upsert outside sessions_lock to avoid holding it during SQLite I/O; index_upsert itself skips orphans.
         if was_loaded:
             await self._maybe_index_upsert(state)
-            # Resume-time seed sync. When a session is reloaded from
-            # disk with ``last_seq=N``, the wire-side EventBuffer (a
-            # separate allocator process-wide) is still at 0 for this
-            # session because its legacy seed_loader queries the
-            # ``history_log`` table -- which is no longer written
-            # post Phase-4c, so the query returns 0 even though the
-            # SessionStore has N events on disk. Without this push,
-            # the wire allocates seq=1, 2, ... and every emit is
-            # rejected by ``append_event`` as a regression below
-            # ``state.last_seq``. Pushing the on-disk high-water mark
-            # into the wire allocator forces its next ``next_seq`` to
-            # return N+1, matching what's on disk. Reuses the same
-            # hook used for internal allocations -- the semantic is
-            # "the store has seen seq=K for this session, sync your
-            # state".
+            # push the on-disk high-water mark into the wire allocator so its next seq is N+1, not 1.
             if (
                 state.last_seq > 0
                 and self._on_internal_seq_alloc is not None
@@ -362,8 +261,8 @@ class InMemorySessionStore:
         if meta.get("ended_at"):
             state.ended_at = str(meta["ended_at"])
             state.closed = True
-        # Phase 1: ConversationSession-absorbed fields. Tolerate
-        # legacy meta.json (pre-Phase-1) where they may be absent.
+        # ConversationSession-absorbed fields. Tolerate legacy meta.json
+        # where they may be absent.
         state.title = str(meta.get("title", "") or "")
         state.turn_count = int(meta.get("turn_count", 0) or 0)
         state.workspace = str(meta.get("workspace", "") or "")
@@ -382,22 +281,7 @@ class InMemorySessionStore:
         events_on_disk: list[Event],
         session_dir: Path,
     ) -> None:
-        """Apply a saved compaction on a freshly-loaded SessionState.
-
-        The snapshot.json captures the FULL pre-compaction state at
-        time T (``snap.last_seq``). Events post-cutoff but <= T are
-        already reflected in the snapshot's projections; only events
-        with seq > T are deltas that need replaying.
-
-        Strategy:
-          1. Restore small projections from snapshot.json (todos,
-             memory, workspace, tool_calls, children, blobs, costs).
-          2. Restore messages from snapshot, filtered to seq > cutoff.
-          3. Append events post-cutoff to ``state.events`` for the
-             journal. Apply projection ONLY to events post-snapshot
-             so we don't double-count what's already in the snapshot.
-          4. Inject the summary as a system message at messages[0].
-        """
+        """Apply a saved compaction on a freshly-loaded SessionState."""
         snap = read_snapshot(session_dir) or {}
         snap_last_seq = int(snap.get("last_seq", 0))
 
@@ -431,10 +315,6 @@ class InMemorySessionStore:
         state.cost_total = float(snap.get("cost_total", 0.0))
         state.tokens_in = int(snap.get("tokens_in", 0))
         state.tokens_out = int(snap.get("tokens_out", 0))
-        # Phase 1: ConversationSession-absorbed fields. Snapshot is
-        # authoritative when present (the close-time write captured
-        # the most recent values); meta.json fills in if a snapshot
-        # is missing.
         state.title = str(snap.get("title", "") or "")
         state.turn_count = int(snap.get("turn_count", 0) or 0)
         state.workspace = str(snap.get("workspace", "") or "")
@@ -523,26 +403,11 @@ class InMemorySessionStore:
         return events
 
     def state(self, sid: str) -> SessionState | None:
-        """Sync, no-await. Returns None if session not loaded.
-        O(1) hot-path read for the agent loop's tight loop."""
+        """Sync, no-await"""
         return self._sessions.get(sid)
 
     async def append_event(self, sid: str, event: Event) -> int:
-        """The single point of entry for ANY event.
-
-        Returns the assigned ``seq``. Caller must use this seq when
-        broadcasting to clients (don't generate a parallel seq).
-
-        SEQ CONTRACT (locked, never break this):
-        If ``event.seq`` is > 0 on entry, the caller pre-allocated it
-        via the canonical wire-level allocator (EventBuffer) and the
-        client has already observed that exact number. We MUST keep it
-        as-is so the persisted seq matches the wire seq -- otherwise a
-        replay would surface the same event under a different seq and
-        the frontend's strict-seq dedup would treat it as a ghost.
-        The local allocator is bumped forward so any subsequent
-        seq-less append() doesn't collide.
-        """
+        """The single point of entry for ANY event."""
         t0 = time.perf_counter()
         state = self._sessions.get(sid)
         if state is None:
@@ -561,12 +426,6 @@ class InMemorySessionStore:
             event.seq = self._allocator.next(
                 user_id=state.user_id, session_id=sid,
             )
-            # Back-propagate to the wire allocator so EventBuffer
-            # knows this seq is burned and never returns it again.
-            # Without this hook, internal callers (compact_done,
-            # agent_spawn) would allocate K here while EventBuffer
-            # stays at K-1, and the next wire emit would also get K
-            # -> duplicate seq on the client timeline.
             if self._on_internal_seq_alloc is not None:
                 try:
                     self._on_internal_seq_alloc(sid, int(event.seq))
@@ -593,20 +452,11 @@ class InMemorySessionStore:
         state.bytes_estimate += size
         self._current_bytes += size
         state.touch()
-        # Phase 6: only ``append_event`` advances ``last_event_at`` --
-        # the bg snapshot worker uses this to detect idle sessions
-        # without read traffic resetting the timer.
         state.last_event_at = time.monotonic()
         self._sessions.move_to_end(sid)
 
         self._flusher.enqueue(sid, event)
 
-        # Throttled index refresh so the cross-session list view
-        # surfaces fresh ``last_seq`` / ``last_event_at`` while the
-        # session is active, not only at close_session / compact_session
-        # time. Fires every 20 events; the SQLite upsert is ~0.3 ms so
-        # the cost is negligible at chat-throughput rates. Orphans (no
-        # user_id) are skipped inside ``_maybe_index_upsert``.
         if self._index is not None and (state.last_seq % 20 == 0):
             try:
                 _task = asyncio.ensure_future(self._maybe_index_upsert(state))
@@ -626,9 +476,7 @@ class InMemorySessionStore:
         return event.seq
 
     async def close_session(self, sid: str) -> None:
-        """End-of-session: flush queue, write snapshot.json, mark
-        closed in meta.json, upsert summary into the cross-session
-        index (if attached), unpin so the session becomes evictable."""
+        """End-of-session: flush queue, write snapshot.json, mark"""
         state = self._sessions.get(sid)
         if state is None:
             return
@@ -657,7 +505,7 @@ class InMemorySessionStore:
             cost_total=state.cost_total,
             tokens_in=state.tokens_in,
             tokens_out=state.tokens_out,
-            # Phase 1: ConversationSession-absorbed fields.
+            # ConversationSession-absorbed fields.
             title=state.title,
             turn_count=state.turn_count,
             workspace=state.workspace,
@@ -668,9 +516,7 @@ class InMemorySessionStore:
         write_snapshot(session_dir, build_snapshot(state))
 
     async def save_snapshot(self, sid: str) -> bool:
-        """Force-write a snapshot of the current state without closing
-        the session. Useful for periodic checkpoints on long-running
-        chats so a crash mid-session still has a recent UI snapshot."""
+        """Force-write a snapshot of the current state without closing"""
         state = self._sessions.get(sid)
         if state is None:
             return False
@@ -684,14 +530,7 @@ class InMemorySessionStore:
         return True
 
     async def read_snapshot(self, sid: str) -> dict | None:
-        """Fast reopen path. ``5 ms`` cold, ``<100 µs`` warm.
-
-        Reads ``snapshot.json`` directly from disk. The frontend
-        renders this without needing to replay every event. Returns
-        ``None`` when no snapshot exists (session never closed, or a
-        crash happened before snapshot.json was written) -- caller
-        should fall back to ``stream_events`` then.
-        """
+        """Fast reopen path. `5 ms` cold, `<100 µs` warm."""
         return await asyncio.to_thread(
             read_snapshot, self._session_dir(sid),
         )
@@ -705,18 +544,7 @@ class InMemorySessionStore:
         app_id: str | None = None,
         user_id: str | None = None,
     ) -> SessionState:
-        """Spawn a sub-agent under ``parent_sid``.
-
-        Effects:
-          1. Open (create) the child session, store its parent_link.
-          2. Persist parent_link.json next to the child's events.jsonl.
-          3. Emit an ``agent_spawn`` event on the PARENT, which feeds
-             the projection into ``parent.children`` automatically.
-
-        ``app_id`` and ``user_id`` default to the parent's. The child
-        gets its own seq counter (per-session scope), so its events
-        are independent of the parent's seq sequence.
-        """
+        """Spawn a sub-agent under `parent_sid`."""
         parent = self._sessions.get(parent_sid)
         if parent is None:
             raise KeyError(
@@ -749,9 +577,7 @@ class InMemorySessionStore:
         return child
 
     def list_children(self, parent_sid: str) -> list:
-        """Return the in-memory ChildAgentRef list maintained by
-        the agent_spawn / agent_result projection. Returns ``[]`` if
-        the parent isn't loaded -- caller should ``open`` it first."""
+        """Return the in-memory ChildAgentRef list maintained by"""
         state = self._sessions.get(parent_sid)
         if state is None:
             return []
@@ -768,25 +594,7 @@ class InMemorySessionStore:
         tokens_estimate: int,
         model: str,
     ) -> Compaction:
-        """Compact the session: drop RAM events/messages with
-        seq <= cutoff_seq, persist compaction.json + snapshot.json,
-        emit a ``compact_done`` event carrying the new context.
-
-        events.jsonl is NEVER touched. Frontend ``stream_full_history``
-        keeps seeing the full chronology.
-
-        ``tokens_estimate`` MUST be a real value computed via
-        ``token_counter.count_message_tokens(model, [...])`` -- no
-        len/4 heuristic. The caller is responsible for providing it.
-
-        The compact_done event's payload carries the FULL new context
-        state (messages, todos, memory, workspace, tools, children,
-        blobs, costs) and is stamped with the next monotonic seq from
-        the SeqAllocator. Frontend listeners use it to refresh their
-        rendered context without re-fetching.
-
-        Returns the persisted ``Compaction`` record.
-        """
+        """Compact the session: drop RAM events/messages with"""
         state = self._sessions.get(sid)
         if state is None:
             raise KeyError(
@@ -877,11 +685,7 @@ class InMemorySessionStore:
     async def stream_full_history(
         self, sid: str, *, since: int = 0,
     ) -> AsyncIterator[Event]:
-        """Stream events.jsonl directly from disk, IGNORING any
-        compaction. Used by the frontend / UI replay so the user
-        sees the entire chronology even when the agent's RAM has
-        been compacted to a smaller window.
-        """
+        """Stream events.jsonl directly from disk, IGNORING any"""
         session_dir = self._session_dir(sid)
         events = await asyncio.to_thread(
             self._read_events_jsonl, session_dir,
@@ -893,12 +697,7 @@ class InMemorySessionStore:
     async def stream_events(
         self, sid: str, *, since: int = 0,
     ) -> AsyncIterator[Event]:
-        """Yield events with ``seq > since`` in monotonic order.
-
-        Hot path: from the in-memory journal.
-        Cold path (session evicted): re-load from disk.
-        Returns nothing if the session does not exist anywhere.
-        """
+        """Yield events with `seq > since` in monotonic order."""
         state = self._sessions.get(sid)
         if state is None:
             try:
@@ -919,8 +718,7 @@ class InMemorySessionStore:
         return list(self._sessions.keys())
 
     async def _maybe_evict(self) -> None:
-        """LRU evict non-pinned sessions until under cap. Flush
-        queue first so no in-flight events are lost."""
+        """LRU evict non-pinned sessions until under cap. Flush"""
         async with self._sessions_lock:
             if self._current_bytes <= self._max_bytes \
                     and len(self._sessions) <= self._max_sessions:
@@ -935,13 +733,12 @@ class InMemorySessionStore:
                     continue
                 self._current_bytes -= state.bytes_estimate
                 del self._sessions[sid]
-                # Phase 2: drop the per-session lock too. A future open
-                # of the same sid will lazily allocate a fresh one.
+                # Drop the per-session lock too; a future open of the
+                # same sid will lazily allocate a fresh one.
                 self._per_session_locks.pop(sid, None)
 
     async def evict(self, sid: str) -> bool:
-        """Manually evict a non-pinned session. Returns True if
-        evicted, False if session is pinned or not loaded."""
+        """Manually evict a non-pinned session"""
         async with self._sessions_lock:
             state = self._sessions.get(sid)
             if state is None:
@@ -955,13 +752,7 @@ class InMemorySessionStore:
             return True
 
     async def _run_eviction_worker(self) -> None:
-        """Single long-running worker: drain ``_evict_signal``, run
-        ``_maybe_evict``, repeat. Replaces per-append ``create_task``
-        which allocated one task per overflowing event.
-
-        If a pass freed nothing (everything pinned), back off briefly
-        so we don't busy-spin while the budget stays violated.
-        """
+        """Single long-running worker: drain `_evict_signal`, run"""
         BUSY_BACKOFF_S = 1.0
         while True:
             await self._evict_signal.wait()
@@ -984,15 +775,7 @@ class InMemorySessionStore:
                 await asyncio.sleep(0.1)
 
     async def _run_snapshot_worker(self) -> None:
-        """Periodic background snapshot writer.
-
-        Walks loaded sessions every SCAN_INTERVAL_S; for each one with
-        >= SNAPSHOT_DELTA new events since its last snapshot AND idle
-        for >= IDLE_THRESHOLD_S, builds + writes ``snapshot.json``.
-        That cuts cold-start reload time after a daemon crash from
-        O(events) to O(snapshot) for live sessions, without touching
-        the hot append path.
-        """
+        """Periodic background snapshot writer."""
         SNAPSHOT_DELTA = 50
         IDLE_THRESHOLD_S = 5.0
         SCAN_INTERVAL_S = 10.0
@@ -1026,25 +809,13 @@ class InMemorySessionStore:
                 continue
             if (st.last_seq - st.last_snapshot_seq) < delta:
                 continue
-            # Phase 6: gate on ``last_event_at`` (advanced only by
-            # append_event), NOT ``last_accessed_at`` (advanced by every
-            # read too). Otherwise reads from /history etc. permanently
-            # reset the idle clock under any load.
             if (now - st.last_event_at) < idle_s:
                 continue
             ripe.append(sid)
         return ripe
 
     async def _snapshot_one(self, sid: str) -> None:
-        """Build a snapshot from live state (sync, atomic on the loop)
-        then offload the write to a thread.
-
-        Snap is captured at the in-memory ``state.last_seq`` -- the
-        disk flusher drains independently. ``snap.last_seq`` may
-        briefly exceed ``meta.last_seq`` on disk; the reload path
-        (``_load_or_create``) tolerates that and replays events past
-        the snapshot cutoff.
-        """
+        """Build a snapshot from live state (sync, atomic on the loop)"""
         state = self._sessions.get(sid)
         if state is None or state.closed:
             return
@@ -1054,46 +825,20 @@ class InMemorySessionStore:
         await asyncio.to_thread(write_snapshot, session_dir, snap)
         state.last_snapshot_seq = snap_seq
 
-    # ── Phase 2 primitives ───────────────────────────────────────────
 
     def session_lock(self, sid: str) -> asyncio.Lock:
-        """Return the asyncio.Lock for ``sid``, allocating it on first
-        access. Sync (no event loop ops) so the legacy adapter can
-        forward calls without bridging async->sync.
-
-        The lock object is identical across calls for the same sid.
-        Callers do ``async with store.session_lock(sid):`` to
-        serialise critical sections per session.
-
-        Race-safe via ``dict.setdefault`` -- if two coroutines
-        concurrently allocate, one wins atomically (CPython GIL) and
-        the loser's freshly-created Lock is GC'd. Both callers see
-        the same instance returned."""
+        """Return the asyncio.Lock for `sid`, allocating it on first"""
         return self._per_session_locks.setdefault(sid, asyncio.Lock())
 
     async def delete(
         self, sid: str, *, force: bool = False,
     ) -> bool:
-        """Delete a session: drop in-memory state, flush pending events,
-        remove the session dir from disk, drop the index entry, and
-        release the per-session lock.
-
-        ``force=False`` (default) refuses to delete a pinned session
-        (still actively chatting). ``force=True`` evicts the pin and
-        deletes anyway -- use only on hard cleanup paths.
-
-        Returns True if the session existed and was removed, False
-        otherwise. Idempotent: deleting a non-existent session is a
-        no-op that returns False.
-        """
+        """Delete a session: drop in-memory state, flush pending events,"""
         async with self._sessions_lock:
             state = self._sessions.get(sid)
             if state is not None:
                 if state.pinned and not force:
                     return False
-                # Drop any pending events from the flusher's queue for
-                # this sid first; they'd recreate the dir post-delete
-                # otherwise.
                 await self._flusher.flush()
                 self._current_bytes -= state.bytes_estimate
                 del self._sessions[sid]
@@ -1119,18 +864,13 @@ class InMemorySessionStore:
 
     @staticmethod
     def _purge_session_dir(sdir: Path) -> None:
-        """Remove a session dir entirely. Tolerates missing files,
-        in-progress writes from another thread (unlikely once flush()
-        completed). Logs and re-raises hard errors so the caller can
-        surface them."""
+        """Remove a session dir entirely. Tolerates missing files,"""
         import shutil
         if sdir.exists():
             shutil.rmtree(sdir, ignore_errors=False)
 
     async def delete_for_app(self, app_id: str) -> int:
-        """Delete every session owned by ``app_id``. Returns the count
-        of sessions removed. Used by the legacy SessionStore API
-        contract (``delete_for_app`` on app uninstall)."""
+        """Delete every session owned by `app_id`"""
         sids = await self.list_session_ids_for_app(app_id)
         deleted = 0
         for sid in sids:
@@ -1145,18 +885,7 @@ class InMemorySessionStore:
         return deleted
 
     async def list_session_ids_for_app(self, app_id: str) -> list[str]:
-        """Return all session_ids belonging to ``app_id``. Combines the
-        SQLite index (O(log n) for closed/compacted sessions) AND a
-        filesystem walk (O(n) for active-but-unclosed sessions whose
-        index entry hasn't been upserted yet). Returns the union
-        deduplicated.
-
-        The dual-source design matters because the index is upserted
-        only on ``close_session`` / ``compact_session`` -- a session
-        that's been chatting all day but never closed wouldn't show
-        up in the index. The FS walk picks it up via the meta.json
-        the flusher refreshes on every batch.
-        """
+        """Return all session_ids belonging to `app_id`. Combines the"""
         seen: set[str] = set()
         if self._index is not None:
             try:
@@ -1177,8 +906,7 @@ class InMemorySessionStore:
         return sorted(seen)
 
     def _list_session_ids_for_app_fs(self, app_id: str) -> list[str]:
-        """Filesystem fallback: walk ``self._root`` reading meta.json
-        files. Skips dirs without a parsable meta.json."""
+        """Filesystem fallback: walk `self._root` reading meta.json"""
         out: list[str] = []
         if not self._root.exists():
             return out
@@ -1198,9 +926,7 @@ class InMemorySessionStore:
         return out
 
     async def list_for_app(self, app_id: str):
-        """Return a list of ``SessionSummary`` for every session of
-        ``app_id``. Uses the SQLite index when present (O(log n)),
-        otherwise loads each session's metadata from disk."""
+        """Return a list of `SessionSummary` for every session of"""
         from digitorn.core.runtime.session_store.session_index import (
             SessionSummary,
         )
@@ -1242,16 +968,7 @@ class InMemorySessionStore:
         return out
 
     async def get_any_owner(self, app_id: str, sid: str) -> str | None:
-        """Return the user_id that owns ``(app_id, sid)``, irrespective
-        of the caller's identity. Used by cross-user lookup paths in
-        the legacy API surface (e.g. ``apps_v2/sessions.py`` resolve a
-        session that was created by another user but is being read
-        through an admin endpoint).
-
-        ``None`` when the session doesn't exist or has no recorded
-        owner. Reads meta.json directly -- O(1) on hot path. The
-        index isn't required.
-        """
+        """Return the user_id that owns `(app_id, sid)`, irrespective"""
         sdir = self._session_dir(sid)
         path = sdir / "meta.json"
         if not path.exists():
@@ -1269,24 +986,10 @@ class InMemorySessionStore:
         return owner or None
 
     async def recover_orphans(self) -> int:
-        """Boot-time recovery: walk the sessions root, find sessions
-        that were active but never closed cleanly, mark them
-        ``interrupted=true`` so the next reopen surfaces the
-        "smart resume" UI.
-
-        FAST by design: reads ONLY each session's meta.json (small,
-        already memory-mapped on Windows). Does NOT load the full
-        events.jsonl. Sessions that need resume logic load lazily on
-        first access -- at boot we just stamp the marker.
-
-        Returns the count of sessions marked interrupted.
-        """
+        """Boot-time recovery: walk the sessions root, find sessions"""
         marked = 0
         if not self._root.exists():
             return marked
-        # ``to_thread`` because rglob + read_text are sync IO. Boot
-        # path must NEVER stall the loop -- with 10k sessions on disk
-        # this would otherwise freeze the daemon for tens of seconds.
         candidates = await asyncio.to_thread(self._collect_orphan_candidates)
         for sdir, meta in candidates:
             if meta.get("interrupted"):
@@ -1304,9 +1007,7 @@ class InMemorySessionStore:
         return marked
 
     def _collect_orphan_candidates(self) -> list[tuple[Path, dict]]:
-        """Sync helper for recover_orphans: walk the sessions root,
-        read every meta.json, return (dir, meta) for sessions that
-        look unclosed. Cheap enough at boot (one read per session)."""
+        """Sync helper for recover_orphans: walk the sessions root,"""
         out: list[tuple[Path, dict]] = []
         for meta_path in self._root.rglob("meta.json"):
             try:
@@ -1322,7 +1023,6 @@ class InMemorySessionStore:
 
     @staticmethod
     def _mark_interrupted_sync(sdir: Path, meta: dict) -> None:
-        """Sync helper: mark a session interrupted in its meta.json."""
         meta = dict(meta)
         meta["interrupted"] = True
         if not meta.get("interrupted_at"):
@@ -1345,8 +1045,7 @@ class InMemorySessionStore:
         }
 
     def _append_latency_stats(self) -> dict:
-        """p50/p95/p99 over the last ~1024 ``append_event`` samples.
-        Returns zeros when not yet primed."""
+        """p50/p95/p99 over the last ~1024 `append_event` samples."""
         n = len(self._append_durations_ms)
         if n == 0:
             return {

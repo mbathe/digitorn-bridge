@@ -1,18 +1,10 @@
-"""Text chunking strategies for vector indexing.
-
-Four strategies from simple to intelligent:
-- fixed: character count with overlap
-- sentence: split on sentence boundaries
-- paragraph: split on double newlines
-- recursive: smart recursive split (LangChain-style)
-"""
+"""Text chunking strategies for vector indexing."""
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
 from typing import Any
-
 
 @dataclass
 class Chunk:
@@ -33,7 +25,6 @@ class Chunk:
             **self.metadata,
         }
 
-
 def fixed_chunks(text: str, size: int = 500, overlap: int = 50) -> list[Chunk]:
     """Split text into fixed-size character chunks with overlap."""
     if not text:
@@ -52,12 +43,8 @@ def fixed_chunks(text: str, size: int = 500, overlap: int = 50) -> list[Chunk]:
             break
     return chunks
 
-
 def sentence_chunks(text: str, size: int = 500, overlap: int = 1) -> list[Chunk]:
-    """Split on sentence boundaries, grouping sentences up to `size` chars.
-
-    ``overlap`` is in number of sentences (not characters).
-    """
+    """Split on sentence boundaries, grouping sentences up to `size` chars."""
     if not text:
         return []
     # Split on sentence-ending punctuation followed by whitespace
@@ -86,7 +73,6 @@ def sentence_chunks(text: str, size: int = 500, overlap: int = 1) -> list[Chunk]
         # Advance with sentence overlap
         i = max(j - overlap, i + 1)
     return chunks
-
 
 def paragraph_chunks(text: str, size: int = 1000, overlap: int = 0) -> list[Chunk]:
     """Split on double newlines (paragraphs), merging small ones up to `size`."""
@@ -120,13 +106,8 @@ def paragraph_chunks(text: str, size: int = 1000, overlap: int = 0) -> list[Chun
 
     return chunks
 
-
 def recursive_chunks(text: str, size: int = 500, overlap: int = 50) -> list[Chunk]:
-    """Smart recursive text splitter - tries natural boundaries first.
-
-    Splits by: ``\\n\\n`` → ``\\n`` → ``. `` → `` `` → character.
-    Same algorithm as LangChain's RecursiveCharacterTextSplitter.
-    """
+    """Smart recursive text splitter - tries natural boundaries first."""
     if not text:
         return []
 
@@ -191,14 +172,12 @@ def recursive_chunks(text: str, size: int = 500, overlap: int = 50) -> list[Chun
 
     return chunks
 
-
 STRATEGIES = {
     "fixed": fixed_chunks,
     "sentence": sentence_chunks,
     "paragraph": paragraph_chunks,
     "recursive": recursive_chunks,
 }
-
 
 def chunk_text(
     text: str,

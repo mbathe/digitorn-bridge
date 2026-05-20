@@ -1,31 +1,4 @@
-"""Progressive intent-phrase generation for the Lovable-style strict
-chat mode.
-
-When an app declares ``ui.tool_calls.strict_mode: true`` the daemon
-generates a short list of contextual "-ing" phrases at the start of
-each agent turn and ships them to the frontend via the
-``intent_phrases`` SSE event. The frontend cycles through them while
-the assistant works (in place of the actual streamed text), revealing
-only the final answer and any user-facing prompt (``ask_user``,
-approval).
-
-Three sources are supported through ``IntentPhrasesConfig.source``:
-
-* ``llm``    — always call a small gateway-routed model (Haiku /
-  Gemini Flash / Llama). No fallback. Empty list on timeout / error.
-* ``static`` — always pick from the static matrix configured per app.
-  No LLM call, zero outbound cost.
-* ``auto``   — try LLM first; on timeout / parse-failure / empty
-  result, fall back to ``static``. This is the recommended default.
-
-EVERY outbound LLM call MUST go through ``runtime.gateway_base_url``
-— never direct to a provider. The gateway handles credentials, quota,
-cost tracking and failover, even for these tiny side calls. The
-gateway is the single egress for all AI traffic on the daemon.
-
-When ``strict_mode`` is off, none of this code runs. Apps that don't
-opt in pay zero overhead.
-"""
+"""Progressive intent-phrase generation for the Lovable-style strict"""
 
 from __future__ import annotations
 
@@ -51,11 +24,8 @@ def _trace(msg: str) -> None:
         _TRACE_PATH.parent.mkdir(parents=True, exist_ok=True)
         with _TRACE_PATH.open("a", encoding="utf-8") as fh:
             fh.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {msg}\n")
-    except Exception:
-        pass
-
-
-# ── Public entrypoint ────────────────────────────────────────────────
+    except Exception as exc:
+        logger.debug("intent_phrases best-effort block failed: %s", exc)
 
 
 async def generate_and_emit_phrases(
@@ -63,20 +33,13 @@ async def generate_and_emit_phrases(
     user_message: str,
     correlation_id: str,
 ) -> None:
-    """Generate phrases for this turn and emit the ``intent_phrases``
-    SSE event. Designed to run as a detached ``asyncio.create_task``
-    from the start of the agent turn — it must NEVER block the
-    main loop and must NEVER raise to the caller.
-
-    No-op fast path: when ``strict_mode`` is off on the compiled UI
-    config, this returns immediately without touching the gateway.
-    """
+    """Generate phrases for this turn and emit the `intent_phrases`"""
     try:
         _trace(f"dispatch_called user_msg={user_message[:60]!r} corr={correlation_id}")
         config = _resolve_strict_config(ctx)
         if config is None:
             _trace("dispatch_skipped reason=strict_mode_off_or_no_config")
-            return  # strict_mode off — no phrases needed
+            return  # strict_mode off - no phrases needed
         phrases_cfg, _strict = config
         _trace(f"dispatch_proceeding source={phrases_cfg.source}")
 
@@ -107,7 +70,7 @@ async def generate_and_emit_phrases(
                 phrases = _pick_static_phrases(phrases_cfg.static)
                 actual_source = "static_fallback"
 
-        # Emit even if empty — the frontend uses an empty list as a
+        # Emit even if empty - the frontend uses an empty list as a
         # signal to switch to its own client-side default cycle.
         await _emit_phrases(
             ctx,
@@ -116,23 +79,13 @@ async def generate_and_emit_phrases(
             correlation_id=correlation_id,
         )
     except Exception as exc:  # noqa: BLE001
-        # Never raise to caller — the detached task swallows errors
+        # Never raise to caller - the detached task swallows errors
         # so a broken phrase pipeline never disrupts the real turn.
         logger.warning("intent_phrases generation failed: %s", exc)
 
 
-# ── Config resolution ────────────────────────────────────────────────
-
-
 def _resolve_strict_config(ctx: Any) -> tuple[Any, bool] | None:
-    """Return ``(IntentPhrasesConfig, strict_mode_bool)`` when
-    ``strict_mode`` is enabled on this app's chat_tool_calls config,
-    else None.
-
-    The block is stashed on ``ctx._chat_tool_calls`` by ``bootstrap.py``
-    at AgentContext creation — ``AgentContext`` deliberately doesn't
-    carry the full ``CompiledApp`` tree, so the wire-up is explicit.
-    """
+    """Return `(IntentPhrasesConfig, strict_mode_bool)` when"""
     tool_calls = getattr(ctx, "_chat_tool_calls", None)
     if tool_calls is None:
         return None
@@ -145,17 +98,8 @@ def _resolve_strict_config(ctx: Any) -> tuple[Any, bool] | None:
     return phrases_cfg, strict_mode
 
 
-# ── Static path ──────────────────────────────────────────────────────
-
-
 def _pick_static_phrases(static_cfg: Any) -> list[str]:
-    """Pick one phrase per known phase from the static matrix.
-
-    The order matches the natural agent timeline:
-    ``analyzing -> thinking -> tool_streaming -> between_tools ->
-    finalizing``. The frontend uses the index to pick the right
-    phrase for the current phase. Unknown phase keys are skipped.
-    """
+    """Pick one phrase per known phase from the static matrix."""
     phases: dict[str, list[str]] = getattr(static_cfg, "phases", {}) or {}
     ordered_keys = (
         "analyzing", "thinking", "tool_streaming",
@@ -176,27 +120,17 @@ def _pick_static_phrases(static_cfg: Any) -> list[str]:
     return out
 
 
-# ── LLM path (gateway) ──────────────────────────────────────────────
-
-
 async def _generate_via_llm(
     ctx: Any,
     *,
     user_message: str,
     cfg: Any,
 ) -> list[str]:
-    """Fire one cheap LLM call through the gateway to produce the
-    progressive phrases. Returns ``[]`` on any failure — the caller
-    decides whether to fall back to static.
-
-    No retries. No backoff. This is a soft-quality hint, not a
-    correctness path. If it does not return in ``timeout_seconds``,
-    we move on with the agent turn unaffected.
-    """
+    """Fire one cheap LLM call through the gateway to produce the"""
     try:
         import httpx  # type: ignore
     except ImportError:
-        logger.debug("httpx not installed — intent_phrases LLM path skipped")
+        logger.debug("httpx not installed - intent_phrases LLM path skipped")
         return []
 
     from digitorn.core.config import get_settings
@@ -235,9 +169,6 @@ async def _generate_via_llm(
         "Authorization": f"Bearer {user_jwt}",
         "Content-Type": "application/json",
     }
-    # Identity headers so the gateway attributes this call to the
-    # same user / app / session as the parent turn (visible in usage
-    # events). Best-effort — missing fields are fine.
     app_id = getattr(ctx, "app_id", None)
     session_id = getattr(ctx, "session_id", None)
     if app_id:
@@ -279,13 +210,7 @@ async def _generate_via_llm(
 
 
 def _parse_phrases(content: str, cfg: Any) -> list[str]:
-    """Extract a phrase list from the model's response.
-
-    The prompt asks for a JSON array, but small models sometimes
-    wrap it in prose / code fences / extra commentary. We try JSON
-    first, fall back to a permissive line-based parser. Hard-cap at
-    ``max_phrases`` so a chatty model can't bloat the SSE payload.
-    """
+    """Extract a phrase list from the model's response."""
     if not content:
         return []
     text = content.strip()
@@ -324,9 +249,6 @@ def _parse_phrases(content: str, cfg: Any) -> list[str]:
     return lines[: cfg.max_phrases]
 
 
-# ── SSE emission ─────────────────────────────────────────────────────
-
-
 async def _emit_phrases(
     ctx: Any,
     *,
@@ -334,10 +256,7 @@ async def _emit_phrases(
     source: str,
     correlation_id: str,
 ) -> None:
-    """Publish the ``intent_phrases`` event so the frontend can switch
-    its shimmer to these strings. Best-effort — losing the event
-    means the frontend falls back to its own static defaults.
-    """
+    """Publish the `intent_phrases` event so the frontend can switch"""
     bus = getattr(ctx, "event_bus", None) or getattr(ctx, "_event_bus", None)
     if bus is None:
         return

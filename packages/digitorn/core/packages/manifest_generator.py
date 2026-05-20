@@ -1,28 +1,4 @@
-"""Auto-generate ``package.toml`` from a compiled Digitorn app.
-
-Per the locked design (D5 + §5 of APP_PACKAGES.md), ``package.toml``
-is **mandatory** for every installed package - but writing it by
-hand is friction we want to avoid. This module is the generator
-that turns any valid ``CompiledApp`` into a fully-formed
-``PackageManifest``.
-
-Three callers use it:
-
-1. **The CLI**: ``digitorn package init <path>`` scaffolds a
-   ``package.toml`` next to an existing ``app.yaml`` so the user can
-   review + commit it.
-2. **The builder agent**: when a user finishes building an app via
-   the conversational builder, the builder calls this generator
-   and shows the result via ``ask_user(content=toml)`` for review.
-3. **The discovery API**: ``POST /api/discovery/generate-package-manifest``
-   takes a YAML and returns the rendered TOML so the Flutter
-   client can show a "package this app" button.
-
-The generator is **best-effort**: every field that can be inferred
-is inferred. Fields the source YAML doesn't carry (license,
-homepage, hub tags, etc.) are left empty so the user can fill them
-in if they want to publish.
-"""
+"""Auto-generate `package.toml` from a compiled Digitorn app."""
 
 from __future__ import annotations
 
@@ -42,15 +18,6 @@ from digitorn.core.packages.manifest import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-# ────────────────────────────────────────────────────────────────────
-# Risk inference rules
-# ────────────────────────────────────────────────────────────────────
-#
-# A package's risk_level is computed from the actions it grants in
-# capabilities.grant. The lists below are FQN matches against the
-# action names a Digitorn app can ask for.
 
 _HIGH_RISK_ACTIONS: frozenset[str] = frozenset({
     "shell.bash",
@@ -75,7 +42,7 @@ _MEDIUM_RISK_ACTIONS: frozenset[str] = frozenset({
 })
 
 # Modules whose mere presence implies network access. We don't
-# inspect every grant - most apps that use ``web`` or ``http`` use
+# inspect every grant - most apps that use `web` or `http` use
 # them for networking.
 _NETWORK_MODULES: frozenset[str] = frozenset({
     "web",
@@ -101,12 +68,6 @@ _FILESYSTEM_READ_ACTIONS: frozenset[str] = frozenset({
     "filesystem.file_stat",
 })
 
-
-# ────────────────────────────────────────────────────────────────────
-# Public API
-# ────────────────────────────────────────────────────────────────────
-
-
 def generate_package_manifest(
     compiled: Any,
     *,
@@ -115,26 +76,7 @@ def generate_package_manifest(
     license: str = "",
     homepage: str = "",
 ) -> PackageManifest:
-    """Build a ``PackageManifest`` from a ``CompiledApp``.
-
-    Every field that can be inferred from the compile result is
-    populated. Optional metadata that requires human input
-    (license, homepage, hub tags) is left empty unless the caller
-    passes it in.
-
-    The returned manifest is **valid** in the sense that it passes
-    ``PackageManifest`` Pydantic validation - meaning regex checks
-    on the id, semver checks on the version, etc.
-
-    Caller responsibilities:
-
-    - The id MUST be kebab-case in the source YAML's ``app.app_id``.
-      The generator does NOT auto-rename it. If the YAML has
-      ``app_id: BadName_123``, the generator raises ``ValueError``.
-    - If the YAML has no version, we default to ``"0.1.0"``.
-
-    Returns the manifest. Use ``manifest.to_toml()`` to render it.
-    """
+    """Build a `PackageManifest` from a `CompiledApp`."""
     meta = compiled.meta
     execution = compiled.execution
 
@@ -214,28 +156,7 @@ def generate_package_manifest(
         release=release,
     )
 
-
-# ────────────────────────────────────────────────────────────────────
-# Helpers
-# ────────────────────────────────────────────────────────────────────
-
-
 def _normalise_semver(version: str) -> str:
-    """Pad shortened versions to a full semver.
-
-    The Digitorn YAML schema accepts loose versions like ``"1.0"``
-    or even ``"1"``, but ``PackageMeta`` requires full semver
-    (``major.minor.patch``). Auto-pad with zeros so users don't
-    have to update every legacy YAML at once.
-
-    Examples::
-
-        "1"      → "1.0.0"
-        "1.0"    → "1.0.0"
-        "1.2"    → "1.2.0"
-        "1.2.3"  → "1.2.3"
-        "1.2.3-beta" → "1.2.3-beta"  (already valid)
-    """
     if not version:
         return "0.1.0"
 
@@ -259,21 +180,7 @@ def _normalise_semver(version: str) -> str:
 
     return ".".join(parts) + suffix
 
-
 def _collect_granted_actions(compiled: Any) -> set[str]:
-    """Walk the compiled SecurityProfile and return granted FQN actions.
-
-    The capabilities block in YAML compiles into a SecurityProfile
-    (``compiled.security_profile``) where each module's grants live
-    under ``module_grants[<module_id>].action_overrides`` as a
-    ``{action_name: policy}`` dict. ``policy`` can be ``"auto"``,
-    ``"approve"``, or ``"block"``. We collect every action that is
-    NOT blocked.
-
-    Falls back to the older shapes (compiled.modules[X].actions,
-    compiled.capabilities, compiled.hidden_actions) for safety in
-    case some app uses a different compile path.
-    """
     granted: set[str] = set()
 
     # Primary path: SecurityProfile.module_grants[X].action_overrides
@@ -315,24 +222,10 @@ def _collect_granted_actions(compiled: Any) -> set[str]:
 
     return granted
 
-
 def _infer_permissions(
     granted_actions: set[str],
     modules_in_app: list[str],
 ) -> PackagePermissions:
-    """Compute the permission summary from the action set.
-
-    Rules:
-
-    - ``risk_level``: ``high`` if any high-risk action is granted,
-      ``medium`` if any medium-risk action is granted, otherwise ``low``.
-    - ``network_access``: True if any of the network modules is loaded.
-    - ``filesystem_access``: ``["read"]`` and/or ``["write"]`` based
-      on whether the matching action sets are granted.
-    - ``filesystem_scopes``: empty by default (user fills in later).
-    - ``requires_approval``: every high-risk action lands here so the
-      user is prompted before each call.
-    """
     high = granted_actions & _HIGH_RISK_ACTIONS
     medium = granted_actions & _MEDIUM_RISK_ACTIONS
 

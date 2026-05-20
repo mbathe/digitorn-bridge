@@ -1,9 +1,4 @@
-"""Tracker backend registry.
-
-Built-ins: ``postgres``, ``sqlite``, ``jsonfile``, ``kv``, ``null``.
-Operators add their own by inserting into ``BACKEND_REGISTRY``
-BEFORE the daemon's lifespan calls ``select_backend(...)``.
-"""
+"""Tracker backend registry."""
 
 from __future__ import annotations
 
@@ -29,9 +24,7 @@ BACKEND_REGISTRY: dict[str, Callable[..., TrackerBackend]] = {
 def select_backend(
     name: str, config: dict[str, Any] | None = None,
 ) -> TrackerBackend:
-    """Build a backend by registry key. ``config`` is the per-backend
-    options dict (e.g., {"path": "/var/lib/digitorn/runs"} for jsonfile).
-    Unknown names fall through to NullBackend with a warning."""
+    """Build a backend by registry key. `config` is the per-backend"""
     factory = BACKEND_REGISTRY.get(name)
     if factory is None:
         import logging

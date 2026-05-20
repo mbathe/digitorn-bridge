@@ -1,21 +1,4 @@
-"""SQL-backed audit log with hash chain integrity.
-
-Persists `AuditRecord` instances to the `credential_audit` table. Each
-row carries `prev_hash` and `this_hash` columns; the chain genesis
-uses `prev_hash = "0" * 64`. A periodic verifier job (or the
-`/api/admin/credentials/audit/verify` endpoint) re-hashes from genesis
-and reports any breakage.
-
-Concurrency: the chain head is fetched with `SELECT ... ORDER BY id
-DESC LIMIT 1 FOR UPDATE` (row-lock on the latest entry) before writing
-the new row. Postgres serialises concurrent writers cleanly. SQLite
-falls back to whole-table locking which is acceptable for the typical
-audit volume (a few hundred rows/day per session).
-
-Schema is defined in `digitorn.core.models.CredentialAudit` and
-created by Alembic migration. This file ONLY does the read/write
-logic; schema lives with the rest of the data model.
-"""
+"""SQL-backed audit log with hash chain integrity."""
 
 from __future__ import annotations
 
@@ -41,11 +24,7 @@ class SqlAuditLog:
         self._session_factory = session_factory
 
     async def record(self, rec: AuditRecord) -> None:
-        """Insert a new audit row, chained from the previous head.
-
-        On failure, the operation that triggered the audit MUST be
-        aborted by the caller. Audit failure = security failure.
-        """
+        """Insert a new audit row, chained from the previous head."""
         from digitorn.core.models import CredentialAudit  # lazy: model may not be loaded yet
 
         async with self._session_factory() as db:
@@ -115,14 +94,7 @@ class SqlAuditLog:
             return [self._row_to_record(r) for r in rows]
 
     async def verify_chain(self) -> tuple[bool, str | None]:
-        """Walk the entire chain from genesis and verify each hash.
-
-        Returns (True, None) on intact chain.
-        Returns (False, "row id=N") at the first inconsistency.
-
-        WARNING: this is O(n) on the audit log size. For large
-        deployments, schedule it nightly rather than per-request.
-        """
+        """Walk the entire chain from genesis and verify each hash."""
         from digitorn.core.models import CredentialAudit
 
         async with self._session_factory() as db:

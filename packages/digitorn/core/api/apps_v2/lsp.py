@@ -1,8 +1,4 @@
-"""Routes for the lsp group, extracted from the legacy ``apps.py``.
-
-This module is part of the ``apps_v2`` refactoring - same paths,
-same response shapes, same behaviour, just split across multiple files.
-"""
+"""Routes for the lsp group, extracted from the legacy `apps.py`."""
 
 from __future__ import annotations
 
@@ -105,7 +101,6 @@ from ._shared import (
 router = APIRouter(tags=["apps"])
 
 
-
 @router.post(
     "/{app_id}/sessions/{session_id}/lsp/request",
     response_model=AppResponse,
@@ -113,25 +108,7 @@ router = APIRouter(tags=["apps"])
 async def lsp_rpc_request(
     request: Request, app_id: str, session_id: str, body: LspRpcRequest,
 ) -> AppResponse:
-    """Forward an LSP RPC to the language server backing the given file.
-
-    This is the sole entry point clients (Monaco, ``useLspRequest`` Flutter
-    hook, custom tooling) use for hover / goto / references / completion /
-    rename / signature help. The daemon doesn't reshape payloads - LSP
-    spec semantics are the contract.
-
-    Returns::
-
-        {"success": true, "data": {"server": "pyright", "method": "...",
-                                    "result": <lsp response>}}
-
-    Error responses map cleanly to HTTP semantics:
-
-    - 404 - app not deployed or has no LSP module
-    - 400 - file extension has no registered server, or server not
-             installed, or method unsupported (protocol=compiler/linter)
-    - 504 - server responded with None (timeout)
-    """
+    """Forward an LSP RPC to the language server backing the given file."""
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     deployed = _get_deployed(request, app_id)
@@ -146,18 +123,6 @@ async def lsp_rpc_request(
     if sess is None:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Resolve the request path to an absolute on-disk path. The LSP
-    # module's ``request`` action passes ``path`` straight to the
-    # protocol, which builds ``file://`` URIs and tries to read the
-    # file from disk for didOpen. A workspace-relative path (the
-    # canonical shape clients send) would be resolved against the
-    # worker process's cwd -- not the session workspace -- and the
-    # didOpen would silently skip, returning empty hover results.
-    # Resolving here mirrors what ``workspace._run_lint`` does for
-    # the lint pipeline; we activate the preview session first so
-    # the workspace module's ``_resolve_sync_dir`` picks the right
-    # per-session dir (otherwise it leaks the previously-active
-    # session's workspace).
     resolved_path = body.path
     try:
         ws_module = deployed.modules.get("workspace") if hasattr(
@@ -197,13 +162,6 @@ async def lsp_rpc_request(
         supersede_previous=body.supersede_previous,
     )
 
-    # Stamp an ExecutionContext with the URL-derived ``app_id`` so the
-    # daemon-side proxy (when LSP is workered) ships the right tenant
-    # in the call envelope. Without this, the proxy reads an empty
-    # ``_context_var`` (REST endpoints don't go through
-    # ``module.execute()``) and the worker resolves the call against
-    # whichever app last called ``on_config_update`` -- which means
-    # one app's pyright/ruff bleeds into another's hover request.
     from digitorn.modules.base import (
         BaseModule as _BaseModule,
         ExecutionContext as _ExecutionContext,
@@ -219,10 +177,6 @@ async def lsp_rpc_request(
         ),
     )
 
-    # Fire LSP request as a monitored task so we can react to HTTP
-    # client disconnects (Phase 3: real server-side abort when the
-    # client fetch is aborted). We poll `request.is_disconnected()`
-    # in parallel and cancel the underlying LSP task if the fetch dies.
     lsp_task = asyncio.create_task(lsp_module.request(lsp_params))
 
     async def _watch_disconnect() -> None:
@@ -279,16 +233,7 @@ async def lsp_rpc_request(
 async def lsp_rpc_cancel(
     request: Request, app_id: str, session_id: str, body: LspCancelRequest,
 ) -> AppResponse:
-    """Cancel an in-flight LSP request by ``request_id``.
-
-    Safe to call on already-completed requests (returns ``cancelled:
-    false, already_done: true``). Returns ``request not found`` if the
-    id never existed or was already cleaned up.
-
-    Typical UX: Monaco fires an abort token on a completion request,
-    the client catches it and hits this endpoint with the correlation
-    id it sent in the original /lsp/request call.
-    """
+    """Cancel an in-flight LSP request by `request_id`."""
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     deployed = _get_deployed(request, app_id)

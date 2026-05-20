@@ -1,58 +1,8 @@
-"""Digitorn - Exception hierarchy.
-
-All exceptions raised by the daemon inherit from DigitornError so that callers
-can catch the full family with a single except clause when needed.
-
-Hierarchy:
-    DigitornError
-    +-- ProtocolError
-    |   +-- IMLParseError
-    |   +-- IMLValidationError
-    |   +-- TemplateResolutionError
-    +-- SecurityError
-    |   +-- PermissionDeniedError
-    |   +-- ApprovalRequiredError
-    |   +-- PermissionNotGrantedError
-    |   +-- RateLimitExceededError
-    |   +-- SanitizationError
-    |   +-- IntentVerificationError
-    |   +-- SuspiciousIntentError
-    +-- IdentityError
-    |   +-- AuthenticationError
-    |   +-- AuthorizationError
-    |   +-- ApplicationNotFoundError
-    +-- ClusterError
-    |   +-- NodeUnreachableError
-    |   +-- NodeNotFoundError
-    +-- OrchestrationError
-    |   +-- DAGCycleError
-    |   +-- DependencyError
-    |   +-- ExecutionTimeoutError
-    +-- ModuleError
-    |   +-- ModuleNotFoundError
-    |   +-- ActionNotFoundError
-    |   +-- ModuleLoadError
-    |   +-- ActionExecutionError
-    |   +-- ModuleLifecycleError
-    |   +-- ServiceNotFoundError
-    |   +-- ActionDisabledError
-    |   +-- WorkerError
-    |       +-- WorkerStartError
-    |       +-- WorkerCommunicationError
-    |       +-- WorkerCrashedError
-    |       +-- VenvCreationError
-    +-- PerceptionError
-    |   +-- ScreenCaptureError
-    |   +-- OCRError
-    +-- MemoryError
-        +-- StateStoreError
-        +-- VectorStoreError
-"""
+"""Digitorn - Exception hierarchy."""
 
 from __future__ import annotations
 
 from typing import Any
-
 
 class DigitornError(Exception):
     """Base exception for all Digitorn errors."""
@@ -65,10 +15,8 @@ class DigitornError(Exception):
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}({self.message!r}, context={self.context})"
 
-
 class ProtocolError(DigitornError):
     """Base for all IML protocol errors."""
-
 
 class IMLParseError(ProtocolError):
     """The incoming payload could not be parsed as valid JSON or IML structure."""
@@ -77,7 +25,6 @@ class IMLParseError(ProtocolError):
         super().__init__(message, context={"raw_payload": raw_payload})
         self.raw_payload = raw_payload
 
-
 class IMLValidationError(ProtocolError):
     """The IML plan failed Pydantic validation."""
 
@@ -85,9 +32,8 @@ class IMLValidationError(ProtocolError):
         super().__init__(message, context={"validation_errors": errors or []})
         self.errors = errors or []
 
-
 class TemplateResolutionError(ProtocolError):
-    """A ``{{result.X.Y}}`` template reference could not be resolved."""
+    """A `{{result.X.Y}}` template reference could not be resolved."""
 
     def __init__(self, template: str, reason: str) -> None:
         super().__init__(
@@ -96,10 +42,8 @@ class TemplateResolutionError(ProtocolError):
         )
         self.template = template
 
-
 class SecurityError(DigitornError):
     """Base for all security-related errors."""
-
 
 class PermissionDeniedError(SecurityError):
     """The active permission profile does not allow this action."""
@@ -114,7 +58,6 @@ class PermissionDeniedError(SecurityError):
         self.module = module
         self.profile = profile
 
-
 class ApprovalRequiredError(SecurityError):
     """The action requires explicit user approval before execution."""
 
@@ -125,7 +68,6 @@ class ApprovalRequiredError(SecurityError):
         )
         self.action_id = action_id
         self.plan_id = plan_id
-
 
 class PermissionNotGrantedError(SecurityError):
     """A required OS resource permission has not been granted."""
@@ -152,7 +94,6 @@ class PermissionNotGrantedError(SecurityError):
         self.action = action
         self.risk_level = risk_level
 
-
 class RateLimitExceededError(SecurityError):
     """An action has exceeded its configured rate limit."""
 
@@ -165,10 +106,8 @@ class RateLimitExceededError(SecurityError):
         self.limit = limit
         self.window = window
 
-
 class SanitizationError(SecurityError):
     """An output sanitisation rule was violated."""
-
 
 class IntentVerificationError(SecurityError):
     """The intent verification LLM call failed or returned an unparseable result."""
@@ -180,7 +119,6 @@ class IntentVerificationError(SecurityError):
         )
         self.plan_id = plan_id
         self.reason = reason
-
 
 class SuspiciousIntentError(SecurityError):
     """The intent verifier detected a security threat in the plan."""
@@ -205,7 +143,6 @@ class SuspiciousIntentError(SecurityError):
         self.reasoning = reasoning
         self.threats = threats or []
         self.risk_level = risk_level
-
 
 class InputScanRejectedError(SecurityError):
     """The input scanner pipeline rejected the plan as malicious."""
@@ -232,14 +169,11 @@ class InputScanRejectedError(SecurityError):
         self.risk_score = risk_score
         self.scanners = scanners or []
 
-
 class IdentityError(DigitornError):
     """Base for all identity/RBAC errors."""
 
-
 class AuthenticationError(IdentityError):
     """API key authentication failed (missing, invalid, revoked, or expired)."""
-
 
 class AuthorizationError(IdentityError):
     """Role-based access check failed - insufficient privileges."""
@@ -252,7 +186,6 @@ class AuthorizationError(IdentityError):
         self.role = role
         self.required = required
 
-
 class ApplicationNotFoundError(IdentityError):
     """No application with the given ID exists."""
 
@@ -263,10 +196,8 @@ class ApplicationNotFoundError(IdentityError):
         )
         self.app_id = app_id
 
-
 class ClusterError(DigitornError):
     """Base for all cluster/distributed errors."""
-
 
 class NodeUnreachableError(ClusterError):
     """A remote node is not reachable."""
@@ -278,7 +209,6 @@ class NodeUnreachableError(ClusterError):
         )
         self.node_id = node_id
 
-
 class NodeNotFoundError(ClusterError):
     """No node with the given ID is registered."""
 
@@ -289,10 +219,8 @@ class NodeNotFoundError(ClusterError):
         )
         self.node_id = node_id
 
-
 class OrchestrationError(DigitornError):
     """Base for all orchestration errors."""
-
 
 class DAGCycleError(OrchestrationError):
     """The dependency graph contains a cycle."""
@@ -304,7 +232,6 @@ class DAGCycleError(OrchestrationError):
         )
         self.cycle = cycle
 
-
 class DependencyError(OrchestrationError):
     """A required dependency failed or was not found."""
 
@@ -313,7 +240,6 @@ class DependencyError(OrchestrationError):
             f"Action '{action_id}' dependency '{dep_id}' not satisfied: {reason}",
             context={"action_id": action_id, "dep_id": dep_id, "reason": reason},
         )
-
 
 class ExecutionTimeoutError(OrchestrationError):
     """An action exceeded its configured timeout."""
@@ -326,10 +252,8 @@ class ExecutionTimeoutError(OrchestrationError):
         self.action_id = action_id
         self.timeout_seconds = timeout_seconds
 
-
 class ModuleError(DigitornError):
     """Base for all module errors."""
-
 
 class ModuleNotFoundError(ModuleError):
     """No module with the given ID is registered."""
@@ -340,7 +264,6 @@ class ModuleNotFoundError(ModuleError):
             context={"module_id": module_id},
         )
         self.module_id = module_id
-
 
 class ActionNotFoundError(ModuleError):
     """The module does not expose the requested action."""
@@ -353,7 +276,6 @@ class ActionNotFoundError(ModuleError):
         self.module_id = module_id
         self.action = action
 
-
 class ModuleLoadError(ModuleError):
     """A module failed to initialise (missing dependency, wrong platform, etc.)."""
 
@@ -362,7 +284,6 @@ class ModuleLoadError(ModuleError):
             f"Module '{module_id}' failed to load: {reason}",
             context={"module_id": module_id, "reason": reason},
         )
-
 
 class ActionExecutionError(ModuleError):
     """An action raised an unexpected error during execution."""
@@ -374,10 +295,8 @@ class ActionExecutionError(ModuleError):
         )
         self.cause = cause
 
-
 class WorkerError(ModuleError):
     """Base for all isolated worker errors."""
-
 
 class WorkerStartError(WorkerError):
     """The worker subprocess failed to start or complete handshake."""
@@ -388,7 +307,6 @@ class WorkerStartError(WorkerError):
             context={"module_id": module_id, "reason": reason},
         )
 
-
 class WorkerCommunicationError(WorkerError):
     """JSON-RPC communication with the worker failed."""
 
@@ -397,7 +315,6 @@ class WorkerCommunicationError(WorkerError):
             f"Worker '{module_id}' communication error: {reason}",
             context={"module_id": module_id, "reason": reason},
         )
-
 
 class WorkerCrashedError(WorkerError):
     """The worker subprocess terminated unexpectedly."""
@@ -408,7 +325,6 @@ class WorkerCrashedError(WorkerError):
             context={"module_id": module_id, "exit_code": exit_code},
         )
 
-
 class VenvCreationError(WorkerError):
     """Failed to create or validate a virtual environment."""
 
@@ -417,7 +333,6 @@ class VenvCreationError(WorkerError):
             f"Venv creation for '{module_id}' failed: {reason}",
             context={"module_id": module_id, "reason": reason},
         )
-
 
 class ModuleLifecycleError(ModuleError):
     """Invalid lifecycle state transition."""
@@ -436,7 +351,6 @@ class ModuleLifecycleError(ModuleError):
         self.current_state = current_state
         self.target_state = target_state
 
-
 class ServiceNotFoundError(ModuleError):
     """No service with this name is registered on the ServiceBus."""
 
@@ -446,7 +360,6 @@ class ServiceNotFoundError(ModuleError):
             context={"service": service},
         )
         self.service = service
-
 
 class ActionDisabledError(ModuleError):
     """An action has been administratively disabled by the Module Manager."""
@@ -463,7 +376,6 @@ class ActionDisabledError(ModuleError):
         self.action = action
         self.reason = reason
 
-
 class PolicyViolationError(ModuleError):
     """A module policy constraint was violated (cooldown, concurrency, etc.)."""
 
@@ -475,26 +387,20 @@ class PolicyViolationError(ModuleError):
         self.module_id = module_id
         self.violation = violation
 
-
 class PerceptionError(DigitornError):
     """Base for all perception errors."""
-
 
 class ScreenCaptureError(PerceptionError):
     """Failed to capture a screenshot."""
 
-
 class OCRError(PerceptionError):
     """Failed to perform OCR on a captured image."""
-
 
 class MemoryError(DigitornError):
     """Base for all memory errors."""
 
-
 class StateStoreError(MemoryError):
     """SQLite state store operation failed."""
-
 
 class VectorStoreError(MemoryError):
     """ChromaDB vector store operation failed."""

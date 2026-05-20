@@ -1,15 +1,4 @@
-"""ClientCertificateHandler - mTLS / TLS client certificates.
-
-Stores a PEM-formatted certificate + private key (+ optional CA chain
-+ passphrase). At runtime, the resolver writes them to temp files in
-the session's tmpdir (mode 0600) and exposes paths to the consumer
-module via injection.
-
-Common consumers:
-  - Internal corporate APIs requiring mTLS.
-  - Smart-card-equivalent client auth.
-  - Banking / fintech B2B integrations.
-"""
+"""ClientCertificateHandler - mTLS / TLS client certificates."""
 
 from __future__ import annotations
 
@@ -105,13 +94,7 @@ class ClientCertificateHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Parse the cert + key with cryptography and surface expiry.
-
-        We don't try to mTLS-handshake against a remote endpoint (the
-        schema doesn't carry a target host) - instead we verify the
-        PEM blobs are well-formed, the cert isn't expired, and the
-        key matches the cert's public key.
-        """
+        """Parse the cert + key with cryptography and surface expiry."""
         cert_pem = (fields or {}).get("cert_pem", "")
         key_pem = (fields or {}).get("key_pem", "")
         passphrase = (fields or {}).get("passphrase") or None

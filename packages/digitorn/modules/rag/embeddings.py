@@ -1,7 +1,4 @@
-"""EmbeddingManager - open model registry with auto-download.
-
-Resolution: shortcut ("bge-m3") -> FastEmbed ID ("BAAI/bge-m3") -> custom config.
-"""
+"""EmbeddingManager - open model registry with auto-download."""
 
 from __future__ import annotations
 
@@ -12,13 +9,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass(frozen=True, slots=True)
 class ModelSpec:
     fastembed_id: str
     dimensions: int
     description: str = ""
-
 
 BUILTIN_MODELS: dict[str, ModelSpec] = {
     "minilm-l12": ModelSpec(
@@ -33,7 +28,6 @@ BUILTIN_MODELS: dict[str, ModelSpec] = {
     "snowflake-xs": ModelSpec("snowflake/snowflake-arctic-embed-xs", 384, "Lightweight EN, 90 MB"),
 }
 
-
 @dataclass(frozen=True, slots=True)
 class ResolvedModel:
     fastembed_id: str
@@ -41,7 +35,6 @@ class ResolvedModel:
     is_custom: bool = False
     custom_pooling: str = "mean"
     custom_model_file: str = "onnx/model.onnx"
-
 
 class EmbeddingManager:
     """Multi-model registry with lazy singleton loading."""
@@ -117,8 +110,8 @@ class EmbeddingManager:
             for info in TextEmbedding.list_supported_models():
                 if info.get("model") == model_id:
                     return info.get("dim")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("embeddings best-effort block failed: %s", exc)
         return None
 
     def get_model(self, resolved: ResolvedModel) -> Any:
@@ -133,8 +126,8 @@ class EmbeddingManager:
                 if model is not None:
                     self._loaded[key] = model
                     return model
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("embeddings best-effort block failed: %s", exc)
 
         from fastembed import TextEmbedding
 
@@ -147,8 +140,8 @@ class EmbeddingManager:
                     dim=resolved.dimensions,
                     model_file=resolved.custom_model_file,
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("embeddings best-effort block failed: %s", exc)
 
         logger.info(
             "Loading embedding model %s (%d dims)",

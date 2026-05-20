@@ -1,14 +1,9 @@
-"""Database adapter protocol and shared data types.
-
-Every database backend (SQL, MongoDB, Redis, ...) implements this protocol.
-The DatabaseModule dispatches to the adapter - it never talks to drivers directly.
-"""
+"""Database adapter protocol and shared data types."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
-
 
 @dataclass(frozen=True, slots=True)
 class ColumnInfo:
@@ -21,7 +16,6 @@ class ColumnInfo:
     default: str | None = None
     comment: str | None = None
 
-
 @dataclass(frozen=True, slots=True)
 class ForeignKey:
     """Foreign key relationship."""
@@ -30,7 +24,6 @@ class ForeignKey:
     referred_table: str
     referred_column: str
 
-
 @dataclass(frozen=True, slots=True)
 class IndexInfo:
     """Index metadata."""
@@ -38,7 +31,6 @@ class IndexInfo:
     name: str
     columns: list[str]
     unique: bool = False
-
 
 @dataclass(frozen=True, slots=True)
 class TableInfo:
@@ -51,7 +43,6 @@ class TableInfo:
     indexes: list[IndexInfo] = field(default_factory=list)
     comment: str | None = None
 
-
 @dataclass(frozen=True, slots=True)
 class SchemaInfo:
     """Full schema introspection result."""
@@ -59,7 +50,6 @@ class SchemaInfo:
     tables: list[TableInfo]
     database: str = ""
     driver: str = ""
-
 
 @dataclass(frozen=True, slots=True)
 class TableStats:
@@ -69,14 +59,12 @@ class TableStats:
     row_count: int
     size_bytes: int | None = None
 
-
 @dataclass(frozen=True, slots=True)
 class ExecuteResult:
     """Result of a DML/DDL statement."""
 
     rows_affected: int
     last_insert_id: Any | None = None
-
 
 @dataclass(frozen=True, slots=True)
 class FetchResult:
@@ -86,14 +74,12 @@ class FetchResult:
     rows: list[dict[str, Any]]
     total_count: int | None = None
 
-
 @dataclass(frozen=True, slots=True)
 class WatchItem:
     """Item returned by list_items for the watcher."""
 
     id: str
     path: str
-
 
 @dataclass(frozen=True, slots=True)
 class ItemChecksum:
@@ -102,14 +88,9 @@ class ItemChecksum:
     id: str
     hash: str
 
-
 @runtime_checkable
 class DatabaseAdapter(Protocol):
-    """Protocol that every database backend must implement.
-
-    The adapter is stateful - it holds a connection/engine after ``connect()``.
-    Call ``disconnect()`` to release resources.
-    """
+    """Protocol that every database backend must implement."""
 
     @property
     def connected(self) -> bool:
@@ -121,7 +102,6 @@ class DatabaseAdapter(Protocol):
         """Short driver identifier, e.g. 'postgresql', 'sqlite', 'mongodb'."""
         ...
 
-
     async def connect(self, url: str, **options: Any) -> None:
         """Open a connection to the database."""
         ...
@@ -130,25 +110,16 @@ class DatabaseAdapter(Protocol):
         """Close the connection and release resources."""
         ...
 
-
     async def execute(
         self, query: str, params: list[Any] | None = None,
     ) -> ExecuteResult:
-        """Execute a DML/DDL statement (INSERT, UPDATE, DELETE, CREATE, ...).
-
-        Parameters are always positional (``$1``, ``?``, ``%s`` depending
-        on the driver). The adapter translates as needed.
-        """
+        """Execute a DML/DDL statement (INSERT, UPDATE, DELETE, CREATE, ...)."""
         ...
 
     async def execute_many(
         self, query: str, params_list: list[dict[str, Any]],
     ) -> ExecuteResult:
-        """Execute a statement with multiple parameter sets (batch).
-
-        Much faster than calling ``execute()`` in a loop - uses the driver's
-        native ``executemany`` underneath.
-        """
+        """Execute a statement with multiple parameter sets (batch)."""
         ...
 
     async def fetch(
@@ -159,7 +130,6 @@ class DatabaseAdapter(Protocol):
     ) -> FetchResult:
         """Execute a SELECT and return rows up to *limit*."""
         ...
-
 
     async def introspect(self, schema: str | None = None) -> SchemaInfo:
         """Return full schema metadata (tables, columns, FK, indexes)."""
@@ -181,7 +151,6 @@ class DatabaseAdapter(Protocol):
         """Fetch sample rows from a table."""
         ...
 
-
     async def explain(
         self, query: str, params: list[Any] | None = None, analyze: bool = False,
     ) -> list[dict[str, Any]]:
@@ -191,7 +160,6 @@ class DatabaseAdapter(Protocol):
     async def ping(self) -> bool:
         """Check if the connection is alive. Returns True if healthy."""
         ...
-
 
     async def begin(self) -> None:
         """Start an explicit transaction."""
@@ -204,7 +172,6 @@ class DatabaseAdapter(Protocol):
     async def rollback(self) -> None:
         """Roll back the current transaction."""
         ...
-
 
     async def list_items(
         self, patterns: list[str] | None = None,

@@ -1,35 +1,4 @@
-"""MCP Middleware Pipeline - pluggable layers around MCP tool calls.
-
-Each middleware wraps the raw ``pool.call_tool()`` invocation and can
-inspect/modify the request, the response, or both.  Middlewares are
-composed into a pipeline and executed in order (outermost first).
-
-Built-in middlewares:
-- **RetryMiddleware** - retry with exponential backoff on transient errors
-- **TimeoutMiddleware** - per-call timeout with clean cancellation
-- **AuditMiddleware** - structured logging of every call with timing
-- **TransformMiddleware** - input/output transformations
-
-YAML configuration::
-
-    mcp:
-      middleware:
-        - retry:
-            max_attempts: 3
-            backoff: exponential
-            base_delay: 1.0
-        - timeout:
-            seconds: 30
-        - audit:
-            log_params: true
-            log_result: false
-
-      servers:
-        github:
-          middleware:
-            - retry:
-                max_attempts: 5
-"""
+"""MCP Middleware Pipeline - pluggable layers around MCP tool calls."""
 
 from __future__ import annotations
 
@@ -41,7 +10,6 @@ from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
 
-
 @dataclass
 class MCPCallContext:
     """Immutable context for a single MCP tool call flowing through the pipeline."""
@@ -52,15 +20,9 @@ class MCPCallContext:
     attempt: int = 1
     metadata: dict[str, Any] = field(default_factory=dict)
 
-
 @runtime_checkable
 class MCPMiddleware(Protocol):
-    """Protocol for MCP middleware.
-
-    A middleware receives the call context and a ``next_`` coroutine.
-    It MUST call ``await next_(ctx)`` exactly once (or zero times to
-    short-circuit) and return the raw MCP result.
-    """
+    """Protocol for MCP middleware."""
 
     async def __call__(
         self,
@@ -68,14 +30,8 @@ class MCPMiddleware(Protocol):
         next_: Any,
     ) -> Any: ...
 
-
 class RetryMiddleware:
-    """Retry failed calls with exponential backoff.
-
-    Only retries on exceptions (transport errors, timeouts).
-    MCP-level errors (``result.is_error``) are NOT retried - those are
-    deterministic and retrying won't help.
-    """
+    """Retry failed calls with exponential backoff."""
 
     def __init__(
         self,
@@ -114,13 +70,8 @@ class RetryMiddleware:
             return min(self.base_delay, self.max_delay)
         return min(self.base_delay * (2 ** (attempt - 1)), self.max_delay)
 
-
 class TimeoutMiddleware:
-    """Enforce a per-call timeout.
-
-    If the call exceeds ``seconds``, an ``asyncio.TimeoutError`` is
-    raised (which RetryMiddleware can catch and retry).
-    """
+    """Enforce a per-call timeout."""
 
     def __init__(self, seconds: float = 30.0) -> None:
         self.seconds = seconds
@@ -135,13 +86,8 @@ class TimeoutMiddleware:
             )
             raise
 
-
 class AuditMiddleware:
-    """Structured audit logging for every MCP call.
-
-    Logs server, tool, params (optional), duration, and success/error.
-    Also accumulates stats accessible via ``stats`` property.
-    """
+    """Structured audit logging for every MCP call."""
 
     def __init__(
         self,
@@ -198,15 +144,8 @@ class AuditMiddleware:
             ),
         }
 
-
 class TransformMiddleware:
-    """Input/output transformations.
-
-    - ``input_transforms``: list of callables ``(params) -> params``
-    - ``output_transforms``: list of callables ``(result) -> result``
-
-    Transforms are applied in order.
-    """
+    """Input/output transformations."""
 
     def __init__(
         self,
@@ -227,24 +166,8 @@ class TransformMiddleware:
 
         return result
 
-
 class BudgetMiddleware:
-    """Per-server and global call budget enforcement.
-
-    Tracks call counts and estimated costs per server, blocks calls
-    when budgets are exceeded, and fires alert callbacks at thresholds.
-
-    YAML config::
-
-        - budget:
-            max_calls_per_hour: 100
-            server_limits:
-              github: 50
-              slack: 200
-            alert_threshold: 0.8
-            cost_per_call: 0.001
-            max_cost_per_hour: 1.0
-    """
+    """Per-server and global call budget enforcement."""
 
     def __init__(
         self,
@@ -310,7 +233,6 @@ class BudgetMiddleware:
         return result
 
     def _purge_old_entries(self, now: float) -> None:
-        """Remove entries older than 1 hour."""
         cutoff = now - 3600.0
         while self._call_log and self._call_log[0][0] < cutoff:
             self._call_log.pop(0)
@@ -318,7 +240,6 @@ class BudgetMiddleware:
             self._alerts_fired.clear()
 
     def _remaining_calls(self, server_id: str) -> dict[str, int | None]:
-        """Calculate remaining calls for global and server budgets."""
         total = len(self._call_log)
         srv_calls = sum(1 for _, sid, _ in self._call_log if sid == server_id)
         return {
@@ -330,7 +251,6 @@ class BudgetMiddleware:
         }
 
     def _check_alert(self, scope: str, current: int, limit: int) -> None:
-        """Fire alert callback when threshold is crossed."""
         if scope in self._alerts_fired:
             return
         ratio = current / limit if limit > 0 else 0
@@ -344,8 +264,8 @@ class BudgetMiddleware:
             if self._alert_callback:
                 try:
                     self._alert_callback("budget_alert", msg, self.stats)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("middleware best-effort block failed: %s", exc)
 
     @property
     def stats(self) -> dict[str, Any]:
@@ -365,24 +285,8 @@ class BudgetMiddleware:
             "max_cost_per_hour": self.max_cost_per_hour or "unlimited",
         }
 
-
 class AutoHealMiddleware:
-    """Suggest alternative tools when a call fails.
-
-    When the MCP call returns ``is_error=True``, this middleware
-    enriches the error with suggestions: similar tools on the same
-    server (or across servers) that might accomplish the goal.
-
-    Requires a ``tool_resolver`` callback that, given a tool name,
-    returns a list of ``(server_id, tool_name, description)`` tuples
-    for similar tools.
-
-    YAML config::
-
-        - auto_heal:
-            max_suggestions: 3
-            include_cross_server: true
-    """
+    """Suggest alternative tools when a call fails."""
 
     def __init__(
         self,
@@ -454,32 +358,11 @@ class AutoHealMiddleware:
     def stats(self) -> dict[str, int]:
         return {"heal_attempts": self._heal_count}
 
-
 class BudgetExceededError(Exception):
     """Raised when an MCP call would exceed the configured budget."""
 
-
 class CrossServerContextMiddleware:
-    """Share context between MCP servers automatically.
-
-    Captures the output of each successful tool call and stores it
-    in a rolling context buffer.  Subsequent calls on ANY server
-    can reference this shared context via ``_context`` parameter
-    or the middleware injects a ``_recent_context`` metadata key.
-
-    This enables workflows like:
-    1. ``github.search_repos(q="digitorn")`` → stores results
-    2. ``slack.send_message(text="...")`` → sees recent GitHub results
-       in context so the LLM can reference them naturally
-
-    YAML config::
-
-        - context:
-            max_entries: 20
-            include_servers: []
-            exclude_servers: []
-            summary_max_chars: 500
-    """
+    """Share context between MCP servers automatically."""
 
     def __init__(
         self,
@@ -513,7 +396,6 @@ class CrossServerContextMiddleware:
         return True
 
     def _record(self, ctx: MCPCallContext, result: Any) -> None:
-        """Store a summary of the call result."""
         output = ""
         if hasattr(result, "text") and result.text:
             output = result.text
@@ -547,23 +429,8 @@ class CrossServerContextMiddleware:
     def clear(self) -> None:
         self._entries.clear()
 
-
 class SemanticCacheMiddleware:
-    """Cache MCP results by semantic similarity, not exact match.
-
-    "list all repositories" and "show me the repos" hit the same
-    cache entry if their embeddings are similar enough.
-
-    Uses the shared FastEmbed model (same as tool discovery).
-    Only caches read-only tools (risk=low).
-
-    Opt-in::
-
-        - semantic_cache:
-            similarity_threshold: 0.85
-            ttl: 300
-            max_entries: 100
-    """
+    """Cache MCP results by semantic similarity, not exact match."""
 
     def __init__(
         self,
@@ -580,7 +447,6 @@ class SemanticCacheMiddleware:
         self._model_loaded: bool = False
 
     def _get_embedding(self, text: str) -> Any:
-        """Compute embedding vector for a text query."""
         try:
             from digitorn.modules.context_builder.embeddings import _get_model
             import numpy as np
@@ -593,14 +459,12 @@ class SemanticCacheMiddleware:
             return None
 
     def _cosine_similarity(self, a: Any, b: Any) -> float:
-        """Compute cosine similarity between two vectors."""
         import numpy as np
         dot = np.dot(a, b)
         norm = np.linalg.norm(a) * np.linalg.norm(b)
         return float(dot / norm) if norm > 0 else 0.0
 
     def _build_query(self, ctx: MCPCallContext) -> str:
-        """Build a natural-language query from tool name + params."""
         parts = [ctx.tool_name.replace("_", " ")]
         for k, v in ctx.params.items():
             if isinstance(v, str) and len(v) < 200:
@@ -681,23 +545,8 @@ class SemanticCacheMiddleware:
             "model_loaded": self._model_loaded,
         }
 
-
 class CircuitBreakerMiddleware:
-    """Protect against cascading failures from unhealthy MCP servers.
-
-    Tracks failures per server. When ``failure_threshold`` consecutive
-    failures are reached, the circuit **opens** and all calls fail
-    immediately (no server contact) for ``recovery_timeout`` seconds.
-    After that, one probe call is allowed (**half-open**). If it
-    succeeds, the circuit **closes** again.
-
-    Opt-in - only active when declared in YAML::
-
-        - circuit_breaker:
-            failure_threshold: 3
-            recovery_timeout: 60
-            half_open_calls: 1
-    """
+    """Protect against cascading failures from unhealthy MCP servers."""
 
     CLOSED = "closed"
     OPEN = "open"
@@ -765,24 +614,11 @@ class CircuitBreakerMiddleware:
             "failures": dict(self._failures),
         }
 
-
 class CircuitOpenError(Exception):
     """Raised when a call is blocked by an open circuit breaker."""
 
-
 class DeduplicationMiddleware:
-    """Prevent duplicate calls within the same agent turn.
-
-    If the exact same tool+params combination is called twice in
-    rapid succession (within ``window_seconds``), the second call
-    returns the cached result immediately. Prevents LLM retry loops.
-
-    Opt-in::
-
-        - dedup:
-            window_seconds: 5.0
-            max_entries: 50
-    """
+    """Prevent duplicate calls within the same agent turn."""
 
     def __init__(
         self,
@@ -831,25 +667,8 @@ class DeduplicationMiddleware:
     def stats(self) -> dict[str, int]:
         return {"deduplicated_calls": self._dedup_count}
 
-
 class StreamingMiddleware:
-    """Enable progressive result streaming for long MCP operations.
-
-    When enabled, wraps MCP calls with a progress callback that
-    allows the caller to receive partial results. Works with
-    servers that support streaming (SSE, Streamable HTTP).
-
-    The middleware itself doesn't modify the call - it sets up
-    the streaming context and tracks timing for slow calls.
-    If a call exceeds ``slow_threshold`` seconds, it logs a
-    warning and sets ``ctx.metadata["slow_call"]``.
-
-    Opt-in::
-
-        - streaming:
-            slow_threshold: 5.0
-            notify_interval: 2.0
-    """
+    """Enable progressive result streaming for long MCP operations."""
 
     def __init__(
         self,
@@ -886,8 +705,8 @@ class StreamingMiddleware:
                             self._progress_callback(
                                 ctx.server_id, ctx.tool_name, elapsed,
                             )
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            logger.debug("middleware best-effort block failed: %s", exc)
 
             progress_task = asyncio.create_task(_notify_progress())
 
@@ -920,25 +739,8 @@ class StreamingMiddleware:
             "total_time_ms": round(self._total_time_ms),
         }
 
-
 class MCPPipeline:
-    """Compose middlewares into a callable pipeline.
-
-    Usage::
-
-        pipeline = MCPPipeline([
-            RetryMiddleware(max_attempts=3),
-            TimeoutMiddleware(seconds=30),
-            AuditMiddleware(log_params=True),
-        ])
-
-        result = await pipeline.execute(
-            server_id="github",
-            tool_name="search_repos",
-            params={"query": "digitorn"},
-            call_fn=pool.call_tool,
-        )
-    """
+    """Compose middlewares into a callable pipeline."""
 
     def __init__(self, middlewares: list[MCPMiddleware] | None = None) -> None:
         self._middlewares: list[MCPMiddleware] = middlewares or []
@@ -980,13 +782,10 @@ class MCPPipeline:
                 return mw
         return None
 
-
 def _make_link(mw: MCPMiddleware, next_fn: Any) -> Any:
-    """Create a pipeline link that calls ``mw(ctx, next_fn)``."""
     async def link(ctx: MCPCallContext) -> Any:
         return await mw(ctx, next_fn)
     return link
-
 
 _MIDDLEWARE_REGISTRY: dict[str, type] = {
     "retry": RetryMiddleware,
@@ -1002,22 +801,8 @@ _MIDDLEWARE_REGISTRY: dict[str, type] = {
     "streaming": StreamingMiddleware,
 }
 
-
 def build_pipeline(config_list: list[dict[str, Any]] | None) -> MCPPipeline | None:
-    """Build a pipeline from YAML middleware config.
-
-    Returns ``None`` if no middlewares are configured (skip pipeline overhead).
-
-    Config format::
-
-        middleware:
-          - retry:
-              max_attempts: 3
-          - timeout:
-              seconds: 30
-          - audit:
-              log_params: true
-    """
+    """Build a pipeline from YAML middleware config."""
     if not config_list:
         return None
 
