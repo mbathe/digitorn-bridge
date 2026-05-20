@@ -175,6 +175,8 @@ tests/live/route_audit/*.txt
 
 # ── Internal / scratch (not for OSS) ──────────────────
 olds_doc/
+.logs/
+.vscode/settings.json
 tools/_*.txt
 tools/_*_result.txt
 tools/*_result.json
