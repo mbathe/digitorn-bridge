@@ -359,7 +359,7 @@ def _migrate_missing_columns(conn) -> None:
     This runs ALTER TABLE ADD COLUMN for any columns that don't exist yet.
     Safe to call repeatedly (skips columns that already exist).
     """
-    from sqlalchemy import inspect, text
+    from sqlalchemy import Boolean, inspect, text
 
     inspector = inspect(conn)
     for table in Base.metadata.sorted_tables:
@@ -387,8 +387,11 @@ def _migrate_missing_columns(conn) -> None:
                         # Already SQL-quoted.
                         default = f" DEFAULT {raw}"
                     elif raw.lstrip("-").replace(".", "", 1).isdigit():
-                        # Numeric literal (int or float).
-                        default = f" DEFAULT {raw}"
+                        # Postgres rejects 0/1 as a boolean default.
+                        if isinstance(col.type, Boolean):
+                            default = " DEFAULT FALSE" if raw in ("0", "0.0") else " DEFAULT TRUE"
+                        else:
+                            default = f" DEFAULT {raw}"
                     elif raw.upper() in ("TRUE", "FALSE", "NULL", "CURRENT_TIMESTAMP"):
                         # SQL keyword literal.
                         default = f" DEFAULT {raw.upper()}"
