@@ -51,11 +51,17 @@ agents:
       - audio_overview
       - form
     brain:
-      # gpt-5-mini via the GitHub Copilot relay. The system_prompt
-      # heal in ``manager_v2/_chat.py`` guarantees ``messages[0]``
-      # carries the resolved Notes LM prompt on every turn. The
-      # ``placeholder`` api_key is hot-swapped at session start by
-      # the gateway resolver against the user's Copilot creds.
+      # gpt-5-mini via the GitHub Copilot relay (through the gateway).
+      # The system_prompt heal in ``manager_v2/_chat.py`` guarantees
+      # ``messages[0]`` carries the resolved Notes LM prompt on every
+      # turn. ``placeholder`` api_key is hot-swapped at session start
+      # by the gateway resolver against the user's Copilot creds.
+      #
+      # NOTE: local Ollama models (qwen2.5:7b/14b) were evaluated as a
+      # fallback. The 14b Q3 has excellent quality but the ~30K-char
+      # Notes LM system prompt + tool loop on an 8GB laptop GPU pushes
+      # a single turn past 120s and stalls the daemon. gpt-5-mini via
+      # the gateway is both the prod config AND fast enough.
       provider: github_copilot
       backend: github_copilot
       model: gpt-5-mini

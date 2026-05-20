@@ -81,11 +81,6 @@ if [ "$NEW_DEPS_HASH" != "$OLD_DEPS_HASH" ]; then
   log "deps changed ($OLD_DEPS_HASH → $NEW_DEPS_HASH) — pip install"
   sudo -u "$SERVICE_USER" "$REPO_DIR/.venv/bin/pip" install --upgrade -e \
     "$REPO_DIR[postgres,redis,rss,pdf,presentation]"
-  # digitorn-auth is a sibling package consumed by the daemon for
-  # remote auth (RemoteAuthMiddleware + RemoteAuthClient). Without
-  # it, server.py crashes at startup on `import digitorn_auth`.
-  sudo -u "$SERVICE_USER" "$REPO_DIR/.venv/bin/pip" install --upgrade -e \
-    "$REPO_DIR/packages/auth"
   # digitorn-gateway is the OpenAI-compatible LLM router. The
   # daemon's outbound LLM calls hit ``gateway.digitorn.ai`` which is
   # served by ``digitorn-gateway.service`` from this same repo.

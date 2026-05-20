@@ -428,7 +428,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
         if getattr(settings.server, "auth_enabled", True):
             try:
-                from digitorn_auth.fastapi import install_remote_auth
+                from digitorn.core.auth.remote_middleware import install_remote_auth
                 await _slow_phase(
                     "remote_auth_warm",
                     install_remote_auth(
@@ -1732,7 +1732,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 "auth.service_url=https://<your-auth-service>."
             )
 
-        from digitorn_auth.fastapi import RemoteAuthMiddleware
+        from digitorn.core.auth.remote_middleware import RemoteAuthMiddleware
         service_url = (getattr(settings.auth, "service_url", "") or "").rstrip("/")
         if not service_url:
             raise RuntimeError(

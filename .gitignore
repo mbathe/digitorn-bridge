@@ -138,6 +138,7 @@ events.ndjson
 # ── Secrets / credentials ────────────────────────────
 .env
 .env.*
+*.env
 .envrc
 *.pem
 *.key
@@ -177,6 +178,7 @@ tests/live/route_audit/*.txt
 olds_doc/
 .logs/
 .vscode/settings.json
+/package.toml
 tools/_*.txt
 tools/_*_result.txt
 tools/*_result.json

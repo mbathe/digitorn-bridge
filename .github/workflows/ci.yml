@@ -67,8 +67,8 @@ jobs:
           import digitorn.core.server
           import digitorn.core.auth.local_device
           import digitorn.core.auth.device_revalidator
-          import digitorn_auth.fastapi
-          import digitorn_auth.client
+          import digitorn.core.auth.remote_middleware
+          import digitorn.core.auth.remote_client
           import digitorn.modules.filesystem.module
           import digitorn.modules.git.module
           import digitorn.modules.web.module

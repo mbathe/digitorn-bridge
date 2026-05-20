@@ -1091,9 +1091,6 @@ async def _finalize_terminal(
     COMPLETED and CANCELLED outcomes.
     """
 
-    if status == TurnStatus.COMPLETED:
-        await _persist_turn_error(manager, app_id, session_id, user_id, None)
-
     next_entry = await _flip_queue_row(
         session_id=session_id, entry=entry, source=source,
         terminal_status=queue_terminal,
