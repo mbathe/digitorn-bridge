@@ -499,4 +499,4 @@ dev:
     description: Review changed code for reuse, quality, efficiency, then fix issues
     path: ./skills/simplify.md
   variables:
-    workspace: /home/paul/codes/benchmark-flask
+    workspace: ~/code/my-project

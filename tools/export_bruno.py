@@ -524,7 +524,7 @@ def main() -> None:
         "  message: Hello from Bruno\n"
         "  query: hello\n"
         "  draft_name: Bruno draft\n"
-        "  yaml_path: C:/Users/ASUS/Documents/digitorn-bridge/knowledge_base/tutorials/01-hello-world.yaml\n"
+        "  yaml_path: knowledge_base/tutorials/01-hello-world.yaml\n"
         "}\n"
         "vars:secret [\n"
         "  password\n"

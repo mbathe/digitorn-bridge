@@ -1,7 +1,7 @@
 """Live end-to-end history_log test - 3 scenarios against a real LLM.
 
-Runs against the test daemon on :8301 (started from
-``C:/Users/ASUS/AppData/Local/Temp/uniq-ts-test/``). Uses Ollama
+Runs against the test daemon on :8301 (started from a temp dir
+under the system tempdir). Uses Ollama
 qwen2.5:7b as the backend - no mocks.
 
 Scenarios:

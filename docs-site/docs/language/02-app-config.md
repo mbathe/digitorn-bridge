@@ -1329,7 +1329,7 @@ Resolved at compile time. The full list:
 | `sys.user` | `$USER` / `$USERNAME` / `unknown` | `paul` |
 | `sys.pid` | `os.getpid` | `12345` |
 | `sys.digitorn_version` | package version | `1.0.0` |
-| `sys.home` | `~` expansion | `/home/paul` |
+| `sys.home` | `~` expansion | `/home/user` |
 | `sys.tmpdir`, `sys.temp_dir` | `tempfile.gettempdir` | `/tmp` |
 | `sys.locale` | `$LANG` / `$LC_ALL` / `C` | `en_US.UTF-8` |
 | `sys.shell` | detected default shell | `/bin/bash`, `pwsh` |

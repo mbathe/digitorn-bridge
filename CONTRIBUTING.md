@@ -80,7 +80,7 @@ python scripts/check-wheel-contents.py dist/digitorn-*-py3-none-any.whl
 ```
 
 The script rejects any wheel that contains files from private
-sibling packages (`packages/auth`, `packages/digitorn-preview-sdk`,
+sibling packages (`packages/digitorn-preview-sdk`,
 `packages/digitorn_cli`), build artifacts, internal docs, or
 secret-shaped filenames (`.pem`, `.key`, `credentials.json`,
 ...). If a future addition requires a new top-level entry, edit

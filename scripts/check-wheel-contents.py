@@ -11,8 +11,8 @@ The script enforces three rules:
 
 1. Only two top-level entries are allowed: the `digitorn/` package
    and the `digitorn-*.dist-info/` metadata directory. Anything
-   else (e.g. a stray `auth/` from a misconfigured exclude
-   pattern) is rejected.
+   else (e.g. a stray private sibling package from a misconfigured
+   exclude pattern) is rejected.
 
 2. No file path may contain a FORBIDDEN_SUBSTRING. Catches stray
    `node_modules/`, `__pycache__/`, `.env`, `CLAUDE.md`, etc.
@@ -37,7 +37,6 @@ from pathlib import Path
 # Top-level directory names that MUST NOT appear in the wheel.
 # Update when a new private sibling package is added.
 FORBIDDEN_TOPLEVEL = frozenset({
-    "auth",
     "digitorn-preview-sdk",
     "digitorn_cli",
     "tests",

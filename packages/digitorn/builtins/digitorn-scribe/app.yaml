@@ -124,29 +124,22 @@ modules:
       #
       # Each save fires all three in parallel; their diagnostics are
       # merged with dedup before reaching the agent.
-      # Note: command paths are absolute below as a Windows workaround.
-      # The lsp module's _start_server calls ``shutil.which(cmd_parts[0])``
-      # on the worker subprocess; under our worker spawn flow on Windows
-      # that lookup intermittently fails for bare names like ``texlab``
-      # or ``chktex`` even though ``where texlab`` resolves cleanly from
-      # the same shell. Tracked as a runtime bug; for now, absolute paths
-      # bypass the lookup. The cmd_parts[0] is consumed verbatim by
-      # asyncio.create_subprocess_exec which handles .exe + .cmd directly
-      # given a full path. Override in your local fork if your toolchain
-      # lives elsewhere.
+      # Commands are resolved from PATH. If your worker's PATH lookup
+      # fails (happens on some Windows setups), replace a bare name with
+      # the absolute path to the binary.
       servers:
         texlab:
-          command: "C:/Users/ASUS/bin/texlab.exe"
+          command: "texlab"
           extensions: [".tex"]
           protocol: lsp
           parser: fallback
         tectonic:
-          command: "C:/Users/ASUS/bin/tectonic.exe --keep-logs --print"
+          command: "tectonic --keep-logs --print"
           extensions: [".tex", ".bib", ".cls", ".sty"]
           protocol: compiler
           parser: tectonic
         chktex:
-          command: "C:/Users/ASUS/AppData/Local/Programs/MiKTeX/miktex/bin/x64/chktex.exe -q"
+          command: "chktex -q"
           extensions: [".tex"]
           protocol: linter
           parser: chktex
