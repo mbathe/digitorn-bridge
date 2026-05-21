@@ -216,7 +216,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
 
-__version__ = "1.0.2"
+__version__ = "1.0.3"
 
 console = Console()
 

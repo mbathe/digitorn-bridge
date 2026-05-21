@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "digitorn"
-version = "1.0.2"
+version = "1.0.3"
 description = "Declarative AI agent framework - build agent applications in YAML"
 authors = ["Paul Mbathe <mbathepaul@gmail.com>"]
 readme = "README.md"

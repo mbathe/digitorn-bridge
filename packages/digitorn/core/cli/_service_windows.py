@@ -1,138 +1,114 @@
-"""Windows Service backend."""
+"""Windows Service backend, driven by pywin32 around DigitornService."""
 
 from __future__ import annotations
 
 import logging
-import shutil
-import subprocess
-import sys
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-SERVICE_NAME = "DigitornDaemon"
-SERVICE_DISPLAY = "Digitorn Agent Server"
-SERVICE_DESCRIPTION = (
-    "Digitorn AI agent server - provides FastAPI + Socket.IO daemon "
-    "for agent application management."
-)
 
-
-def _get_executable() -> str:
-    """Return the command to run the Digitorn daemon."""
-    if getattr(sys, "frozen", False):
-        # PyInstaller frozen exe
-        return sys.executable
-    # Normal Python: find the digitorn script
-    digitorn_bin = shutil.which("digitorn")
-    if digitorn_bin:
-        return digitorn_bin
-    # Fallback: python -m
-    return f'"{sys.executable}" -m digitorn.core.server'
-
-
-def install() -> None:
-    """Install Digitorn as a Windows Service."""
+def _require_pywin32() -> None:
     try:
         import win32service  # noqa: F401
+        import win32serviceutil  # noqa: F401
     except ImportError:
         raise RuntimeError(
             "pywin32 is required for Windows service support.\n"
             "Install it with: pip install pywin32"
         )
 
-    exe = _get_executable()
 
-    # Create the service using sc.exe for simplicity and reliability
-    cmd = [
-        "sc", "create", SERVICE_NAME,
-        f"binPath= {exe} start",
-        f"DisplayName= {SERVICE_DISPLAY}",
-        "start= delayed-auto",
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        if "exists" in result.stderr.lower():
-            raise RuntimeError(f"Service '{SERVICE_NAME}' already exists. Uninstall it first.")
-        raise RuntimeError(f"Failed to create service: {result.stderr.strip()}")
+def install() -> None:
+    """Register Digitorn as a Windows Service (delayed auto-start)."""
+    _require_pywin32()
+    import sys
+    from pathlib import Path
 
-    # Set description
-    subprocess.run(
-        ["sc", "description", SERVICE_NAME, SERVICE_DESCRIPTION],
-        capture_output=True,
+    import win32service
+    import win32serviceutil
+
+    from digitorn.core.cli import _win_service as svc
+
+    # Host the service with this venv's python running the script directly,
+    # not pythonservice.exe - the latter often fails to load the class in an
+    # isolated venv (error 1053).
+    script = str(Path(svc.__file__).resolve())
+    win32serviceutil.InstallService(
+        pythonClassString=f"{svc.__name__}.DigitornService",
+        serviceName=svc.SERVICE_NAME,
+        displayName=svc.SERVICE_DISPLAY,
+        description=svc.SERVICE_DESCRIPTION,
+        startType=win32service.SERVICE_AUTO_START,
+        delayedstart=True,
+        exeName=sys.executable,
+        exeArgs=f'"{script}"',
     )
-
-    # Configure recovery: restart on failure (3 times, 5000ms delay)
-    subprocess.run(
-        ["sc", "failure", SERVICE_NAME, "reset=", "86400", "actions=", "restart/5000/restart/5000/restart/5000"],
-        capture_output=True,
-    )
-
-    logger.info("Windows service '%s' installed", SERVICE_NAME)
+    logger.info("Windows service '%s' installed", svc.SERVICE_NAME)
 
 
 def uninstall() -> None:
-    """Remove the Digitorn Windows Service."""
-    # Stop first if running
-    subprocess.run(["sc", "stop", SERVICE_NAME], capture_output=True)
+    """Stop (if running) and remove the Digitorn Windows Service."""
+    _require_pywin32()
+    import win32serviceutil
 
-    result = subprocess.run(
-        ["sc", "delete", SERVICE_NAME],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        if "not exist" in result.stderr.lower() or "1060" in result.stderr:
-            raise RuntimeError(f"Service '{SERVICE_NAME}' does not exist.")
-        raise RuntimeError(f"Failed to delete service: {result.stderr.strip()}")
+    from digitorn.core.cli import _win_service as svc
 
-    logger.info("Windows service '%s' removed", SERVICE_NAME)
+    try:
+        stop()
+    except Exception:
+        pass
+    win32serviceutil.RemoveService(svc.SERVICE_NAME)
+    logger.info("Windows service '%s' removed", svc.SERVICE_NAME)
 
 
 def start() -> None:
     """Start the Digitorn Windows Service."""
-    result = subprocess.run(
-        ["sc", "start", SERVICE_NAME],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"Failed to start service: {result.stderr.strip()}")
+    _require_pywin32()
+    import win32serviceutil
+
+    from digitorn.core.cli import _win_service as svc
+
+    win32serviceutil.StartService(svc.SERVICE_NAME)
 
 
 def stop() -> None:
     """Stop the Digitorn Windows Service."""
-    result = subprocess.run(
-        ["sc", "stop", SERVICE_NAME],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        if "not been started" in result.stderr.lower() or "1062" in result.stderr:
-            return  # Already stopped
-        raise RuntimeError(f"Failed to stop service: {result.stderr.strip()}")
+    _require_pywin32()
+    import win32serviceutil
+
+    from digitorn.core.cli import _win_service as svc
+
+    win32serviceutil.StopService(svc.SERVICE_NAME)
 
 
 def status() -> dict[str, str]:
     """Query the Windows Service status."""
-    result = subprocess.run(
-        ["sc", "query", SERVICE_NAME],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
+    try:
+        import win32service
+        import win32serviceutil
+    except ImportError:
         return {"status": "not_installed"}
 
-    output = result.stdout
-    if "RUNNING" in output:
-        return {"status": "running"}
-    elif "STOPPED" in output:
-        return {"status": "stopped"}
-    elif "START_PENDING" in output:
-        return {"status": "starting"}
-    elif "STOP_PENDING" in output:
-        return {"status": "stopping"}
-    return {"status": "unknown"}
+    from digitorn.core.cli import _win_service as svc
+
+    try:
+        state = win32serviceutil.QueryServiceStatus(svc.SERVICE_NAME)[1]
+    except Exception:
+        return {"status": "not_installed"}
+
+    mapping = {
+        win32service.SERVICE_RUNNING: "running",
+        win32service.SERVICE_STOPPED: "stopped",
+        win32service.SERVICE_START_PENDING: "starting",
+        win32service.SERVICE_STOP_PENDING: "stopping",
+    }
+    return {"status": mapping.get(state, "unknown")}
 
 
 def logs() -> str:
-    """Retrieve recent service logs from Windows Event Log."""
+    """Retrieve recent service logs from the Windows Event Log."""
+    import subprocess
+
     result = subprocess.run(
         [
             "wevtutil", "qe", "Application",
