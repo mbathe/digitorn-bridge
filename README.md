@@ -4,6 +4,14 @@ Digitorn is an interpreter for AI agents. Install it once, write a
 YAML manifest, run it. Same model as `python` for `.py` or `node`
 for `.js`.
 
+> **Status: early access.** Digitorn is source-available and usable
+> today, but the internals are still being hardened toward a 1.0
+> community release. Expect rough edges. Bug reports are very welcome
+> via [Issues](https://github.com/mbathe/digitorn-bridge/issues).
+> External pull requests are **not being accepted yet** while the
+> core runtime is under active refactoring; a contribution guide and
+> stable extension points are coming. Watch the repo to follow along.
+
 ```yaml
 app:
   app_id: hello
