@@ -4,7 +4,7 @@ version = "1.0.3"
 description = "Declarative AI agent framework - build agent applications in YAML"
 authors = ["Paul Mbathe <mbathepaul@gmail.com>"]
 readme = "README.md"
-license = "Apache-2.0"
+license = "BUSL-1.1"
 homepage = "https://digitorn.ai"
 repository = "https://github.com/mbathe/digitorn-bridge"
 documentation = "https://docs.digitorn.ai"
@@ -12,7 +12,7 @@ keywords = ["ai", "agent", "llm", "framework", "yaml", "multi-agent", "mcp"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: Other/Proprietary License",
     "Operating System :: OS Independent",
     "Topic :: Software Development :: Libraries :: Application Frameworks",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",

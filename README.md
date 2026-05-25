@@ -149,4 +149,16 @@ uv run digitorn start                 # foreground, with the venv's deps
 
 ## License
 
-Apache 2.0. See [LICENSE](LICENSE).
+Business Source License 1.1 (BUSL-1.1). Source-available today, with
+production use allowed for everyone **except** offering Digitorn as a
+hosted or managed service that competes with the Licensor's commercial
+offering. On the Change Date (2030-05-22) the license converts
+automatically to Apache 2.0.
+
+See [LICENSE](LICENSE) for the full text and the four parameters
+(Licensor, Licensed Work, Additional Use Grant, Change Date, Change
+License). The future Apache 2.0 text is preserved verbatim in
+[LICENSE-APACHE](LICENSE-APACHE).
+
+If your use case falls outside the Additional Use Grant, contact
+<mbathepaul@gmail.com> for a commercial license.
