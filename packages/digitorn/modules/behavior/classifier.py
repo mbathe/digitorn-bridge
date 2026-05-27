@@ -577,7 +577,12 @@ def format_directive_message(
     except (KeyError, IndexError):
         prefix = f"[BEHAVIOR DIRECTIVE - {complexity} complexity, {risk} risk]"
 
-    lines = [prefix, f"Approach: {approach_label}", ""]
+    lines = [
+        f'<digitorn-directive type="behavior_classifier" complexity="{complexity}" approach="{approach}" risk="{risk}">',
+        prefix,
+        f"Approach: {approach_label}",
+        "",
+    ]
 
     # Cap directives
     max_d = _get_cfg(classifier_config, "max_directives") or 5
@@ -606,4 +611,5 @@ def format_directive_message(
         lines.append("")
         lines.append(footer)
 
+    lines.append("</digitorn-directive>")
     return "\n".join(lines)

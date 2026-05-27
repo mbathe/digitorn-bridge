@@ -73,6 +73,7 @@ sqlalchemy = {version = "^2.0", extras = ["asyncio"]}
 aiosqlite = "^0.20"
 alembic = "^1.13"
 typer = "^0.15"
+click = ">=8.2"
 rich = "^14.0"
 httpx = "^0.28"
 python-socketio = {version = "^5.16", extras = ["asyncio"]}

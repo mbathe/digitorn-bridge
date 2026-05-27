@@ -207,6 +207,21 @@ class LegacySessionStoreAdapter:
                 state.interrupted_at = datetime.utcfromtimestamp(
                     float(getattr(session, "interrupted_at", time.time())),
                 ).isoformat() + "Z"
+        _legacy_fork_src = str(getattr(session, "forked_from", "") or "")
+        if _legacy_fork_src and state.parent_link is None:
+            from digitorn.core.runtime.session_store.types import ParentLink
+            state.parent_link = ParentLink(
+                parent_session_id=_legacy_fork_src,
+                parent_seq_at_spawn=0,
+                child_kind="fork",
+            )
+        try:
+            self._run(self._store._maybe_index_upsert(state))
+        except Exception as exc:
+            logger.debug(
+                "legacy_adapter_put_index_refresh_failed sid=%s err=%s",
+                sid, exc,
+            )
 
     def save_messages(
         self, app_id: str, session_id: str,
@@ -490,6 +505,13 @@ class LegacySessionStoreAdapter:
 
     def _state_to_conv_session(self, state) -> "ConversationSession":
         from digitorn.core.app.sessions import ConversationSession
+        _parent = getattr(state, "parent_link", None)
+        _forked_from = (
+            _parent.parent_session_id
+            if _parent is not None
+            and getattr(_parent, "child_kind", "") == "fork"
+            else ""
+        )
         cs = ConversationSession(
             session_id=state.session_id,
             app_id=state.app_id,
@@ -505,6 +527,7 @@ class LegacySessionStoreAdapter:
             interrupted=bool(state.interrupted),
             interrupted_at=_parse_iso_to_epoch(state.interrupted_at) if state.interrupted else 0.0,
             last_error=getattr(state, "last_error", None),
+            forked_from=_forked_from,
         )
         return cs
 

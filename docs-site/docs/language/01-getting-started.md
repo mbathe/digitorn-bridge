@@ -52,6 +52,9 @@ tools:
         auto_remember: false
   capabilities:
     default_policy: auto
+    grant:
+      - module: memory
+        actions: [remember]
 
 ui:
   greeting: "Hello! I'm your assistant. Ask me anything."

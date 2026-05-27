@@ -4,8 +4,7 @@ id: memory
 
 # Cognitive Memory
 
-The `memory` module
- gives an agent a small
+The `memory` module gives an agent a small
 working brain: a goal, a todo list, persistent facts that survive
 context compaction, and a per-session/per-user store the runtime
 auto-injects into the system prompt.
@@ -256,7 +255,7 @@ the memory block in the prompt already shows them.
 
 `memory.MemoryStore.persist` and `MemoryStore.restore` write/read
 the per-user semantic memory to the daemon's KV backend
-(`module.py`, 305-315`). The keying scheme is
+(`memory/module.py`). The keying scheme is
 `(app_id, user_id)` - facts persist across sessions for the same
 (user, app) pair.
 

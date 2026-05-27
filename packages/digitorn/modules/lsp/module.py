@@ -73,7 +73,7 @@ _AUTO_DETECT_SERVERS: list[dict[str, Any]] = [
     {"name": "typescript", "command": "typescript-language-server --stdio", "protocol": "lsp", "markers": ["tsconfig.json", "package.json"]},
     {"name": "go", "command": "gopls", "protocol": "lsp", "markers": ["go.mod"]},
     {"name": "rust", "command": "rust-analyzer", "protocol": "lsp", "markers": ["Cargo.toml"]},
-    {"name": "latex", "command": "texlab", "protocol": "lsp", "markers": [".tex"]},
+    {"name": "latex", "command": "texlab run", "protocol": "lsp", "markers": [".tex"]},
     {"name": "css", "command": "vscode-css-language-server --stdio", "protocol": "lsp", "markers": [".css", ".scss"]},
     {"name": "html", "command": "vscode-html-language-server --stdio", "protocol": "lsp", "markers": [".html"]},
     {"name": "json", "command": "vscode-json-language-server --stdio", "protocol": "lsp", "markers": [".json"]},
@@ -384,6 +384,8 @@ class LspModule(BaseModule):
             extra_kwargs["settings"] = spec["settings"]
         if "roots" in spec:
             extra_kwargs["roots"] = spec["roots"]
+        if "entry_file" in spec:
+            extra_kwargs["entry_file"] = spec["entry_file"]
 
         success = await protocol.start(
             self._sidecar_pool, name, app_id, cmd_parts,

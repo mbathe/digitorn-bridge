@@ -284,14 +284,20 @@ class CompilerProtocol(FeedbackProtocol):
         self._cached: dict[str, list[Diagnostic]] = {}
         self._lock = asyncio.Lock()
         self._last_run: float = 0
+        self._entry_file: str | None = None
 
     async def start(
-        self, pool, name, app_id, command, cwd, **_ignored,
+        self, pool, name, app_id, command, cwd,
+        *, entry_file: str | None = None, **_ignored,
     ) -> bool:
         self._command = command
         self._cwd = cwd
         self._name = name
-        logger.info("compiler_protocol_started name=%s cmd=%s", name, " ".join(command))
+        self._entry_file = entry_file or None
+        logger.info(
+            "compiler_protocol_started name=%s cmd=%s entry_file=%s",
+            name, " ".join(command), self._entry_file or "<none>",
+        )
         return True
 
     async def notify_file_changed(self, path: str, content: str | None = None) -> None:
@@ -304,18 +310,21 @@ class CompilerProtocol(FeedbackProtocol):
 
         cwd = self._cwd or str(Path(path).parent)
 
-        # Project-wide compilers (cargo, go) take no file argument;
-        # single-file compilers (tsc, javac, gcc) need it appended.
+        compile_target = path
+        if self._entry_file:
+            cwd_path = Path(cwd)
+            candidate = cwd_path / self._entry_file
+            if candidate.is_file():
+                compile_target = str(candidate)
+
         _PROJECT_WIDE = {"cargo", "go"}
         first = (self._command[0] if self._command else "").lower()
         first_base = first.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
-        # Strip a `.exe` suffix on Windows so the check fires for
-        # both `cargo` and `cargo.exe`.
         if first_base.endswith(".exe"):
             first_base = first_base[:-4]
         argv = list(self._command)
         if first_base not in _PROJECT_WIDE:
-            argv.append(path)
+            argv.append(compile_target)
 
         # Resolve via `shutil.which` so CreateProcessW on Windows
         # picks up `.cmd` / `.bat` shims (tsc, npm, yarn).

@@ -263,6 +263,15 @@ class RuntimeConfig(BaseModel):
             "deployments where users bring their own provider keys."
         ),
     )
+    system_user_id: str = Field(
+        default="",
+        description=(
+            "User ID used for system apps (builtins, scope='system') that "
+            "have no explicit owner. Must be a JWT user_id valid via the "
+            "auth/gateway. Empty = system app triggers (cron/watch/http) "
+            "are REFUSED at fire time (fail-closed, no gateway bypass)."
+        ),
+    )
 
 
 class RunTrackingConfig(BaseModel):

@@ -34,6 +34,7 @@ class ConversationSession:
     # SSE clients get the `error` event live; poll-based clients (dev CLI,
     # plain REST) read it from summary().
     last_error: dict[str, Any] | None = None
+    forked_from: str = ""
 
     def add_system(self, content: str) -> None:
         if not self.messages:
@@ -92,4 +93,5 @@ class ConversationSession:
             "tokens": 0,
             "cost_usd": 0.0,
             "last_error": self.last_error,
+            "forked_from": self.forked_from or None,
         }

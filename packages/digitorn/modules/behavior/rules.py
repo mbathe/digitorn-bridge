@@ -61,6 +61,13 @@ def _resolve_path(params: dict) -> str:
 def _bare(tool_name: str) -> str:
     return tool_name.rsplit(".", 1)[-1] if "." in tool_name else tool_name
 
+def _xml_escape(text: str) -> str:
+    return (
+        text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+    )
+
 class BhvViolation:
     """A detected rule violation or reminder."""
 
@@ -72,24 +79,35 @@ class BhvViolation:
         self.message = message
 
     def format(self) -> str:
+        msg = _xml_escape(self.message)
+        rule = _xml_escape(self.rule_id)
         if self.level == "block":
             return (
-                f"## TOOL BLOCKED (rule: {self.rule_id})\n"
-                f"{self.message}\n\n"
+                f'<digitorn-directive type="behavior_block" '
+                f'rule="{rule}" severity="critical">\n'
+                f"## TOOL BLOCKED (rule: {rule})\n"
+                f"{msg}\n\n"
                 f"**Your task:** the tool call was NOT executed. Fix the "
                 f"violation, then re-issue the call. Do not loop on the "
-                f"same call without addressing the cause."
+                f"same call without addressing the cause.\n"
+                f"</digitorn-directive>"
             )
         if self.level == "warn":
             return (
-                f"## BEHAVIOR WARNING (rule: {self.rule_id})\n"
-                f"{self.message}\n\n"
+                f'<digitorn-directive type="behavior_warn" '
+                f'rule="{rule}" severity="warn">\n'
+                f"## BEHAVIOR WARNING (rule: {rule})\n"
+                f"{msg}\n\n"
                 f"**Your task:** adjust your next move to comply with the "
-                f"rule above before continuing."
+                f"rule above before continuing.\n"
+                f"</digitorn-directive>"
             )
         return (
-            f"## BEHAVIOR REMINDER (rule: {self.rule_id})\n"
-            f"{self.message}"
+            f'<digitorn-directive type="behavior_remind" '
+            f'rule="{rule}" severity="info">\n'
+            f"## BEHAVIOR REMINDER (rule: {rule})\n"
+            f"{msg}\n"
+            f"</digitorn-directive>"
         )
 
 # Backward-compat aliases (linter renames these - export all variants)

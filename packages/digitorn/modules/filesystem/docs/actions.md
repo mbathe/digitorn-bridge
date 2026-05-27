@@ -1,6 +1,6 @@
 # Filesystem Module - Action Reference
 
-Complete reference for the 5 ultra-powerful actions.
+Complete reference for the five actions.
 
 Every action is designed for AI agents:
 - **read** includes line numbers for precise referencing
@@ -236,7 +236,7 @@ Find files by name pattern.
 
 ## Architecture Changes (v2.1.0)
 
-From 15 tools → 5 ultra-powerful tools.
+Consolidated from 15 tools to 5.
 
 **Removed:**
 - `ls` (use Bash)

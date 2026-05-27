@@ -69,12 +69,61 @@ def _deploy_app(path: Path, daemon: str, force: bool) -> dict:
         console.print(f"  {data.get('error', 'Unknown error')}")
         raise typer.Exit(1)
 
-    info = data["data"]
+    info = data.get("data") or {}
+    app_id = info.get("app_id", "?")
+    # The /deploy endpoint dispatches the actual build to a background task
+    # and returns immediately with status="deploying" and only the metadata
+    # known at compile time (app_id, name, version, scope). Poll
+    # GET /apps/{app_id} until mode + agents are populated so the summary
+    # below shows real values instead of '?'.
+    if info.get("status") == "deploying":
+        import time as _time
+        deadline = _time.monotonic() + 90.0
+        last_err: str | None = None
+        ready_info: dict | None = None
+        while _time.monotonic() < deadline:
+            try:
+                check = daemon_request("get", f"{daemon}/api/apps/{app_id}")
+                cdata = check.json()
+                if cdata.get("success"):
+                    cinfo = cdata.get("data") or {}
+                    if cinfo.get("mode") and cinfo.get("agents"):
+                        ready_info = cinfo
+                        break
+                try:
+                    err_resp = daemon_request(
+                        "get",
+                        f"{daemon}/api/apps/{app_id}/deploy-status",
+                    )
+                    err_data = err_resp.json()
+                    if err_data.get("success"):
+                        ed = err_data.get("data") or {}
+                        if ed.get("error"):
+                            last_err = ed["error"]
+                            break
+                except Exception:
+                    pass
+            except Exception:
+                pass
+            _time.sleep(1.0)
+        if last_err:
+            console.print("[red]FAILED[/red]")
+            console.print(f"  {last_err}")
+            raise typer.Exit(1)
+        if ready_info is None:
+            console.print("[yellow]STILL DEPLOYING[/yellow]")
+            console.print(
+                f"  Build not finished after 90s. "
+                f"Run `digitorn dev status {app_id}` to check."
+            )
+            return info
+        info = ready_info
+
     console.print("[green]OK[/green]")
-    console.print(f"  App:    [bold]{info['app_id']}[/bold]")
+    console.print(f"  App:    [bold]{info.get('app_id', '?')}[/bold]")
     console.print(f"  Tools:  {info.get('total_tools', '?')}")
     console.print(f"  Mode:   {info.get('mode', '?')}")
-    console.print(f"  Agents: {', '.join(info.get('agents', []))}")
+    console.print(f"  Agents: {', '.join(info.get('agents') or [])}")
     return info
 
 
@@ -157,6 +206,43 @@ def undeploy(
         raise typer.Exit(1)
 
 
+def _extract_error_message(data: dict) -> str:
+    """Pull a human-readable error from a daemon JSON response.
+
+    The daemon returns errors in two shapes: AppResponse-style
+    `{"success": false, "error": "..."}` and FastAPI HTTPException-style
+    `{"detail": {"error": "...", "message": "..."}}`. Try every slot before
+    falling back to a question mark.
+    """
+    if not isinstance(data, dict):
+        return "?"
+    detail = data.get("detail")
+    if not isinstance(detail, dict):
+        detail = {}
+    return (
+        data.get("error")
+        or detail.get("message")
+        or detail.get("error")
+        or (str(detail) if detail else None)
+        or "?"
+    )
+
+
+def _delete_at_scope(daemon: str, app_id: str, scope: str) -> dict:
+    """Call DELETE /api/apps/{app_id}?scope=... and return parsed JSON.
+
+    Empty scope omits the query param (daemon-side default kicks in).
+    """
+    url = f"{daemon}/api/apps/{app_id}"
+    if scope:
+        url += f"?scope={scope}"
+    resp = daemon_request("delete", url)
+    try:
+        return resp.json()
+    except Exception:
+        return {"success": False, "error": f"non-JSON response: {resp.text[:200]}"}
+
+
 @app_cli.command()
 def delete(
     app_id: Annotated[str, typer.Argument(help="App ID to delete.")],
@@ -164,6 +250,15 @@ def delete(
     yes: bool = typer.Option(
         False, "--yes", "-y",
         help="Skip the confirmation prompt.",
+    ),
+    scope: str = typer.Option(
+        "system", "--scope", "-s",
+        help=(
+            "Target scope. `system` (default, matches `dev deploy`) "
+            "targets the global install. `user` targets the caller's "
+            "private install. `all` tries every scope you can reach "
+            "(user first, then system) and cumulates the results."
+        ),
     ),
 ) -> None:
     """Permanently remove an app - bundle, DB rows, sessions, and secrets.
@@ -186,14 +281,38 @@ def delete(
             console.print("[dim]Cancelled.[/dim]")
             raise typer.Exit(0)
 
-    resp = daemon_request("delete", f"{daemon}/api/apps/{app_id}")
-    data = resp.json()
+    if scope == "all":
+        results: list[tuple[str, dict]] = []
+        ok = False
+        for s in ("user", "system"):
+            data = _delete_at_scope(daemon, app_id, s)
+            results.append((s, data))
+            if data.get("success"):
+                ok = True
+                info = data.get("data") or {}
+                console.print(
+                    f"[green]Deleted[/green] {app_id} (scope={s}) "
+                    f"- bundles={info.get('bundles_deleted', 0)} "
+                    f"secrets={info.get('secrets_deleted', 0)} "
+                    f"db_row={info.get('db_removed', False)}"
+                )
+        if not ok:
+            console.print(
+                f"[red]Failed[/red] - nothing removed for '{app_id}'. "
+                f"Per-scope errors:"
+            )
+            for s, data in results:
+                console.print(f"  scope={s}: {_extract_error_message(data)}")
+            raise typer.Exit(1)
+        return
+
+    data = _delete_at_scope(daemon, app_id, scope)
 
     if not data.get("success"):
-        console.print(f"[red]Failed[/red] - {data.get('error', '?')}")
+        console.print(f"[red]Failed[/red] - {_extract_error_message(data)}")
         raise typer.Exit(1)
 
-    info = data.get("data", {})
+    info = data.get("data") or {}
     console.print(f"[green]Deleted[/green] {app_id}")
     console.print(f"  Bundles removed: {info.get('bundles_deleted', 0)}")
     console.print(f"  Secrets purged:  {info.get('secrets_deleted', 0)}")

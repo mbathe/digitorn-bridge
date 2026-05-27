@@ -260,6 +260,7 @@ class _ChatMixin:
                 client_message_id=client_message_id,
                 template_system_prompt=template_system_prompt,
                 mode_id=mode_id,
+                prefetched_session=_existing_session,
             )
             return result
         finally:
@@ -303,6 +304,7 @@ class _ChatMixin:
         client_message_id: str | None = None,
         template_system_prompt: str = "",
         mode_id: str | None = None,
+        prefetched_session: Any | None = None,
     ) -> "TurnResult":
         from digitorn.core.runtime.agent_loop import agent_turn
         from digitorn.core.runtime.mode_merge import resolve_mode
@@ -317,7 +319,10 @@ class _ChatMixin:
                 effective_prompt = effective_prompt.replace(yaml_ws, workspace)
             effective_prompt = effective_prompt.replace(WORKSPACE_PLACEHOLDER, resolved_ws)
 
-        session = await asyncio.to_thread(self._session_store.get, app_id, session_id, user_id=uid)
+        if prefetched_session is not None:
+            session = prefetched_session
+        else:
+            session = await asyncio.to_thread(self._session_store.get, app_id, session_id, user_id=uid)
         if session is None:
             persisted_messages = await asyncio.to_thread(self._session_store.load_messages, app_id, session_id, user_id=uid)
             session = ConversationSession(
@@ -454,9 +459,11 @@ class _ChatMixin:
                 session.title = message[:80]
         elif reminder:
             cron_content = (
+                '<digitorn-directive type="cron_reminder" severity="warn">\n'
                 f"[REMINDER from cron] You scheduled this earlier and it "
                 f"just fired. Take whatever action you committed to. "
-                f"Message: {message}"
+                f"Message: {message}\n"
+                "</digitorn-directive>"
             )
             await inject_system_directive(
                 None,

@@ -5,8 +5,7 @@ id: tools
 # Tools
 
 Digitorn agents call tools through a discovery architecture. The
-`context_builder` module
- builds the tool index
+`context_builder` module builds the tool index
 at bootstrap, the runtime picks one of three injection modes based
 on toolset size, and the LLM either receives full schemas, compact
 listings, or a small set of meta-tools that let it discover the
@@ -14,7 +13,7 @@ rest on demand.
 
 ## Adaptive tool injection
 
- `_choose_tool_injection`.
+The injection mode is decided by `_choose_tool_injection` in `bootstrap.py`.
 The mode is picked **per agent at bootstrap** based on the brain's
 context window vs the actual JSON size of every tool schema.
 
@@ -183,7 +182,7 @@ The full `ModuleBlock` field reference (`config`, `setup`,
 `constraints`, `middleware`, `credential`) is in
 [App Configuration → tools.modules](02-app-config.md#toolsmodules---module-configuration).
 
-The 22 modules shipped by the daemon are listed in
+The 23 modules shipped by the daemon are listed in
 [the index](/docs/language/#modules); per-module action references live
 under [modules/reference/](../reference/modules/). `context_builder`
 and `llm_provider` are auto-loaded - never declared.
@@ -194,7 +193,7 @@ To inspect any module's actions and parameter schemas from the CLI:
 digitorn app schema <module_id>
 ```
 
-(`cli/app.py` `schema` command - registered at line 256 of.)
+(`cli/app.py` `schema` command.)
 
 ## Tool constraints
 

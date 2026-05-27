@@ -1,4 +1,4 @@
-"""Filesystem module - 5 ultra-powerful actions for AI agents."""
+"""Filesystem module: read, write, edit, grep, glob."""
 
 from __future__ import annotations
 

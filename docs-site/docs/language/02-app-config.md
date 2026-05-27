@@ -35,10 +35,9 @@ to a default-instance model) - but a useful app declares at least
 `agents:` and a couple of modules under `tools:`.
 
 > **Migrating from the legacy flat shape?** Run
-> `digitorn yaml migrate-v2 path/to/app.yaml` (CLI command at
-> ). The compiler keeps accepting
-> legacy YAMLs (`execution:`, `modules:` at the top level, ...) by
-> reshaping them via before validation.
+> `digitorn yaml migrate-v2 path/to/app.yaml`. The compiler also keeps
+> accepting legacy YAMLs (`execution:`, `modules:` at the top level, ...)
+> by reshaping them via the alias pass before validation.
 > See [the index migration table](/docs/language/#migration-from-the-legacy-flat-shape).
 
 ## `app:` - Identity
@@ -538,7 +537,7 @@ Each `ModuleBlock` has 5 fields:
 - `action: str` (required) - action name on the module
 - `params: dict` (default `{}`) - may contain `{{variables}}`
 
-The 22 modules shipped by the daemon are listed in
+The 23 modules shipped by the daemon are listed in
 [the index](/docs/language/#modules). Per-module reference docs live
 under [modules/reference/](../reference/modules/). `context_builder`
 and `llm_provider` are auto-loaded - never declare them.

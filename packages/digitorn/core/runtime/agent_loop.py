@@ -487,13 +487,12 @@ async def _loop(
         sm.record_turn(turn)
 
         import os as _os_perf
-        from pathlib import Path as _Path_perf
-        _perf_on = (turn == 0) and (_os_perf.environ.get("DIGITORN_PERF", "1") != "0")
+        _perf_mode = _os_perf.environ.get("DIGITORN_PERF", "off").lower()
+        _perf_on = (turn == 0) and (_perf_mode in ("1", "on", "true", "verbose"))
         _perf_sid = (getattr(ctx, "session_id", "") or "?")[:8]
         _perf_app = (getattr(ctx, "app_id", "") or "?")
         _perf_t0 = time.monotonic() if _perf_on else 0.0
         _perf_prev = _perf_t0
-        _perf_path = _Path_perf.home() / ".digitorn" / "logs" / "perf.log"
         _perf_session_turn = (
             int(getattr(getattr(ctx, "session", None), "turn_count", 0) or 0)
         )
@@ -501,18 +500,11 @@ async def _loop(
             if not _perf_on:
                 return 0.0
             _now = time.monotonic()
-            _line = (
-                f"{time.strftime('%Y-%m-%d %H:%M:%S')} "
-                f"PERF app={_perf_app} sid={_perf_sid} "
-                f"msg={_perf_session_turn} iter={turn} "
-                f"phase={_label} dt={_now - _t_prev:.3f}s total={_now - _perf_t0:.3f}s\n"
+            logger.info(
+                "PERF app=%s sid=%s msg=%d iter=%d phase=%s dt=%.3fs total=%.3fs",
+                _perf_app, _perf_sid, _perf_session_turn, turn, _label,
+                _now - _t_prev, _now - _perf_t0,
             )
-            try:
-                with open(_perf_path, "a", encoding="utf-8") as _f:
-                    _f.write(_line)
-            except Exception as exc:
-                logger.debug("agent_loop best-effort block failed: %s", exc)
-            logger.warning(_line.strip())
             return _now
 
         await _inject_turn_limit_warning(ctx, messages, turn, max_turns, guard.counter["tools"])
@@ -1007,6 +999,64 @@ async def _call_llm(
         except AttributeError:
             pass
 
+    _net_orig = getattr(ctx, "_network_original_provider", None)
+    _net_resume_at = getattr(ctx, "_network_fallback_until", 0.0)
+    if _net_orig is not None and _net_resume_at and time.monotonic() >= _net_resume_at:
+        logger.info(
+            "llm_network_fallback_restore: trying primary again (%s/%s) after cooldown",
+            getattr(_net_orig, "provider_hint", "?"),
+            getattr(_net_orig, "model", "?"),
+        )
+        ctx.provider = _net_orig
+        try:
+            del ctx._network_original_provider  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+        try:
+            del ctx._network_fallback_until  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+
+    _unavail_orig = getattr(ctx, "_unavail_original_provider", None)
+    _unavail_resume_at = getattr(ctx, "_unavail_fallback_until", 0.0)
+    if _unavail_orig is not None and _unavail_resume_at and time.monotonic() >= _unavail_resume_at:
+        logger.info(
+            "llm_unavailable_fallback_restore: trying primary again (%s/%s) after cooldown",
+            getattr(_unavail_orig, "provider_hint", "?"),
+            getattr(_unavail_orig, "model", "?"),
+        )
+        ctx.provider = _unavail_orig
+        try:
+            del ctx._unavail_original_provider  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+        try:
+            del ctx._unavail_fallback_until  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+
+    _leak_count = getattr(ctx, "_provider_leak_count", 0) or 0
+    _leak_threshold = int(getattr(ctx, "_provider_leak_threshold", 1) or 1)
+    _already_on_fallback = getattr(ctx, "_misbehavior_original_provider", None) is not None
+    if _leak_count >= _leak_threshold and not _already_on_fallback:
+        fallback_brain = getattr(ctx, "_fallback_brain", None)
+        if fallback_brain is not None:
+            logger.warning(
+                "llm_misbehavior_fallback: %s/%s leaked %d directive(s) - "
+                "switching to fallback %s/%s",
+                getattr(ctx.provider, "provider_hint", "?"),
+                getattr(ctx.provider, "model", "?"),
+                _leak_count,
+                getattr(fallback_brain, "provider_hint", "?"),
+                getattr(fallback_brain, "model", "?"),
+            )
+            ctx._misbehavior_original_provider = ctx.provider  # type: ignore[attr-defined]
+            ctx.provider = fallback_brain
+            try:
+                ctx._provider_leak_count = 0  # type: ignore[attr-defined]
+            except AttributeError:
+                pass
+
     api_tools = ctx.tools if (ctx.native_tool_use and ctx.tools) else None
     if api_tools is not None:
         _allowed = getattr(ctx, "allowed_tool_names", None)
@@ -1045,7 +1095,7 @@ async def _call_llm(
                 chat_messages, tools=api_tools, **ctx.generation_params,
             )
     except Exception as exc:
-        return await _handle_llm_error(ctx, messages, exc, breaker, api_tools)
+        return await _handle_llm_error(ctx, messages, exc, breaker, api_tools, cb)
 
     breaker.record_success()
 
@@ -1081,6 +1131,7 @@ async def _handle_llm_error(
     exc: Exception,
     breaker: _ProviderCircuitBreaker,
     api_tools: list[dict] | None,
+    cb: AgentTurnCallbacks | None = None,
 ) -> tuple[str, list[dict], Any, bool]:
     try:
         cb_hooks = getattr(
@@ -1229,9 +1280,9 @@ async def _handle_llm_error(
         provider_id = getattr(ctx.provider, "provider_id", "unknown")
         base_url = getattr(ctx.provider, "base_url", "")
 
-        max_retries = 3
+        max_retries = 1
         for attempt in range(1, max_retries + 1):
-            delay = min(2 ** attempt, 16)
+            delay = 1
             logger.warning(
                 "llm_connection_error provider=%s attempt=%d/%d retrying_in=%ds error=%s",
                 provider_id, attempt, max_retries, delay, exc,
@@ -1281,6 +1332,61 @@ async def _handle_llm_error(
     )
     if _is_quota_exhausted:
         raise exc
+
+    _is_concurrency_limit = (
+        "concurrency_limit_exceeded" in exc_str
+        or "concurrency limit exceeded" in exc_str
+        or "concurrency cost" in exc_str
+    )
+    _provider_unavailable = (
+        _is_concurrency_limit
+        or "llm provider not provided" in exc_str
+        or "no_route_for_model" in exc_str
+    )
+    if _provider_unavailable:
+        fallback_brain = getattr(ctx, "_fallback_brain", None)
+        _already_on_fallback = (
+            getattr(ctx, "_billing_original_provider", None) is not None
+            or getattr(ctx, "_misbehavior_original_provider", None) is not None
+            or getattr(ctx, "_network_original_provider", None) is not None
+            or getattr(ctx, "_unavail_original_provider", None) is not None
+        )
+        if fallback_brain is not None and not _already_on_fallback:
+            logger.warning(
+                "llm_provider_unavailable: %s/%s err=%s - switching to fallback %s/%s",
+                getattr(ctx.provider, "provider_hint", "?"),
+                getattr(ctx.provider, "model", "?"),
+                exc_type,
+                getattr(fallback_brain, "provider_hint", "?"),
+                getattr(fallback_brain, "model", "?"),
+            )
+            try:
+                chat_messages = _chat_messages_for_llm(ctx, messages)
+                if cb is not None and hasattr(fallback_brain, "chat_stream"):
+                    content, tool_calls, response = await streaming_chat(
+                        fallback_brain, chat_messages, api_tools,
+                        ctx.generation_params, cb, ctx=ctx,
+                    )
+                    streamed_back = True
+                else:
+                    response = await fallback_brain.chat(
+                        chat_messages, tools=api_tools, **ctx.generation_params,
+                    )
+                    content = extract_content(response)
+                    tool_calls = extract_tool_calls(response)
+                    streamed_back = False
+                _UNAVAIL_COOLDOWN_S = 60.0
+                ctx._unavail_original_provider = ctx.provider  # type: ignore[attr-defined]
+                ctx._unavail_fallback_until = time.monotonic() + _UNAVAIL_COOLDOWN_S  # type: ignore[attr-defined]
+                ctx.provider = fallback_brain
+                logger.info(
+                    "llm_unavailable_fallback_ok: %s",
+                    getattr(fallback_brain, "model", "?"),
+                )
+                return content, tool_calls, response, streamed_back
+            except Exception as fallback_exc:
+                logger.warning("llm_unavailable_fallback_failed: %s", fallback_exc)
+
     _is_retriable_llm = (
         "429" in exc_str or "rate" in exc_str or "RateLimit" in exc_type
         or "overload" in exc_str or "529" in exc_str or "capacity" in exc_str
@@ -1326,6 +1432,97 @@ async def _handle_llm_error(
     if "model_not_provided_by_digitorn" in exc_str:
         raise exc
 
+    _is_network_error = (
+        "readerror" in exc_str
+        or "writeerror" in exc_str
+        or "connecterror" in exc_str
+        or "connecttimeout" in exc_str
+        or "readtimeout" in exc_str
+        or "remoteprotocolerror" in exc_str
+        or "remote disconnected" in exc_str
+        or "connection reset" in exc_str
+        or "connection aborted" in exc_str
+        or "ReadError" in exc_type
+        or "ConnectError" in exc_type
+        or "ConnectionError" in exc_type
+        or "RemoteProtocolError" in exc_type
+    )
+    if _is_network_error:
+        provider_id = getattr(ctx.provider, "provider_id", "unknown")
+        max_net_retries = 2
+        for attempt in range(1, max_net_retries + 1):
+            delay = 1.5 * attempt
+            logger.warning(
+                "llm_network_error provider=%s attempt=%d/%d retrying_in=%.1fs error=%s",
+                provider_id, attempt, max_net_retries, delay, exc_type,
+            )
+            await _emit_retry_status(
+                ctx,
+                attempt=attempt, max_retries=max_net_retries, delay_s=delay,
+                reason="network_error",
+            )
+            await asyncio.sleep(delay)
+            try:
+                chat_messages = _chat_messages_for_llm(ctx, messages)
+                response = await ctx.provider.chat(
+                    chat_messages, tools=api_tools, **ctx.generation_params,
+                )
+                content = extract_content(response)
+                tool_calls = extract_tool_calls(response)
+                await _clear_retry_status(ctx)
+                return content, tool_calls, response, False
+            except Exception as retry_exc:
+                retry_str = str(retry_exc).lower()
+                retry_type = type(retry_exc).__name__
+                _still_network = (
+                    "readerror" in retry_str or "writeerror" in retry_str
+                    or "connecterror" in retry_str or "connecttimeout" in retry_str
+                    or "readtimeout" in retry_str or "remoteprotocolerror" in retry_str
+                    or "ReadError" in retry_type or "ConnectError" in retry_type
+                    or "ConnectionError" in retry_type or "RemoteProtocolError" in retry_type
+                )
+                if not _still_network:
+                    await _clear_retry_status(ctx)
+                    raise retry_exc from exc
+        await _clear_retry_status(ctx)
+        fallback_brain = getattr(ctx, "_fallback_brain", None)
+        _already_on_fallback = (
+            getattr(ctx, "_billing_original_provider", None) is not None
+            or getattr(ctx, "_misbehavior_original_provider", None) is not None
+        )
+        if fallback_brain is not None and not _already_on_fallback:
+            logger.warning(
+                "llm_network_exhausted: %s/%s - switching to fallback %s/%s",
+                getattr(ctx.provider, "provider_hint", "?"),
+                getattr(ctx.provider, "model", "?"),
+                getattr(fallback_brain, "provider_hint", "?"),
+                getattr(fallback_brain, "model", "?"),
+            )
+            try:
+                chat_messages = _chat_messages_for_llm(ctx, messages)
+                if cb is not None and hasattr(fallback_brain, "chat_stream"):
+                    content, tool_calls, response = await streaming_chat(
+                        fallback_brain, chat_messages, api_tools,
+                        ctx.generation_params, cb, ctx=ctx,
+                    )
+                    streamed_back = True
+                else:
+                    response = await fallback_brain.chat(
+                        chat_messages, tools=api_tools, **ctx.generation_params,
+                    )
+                    content = extract_content(response)
+                    tool_calls = extract_tool_calls(response)
+                    streamed_back = False
+                _NETWORK_COOLDOWN_S = 120.0
+                ctx._network_original_provider = ctx.provider  # type: ignore[attr-defined]
+                ctx._network_fallback_until = time.monotonic() + _NETWORK_COOLDOWN_S  # type: ignore[attr-defined]
+                ctx.provider = fallback_brain
+                logger.info("llm_network_fallback_ok: %s", getattr(fallback_brain, "model", "?"))
+                return content, tool_calls, response, streamed_back
+            except Exception as fallback_exc:
+                logger.warning("llm_network_fallback_failed: %s", fallback_exc)
+        raise exc
+
     # Keep the billing match tight; bare "insufficient" also matches OpenAI tool-call validation errors.
     _is_billing = (
         "402" in exc_str
@@ -1350,19 +1547,26 @@ async def _handle_llm_error(
             )
             try:
                 chat_messages = _chat_messages_for_llm(ctx, messages)
-                response = await fallback_brain.chat(
-                    chat_messages, tools=api_tools, **ctx.generation_params,
-                )
-                # Stash primary so the next _call_llm tries it again after the cooldown.
+                if cb is not None and hasattr(fallback_brain, "chat_stream"):
+                    content, tool_calls, response = await streaming_chat(
+                        fallback_brain, chat_messages, api_tools,
+                        ctx.generation_params, cb, ctx=ctx,
+                    )
+                    streamed_back = True
+                else:
+                    response = await fallback_brain.chat(
+                        chat_messages, tools=api_tools, **ctx.generation_params,
+                    )
+                    content = extract_content(response)
+                    tool_calls = extract_tool_calls(response)
+                    streamed_back = False
                 _BILLING_COOLDOWN_S = 300.0
                 if not hasattr(ctx, "_billing_original_provider"):
                     ctx._billing_original_provider = ctx.provider  # type: ignore[attr-defined]
                 ctx._billing_fallback_until = time.monotonic() + _BILLING_COOLDOWN_S  # type: ignore[attr-defined]
                 ctx.provider = fallback_brain
-                content = extract_content(response)
-                tool_calls = extract_tool_calls(response)
                 logger.info("llm_billing_fallback_ok: %s", getattr(fallback_brain, "model", "?"))
-                return content, tool_calls, response, False
+                return content, tool_calls, response, streamed_back
             except Exception as fallback_exc:
                 logger.warning("llm_billing_fallback_failed: %s", fallback_exc)
         else:

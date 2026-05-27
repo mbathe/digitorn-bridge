@@ -1,6 +1,6 @@
 # Shell Module
 
-1 ultra-powerful bash action with 7 execution modes + progressive notifications.
+One bash action with 7 execution modes and progressive notifications.
 
 ## Overview
 

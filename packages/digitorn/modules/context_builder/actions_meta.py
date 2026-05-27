@@ -103,6 +103,9 @@ class MetaToolsMixin:
         )
         tools_data = []
         for r in results:
+            indexed = self._index.tools.get(r.fqn)
+            if indexed is not None and getattr(indexed, "hidden", False):
+                continue
             tool_entry = {
                 "name": r.fqn,
                 "description": r.description,
@@ -111,7 +114,6 @@ class MetaToolsMixin:
                 "relevance": r.relevance,
                 "tags": r.tags,
             }
-            indexed = self._index.tools.get(r.fqn)
             if indexed and hasattr(indexed, "params_schema"):
                 tool_entry["parameters"] = indexed.params_schema
             tools_data.append(tool_entry)
@@ -138,7 +140,7 @@ class MetaToolsMixin:
     )
     async def get_tool(self, params: GetToolParams) -> ActionResult:
         name, tool = self._normalize_tool_name(params.name)
-        if tool is None:
+        if tool is None or getattr(tool, "hidden", False):
             error = self._tool_not_found_error(name)
             return ActionResult(success=False, error=error)
 
@@ -187,6 +189,12 @@ class MetaToolsMixin:
             if await self._try_refresh_mcp_index():
                 name, tool = self._normalize_tool_name(params.name)
             if tool is None:
+                error = self._tool_not_found_error(name)
+                return ActionResult(success=False, error=error)
+
+        if getattr(tool, "hidden", False):
+            from digitorn.core.runtime.internal_call import is_internal_call
+            if not is_internal_call():
                 error = self._tool_not_found_error(name)
                 return ActionResult(success=False, error=error)
 

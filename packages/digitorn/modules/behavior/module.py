@@ -194,30 +194,13 @@ class BehaviorModule(BaseModule):
         provider_override: Any = None,
     ) -> str | None:
         """Run the semantic classifier on a user message."""
-        def _trace(msg: str) -> None:
-            try:
-                from pathlib import Path as _P
-                _path = _P.home() / ".digitorn" / "logs" / "coach_trace.log"
-                with open(_path, "a", encoding="utf-8") as _f:
-                    _f.write(f"{msg}\n")
-            except Exception as exc:
-                logger.debug("module best-effort block failed: %s", exc)
-
-        # Per-call provider wins over the module-level singleton -
-        # this is how the BYOK / gateway resolver hands the right
-        # provider for the current user without mutating shared state.
         active_provider = provider_override or self._classifier_provider
 
-        _trace(f"--- classify_turn called session={session_id[:12]} turn={turn} msg_len={len(user_message)} enabled={self._classify_enabled} provider={type(active_provider).__name__ if active_provider else None} override={provider_override is not None}")
-
         if not self._classify_enabled or active_provider is None:
-            _trace(f"  SKIP: enabled={self._classify_enabled} provider_none={active_provider is None}")
             return None
         if not self._engine:
-            _trace("  SKIP: no engine")
             return None
         if not user_message or not user_message.strip():
-            _trace("  SKIP: empty user_message")
             return None
 
         from digitorn.modules.behavior.classifier import (
@@ -267,18 +250,15 @@ class BehaviorModule(BaseModule):
             )
 
             raw_text = _extract_response_text(response)
-            _trace(f"  RAW_RESPONSE len={len(raw_text)}: {raw_text[:400]}")
             if not raw_text:
                 logger.debug("behavior_classify: empty response")
                 return None
 
             classification = parse_classification(raw_text)
-            _trace(f"  PARSED: {classification}")
             if classification is None:
                 return None
 
             directive = format_directive_message(classification, classifier_config=cfg)
-            _trace(f"  DIRECTIVE len={len(directive) if directive else 0}")
             if directive:
                 logger.info(
                     "behavior_classify session=%s turn=%d complexity=%s approach=%s risk=%s directives=%d",
@@ -291,11 +271,9 @@ class BehaviorModule(BaseModule):
             return directive
 
         except asyncio.TimeoutError:
-            _trace(f"  TIMEOUT >{timeout}s")
             logger.warning("behavior_classify: timeout (>%ds), skipping", timeout)
             return None
         except Exception as exc:
-            _trace(f"  EXCEPTION: {type(exc).__name__}: {exc}")
             logger.warning("behavior_classify: error: %s", exc)
             return None
 
@@ -319,22 +297,9 @@ class BehaviorModule(BaseModule):
         agent_text: str = "",
     ) -> tuple[bool, list[str]]:
         """Check rules BEFORE a tool executes."""
-        def _ptrace(msg: str) -> None:
-            try:
-                from pathlib import Path as _P
-                _path = _P.home() / ".digitorn" / "logs" / "pretool_trace.log"
-                with open(_path, "a", encoding="utf-8") as _f:
-                    _f.write(f"{msg}\n")
-            except Exception as exc:
-                logger.debug("module best-effort block failed: %s", exc)
-        _rule_count = len(self._engine.rule_definitions) if self._engine else 0
-        _cmd_preview = str(params.get("command", ""))[:80]
-        _ptrace(f"pre_tool session={session_id[:12]} tool={tool_name} rules_loaded={_rule_count} cmd={_cmd_preview}")
         if not self._engine:
-            _ptrace("  NO ENGINE - skipping")
             return True, []
         violations = self._engine.pre_tool(session_id, tool_name, params, agent_text)
-        _ptrace(f"  violations={[(v.rule_id, v.level) for v in violations]}")
         if not violations:
             return True, []
         messages = [v.format() for v in violations]

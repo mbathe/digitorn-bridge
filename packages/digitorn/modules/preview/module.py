@@ -213,7 +213,9 @@ class PreviewModule(BaseModule):
         if daemon_dir:
             self._session_daemon_dirs[session_id] = daemon_dir
         state = self._store.get_or_create(session_id)
-        await self._hydrate_from_disk(state)
+        if not state.hydrated:
+            await self._hydrate_from_disk(state)
+            state.hydrated = True
         if user_id and not state.user_id:
             state.user_id = user_id
         return state

@@ -1,8 +1,8 @@
 # MCP Module
 
-Connect to external MCP (Model Context Protocol) servers and expose their
-tools, resources, and prompts to Digitorn agents - seamlessly integrated
-with the context_builder's ToolIndex.
+Connect to external MCP (Model Context Protocol) servers and expose
+their tools, resources, and prompts to Digitorn agents through the
+context_builder's ToolIndex.
 
 ## Overview
 

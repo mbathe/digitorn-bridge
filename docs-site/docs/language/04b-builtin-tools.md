@@ -15,8 +15,7 @@ This page is the authoritative list. Every entry maps to a real
 ## Always-available primitives (`context_builder`)
 
 `context_builder` is auto-loaded by the runtime (no YAML declaration
-needed). It exposes 9 actions in
- plus
+needed). It exposes 9 actions in `actions_meta.py` plus
 1 action in `actions_background.py`. Every agent in every mode
 (direct / compact / discovery) gets access to these.
 
@@ -79,9 +78,7 @@ Provided by the `cron_native` module. Three actions:
 ## Memory tools (gated by `tools.modules.memory`)
 
 When `memory` is declared under `tools.modules`, four actions become
-available
-( -
-all four `@action` decorators).
+available (all four `@action` decorators in `memory/module.py`).
 
 | Tool | Short alias | Source | Description |
 |------|-------------|--------|-------------|
@@ -102,10 +99,10 @@ practice.
 
 ## Agent-spawn tool (gated by `agent_spawn` module loaded)
 
- exposes a
+The `agent_spawn` module exposes a
 **single `@action`** named `agent`. Eight modes are dispatched by
 params (the implementation routes through the `_mode_*` private
-methods at line 373-765).
+methods in `agent_spawn/module.py`).
 
 ```yaml
 # Compile-time config: load the module via capabilities or per-agent grant

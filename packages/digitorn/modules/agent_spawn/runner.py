@@ -236,6 +236,7 @@ async def _run_isolated_agent_impl(
     direct_modules_map: dict[str, str] | None = None,
     approval_queue: Any = None,
     user_id: str | None = None,
+    user_jwt: str | None = None,
     session_module_cache: dict[str, dict[str, Any]] | None = None,
     parent_run_id: str | None = None,
     app_id: str | None = None,
@@ -263,6 +264,15 @@ async def _run_isolated_agent_impl(
     if tracked is not None:
         tracked.cancel_event = asyncio.Event()
 
+    _NON_USER_IDS = {"", "local", "anonymous", "system", "admin"}
+    if user_id is None or user_id.strip().lower() in _NON_USER_IDS:
+        raise RuntimeError(
+            f"agent_spawn.runner: authenticated user_id is required, "
+            f"got {user_id!r}. Caller must propagate a real user_id from "
+            f"the parent context. Fallback to 'admin'/'local' removed "
+            f"(violated gateway single-egress rule)."
+        )
+
     ctx = AgentContext(
         agent_id=agent_id,
         role="worker",
@@ -288,7 +298,8 @@ async def _run_isolated_agent_impl(
         sandbox_worker=sandbox_worker,
         direct_modules_map=direct_modules_map or {},
         approval_queue=approval_queue,
-        user_id=user_id if user_id is not None else "admin",
+        user_id=user_id,
+        user_jwt=user_jwt or "",
         current_run_id=parent_run_id,
         app_id=app_id,
         cancel_event=tracked.cancel_event if tracked is not None else None,
@@ -444,6 +455,7 @@ async def _run_isolated_agent_impl(
         logger.warning("agent_spawn: failed to wire context for %s: %s", agent_id, exc)
 
     _agent_directives = (
+        '<digitorn-directive type="sub_agent_mode" severity="critical">\n'
         "You are a background sub-agent. Your output goes to a coordinator, not a human. "
         "Follow these rules strictly:\n"
         "\n"
@@ -457,7 +469,7 @@ async def _run_isolated_agent_impl(
         "- If the task says to implement/fix - make the changes, verify, report what changed.\n"
         "- Minimize tool calls. Grep before Read. Don't read entire files when you only need a section.\n"
         "- Do NOT create tasks (TodoAdd) or set goals - the coordinator handles that.\n"
-        "\n"
+        "</digitorn-directive>\n\n"
     )
     inherited_section = _format_parent_memory_seed(parent_memory_seed)
 

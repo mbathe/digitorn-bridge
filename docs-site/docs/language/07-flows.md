@@ -12,7 +12,7 @@ on the agents' system prompts to coordinate themselves via
 `Agent` tool calls.
 
 The schema is fully implemented and enforced at compile time
-(, `extra: forbid` on every
+(strict Pydantic models, `extra: forbid` on every
 node type). Cross-references (node ids, agent ids, tool names,
 reachability, cycles) are validated by
 `validate_flow_references` (`flow.py`).

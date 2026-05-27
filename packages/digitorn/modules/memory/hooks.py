@@ -106,8 +106,19 @@ def on_turn_start(
 
     if turn == 0 and not store.working.original_request:
         for msg in messages:
-            if msg.get("role") == "user" and msg.get("content"):
-                store.working.original_request = msg["content"].strip()
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content")
+            if isinstance(content, list):
+                text = ""
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        text = part.get("text") or ""
+                        if text:
+                            break
+                content = text
+            if isinstance(content, str) and content.strip():
+                store.working.original_request = content.strip()
                 break
 
     if config.has_any_layer() and messages:

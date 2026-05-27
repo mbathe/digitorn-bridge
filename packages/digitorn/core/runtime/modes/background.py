@@ -561,6 +561,19 @@ async def run_background(
 ) -> None:
     """Run the agent in background mode."""
     if runtime_app is not None:
+        if not getattr(ctx, "runtime_app", None):
+            ctx.runtime_app = runtime_app
+        # Also stamp the original entry_context so manual fire paths
+        # (triggers.py:fire_trigger using deployed.entry_context directly)
+        # can locate runtime_app for gateway hot-swap.
+        _entry_ctx = getattr(runtime_app, "entry_context", None)
+        if _entry_ctx is not None and not getattr(_entry_ctx, "runtime_app", None):
+            try:
+                _entry_ctx.runtime_app = runtime_app
+            except Exception as exc:
+                logger.debug("entry_context runtime_app stamp failed: %s", exc)
+
+    if runtime_app is not None:
         channels_mod = runtime_app.modules.get("channels")
         if channels_mod is not None:
             await channels_mod.start_listeners()
@@ -816,6 +829,180 @@ async def _run_single_activation(
     if not app_id:
         app_id = getattr(ctx, "app_id", "") or "default"
 
+    if not user_id:
+        try:
+            from digitorn.core.config import get_settings
+            user_id = get_settings().runtime.system_user_id or ""
+        except Exception as exc:
+            logger.debug("system_user_id lookup failed: %s", exc)
+            user_id = ""
+
+    if not user_id:
+        logger.error(
+            "background_activation_refused trigger=%s app=%s reason=no_user_id "
+            "-- set runtime.system_user_id in config.yaml to enable system app "
+            "triggers (must be a JWT user_id valid via the auth/gateway).",
+            trigger_id, app_id,
+        )
+        return
+
+    import copy as _copy
+    ctx = _copy.copy(ctx)
+    ctx.user_id = user_id
+
+    # Propagate inbound bearer (manual fire via API) so openai_compat
+    # replaces {{user.jwt}} in the Authorization header at request time.
+    # Scheduled cron fires have no inbound HTTP -- fall back to the JWT
+    # captured at deploy time on the Application row.
+    try:
+        from digitorn.core.runtime.request_context import get_inbound_user_jwt
+        _jwt_in = get_inbound_user_jwt()
+    except Exception:
+        _jwt_in = None
+    if _jwt_in and not getattr(ctx, "user_jwt", None):
+        ctx.user_jwt = _jwt_in
+        logger.warning(
+            "background_jwt_propagated trigger=%s app=%s user=%s source=inbound",
+            trigger_id, app_id, user_id,
+        )
+    elif not getattr(ctx, "user_jwt", None):
+        logger.warning(
+            "background_jwt_lookup_start trigger=%s app=%s user=%s",
+            trigger_id, app_id, user_id,
+        )
+        try:
+            from digitorn.core.database import get_session_factory
+            from digitorn.core.models import Application
+            from sqlalchemy import select
+            SF = get_session_factory()
+            async with SF() as _s:
+                row = (await _s.execute(
+                    select(Application.deployer_jwt)
+                    .where(Application.app_id == app_id)
+                    .order_by(Application.created_at.desc())
+                    .limit(1)
+                )).scalar_one_or_none()
+            logger.warning(
+                "background_jwt_lookup_result trigger=%s app=%s row_type=%s row_is_none=%s",
+                trigger_id, app_id, type(row).__name__, row is None,
+            )
+            if row and isinstance(row, dict):
+                _stored = row.get("token")
+                if _stored:
+                    ctx.user_jwt = _stored
+                    logger.warning(
+                        "background_jwt_propagated trigger=%s app=%s user=%s source=deployer_stored len=%d",
+                        trigger_id, app_id, user_id, len(_stored),
+                    )
+        except Exception as _jwt_exc:
+            logger.warning(
+                "deployer_jwt_lookup_failed trigger=%s app=%s err=%s",
+                trigger_id, app_id, _jwt_exc, exc_info=True,
+            )
+
+    try:
+        from digitorn.core.credentials.gateway_resolver import (
+            resolve_session_provider,
+        )
+        from digitorn.core.credentials.byok_store import is_byok_enabled
+        from digitorn.core.config import get_settings as _gs
+
+        runtime_app = (
+            getattr(ctx, "runtime_app", None)
+            or getattr(ctx, "_runtime_app", None)
+        )
+        compiled = getattr(runtime_app, "compiled", None) if runtime_app else None
+        modules_dict = getattr(runtime_app, "modules", None) if runtime_app else None
+        agent_block = None
+        if compiled is not None:
+            agent_block = next(
+                (a for a in compiled.agents if a.agent_id == ctx.agent_id),
+                None,
+            )
+
+        logger.warning(
+            "background_gateway_check trigger=%s app=%s user=%s "
+            "runtime_app=%s compiled=%s agent_block=%s agent_id=%s provider=%s",
+            trigger_id, app_id, user_id,
+            runtime_app is not None,
+            compiled is not None,
+            agent_block is not None,
+            getattr(ctx, "agent_id", "?"),
+            type(ctx.provider).__name__ if ctx.provider else None,
+        )
+
+        if agent_block is not None and ctx.provider is not None:
+            try:
+                byok_on = await is_byok_enabled(user_id, app_id)
+            except Exception as exc:
+                logger.debug("byok lookup failed: %s", exc)
+                byok_on = False
+            resolved = await resolve_session_provider(
+                deployed_provider=ctx.provider,
+                agent=agent_block,
+                user_id=user_id,
+                app_id=app_id,
+                modules=modules_dict or {},
+                settings=_gs(),
+                byok_enabled=byok_on,
+            )
+            logger.warning(
+                "background_gateway_resolve_done trigger=%s app=%s byok=%s resolved=%s deployed=%s same=%s resolved_api_key_kind=%s",
+                trigger_id, app_id, byok_on,
+                getattr(resolved, "provider_hint", "?"),
+                getattr(ctx.provider, "provider_hint", "?"),
+                resolved is ctx.provider,
+                ("PLACEHOLDER" if getattr(resolved, "api_key", "") == "{{user.jwt}}" else "OTHER"),
+            )
+            if resolved is not ctx.provider:
+                ctx.provider = resolved
+                logger.warning(
+                    "background_gateway_hot_swap trigger=%s app=%s user=%s "
+                    "resolved=%s",
+                    trigger_id, app_id, user_id,
+                    getattr(resolved, "provider_hint", "?"),
+                )
+
+            try:
+                bm = getattr(ctx, "behavior_module", None)
+                cls_default = getattr(bm, "_classifier_provider", None) if bm else None
+                bcfg = getattr(compiled, "behavior", None) if compiled else None
+                bbrain = getattr(bcfg, "brain", None) if bcfg else None
+                if (
+                    cls_default is not None
+                    and bbrain is not None
+                    and getattr(bbrain, "model", "")
+                ):
+                    if byok_on:
+                        ctx._session_classifier_provider = cls_default
+                    else:
+                        cls_resolved = await resolve_session_provider(
+                            deployed_provider=cls_default,
+                            agent=type("_Wrap", (), {"brain": bbrain})(),
+                            user_id=user_id,
+                            app_id=app_id,
+                            modules=modules_dict or {},
+                            settings=_gs(),
+                            byok_enabled=False,
+                        )
+                        ctx._session_classifier_provider = cls_resolved
+                        logger.info(
+                            "background_classifier_hot_swap trigger=%s app=%s "
+                            "resolved=%s",
+                            trigger_id, app_id,
+                            getattr(cls_resolved, "provider_hint", "?"),
+                        )
+            except Exception as exc:
+                logger.debug(
+                    "background classifier hot-swap skipped: %s", exc,
+                )
+    except Exception as exc:
+        logger.warning(
+            "background_gateway_resolve_failed trigger=%s app=%s err=%s "
+            "-- continuing with deployed provider",
+            trigger_id, app_id, exc, exc_info=True,
+        )
+
     try:
         credential_store = _get_credential_store_for_activation(ctx)
         if credential_store is not None:
@@ -825,7 +1012,7 @@ async def _run_single_activation(
             message = await resolve_runtime_secrets_in_value(
                 message,
                 store=credential_store,
-                user_id=user_id or "anonymous",
+                user_id=user_id,
                 app_id=app_id,
             )
     except Exception as exc:
@@ -906,6 +1093,15 @@ async def _run_single_activation(
     result = None
     crash_error: str | None = None
     try:
+        logger.warning(
+            "background_pre_agent_turn trigger=%s app=%s provider_type=%s "
+            "provider_api_key_prefix=%r ctx_user_jwt_set=%s ctx_user_jwt_prefix=%r",
+            trigger_id, app_id,
+            type(ctx.provider).__name__,
+            (getattr(ctx.provider, "api_key", "") or "")[:30],
+            bool(getattr(ctx, "user_jwt", "")),
+            (getattr(ctx, "user_jwt", "") or "")[:30],
+        )
         result = await agent_turn(
             ctx, messages,
             max_turns=max_turns,

@@ -32,6 +32,7 @@ class IndexedTool:
     irreversible: bool = False
     tool_prompt: str = ""
     output_schema: dict[str, Any] | None = None
+    hidden: bool = False
 
 @dataclass(frozen=True, slots=True)
 class CategoryInfo:
@@ -75,7 +76,7 @@ class ToolIndex:
 
     @property
     def total_tools(self) -> int:
-        return len(self.tools)
+        return sum(1 for t in self.tools.values() if not getattr(t, "hidden", False))
 
     @property
     def total_categories(self) -> int:

@@ -207,23 +207,74 @@ def deploy(
         console.print(f"[bold red]Error: {exc}[/bold red]")
         raise typer.Exit(1)
 
-    if data.get("success"):
-        info = data["data"]
-        table = Table(title=f"App Deployed: {info['name']}", border_style="green")
-        table.add_column("Property", style="cyan")
-        table.add_column("Value", style="green")
-        table.add_row("app_id", info["app_id"])
-        table.add_row("version", info["version"])
-        table.add_row("mode", info["mode"])
-        table.add_row("agents", ", ".join(info["agents"]))
-        table.add_row("modules", ", ".join(info["modules"]))
-        table.add_row("tools", f"{info['total_tools']} across {info['total_categories']} modules")
-        console.print()
-        console.print(Panel(table, border_style="green"))
-        console.print()
-    else:
+    if not data.get("success"):
         console.print(f"\n[bold red]Deploy failed:[/bold red] {data.get('error')}\n")
         raise typer.Exit(1)
+
+    info = data.get("data") or {}
+    app_id = info.get("app_id", "?")
+    # `/api/apps/deploy` returns `status: "deploying"` and runs the actual
+    # build in a background task. Poll until the app is fully loaded so the
+    # "App Deployed" table shows real mode/agents instead of crashing on
+    # missing keys.
+    if info.get("status") == "deploying":
+        import time as _time
+        deadline = _time.monotonic() + 90.0
+        last_err: str | None = None
+        ready_info: dict | None = None
+        while _time.monotonic() < deadline:
+            try:
+                check = daemon_request("get", f"{daemon}/api/apps/{app_id}", daemon=daemon)
+                cdata = check.json()
+                if cdata.get("success"):
+                    cinfo = cdata.get("data") or {}
+                    if cinfo.get("mode") and cinfo.get("agents"):
+                        ready_info = cinfo
+                        break
+                try:
+                    err_resp = daemon_request(
+                        "get",
+                        f"{daemon}/api/apps/{app_id}/deploy-status",
+                        daemon=daemon,
+                    )
+                    err_data = err_resp.json()
+                    if err_data.get("success"):
+                        ed = err_data.get("data") or {}
+                        if ed.get("error"):
+                            last_err = ed["error"]
+                            break
+                except Exception as exc:
+                    logger.debug("deploy-status best-effort failed: %s", exc)
+            except Exception as exc:
+                logger.debug("deploy poll best-effort failed: %s", exc)
+            _time.sleep(1.0)
+        if last_err:
+            console.print(f"\n[bold red]Deploy failed:[/bold red] {last_err}\n")
+            raise typer.Exit(1)
+        if ready_info is None:
+            console.print(
+                f"\n[yellow]Deploy still in progress after 90s. "
+                f"Run `digitorn app list` later to confirm.[/yellow]\n"
+            )
+            return
+        info = ready_info
+
+    table = Table(title=f"App Deployed: {info.get('name', app_id)}", border_style="green")
+    table.add_column("Property", style="cyan")
+    table.add_column("Value", style="green")
+    table.add_row("app_id", info.get("app_id", "?"))
+    table.add_row("version", str(info.get("version", "?")))
+    table.add_row("mode", info.get("mode", "?"))
+    table.add_row("agents", ", ".join(info.get("agents") or []) or "-")
+    table.add_row("modules", ", ".join(info.get("modules") or []) or "-")
+    table.add_row(
+        "tools",
+        f"{info.get('total_tools', 0)} across "
+        f"{info.get('total_categories', 0)} modules",
+    )
+    console.print()
+    console.print(Panel(table, border_style="green"))
+    console.print()
 
 
 @app_cli.command(name="list")

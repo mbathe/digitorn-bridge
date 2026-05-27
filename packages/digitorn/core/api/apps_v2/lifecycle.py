@@ -42,6 +42,7 @@ from ._shared import (
     _raise_not_deployed,
     _is_deployed,
     _require_permission,
+    _is_admin,
     _turn_event,
     _require_session_create_or_owner,
     _require_session_access,
@@ -271,8 +272,7 @@ async def list_apps(
 @router.post("/sync-deployed", response_model=AppResponse)
 async def sync_deployed_with_db(request: Request) -> AppResponse:
     """Admin: reconcile in-memory `_deployed` with the DB."""
-    perms = list(getattr(request.state, "permissions", []) or [])
-    if "*" not in perms:
+    if not _is_admin(request):
         raise HTTPException(
             status_code=403,
             detail="sync-deployed is admin-only.",
@@ -290,8 +290,7 @@ async def sync_deployed_with_db(request: Request) -> AppResponse:
 async def list_disabled(request: Request) -> AppResponse:
     """List disabled apps visible to the caller."""
     manager = _get_manager(request)
-    perms = list(getattr(request.state, "permissions", []) or [])
-    is_admin = "*" in perms
+    is_admin = _is_admin(request)
     caller_user_id = _caller_user_id(request) or None
 
     try:
@@ -406,8 +405,11 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
 
     # scope default = user for non-admins (private install); system = admin-only (or YAML inside builtins dir).
     caller_user_id = _caller_user_id(request) or None
-    perms = list(getattr(request.state, "permissions", []) or [])
-    is_admin = "*" in perms
+    # Capture caller's bearer NOW so it survives into the asyncio.create_task
+    # closure below. Used to authenticate cron auto-fires that have no inbound
+    # HTTP context (background.py:_run_single_activation reads this back).
+    caller_token = getattr(request.state, "access_token", None)
+    is_admin = _is_admin(request)
     # YAML inside the daemon's builtins/ tree may deploy at scope=system without admin (same risk model as bootstrap_builtins).
     def _yaml_is_builtin() -> bool:
         try:
@@ -466,6 +468,28 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
             if body.secrets:
                 for k, v in body.secrets.items():
                     await manager.set_secret(deployed.app_id, k, v)
+            if caller_token:
+                try:
+                    from digitorn.core.database import get_session_factory
+                    from digitorn.core.models import Application
+                    from sqlalchemy import select, update
+                    SF = get_session_factory()
+                    async with SF() as _s:
+                        await _s.execute(
+                            update(Application)
+                            .where(
+                                Application.app_id == app_id,
+                                Application.scope == deploy_scope,
+                                Application.owner_user_id == (deploy_owner or ""),
+                            )
+                            .values(deployer_jwt={"token": caller_token})
+                        )
+                        await _s.commit()
+                except Exception as _jwt_exc:
+                    logger.warning(
+                        "deployer_jwt_persist_failed app=%s: %s",
+                        app_id, _jwt_exc, exc_info=True,
+                    )
             logger.info(
                 "deploy_complete app=%s scope=%s owner=%s",
                 app_id, deploy_scope, deploy_owner or "-",
@@ -779,8 +803,7 @@ async def disable_app(
     manager = _get_manager(request)
 
     caller_user_id = _caller_user_id(request) or None
-    perms = list(getattr(request.state, "permissions", []) or [])
-    is_admin = "*" in perms
+    is_admin = _is_admin(request)
 
     if scope == "system" and not is_admin:
         raise HTTPException(
@@ -831,8 +854,7 @@ async def enable_app(
 ) -> AppResponse:
     """Re-enable a disabled app (ADMIN ONLY) and redeploy it."""
     _validate_id(app_id)
-    perms = list(getattr(request.state, "permissions", []) or [])
-    is_admin = "*" in perms
+    is_admin = _is_admin(request)
     if not is_admin:
         raise HTTPException(
             status_code=403,
@@ -872,8 +894,7 @@ async def hide_app(
     _validate_id(app_id)
 
     caller_user_id = _caller_user_id(request) or None
-    perms = list(getattr(request.state, "permissions", []) or [])
-    is_admin = "*" in perms
+    is_admin = _is_admin(request)
 
     if scope == "system" and not is_admin:
         raise HTTPException(
@@ -949,8 +970,7 @@ async def show_app(
     _validate_id(app_id)
 
     caller_user_id = _caller_user_id(request) or None
-    perms = list(getattr(request.state, "permissions", []) or [])
-    is_admin = "*" in perms
+    is_admin = _is_admin(request)
 
     if scope == "system" and not is_admin:
         raise HTTPException(
@@ -1043,8 +1063,7 @@ async def delete_app(
         )
 
     caller_user_id = _caller_user_id(request) or None
-    perms = list(getattr(request.state, "permissions", []) or [])
-    is_admin = "*" in perms
+    is_admin = _is_admin(request)
 
     if scope == "system" and not is_admin:
         raise HTTPException(

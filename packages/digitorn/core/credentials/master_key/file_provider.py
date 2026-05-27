@@ -6,6 +6,7 @@ import base64
 import logging
 import os
 import stat
+import sys
 from pathlib import Path
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -71,10 +72,12 @@ class FileKeyProvider:
 
     @staticmethod
     def _check_permissions(path: Path) -> None:
-        """Warn if the file is world-readable (POSIX). On Windows"""
+        """Warn if the file is world-readable. POSIX only — Windows ACLs are not checked."""
+        if sys.platform == "win32":
+            return
         try:
             mode = stat.S_IMODE(path.stat().st_mode)
-            if mode & 0o077:  # any permission for group/other
+            if mode & 0o077:
                 logger.warning(
                     "master key file %s has loose permissions (%o); "
                     "expected 0600. Run `chmod 600 %s`.",

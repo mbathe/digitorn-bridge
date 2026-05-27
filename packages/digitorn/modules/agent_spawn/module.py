@@ -1337,6 +1337,7 @@ class AgentSpawnModule(BaseModule):
                         direct_modules_map=getattr(parent_ctx, "direct_modules_map", None),
                         approval_queue=getattr(parent_ctx, "approval_queue", None),
                         user_id=getattr(parent_ctx, "user_id", None),
+                        user_jwt=getattr(parent_ctx, "user_jwt", None),
                         security_profile=getattr(parent_ctx, "security_profile", None),
                         session_module_cache=self._session_module_cache,
                         parent_run_id=getattr(parent_ctx, "current_run_id", None),

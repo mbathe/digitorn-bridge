@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING, Any
@@ -31,6 +32,24 @@ if TYPE_CHECKING:
     from fastapi import Request
 
 logger = logging.getLogger(__name__)
+
+
+_BYOK_CACHE_TTL_S = 60.0
+_byok_cache: dict[tuple[str, str], tuple[float, bool, dict[str, Any], bool]] = {}
+
+
+def invalidate_byok_cache(user_id: str | None = None, app_id: str | None = None) -> None:
+    """Drop cached BYOK state. Called after credential grant/revoke."""
+    if user_id is None and app_id is None:
+        _byok_cache.clear()
+        return
+    keys = [
+        k for k in _byok_cache
+        if (user_id is None or k[0] == user_id)
+        and (app_id is None or k[1] == app_id)
+    ]
+    for k in keys:
+        _byok_cache.pop(k, None)
 
 
 async def _maybe_inject_rag_context(
@@ -557,25 +576,33 @@ async def dispatch_turn(
 
         byok_on = False
         byok_overrides: dict[str, dict[str, Any]] = {}
-        try:
-            if deployed is not None:
-                from digitorn.core.credentials.byok_store import (
-                    build_byok_overrides_for_app,
-                    is_byok_enabled,
-                )
-                byok_on = await is_byok_enabled(user_id, app_id)
-                if byok_on:
-                    byok_overrides = await build_byok_overrides_for_app(
-                        compiled=deployed.compiled, user_id=user_id,
+        cred_check_done = False
+        _cache_key = (user_id or "local", app_id)
+        _cached = _byok_cache.get(_cache_key)
+        if _cached is not None and (time.monotonic() - _cached[0]) < _BYOK_CACHE_TTL_S:
+            byok_on = _cached[1]
+            byok_overrides = _cached[2]
+            cred_check_done = _cached[3]
+        else:
+            try:
+                if deployed is not None:
+                    from digitorn.core.credentials.byok_store import (
+                        build_byok_overrides_for_app,
+                        is_byok_enabled,
                     )
-        except Exception as exc:
-            logger.debug(
-                "byok_lookup_failed app=%s user=%s: %s",
-                app_id, user_id, exc,
-            )
+                    byok_on = await is_byok_enabled(user_id, app_id)
+                    if byok_on:
+                        byok_overrides = await build_byok_overrides_for_app(
+                            compiled=deployed.compiled, user_id=user_id,
+                        )
+            except Exception as exc:
+                logger.debug(
+                    "byok_lookup_failed app=%s user=%s: %s",
+                    app_id, user_id, exc,
+                )
 
         try:
-            if deployed is not None and byok_on:
+            if deployed is not None and byok_on and not cred_check_done:
                 from digitorn.core.credentials import (
                     ensure_user_credentials_for_app,
                 )
@@ -585,6 +612,10 @@ async def dispatch_turn(
                     credential_store=credential_store,
                     byok_overrides=byok_overrides or None,
                 )
+                cred_check_done = True
+            _byok_cache[_cache_key] = (
+                time.monotonic(), byok_on, byok_overrides, cred_check_done,
+            )
         except asyncio.CancelledError:
             raise
         except Exception as cred_exc:

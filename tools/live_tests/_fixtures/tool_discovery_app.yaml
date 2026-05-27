@@ -1,0 +1,54 @@
+app:
+  app_id: tool-discovery-test
+  name: Tool Discovery Test
+  version: 0.0.1
+  description: Live-test fixture for SearchTools / GetTool agent-driven discovery.
+  category: development
+
+runtime:
+  mode: conversation
+  workdir_mode: none
+  tool_injection: discovery
+  direct_modules: []  # nothing direct -> agent MUST use SearchTools
+  max_turns: 6
+  timeout: 90
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 1024
+    system_prompt: |
+      You are a minimal test agent.
+      You have access to meta-tools SearchTools, GetTool, ListCategories.
+      When you need to do anything, FIRST call SearchTools to find an
+      appropriate tool, THEN call it. Be very brief.
+
+tools:
+  modules:
+    memory:
+      config:
+        auto_remember: false
+        working_memory: false
+    filesystem: {}
+    context_builder: {}
+  capabilities:
+    default_policy: auto
+    grant:
+      - module: filesystem
+        actions: [read, grep, glob]
+      - module: memory
+        actions: [remember]
+      - module: context_builder
+        actions: [search_tools, get_tool, list_categories]
+
+security:
+  behavior:
+    classify_turns: false

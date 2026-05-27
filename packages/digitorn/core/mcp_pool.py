@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -96,6 +97,7 @@ class DaemonMCPPool:
         self._running = True
         self._session_factory = session_factory
 
+        runtime_cache: dict[str, bool] = {}
         try:
             async with session_factory() as session:
                 servers = await db_list_servers(session)
@@ -106,6 +108,16 @@ class DaemonMCPPool:
                         continue
                     try:
                         kwargs = _build_connect_kwargs(server)
+                        if server.transport == "stdio":
+                            cmd = kwargs.get("command", "")
+                            if cmd and cmd not in runtime_cache:
+                                runtime_cache[cmd] = shutil.which(cmd) is not None
+                            if cmd and not runtime_cache.get(cmd, False):
+                                logger.info(
+                                    "daemon_mcp_auto_start_skipped server=%s reason=%r not on PATH",
+                                    server.server_id, cmd,
+                                )
+                                continue
                         await self._pool.connect(server.server_id, server.transport, **kwargs)
                         self._refs[server.server_id] = _ServerRef(server_id=server.server_id)
                         logger.info("daemon_mcp_auto_started server=%s", server.server_id)

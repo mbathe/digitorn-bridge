@@ -2,7 +2,7 @@
 
 ## [2.1.0] - 2026-04-15
 
-### Consolidation: 15 Tools → 5 Ultra-Powerful Tools
+### Consolidation: 15 tools reduced to 5
 
 **Goal**: Reduce LLM noise (fewer tool choices) while increasing power.
 

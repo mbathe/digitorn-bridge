@@ -23,11 +23,19 @@ HandlerFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 # are cheap, losing user conversation history is not.
 #
 # This frozenset stays defined as an empty set so the filter hook
-# still exists in case a future deployment wants to re-enable a few
-# very-high-volume types (append here) - but by default every type
-# is persisted. Paired with the fire-and-forget bg writer below, the
-# agent loop never blocks on IO.
-_EPHEMERAL_EVENT_TYPES: frozenset[str] = frozenset()
+# Per-token streaming events are excluded from the persist path -
+# clients consume them live via SSE, history readers reconstruct the
+# final message from the persisted assistant message_done envelope.
+# Persisting every chunk adds bridge-mode resolution + bg writer
+# enqueue + envelope build per token (1-3 ms each, hundreds per
+# response). For 500-token answers that is 500-1500 ms of pure
+# scheduler / IO overhead with no value to history readers.
+_EPHEMERAL_EVENT_TYPES: frozenset[str] = frozenset({
+    "token",
+    "out_token",
+    "in_token",
+    "thinking_delta",
+})
 
 async def _persist_event(**kwargs: Any) -> None:
     try:

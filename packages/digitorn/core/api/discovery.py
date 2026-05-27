@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from digitorn.core.api.apps_v2 import AppResponse
+from digitorn.core.api.apps_v2._shared import _is_admin
 
 logger = logging.getLogger(__name__)
 
@@ -334,8 +335,7 @@ async def list_configured_triggers(request: Request) -> AppResponse:
         return AppResponse(success=True, data={"triggers": [], "count": 0})
 
     uid = getattr(request.state, "user_id", "") or ""
-    perms = getattr(request.state, "permissions", []) or []
-    include_system = "*" in perms
+    include_system = _is_admin(request)
 
     out: list[dict[str, Any]] = []
     try:

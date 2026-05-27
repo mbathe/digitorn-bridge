@@ -3303,6 +3303,23 @@ class AppYAMLCompiler:
                     if not isinstance(blocked, list):
                         blocked = None
                 if blocked:
+                    try:
+                        module = self._registry.get(module_id)
+                        manifest = module.get_manifest()
+                        all_actions = set(manifest.action_names())
+                        unknown = set(blocked) - all_actions
+                        if unknown and errors is not None:
+                            errors.append(
+                                f"modules.{module_id}.constraints: "
+                                f"unknown action(s) in blocked_actions: "
+                                f"{sorted(unknown)}. "
+                                f"Available: {sorted(all_actions)}"
+                            )
+                    except Exception as exc:
+                        logger.warning(
+                            "Security profile: failed to resolve module '%s': %s",
+                            module_id, exc,
+                        )
                     for action in blocked:
                         overrides[action] = "block"
 
@@ -3333,13 +3350,16 @@ class AppYAMLCompiler:
             existing = module_grants.get(mid)
             new_hidden = set(existing.hidden_actions) if existing else set()
             new_hidden.update(entry.actions)
+            new_overrides = dict(existing.action_overrides) if existing else {}
+            for a in entry.actions:
+                new_overrides.setdefault(a, "auto")
             module_grants[mid] = ModuleGrant(
                 module_id=mid,
                 visibility=existing.visibility if existing else "full",
                 default_action_policy=(
                     existing.default_action_policy if existing else "approve"
                 ),
-                action_overrides=dict(existing.action_overrides) if existing else {},
+                action_overrides=new_overrides,
                 hidden_actions=frozenset(new_hidden),
                 allowed_actions=existing.allowed_actions if existing else frozenset(),
             )

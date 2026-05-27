@@ -59,6 +59,17 @@ _INLINE_TOOL_MAX_MARKER_LEN = max(len(m) for m in _INLINE_TOOL_MARKERS)
 
 _CONTENT_WRAPPER_RE = re.compile(r'^\s*content\s*:\s*"', re.IGNORECASE)
 
+_DIRECTIVE_TAG_RE = re.compile(
+    r'<digitorn-(?:directive|protocol|bg-task)\b[^>]*?'
+    r'(?:/>|>[\s\S]*?</digitorn-(?:directive|protocol|bg-task)>)',
+)
+_DIRECTIVE_OPEN_PREFIX = "<digitorn-"
+_DIRECTIVE_LEAK_MAX_HOLD = 4096
+_DIRECTIVE_AGGRESSIVE_STRIP_AFTER = 512
+_DIRECTIVE_MALFORMED_OPEN_RE = re.compile(
+    r'<digitorn-(?:directive|protocol|bg-task)\b[^>]*>',
+)
+
 
 def _coerce_tool_arguments_fragment(value: Any) -> str:
     if value is None:
@@ -212,6 +223,24 @@ async def streaming_chat(
                 logger.debug("finalize_streaming_in_finally raised", exc_info=True)
 
     content = re.sub(r"<think>.*?</think>\s*", "", "".join(state.content_parts), flags=re.DOTALL)
+    content = _DIRECTIVE_TAG_RE.sub("", content)
+    _malformed_in_content = _DIRECTIVE_MALFORMED_OPEN_RE.search(content)
+    if _malformed_in_content is not None:
+        state._directive_leaks_detected += 1
+        content = _DIRECTIVE_MALFORMED_OPEN_RE.sub("", content)
+    if ctx is not None and state._directive_leaks_detected > 0:
+        try:
+            prev = getattr(ctx, "_provider_leak_count", 0) or 0
+            ctx._provider_leak_count = prev + state._directive_leaks_detected  # type: ignore[attr-defined]
+            logger.warning(
+                "directive_leak_detected provider=%s model=%s leaks_this_turn=%d total=%d",
+                getattr(ctx.provider, "provider_hint", "?"),
+                getattr(ctx.provider, "model", "?"),
+                state._directive_leaks_detected,
+                ctx._provider_leak_count,
+            )
+        except Exception:
+            logger.debug("provider_leak_count update failed", exc_info=True)
     tool_calls = _finalize_tool_calls(state)
 
     _reasoning_parts = getattr(state, "_reasoning_full", None) or []
@@ -248,6 +277,9 @@ class _StreamState:
         "_streaming_tool_calls",
         "_inline_tool_gate", "_inline_tool_hold",
         "_content_wrapper_active", "_content_wrapper_checked",
+        "_directive_leak_hold",
+        "_directive_leaks_detected",
+        "_live_counted_chars",
         "input_messages", "input_tools",
     )
 
@@ -275,6 +307,9 @@ class _StreamState:
         self._inline_tool_hold = ""
         self._content_wrapper_active = False
         self._content_wrapper_checked = False
+        self._directive_leak_hold = ""
+        self._directive_leaks_detected = 0
+        self._live_counted_chars = 0
         self._prev_completion_tokens: int = 0
         self._last_snapshot_at: float = 0.0
         self._last_live_count_at: float = 0.0
@@ -310,6 +345,8 @@ class _StreamState:
             visible = await self._filter_think_tags(delta)
             if visible:
                 visible = self._filter_inline_tool_markers(visible)
+            if visible:
+                visible = self._strip_directive_leaks(visible)
             if visible:
                 import time as _time
                 now = _time.monotonic()
@@ -362,6 +399,15 @@ class _StreamState:
                     self.cb.on_token(self._think_buf, self._prev_completion_tokens)
             except Exception:
                 logger.debug("on_token callback error (finalize)", exc_info=True)
+
+        if self._directive_leak_hold:
+            tail = _DIRECTIVE_TAG_RE.sub("", self._directive_leak_hold)
+            self._directive_leak_hold = ""
+            if tail and self.cb.on_token is not None:
+                try:
+                    self.cb.on_token(tail, self._prev_completion_tokens)
+                except Exception:
+                    logger.debug("on_token flush leak tail error", exc_info=True)
 
         _reported_prompt = (
             getattr(self.last_usage, "prompt_tokens", 0) or 0
@@ -563,13 +609,13 @@ class _StreamState:
     def _thinking_token_count(self) -> int:
         if not self._think_content:
             return 0
-        provider = getattr(self.ctx, "provider", None) if self.ctx else None
-        try:
-            text = "".join(self._think_content)
-            return _exact_count(provider, text)
-        except Exception:
-            logger.debug("thinking token count failed", exc_info=True)
+        total_chars = 0
+        for part in self._think_content:
+            total_chars += len(part)
+        approx = total_chars // 4
+        if approx <= self._prev_thinking_tokens:
             return self._prev_thinking_tokens
+        return approx
 
     def _maybe_emit_live_out_count(self) -> None:
         """Emit incremental `out_token` deltas during streaming using"""
@@ -579,17 +625,35 @@ class _StreamState:
             return
         if not self.content_parts:
             return
+        total_chars = 0
+        for part in self.content_parts:
+            total_chars += len(part)
+        new_chars = total_chars - self._live_counted_chars
+        if new_chars <= 0:
+            return
         provider = getattr(self.ctx, "provider", None) if self.ctx else None
         try:
-            text = "".join(self.content_parts)
-            count = _exact_count(provider, text)
+            new_text_buf: list[str] = []
+            need = new_chars
+            for part in reversed(self.content_parts):
+                if need <= 0:
+                    break
+                if len(part) <= need:
+                    new_text_buf.append(part)
+                    need -= len(part)
+                else:
+                    new_text_buf.append(part[-need:])
+                    need = 0
+            new_text = "".join(reversed(new_text_buf))
+            delta = _exact_count(provider, new_text)
         except Exception:
             logger.debug("live out_token count failed", exc_info=True)
             return
-        if count <= self._prev_completion_tokens:
+        if delta <= 0:
+            self._live_counted_chars = total_chars
             return
-        delta = count - self._prev_completion_tokens
-        self._prev_completion_tokens = count
+        self._live_counted_chars = total_chars
+        self._prev_completion_tokens += delta
         try:
             self.cb.on_out_token(delta)
         except Exception:
@@ -664,6 +728,7 @@ class _StreamState:
         text = "".join(self.content_parts)
         import re as _re
         visible_only = _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL)
+        visible_only = _DIRECTIVE_TAG_RE.sub("", visible_only)
         _schedule_streaming_persist(ctx, visible_only, status="streaming")
         await asyncio.sleep(0)
 
@@ -726,6 +791,44 @@ class _StreamState:
             self._inline_tool_hold = held
             return buf[: len(buf) - len(held)]
         return buf
+
+    def _strip_directive_leaks(self, visible: str) -> str:
+        buf = self._directive_leak_hold + visible
+        self._directive_leak_hold = ""
+
+        new_buf, n = _DIRECTIVE_TAG_RE.subn("", buf)
+        if n > 0:
+            self._directive_leaks_detected += n
+            buf = new_buf
+
+        open_idx = buf.find(_DIRECTIVE_OPEN_PREFIX)
+        if open_idx == -1:
+            return buf
+
+        held_len = len(buf) - open_idx
+
+        if held_len >= _DIRECTIVE_AGGRESSIVE_STRIP_AFTER:
+            tail = buf[open_idx:]
+            m = _DIRECTIVE_MALFORMED_OPEN_RE.match(tail)
+            if m:
+                after_open = open_idx + m.end()
+                rest = buf[after_open:]
+                next_open = rest.find(_DIRECTIVE_OPEN_PREFIX)
+                para_break = rest.find("\n\n")
+                candidates = [c for c in (next_open, para_break) if c != -1]
+                cut = min(candidates) if candidates else -1
+                if cut != -1:
+                    self._directive_leaks_detected += 1
+                    return buf[:open_idx] + rest[cut:]
+                if held_len >= _DIRECTIVE_LEAK_MAX_HOLD:
+                    self._directive_leaks_detected += 1
+                    return buf[:open_idx]
+
+        if held_len >= _DIRECTIVE_LEAK_MAX_HOLD:
+            return buf
+
+        self._directive_leak_hold = buf[open_idx:]
+        return buf[:open_idx]
 
     async def _filter_think_tags(self, delta: str) -> str:
         self._think_buf += delta
@@ -801,9 +904,24 @@ class _StreamState:
                     logger.debug("on_thinking_started callback error (open)", exc_info=True)
             return before
 
+        close_idx = self._think_buf.find(_THINK_CLOSE)
+        if close_idx != -1:
+            before = self._think_buf[:close_idx]
+            self._think_buf = self._think_buf[close_idx + _THINK_CLOSE_LEN:].lstrip()
+            return before
+
         tag = _THINK_OPEN
         for k in range(1, min(len(tag), len(self._think_buf) + 1)):
             if self._think_buf.endswith(tag[:k]):
+                if k >= len(self._think_buf):
+                    return None
+                before = self._think_buf[:-k]
+                self._think_buf = self._think_buf[-k:]
+                return before
+
+        close_tag = _THINK_CLOSE
+        for k in range(1, min(len(close_tag), len(self._think_buf) + 1)):
+            if self._think_buf.endswith(close_tag[:k]):
                 if k >= len(self._think_buf):
                     return None
                 before = self._think_buf[:-k]

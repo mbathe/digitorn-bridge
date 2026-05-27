@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Awaitable
 
 from digitorn.core.runtime.system_directive import inject_system_directive
+from digitorn.core.runtime.internal_call import internal_call_scope
 
 logger = logging.getLogger(__name__)
 
@@ -1171,7 +1172,11 @@ async def _exec_shell(
         if on_error == "inject":
             await inject_system_directive(
                 getattr(state, "_agent_context", None),
-                content=f"[Hook shell blocked] {result.error}"[:500],
+                content=(
+                    f'<digitorn-directive type="hook_shell_blocked" severity="warn">\n'
+                    f"[Hook shell blocked] {str(result.error)[:500]}\n"
+                    f"</digitorn-directive>"
+                ),
                 source="hook_shell_blocked",
                 messages=state.messages,
                 metadata={"command": command, "error": str(result.error or "")},
@@ -1187,8 +1192,10 @@ async def _exec_shell(
         await inject_system_directive(
             getattr(state, "_agent_context", None),
             content=(
+                f'<digitorn-directive type="hook_shell_error" exit="{exit_code}" severity="warn">\n'
                 f"[Hook shell error] Command: {command}\n"
-                f"Exit: {exit_code}\n{stderr_str[:500]}"
+                f"Exit: {exit_code}\n{stderr_str[:500]}\n"
+                f"</digitorn-directive>"
             ),
             source="hook_shell_error",
             messages=state.messages,
@@ -1197,7 +1204,11 @@ async def _exec_shell(
     elif inject and stdout_str:
         await inject_system_directive(
             getattr(state, "_agent_context", None),
-            content=f"[Hook shell] {stdout_str[:2000]}",
+            content=(
+                f'<digitorn-directive type="hook_shell_stdout">\n'
+                f"[Hook shell] {stdout_str[:2000]}\n"
+                f"</digitorn-directive>"
+            ),
             source="hook_shell_stdout",
             messages=state.messages,
             metadata={"command": command, "stdout_len": len(stdout_str)},
@@ -1484,6 +1495,17 @@ async def _exec_lsp_diagnose(
     except Exception as exc:
         logger.debug("hook_lsp_diagnose: notify_change failed: %s", exc)
         return
+
+    agent_ctx_for_sync = getattr(state, "_agent_context", None)
+    ws_mod = (
+        getattr(agent_ctx_for_sync, "workspace_module", None)
+        if agent_ctx_for_sync else None
+    )
+    if ws_mod is not None and hasattr(ws_mod, "_sync_from_disk"):
+        try:
+            await ws_mod._sync_from_disk()
+        except Exception as exc:
+            logger.debug("hook_lsp_diagnose: workspace sync_from_disk failed: %s", exc)
 
     flat_items: list[dict[str, Any]] = []
     if getattr(lsp_result, "success", False) and getattr(lsp_result, "data", None):
@@ -2601,15 +2623,16 @@ class HookRunner:
                         _msg_snapshot = None
 
                 try:
-                    await asyncio.wait_for(
-                        action_fn(
-                            state,
-                            rh.hook.action.params,
-                            provider=action_provider,
-                            context_builder=self._context_builder,
-                        ),
-                        timeout=_hook_timeout,
-                    )
+                    with internal_call_scope():
+                        await asyncio.wait_for(
+                            action_fn(
+                                state,
+                                rh.hook.action.params,
+                                provider=action_provider,
+                                context_builder=self._context_builder,
+                            ),
+                            timeout=_hook_timeout,
+                        )
                 except asyncio.TimeoutError:
                     logger.warning(
                         "hook_timeout: hook '%s' (action=%s) exceeded "

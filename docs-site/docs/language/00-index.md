@@ -71,6 +71,9 @@ tools:
         auto_remember: false
   capabilities:
     default_policy: auto
+    grant:
+      - module: memory
+        actions: [remember]
 
 ui:
   greeting: "Hello! How can I help?"
@@ -207,7 +210,7 @@ Everything that was under `execution:` (`mode`, `triggers`, `hooks`,
 
 ## Modules
 
-The daemon ships **23 modules** (under ):
+The daemon ships **23 modules** (under `packages/digitorn/modules/`):
 
 `agent_spawn`, `behavior`, `channels`, `context_builder`, `cron_native`,
 `database`, `dev_tools`, `filesystem`, `http`, `index`, `llm_provider`,
@@ -330,6 +333,14 @@ digitorn supervise [...]                # daemon under restart-on-crash supervis
 digitorn stop [--host 127.0.0.1] [--port 8000]
 digitorn status [--host 127.0.0.1] [--port 8000]
 digitorn version
+
+# System service (systemd / launchd / Windows Service)
+digitorn service install                 # register the daemon as an OS service
+digitorn service start
+digitorn service stop
+digitorn service status
+digitorn service logs
+digitorn service uninstall
 
 # Module catalog + credential vault + packages + hub
 digitorn modules ...

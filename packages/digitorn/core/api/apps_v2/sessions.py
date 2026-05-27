@@ -775,6 +775,7 @@ async def fork_session(request: Request, app_id: str, session_id: str) -> AppRes
         messages=[m.copy() for m in source.messages],
         title=f"Fork of {source.title or session_id[:8]}",
         memory_snapshot=dict(source.memory_snapshot),
+        forked_from=session_id,
     )
     await asyncio.to_thread(manager._session_store.put, new_session)
 

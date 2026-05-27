@@ -800,6 +800,62 @@ class WorkspaceModule(BaseModule):
             return None
         return path
 
+    async def register_image_attachment(
+        self,
+        session_id: str,
+        name: str,
+        base64_data: str,
+        *,
+        mime: str = "image/png",
+        image_id: str = "",
+        target_dir: str = "attachments",
+    ) -> str | None:
+        """Mirror an uploaded image into the workspace so WsRead can serve it."""
+        if self._preview is None or not base64_data:
+            return None
+        if target_dir not in ("attachments", "sources"):
+            logger.warning(
+                "register_image_invalid_target session=%s target=%s",
+                session_id[:8], target_dir,
+            )
+            return None
+
+        from digitorn.modules.preview.module import SetResourceParams
+
+        safe = re.sub(r"[^A-Za-z0-9._\-() ]+", "_", name).strip("._ ") or "image"
+        path = f"{target_dir}/{safe}"
+
+        payload: dict[str, Any] = {
+            "content": base64_data,
+            "language": "binary",
+            "size": len(base64_data),
+            "operation": "write",
+            "updated_at": time.time(),
+            "validation": "approved",
+            "source": "attachment",
+            "mime": mime,
+            "image_id": image_id,
+        }
+
+        self._preview.set_active_session(session_id)
+        try:
+            self._channel()[path] = payload
+            try:
+                await self._preview.set_resource(SetResourceParams(
+                    channel="files", id=path, payload=payload,
+                ))
+            except Exception as exc:
+                logger.debug(
+                    "register_image_publish_failed path=%s: %s", path, exc,
+                )
+        except Exception as exc:
+            logger.warning(
+                "register_image_failed session=%s name=%s err=%s",
+                session_id[:8], name, exc,
+            )
+            return None
+        return path
+
     def _is_hidden_from_agent(self, path: str) -> bool:
         norm = path.replace("\\", "/").lstrip("/") if path else ""
         # `agent_root` whitelist takes priority over `hidden_paths`.
@@ -1576,6 +1632,29 @@ class WorkspaceModule(BaseModule):
                 ):
                     continue  # unchanged, no emit
 
+                if is_binary_file(full):
+                    import time as _time
+                    payload = {
+                        "size": size,
+                        "language": _detect_language(rel),
+                        "operation": "disk_sync",
+                        "validation": "approved",
+                        "binary": True,
+                        "disk_mtime": disk_mtime,
+                        "updated_at": _time.time(),
+                    }
+                    try:
+                        await preview.set_resource(SetResourceParams(
+                            channel="files", id=rel, payload=payload,
+                        ))
+                    except Exception as exc:
+                        logger.debug("module best-effort block failed: %s", exc)
+                    if existing is None:
+                        added += 1
+                    else:
+                        modified += 1
+                    continue
+
                 try:
                     with open(full, "r", encoding="utf-8", errors="replace") as fh:
                         content = fh.read()
@@ -1588,8 +1667,6 @@ class WorkspaceModule(BaseModule):
                     operation="disk_sync",
                 )
                 payload["disk_mtime"] = disk_mtime
-                # Disk-synced files arrive already-on-disk so they're
-                # implicitly "approved" in the validation flow.
                 payload["validation"] = "approved"
 
                 try:

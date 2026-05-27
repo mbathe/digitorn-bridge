@@ -172,6 +172,8 @@ def build_direct_tools(
     )
     tools: list[dict[str, Any]] = []
     for fqn, tool in index.tools.items():
+        if getattr(tool, "hidden", False):
+            continue
         schema = dict(tool.params_schema)
         schema.setdefault("type", "object")
         schema.setdefault("properties", {})
@@ -261,6 +263,12 @@ def _index_module(
         if decision == Decision.BLOCK:
             continue
 
+        is_hidden = False
+        if security_profile is not None:
+            grant = security_profile.module_grants.get(module_id)
+            if grant is not None and grant.is_action_hidden(action_name):
+                is_hidden = True
+
         fqn = f"{module_id}.{action_name}"
 
         try:
@@ -288,9 +296,14 @@ def _index_module(
             irreversible=spec.irreversible,
             output_schema=getattr(spec, "output_schema", None),
             tool_prompt=getattr(spec, "tool_prompt", "") or "",
+            hidden=is_hidden,
         )
 
         index.tools[fqn] = tool
+
+        if is_hidden:
+            continue
+
         category_tools.append(fqn)
 
         _index_keywords(index, fqn, tool)
@@ -341,10 +354,6 @@ def _resolve_decision(
 
     if security_profile is None:
         return Decision.AUTO
-
-    grant = security_profile.module_grants.get(module_id)
-    if grant is not None and grant.is_action_hidden(action_name):
-        return Decision.BLOCK
 
     from digitorn.core.security import resolve_action_policy
 

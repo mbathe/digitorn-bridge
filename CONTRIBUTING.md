@@ -89,4 +89,4 @@ the `FORBIDDEN_TOPLEVEL` list in the script (and the matching
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the Apache-2.0 license.
+By contributing, you agree that your contributions will be licensed under the Business Source License 1.1 (BUSL-1.1), which converts to Apache 2.0 on the Change Date specified in [LICENSE](LICENSE).

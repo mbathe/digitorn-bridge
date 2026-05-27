@@ -1,6 +1,6 @@
 # Filesystem Module
 
-5 ultra-powerful filesystem operations: **read**, **write**, **edit**, **grep**, **glob**.
+Five filesystem operations: **read**, **write**, **edit**, **grep**, **glob**.
 
 ## Overview
 

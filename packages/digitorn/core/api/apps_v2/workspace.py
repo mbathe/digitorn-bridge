@@ -477,6 +477,25 @@ async def get_file_content(
                     "Pragma": "no-cache",
                 },
             )
+        import os as _os, mimetypes as _mt
+        sess = await manager.get_session(app_id, session_id, user_id=_uid)
+        ws_priv = getattr(sess, "workspace", "") if sess else ""
+        ws_user = getattr(sess, "workdir", "") if sess else ""
+        ws = ws_priv if file_path.replace("\\", "/").lstrip("./").startswith((".digitorn/", ".app/", "__sdk__/")) else (ws_user or ws_priv)
+        if ws:
+            ws_abs = _os.path.abspath(ws)
+            target = _os.path.abspath(_os.path.join(ws_abs, file_path))
+            if (target.startswith(ws_abs + _os.sep) or target == ws_abs) and _os.path.isfile(target):
+                mime, _ = _mt.guess_type(target)
+                return FileResponse(
+                    target,
+                    media_type=mime or "application/octet-stream",
+                    headers={
+                        "Content-Disposition": "inline",
+                        "Cache-Control": "no-store, no-cache, must-revalidate",
+                        "Pragma": "no-cache",
+                    },
+                )
 
     out: dict[str, Any] = {
         "path": resolved_path,

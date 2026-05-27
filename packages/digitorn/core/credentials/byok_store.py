@@ -99,9 +99,15 @@ async def set_byok(
     if not user_id or not app_id:
         raise ValueError("user_id and app_id are required")
     from digitorn.core.runtime.persist_worker import get_default_worker
-    return await get_default_worker().run_async(
+    result = await get_default_worker().run_async(
         _set_byok_inner, user_id, app_id, enabled,
     )
+    try:
+        from digitorn.core.api.apps_v2._dispatch import invalidate_byok_cache
+        invalidate_byok_cache(user_id=user_id, app_id=app_id)
+    except Exception:
+        pass
+    return result
 
 
 async def _list_byok_inner(user_id: str) -> list[dict[str, Any]]:

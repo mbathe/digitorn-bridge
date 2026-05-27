@@ -14,6 +14,28 @@ from digitorn.modules.base import ActionResult, BaseModule, Platform
 
 logger = logging.getLogger(__name__)
 
+_DEFERRED_CLOSE_DELAY_S = 30.0
+_deferred_close_tasks: set[asyncio.Task[None]] = set()
+
+
+def _schedule_deferred_close(provider: Any) -> None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    async def _wait_then_close() -> None:
+        try:
+            await asyncio.sleep(_DEFERRED_CLOSE_DELAY_S)
+            await provider.close()
+        except Exception as exc:
+            logger.debug("deferred provider close failed: %s", exc)
+
+    task = loop.create_task(_wait_then_close())
+    _deferred_close_tasks.add(task)
+    task.add_done_callback(_deferred_close_tasks.discard)
+
+
 class LlmProviderConfig(BaseModel):
     """Pydantic config for the llm_provider module (validated at compile time)."""
 
@@ -166,10 +188,9 @@ class LLMProviderModule(BaseModule):
             await provider.initialize()
 
             old = self._providers.get(params.provider_id)
-            if old is not None:
-                await old.close()
-
             self._providers[params.provider_id] = provider
+            if old is not None:
+                _schedule_deferred_close(old)
             info = provider.get_info()
 
             return ActionResult(

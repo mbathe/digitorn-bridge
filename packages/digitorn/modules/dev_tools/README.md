@@ -1,8 +1,8 @@
 # dev_tools - Testing & Building SDK as agent tools
 
-Exposes the `digitorn.testing` client as 3 ultra-powerful agent tools so
-a Builder or Test agent can deploy, chat, and run apps exactly like a
-human using the Flutter client.
+Exposes the `digitorn.testing` client as 3 agent tools so a Builder
+or Test agent can deploy, chat, and run apps the same way a human
+would from the Flutter client.
 
 ## Tools
 

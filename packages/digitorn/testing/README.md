@@ -63,9 +63,9 @@ from digitorn.testing import (
 - Messages / queue: `post_message_raw`, `get_queue(include_finished=...)`, `clear_queue`, `cancel_queue_entry`
 - History & events: `get_history`, `get_events`, `get_persistent_events(since_seq=...)`, `get_context_breakdown`
 - Workspace & preview: `get_workspace`, `get_workspace_file_content`, `get_preview_snapshot`, `get_code_snapshot`, `approve_workspace_file`, `reject_workspace_file`
-- Memory & tools: `get_memory`, `get_tasks`, `get_tool_categories`, `search_tools`, `get_tool`
+- Memory & tools: `get_memory`, `get_tool_categories`, `search_tools`, `get_tool` (for memory todos created by `TaskCreate`, read `get_memory(session)["working"]["todos"]` — NOT `get_tasks`)
 - Approvals: `get_pending`, `approve`, `deny`, `respond_to_ask`
-- Background: `create_background_session`, `list_background_sessions`, `get_background_session`
+- Background: `create_background_session`, `list_background_sessions`, `get_background_session`, `get_tasks` (background shell tasks for the session — long-running bash, NOT memory todos)
 - Triggers: `get_triggers`, `fire_trigger`, `test_trigger`
 - Daemon-level: `get_health`, `get_metrics`, `list_modules`, `list_mcp_servers`, `get_app_diagnostics`, `get_app_errors`, `get_activations`
 - Live streaming: `open_event_stream(session)`, `send_live(session, message)`
@@ -76,13 +76,44 @@ Context-managed background thread that joins a session room, collects every enve
 
 ```python
 with client.open_event_stream(session) as stream:
-    stream.wait_for("user_message", timeout=5)
+    # Live stream observes the assistant turn lifecycle. `user_message`
+    # fires synchronously inside POST /messages BEFORE any stream can
+    # subscribe (session is created lazily on first POST), so it is NOT
+    # observable here. Read it from `get_persistent_events` after the turn.
+    stream.wait_for("message_started", timeout=10)
     stream.wait_for(
         "message_done", timeout=60,
         predicate=lambda e: e["payload"]["correlation_id"] == cid,
     )
     events = stream.events()
 ```
+
+### Events that are NOT observable on a live stream
+
+These fire synchronously inside the POST handler before the live
+stream can subscribe — same race as `user_message`:
+
+- `user_message` (every turn).
+- `slash_*` lifecycle on slash commands (`/help`, `/compact`, …).
+  Use the HTTP response body of `post_message_raw(session, "/help")`:
+  `data.status == "slash_handled"`, `data.command`, `data.correlation_id`.
+- The first `behavior_directive` of turn 0 (fires before the first
+  LLM call).
+
+For these, assert via `get_persistent_events(session, since_seq=0)`
+after the turn settles, or via the POST response. Don't try to catch
+them with `stream.wait_for(...)` on a fresh session.
+
+### `message_done` carries no text
+
+`message_done.payload` only has `correlation_id`, `session_id`, and a
+few flags (`slash_synthetic`, etc.). **It does not contain the
+assistant's final text.** Two ways to get the text:
+
+- Aggregate `out_token` (alias `token`) `payload.delta` chunks during
+  the stream — this is what the Flutter / web clients do.
+- After `message_done`, call `get_history(session)` and read the
+  last `role: "assistant"` entry.
 
 - `events()` - all envelopes (in arrival order, NOT seq order)
 - `events_by_type(t)` - filter by type
@@ -131,10 +162,19 @@ All waits are guarded with strict timeouts. `atexit` hook also stops every strea
        try:
            stream = client.send_live(session, "do the thing", total_timeout=60)
            events = assertions.sort_by_seq(stream.events())
+           # `user_message` is persistent but NOT in the live stream of a
+           # brand-new session (emitted before any subscriber). Read it
+           # from get_persistent_events when you need to assert on it.
+           persistent = client.get_persistent_events(session, since_seq=0)
            checks = [
                ("seq_unique", assertions.seq_unique(events)),
-               ("lifecycle", assertions.event_order(
-                   events, ["user_message", "message_started", "message_done"],
+               ("live lifecycle", assertions.event_order(
+                   events, ["message_started", "message_done"],
+               )),
+               ("user_message persisted", (
+                   any((e.get("type") if isinstance(e, dict) else None) == "user_message"
+                       for e in (persistent or [])),
+                   "",
                )),
            ]
            ok, detail = assertions.report(checks)

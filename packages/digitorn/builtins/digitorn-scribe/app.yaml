@@ -65,14 +65,30 @@ runtime:
         inject_result: true
         publish: true
         read_from_disk: false
+    - id: cortege-cleanup-on-tex-delete
+      "on": tool_end
+      condition:
+        type: tool_name
+        match: ["workspace.delete", "delete"]
+      action:
+        type: shell
+        command: |
+          p="{{tool.params.path}}"
+          case "$p" in
+            *.tex)
+              stem="${p%.tex}"
+              for ext in aux log toc bbl blg out synctex.gz pdf fls fdb_latexmk; do
+                rm -f "${stem}.${ext}"
+              done
+              ;;
+          esac
+        on_error: ignore
 
 modules:
   preview: {}
-  # web_preview: serves ``web/dist/index.html`` at
-  # ``/api/apps/digitorn-scribe/preview/`` via the daemon's
-  # auto_attach_bundled_dist on session start. Custom iframe with the
-  # LaTeX editor + PDF preview side-by-side.
-  web_preview: {}
+  web_preview:
+    constraints:
+      blocked_actions: [proxy, publish, detach]
   workspace:
     config:
       # ``react`` is informational here -- the actual rendering is our
@@ -129,40 +145,45 @@ modules:
       # the absolute path to the binary.
       servers:
         texlab:
-          command: "texlab"
+          command: "texlab run"
           extensions: [".tex"]
           protocol: lsp
           parser: fallback
         tectonic:
           command: "tectonic --keep-logs --print"
-          extensions: [".tex", ".bib", ".cls", ".sty"]
+          extensions: [".tex", ".bib", ".cls", ".sty", ".pdf", ".png", ".jpg", ".jpeg", ".eps"]
           protocol: compiler
           parser: tectonic
+          entry_file: main.tex
         chktex:
           command: "chktex -q"
           extensions: [".tex"]
           protocol: linter
           parser: chktex
   memory: {}
+  shell: {}
 
 agents:
   - id: main
     role: assistant
     brain:
-      # github_copilot / gpt-5-mini relay (same config as notes-lm).
-      # The placeholder api_key is hot-swapped at session start by the
-      # gateway resolver against the user's Copilot creds. Tested
-      # working in the user's local setup -- the only known reliable
-      # provider in this env right now.
-      provider: github_copilot
-      backend: github_copilot
-      model: gpt-5-mini
+      provider: featherless
+      backend: openai_compat
+      model: deepseek-ai/DeepSeek-V4-Pro
       config:
         api_key: placeholder
       temperature: 0.3
       max_tokens: 8192
       context:
-        max_tokens: 131072
+        max_tokens: 200000
+      fallback:
+        provider: github_copilot
+        backend: github_copilot
+        model: gpt-5-mini
+        config:
+          api_key: placeholder
+        temperature: 0.3
+        max_tokens: 8192
     system_prompt: "{{prompt.writer}}"
 
 security:
@@ -216,7 +237,7 @@ security:
           when: "Single-file edit with clear target (add one paragraph, fix one tectonic error)"
           behavior: "WsRead if context unclear → WsEdit → inspect lint → done."
         - name: moderate
-          when: "Multi-section addition, scaffold from template, fix 3+ errors"
+          when: "Multi-section addition, scaffold new doc, fix 3+ errors"
           behavior: "WsRead the preamble + main.tex → state plan in 2-3 lines → WsWrite/WsEdit → compile → fix loop."
         - name: complex
           when: "Multi-file thesis change, package refactor, citation migration"
@@ -234,9 +255,9 @@ security:
           when: "Extending an existing doc or editing a file > 100 lines"
           behavior: "WsRead the target + preamble → match style → edit. Preserves voice and macros."
         - name: scaffold
-          label: Scaffold from template
+          label: Scaffold new document
           when: "User asks for a NEW document (paper, thesis, slides)"
-          behavior: "WsRead templates/<class>.tex → WsWrite main.tex with substitutions → compile to verify."
+          behavior: "WsWrite main.tex directly with preamble + title/author/date/abstract → compile to verify."
         - name: batch_replace
           label: Atomic batch replace
           when: "Renaming a label, macro, or citation key across the project"
@@ -276,3 +297,6 @@ capabilities:
       actions: [remember, set_goal, task_create, task_update]
     - module: context_builder
       actions: [ask_user]
+  hidden_actions:
+    - module: shell
+      actions: [bash]

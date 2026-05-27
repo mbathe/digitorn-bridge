@@ -191,7 +191,7 @@ class RemoteAuthClient:
 
         if alg == "HS256":
             raise InvalidToken(
-                "HS256 not supported by RemoteAuthClient — use RS256 "
+                "HS256 not supported by RemoteAuthClient; use RS256 "
                 "(set DIGITORN_AUTH_JWT_ALGORITHM=RS256 on the auth service)."
             )
 

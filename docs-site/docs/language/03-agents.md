@@ -5,7 +5,7 @@ id: agents
 # Agents
 
 Each entry under the top-level `agents:` list is an `AgentDefinition`
-(, `extra: forbid`). An
+(strict schema, `extra: forbid`). An
 agent is an LLM with a brain, a system prompt, a role, and a
 restricted set of modules it can call.
 

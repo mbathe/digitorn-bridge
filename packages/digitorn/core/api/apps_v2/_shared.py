@@ -654,8 +654,24 @@ def _is_deployed(request: Request, app_id: str) -> bool:
     return manager.is_deployed(app_id, user_id=_caller_user_id(request))
 
 
+def _auth_disabled(request: Request) -> bool:
+    """True when server.auth_enabled is false. The caller is treated as a fully-permissioned local dev."""
+    settings = getattr(request.app.state, "settings", None)
+    return settings is not None and not getattr(settings.server, "auth_enabled", True)
+
+
+def _is_admin(request: Request) -> bool:
+    """Admin = wildcard permission, OR auth disabled (single-user dev mode)."""
+    if _auth_disabled(request):
+        return True
+    perms: list[str] = getattr(request.state, "permissions", [])
+    return "*" in perms
+
+
 def _require_permission(request: Request, permission: str) -> None:
-    """Raise 403 if the authenticated user lacks the required permission."""
+    """Raise 403 if the caller lacks the required permission. Bypassed when server.auth_enabled is false."""
+    if _auth_disabled(request):
+        return
     perms: list[str] = getattr(request.state, "permissions", [])
     if "*" in perms:
         return

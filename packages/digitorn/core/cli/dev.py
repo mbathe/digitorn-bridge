@@ -182,18 +182,65 @@ def deploy(
         },
     )
     data = resp.json()
-    if data.get("success"):
-        info = data.get("data", {})
-        _print(
-            f"Deployed: {info.get('app_id', '?')} "
-            f"({info.get('mode', '?')} mode, scope={scope})",
-            "green",
-        )
-        if info.get("agents"):
-            _print(f"  Agents: {', '.join(str(a) for a in info['agents'])}")
-    else:
+    if not data.get("success"):
         _print(f"Deploy failed: {data.get('error', data)}", "red")
         raise typer.Exit(1)
+
+    info = data.get("data") or {}
+    app_id = info.get("app_id", "?")
+    # The /deploy endpoint runs the actual deploy as a background task and
+    # returns immediately with status="deploying". Poll GET /api/apps/{app_id}
+    # until the app is fully loaded (mode + agents populated), or report the
+    # deploy error if it surfaces. Without this poll, the next `dev chat`
+    # raced the background deploy and saw "not deployed".
+    if info.get("status") == "deploying":
+        deadline = time.monotonic() + 90.0
+        last_err: str | None = None
+        ready = False
+        while time.monotonic() < deadline:
+            try:
+                check = daemon_request("get", f"{daemon}/api/apps/{app_id}")
+                cdata = check.json()
+                if cdata.get("success"):
+                    cinfo = cdata.get("data") or {}
+                    if cinfo.get("mode") and cinfo.get("agents"):
+                        info = cinfo
+                        ready = True
+                        break
+                # surface deploy-side errors that the background task recorded.
+                try:
+                    err_resp = daemon_request(
+                        "get",
+                        f"{daemon}/api/apps/{app_id}/deploy-status",
+                    )
+                    err_data = err_resp.json()
+                    if err_data.get("success"):
+                        ed = err_data.get("data") or {}
+                        if ed.get("error"):
+                            last_err = ed["error"]
+                            break
+                except Exception as exc:
+                    logger.debug("deploy-status best-effort failed: %s", exc)
+            except Exception as exc:
+                logger.debug("deploy poll best-effort failed: %s", exc)
+            time.sleep(1.0)
+        if last_err:
+            _print(f"Deploy failed: {last_err}", "red")
+            raise typer.Exit(1)
+        if not ready:
+            _print(
+                f"Deploy still in progress after 90s. Poll "
+                f"`digitorn dev status {app_id}` to check.",
+                "yellow",
+            )
+
+    _print(
+        f"Deployed: {info.get('app_id', '?')} "
+        f"({info.get('mode', '?')} mode, scope={scope})",
+        "green",
+    )
+    if info.get("agents"):
+        _print(f"  Agents: {', '.join(str(a) for a in info['agents'])}")
 
 
 @dev_cli.command()
@@ -206,10 +253,24 @@ def status(
     data = resp.json()
     if data.get("success"):
         info = data.get("data", {})
+        # The daemon endpoint doesn't surface a `status` field, so derive
+        # one the user can act on: deployed (loaded + ready), loading
+        # (registered but mode/agents not yet populated), unknown otherwise.
+        mode = info.get("mode")
+        agents = info.get("agents") or []
+        explicit = info.get("status")
+        if explicit:
+            status_value = explicit
+        elif mode and agents:
+            status_value = "deployed"
+        elif info.get("app_id"):
+            status_value = "loading"
+        else:
+            status_value = "unknown"
         _print(f"App: {info.get('app_id', '?')}")
-        _print(f"  Status: {info.get('status', '?')}")
-        _print(f"  Mode: {info.get('mode', '?')}")
-        _print(f"  Agents: {info.get('agents', [])}")
+        _print(f"  Status: {status_value}")
+        _print(f"  Mode: {mode or '?'}")
+        _print(f"  Agents: {agents}")
     else:
         _print(f"Not found: {data.get('error', '?')}", "red")
 

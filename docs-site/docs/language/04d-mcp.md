@@ -54,8 +54,8 @@ control.
 
 ## CLI
 
- `mcp_cli` (Typer
-sub-command, registered in ). Seven commands:
+The `digitorn mcp` command group (Typer sub-command `mcp_cli`).
+Common commands:
 
 ```bash
 digitorn mcp search <query>           # Search the catalog + registry
@@ -66,6 +66,9 @@ digitorn mcp remove <server_id>       # Uninstall
 digitorn mcp pool                     # Daemon connection-pool stats
 digitorn mcp health                   # Health probe across all configured servers
 ```
+
+Run `digitorn mcp --help` for the full list (`browse`, `config`,
+`disable`, `enable`, `info`, `registry`, `requirements`, ...).
 
 ## YAML configuration
 

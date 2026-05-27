@@ -19,6 +19,7 @@ from .ipc import (
 logger = logging.getLogger(__name__)
 
 _WORKER_MODULE = "digitorn.core.sandbox.worker_main"
+_IPC_DEFAULT_TIMEOUT = 30.0
 
 
 class WorkerState(enum.Enum):
@@ -220,6 +221,10 @@ class SandboxWorker:
         finally:
             if self._state != WorkerState.DEAD:
                 self._state = WorkerState.DEAD
+            for fut in self._pending.values():
+                if not fut.done():
+                    fut.set_exception(RuntimeError("Worker subprocess died"))
+            self._pending.clear()
 
     async def _read_stderr(self) -> str:
         if not self._process or not self._process.stderr:
@@ -444,11 +449,16 @@ class AppSandboxWorker:
                 fut.set_exception(RuntimeError("Worker stopped"))
         self._pending.clear()
 
-    async def _request_raw(self, req: IPCRequest) -> IPCResponse:
+    async def _request_raw(
+        self, req: IPCRequest, *, timeout: float = _IPC_DEFAULT_TIMEOUT,
+    ) -> IPCResponse:
         fut: asyncio.Future[IPCResponse] = asyncio.get_event_loop().create_future()
         self._pending[req.id] = fut
-        await self._send(req)
-        return await fut
+        try:
+            await self._send(req)
+            return await asyncio.wait_for(fut, timeout=timeout)
+        finally:
+            self._pending.pop(req.id, None)
 
     async def _request(self, method: str, **payload: Any) -> IPCResponse:
         async with self._lock:
@@ -490,6 +500,10 @@ class AppSandboxWorker:
         finally:
             if self._state != WorkerState.DEAD:
                 self._state = WorkerState.DEAD
+            for fut in self._pending.values():
+                if not fut.done():
+                    fut.set_exception(RuntimeError("Worker subprocess died"))
+            self._pending.clear()
 
     async def _read_stderr(self) -> str:
         if not self._process or not self._process.stderr:

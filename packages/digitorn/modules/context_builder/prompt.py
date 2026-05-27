@@ -984,6 +984,7 @@ def build_system_prompt(
 
     if plan_first:
         parts.append(
+            '<digitorn-directive type="plan_first" severity="critical">\n'
             "# How to communicate\n"
             "\n"
             "The user can only see your text responses. They cannot see tool names, "
@@ -1000,7 +1001,8 @@ def build_system_prompt(
             "After tool results come back, explain what happened and what you'll do next.\n"
             "\n"
             "This is critical - without your explanations the user sees a blank screen "
-            "while tools run silently."
+            "while tools run silently.\n"
+            "</digitorn-directive>"
         )
 
     channels_section = _build_channels_section(channels_info, default_channel)

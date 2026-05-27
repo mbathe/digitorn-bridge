@@ -1,6 +1,6 @@
 # Shell Module - Action Reference
 
-1 ultra-powerful bash action with 4 execution modes: sync, async, status, and kill.
+One bash action with 4 execution modes: sync, async, status, kill.
 
 Every action is designed for AI agents: commands are confined to the workspace,
 outputs include exit codes, and sensitive values are always masked.

@@ -25,15 +25,20 @@ def _install_windows_event_loop_policy() -> None:
     except ImportError:
         pass
     except Exception:
-        # winloop install fail (rare). Fall through to Proactor
-        # rather than leave the daemon with no policy at all.
         pass
     try:
         policy = asyncio.WindowsProactorEventLoopPolicy()  # type: ignore[attr-defined]
         asyncio.set_event_loop_policy(policy)
-    except AttributeError:
-        # Pre-3.7 Python or non-standard build - nothing we can do.
-        pass
+        return
+    except AttributeError as exc:
+        raise RuntimeError(
+            "FATAL: Cannot install a Windows-compatible event loop policy. "
+            "Neither winloop nor WindowsProactorEventLoopPolicy is available. "
+            "asyncio.create_subprocess_exec will raise NotImplementedError on "
+            "the default SelectorEventLoop, breaking workers/shell/MCP. "
+            "Likely cause: running daemon from the wrong Python interpreter. "
+            "Use .venv312\\Scripts\\python.exe instead of global Python."
+        ) from exc
 
 
 _install_windows_event_loop_policy()
@@ -342,13 +347,14 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         except Exception:
             app.state.instance_id = ""
 
-        # On Windows, the running loop must be ProactorEventLoop or
-        # `asyncio.create_subprocess_exec` silently bricks shell tools.
+        # On Windows, the running loop must be Proactor (cpython) or
+        # winloop (libuv) — both support create_subprocess_exec.
+        # SelectorEventLoop is broken for subprocesses.
         if sys.platform == "win32":
             try:
                 _running_loop = asyncio.get_running_loop()
                 _loop_cls = type(_running_loop).__name__
-                if "Proactor" not in _loop_cls:
+                if "Selector" in _loop_cls:
                     logger.error(
                         "WRONG_EVENT_LOOP loop=%s - subprocess will fail "
                         "(asyncio.create_subprocess_exec raises "
@@ -1066,7 +1072,9 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                     _purged,
                 )
         except Exception as exc:
-            logger.warning("message_queue boot recovery failed: %s", exc)
+            logger.warning(
+                "message_queue boot recovery failed: %s", exc, exc_info=True,
+            )
 
         app.state._active_requests = 0
         app.state._active_agent_turns = 0
@@ -1224,6 +1232,18 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             "credentials/builtins/reload still warming in background)",
             int((time.monotonic() - _t0) * 1000),
         )
+
+        _local_auth_for_revalidator = getattr(app.state, "local_auth", None)
+        if _local_auth_for_revalidator is not None:
+            try:
+                from digitorn.core.auth.device_revalidator import revalidate_loop
+                app.state.local_device_revalidator = asyncio.create_task(
+                    revalidate_loop(_local_auth_for_revalidator, interval_s=3600),
+                    name="local_device_revalidator",
+                )
+            except Exception as exc:
+                logger.warning("local_device_revalidator_start_failed: %s", exc)
+
         yield
 
         try:
@@ -1258,6 +1278,9 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         _eviction_task.cancel()
         _reaper_task.cancel()
         _activation_sweeper_task.cancel()
+        _revalidator_task = getattr(app.state, "local_device_revalidator", None)
+        if _revalidator_task is not None and not _revalidator_task.done():
+            _revalidator_task.cancel()
         try:
             wd = getattr(app.state, "loop_watchdog", None)
             if wd is not None:
@@ -1794,15 +1817,10 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                     LocalDeviceAuth,
                     NotPaired,
                 )
-                from digitorn.core.auth.device_revalidator import revalidate_loop
-                import asyncio as _asyncio
 
                 try:
                     local_auth = LocalDeviceAuth.load()
                     app.state.local_auth = local_auth
-                    app.state.local_device_revalidator = _asyncio.create_task(
-                        revalidate_loop(local_auth, interval_s=3600),
-                    )
                     logger.info(
                         "local_device_auth_loaded user=%s device=%s expires_in_days=%d",
                         local_auth.user_email,
@@ -2301,6 +2319,7 @@ from digitorn.core.cli.install import install_cli  # noqa: E402
 from digitorn.core.cli.auth import auth_cli  # noqa: E402
 from digitorn.core.cli.db import db_cli  # noqa: E402
 from digitorn.core.cli.service import service_cli  # noqa: E402
+from digitorn.core.cli.gateway_service import gateway_service_cli  # noqa: E402
 
 cli.command(name="init")(init_command)
 cli.command(name="doctor")(doctor_command)
@@ -2319,6 +2338,7 @@ cli.add_typer(install_cli)
 cli.add_typer(auth_cli)
 cli.add_typer(db_cli)
 cli.add_typer(service_cli)
+cli.add_typer(gateway_service_cli)
 
 
 _DEFAULT_DAEMON = "http://127.0.0.1:8000"
@@ -3094,6 +3114,20 @@ def windows_setup_cmd(
 
 def main() -> None:
     """CLI entry point (called by pyproject.toml [tool.poetry.scripts])."""
+    # Force UTF-8 on Windows. Without this, rich crashes on any non-ASCII
+    # character that ends up on stdout: LLM multilingual responses, accented
+    # French, the `⚠` emoji in our own help output. Default Windows console
+    # codec is cp1252 which covers only ~256 characters.
+    import sys as _sys
+    if _sys.platform == "win32":
+        for _stream_name in ("stdout", "stderr"):
+            try:
+                getattr(_sys, _stream_name).reconfigure(
+                    encoding="utf-8", errors="replace",
+                )
+            except (AttributeError, OSError):
+                pass
+
     # Load .env from the current directory (project root)
     try:
         from dotenv import load_dotenv

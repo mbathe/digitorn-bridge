@@ -21,6 +21,7 @@ _HEALTH_INTERVAL_S = 5.0
 _HEALTH_TIMEOUT_S = 3.0
 _HEALTH_FAIL_LIMIT = 5
 _RESTART_BACKOFF_S = [2.0, 5.0, 15.0, 30.0, 60.0]
+_MAX_RESTART_COUNT = 20
 _STOP_GRACE_S = 10.0
 _STDOUT_RING_SIZE = 200
 
@@ -349,6 +350,15 @@ class WorkerLifecycle:
         delay = _RESTART_BACKOFF_S[idx]
         rw.restart_count += 1
         rw.consecutive_failures = 0
+
+        if rw.restart_count > _MAX_RESTART_COUNT:
+            logger.error(
+                "worker_permanently_failed id=%s after=%d restarts reason=%s "
+                "-- monitor stops; check daemon logs for root cause",
+                rw.cfg.id, rw.restart_count, reason,
+            )
+            return
+
         logger.info(
             "worker_restart id=%s reason=%s backoff_s=%.0f restart_count=%d",
             rw.cfg.id, reason, delay, rw.restart_count,
@@ -358,10 +368,15 @@ class WorkerLifecycle:
         if self._stop_requested:
             return
 
-        # Re-spawn. We drop the old _RunningWorker and replace it.
+        # Re-spawn. Preserve restart_count across the _RunningWorker swap
+        # so the backoff actually escalates instead of resetting to idx=0.
+        saved_restart_count = rw.restart_count
         self._running.pop(rw.cfg.id, None)
         try:
             await self._spawn_worker(rw.cfg)
+            new_rw = self._running.get(rw.cfg.id)
+            if new_rw is not None:
+                new_rw.restart_count = saved_restart_count
         except Exception as exc:
             logger.exception(
                 "worker_respawn_failed id=%s err=%s", rw.cfg.id, exc,

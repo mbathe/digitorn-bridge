@@ -17,6 +17,12 @@ _AGENT_EVENT_TYPES = {
     "agent_cancelled", "agent_cancel",
 }
 
+_UI_ONLY_EVENT_TYPES = {
+    "goal_set", "fact_added", "fact_removed",
+    "todo_added", "todo_updated", "todo_done", "todo_removed",
+    "task_create", "task_update", "memory_event",
+}
+
 
 def inject_bg_notifications(ctx: AgentContext, messages: list[dict[str, Any]]) -> None:
     """Drain background task notifications and inject as system messages."""
@@ -30,8 +36,15 @@ def inject_bg_notifications(ctx: AgentContext, messages: list[dict[str, Any]]) -
     if not isinstance(notifications, list):
         return
 
+    injected = 0
     for notif in notifications:
         ntype = notif.get("type", "")
+        if ntype in _UI_ONLY_EVENT_TYPES:
+            _persist_to_memory(ctx, notif)
+            continue
+        if not notif.get("task_id") and not notif.get("tool_name") and ntype not in _AGENT_EVENT_TYPES and ntype != "watcher":
+            _persist_to_memory(ctx, notif)
+            continue
         if ntype == "watcher":
             text = format_watcher_notification(notif)
         elif ntype in _AGENT_EVENT_TYPES:
@@ -40,58 +53,50 @@ def inject_bg_notifications(ctx: AgentContext, messages: list[dict[str, Any]]) -
             text = format_bg_task_notification(notif)
         messages.append({"role": "system", "content": text})
         _persist_to_memory(ctx, notif)
+        injected += 1
 
-    if notifications:
-        logger.info("Injected %d background notification(s)", len(notifications))
+    if injected:
+        logger.info("Injected %d background notification(s)", injected)
 
 
 def format_bg_task_notification(notif: dict[str, Any]) -> str:
     """Format a background task notification as text for the LLM."""
-    task_id = notif.get("task_id", "?")
-    tool_name = notif.get("tool_name", "?")
+    task_id = notif.get("task_id", "")
+    tool_name = notif.get("tool_name", "")
     status = notif.get("status", "unknown")
     elapsed = notif.get("elapsed_seconds", 0)
 
-    # Progress notification (intermediate update, task still running)
+    attrs = (
+        f'status="{status}" task_id="{task_id}" '
+        f'tool="{tool_name}" elapsed_s="{elapsed}"'
+    )
+
     if status == "progress":
         preview = notif.get("result_preview", "")
         hint = notif.get("hint", "")
-        return (
-            f"[BACKGROUND TASK PROGRESS] task_id={task_id}, "
-            f"tool={tool_name}, elapsed={elapsed}s\n{preview}\n{hint}"
-        )
+        return f"<digitorn-bg-task {attrs} />\nPreview: {preview}\n{hint}".rstrip()
 
     if status == "cancelled":
         hint = notif.get("hint", "")
-        return (
-            f"[BACKGROUND TASK CANCELLED] task_id={task_id}, "
-            f"tool={tool_name}, elapsed={elapsed}s\n{hint}"
-        )
+        return f"<digitorn-bg-task {attrs} />\n{hint}".rstrip()
 
     if status == "failed":
         error = notif.get("error", "Unknown error")
-        return (
-            f"[BACKGROUND TASK FAILED] task_id={task_id}, "
-            f"tool={tool_name}, elapsed={elapsed}s\nError: {error}"
-        )
+        return f"<digitorn-bg-task {attrs} />\nError: {error}"
 
     if "result_preview" in notif:
         hint = notif.get("hint", "")
         return (
-            f"[BACKGROUND TASK COMPLETED] task_id={task_id}, "
-            f"tool={tool_name}, elapsed={elapsed}s\n"
-            f"Result (truncated): {notif['result_preview']}\n{hint}"
-        )
+            f'<digitorn-bg-task {attrs} truncated="true" />\n'
+            f"Result: {notif['result_preview']}\n{hint}"
+        ).rstrip()
 
     result_data = notif.get("result")
     try:
         result_str = json.dumps(result_data, ensure_ascii=False, default=str)
     except (TypeError, ValueError):
         result_str = str(result_data)
-    return (
-        f"[BACKGROUND TASK COMPLETED] task_id={task_id}, "
-        f"tool={tool_name}, elapsed={elapsed}s\nResult: {result_str}"
-    )
+    return f"<digitorn-bg-task {attrs} />\nResult: {result_str}"
 
 
 def format_agent_notification(notif: dict[str, Any]) -> str:

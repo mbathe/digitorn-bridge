@@ -30,6 +30,46 @@ def _wrapper_is_zombie(client: Any) -> bool:
     except Exception:
         return False
 
+
+def _is_client_closed_error(exc: BaseException) -> bool:
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        msg = str(cur).lower()
+        if "client has been closed" in msg or "client is closed" in msg:
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
+
+def _is_network_stream_error(exc: BaseException) -> bool:
+    """True for httpx/httpcore connection-drop errors that justify
+    rebuilding the cached client before any further request reuses the
+    pool. Walks the cause chain so wrapped RuntimeErrors still match."""
+    network_type_names = (
+        "ReadError", "WriteError", "ConnectError", "ConnectTimeout",
+        "ReadTimeout", "RemoteProtocolError", "PoolTimeout",
+        "ConnectionError", "IncompleteRead", "ProtocolError",
+    )
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        cls_name = type(cur).__name__
+        if cls_name in network_type_names:
+            return True
+        msg = str(cur).lower()
+        if (
+            "readerror" in msg or "writeerror" in msg
+            or "connecterror" in msg or "connection reset" in msg
+            or "connection aborted" in msg or "remote disconnected" in msg
+            or "incompleteread" in msg or "remote end closed" in msg
+        ):
+            return True
+        cur = cur.__cause__ or cur.__context__
+    return False
+
 _KNOWN_PROVIDERS: dict[str, dict[str, Any]] = {
     "openai": {
         "base_url": "https://api.openai.com/v1",
@@ -1049,18 +1089,13 @@ class OpenAICompatProvider(BaseLLMProvider):
                 response = await client.chat.completions.create(**params)
                 parsed = self._parse_response(response)
                 return _recover_from_content(parsed, known_tools)
-            except RuntimeError as exc:
-                # race between aclose() and create(); drop+rebuild without
-                # counting against retries.
-                if "client has been closed" in str(exc).lower():
+            except Exception as exc:
+                if _is_client_closed_error(exc) or _is_network_stream_error(exc):
                     self._client = None
                     last_exc = exc
-                    continue
-                last_exc = exc
-                recovered = _recover_from_error(exc, known_tools)
-                if recovered is not None:
-                    return recovered
-            except Exception as exc:
+                    if attempt < max_retries:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                        continue
                 last_exc = exc
                 recovered = _recover_from_error(exc, known_tools)
                 if recovered is not None:
@@ -1154,83 +1189,87 @@ class OpenAICompatProvider(BaseLLMProvider):
                     **params, timeout=_stream_timeout,
                 )
                 break
-            except RuntimeError as exc:
-                msg = str(exc).lower()
-                if (
-                    attempt == 1
-                    and "client has been closed" in msg
-                ):
+            except Exception as exc:
+                if attempt == 1 and _is_client_closed_error(exc):
                     self._client = None
                     continue
                 raise _enrich_error(exc, self.base_url, self.provider_hint) from exc
-            except Exception as exc:
-                raise _enrich_error(exc, self.base_url, self.provider_hint) from exc
 
-        async for chunk in stream:
-            # providers emit a final usage-only chunk with choices=[]
-            # when stream_options.include_usage=True. Forward the usage.
-            if not chunk.choices:
+        try:
+            async for chunk in stream:
+                # providers emit a final usage-only chunk with choices=[]
+                # when stream_options.include_usage=True. Forward the usage.
+                if not chunk.choices:
+                    if hasattr(chunk, "usage") and chunk.usage:
+                        usage = TokenUsage(
+                            prompt_tokens=chunk.usage.prompt_tokens or 0,
+                            completion_tokens=chunk.usage.completion_tokens or 0,
+                            total_tokens=chunk.usage.total_tokens or 0,
+                        )
+                        if os.environ.get("DIGITORN_DIAG_WIRE_PAYLOAD"):
+                            try:
+                                import json as _json
+                                import time as _time
+                                from pathlib import Path as _Path
+                                diag_dir = _Path(
+                                    os.environ.get("DIGITORN_DIAG_DIR", "/tmp"),
+                                )
+                                (diag_dir / f"wire_usage_{int(_time.time()*1000)}.json"
+                                 ).write_text(_json.dumps({
+                                    "prompt_tokens": usage.prompt_tokens,
+                                    "completion_tokens": usage.completion_tokens,
+                                    "total_tokens": usage.total_tokens,
+                                }), encoding="utf-8")
+                            except Exception as exc:
+                                logger.debug("openai_compat best-effort block failed: %s", exc)
+                        yield StreamChunk(delta="", finish_reason=None, usage=usage)
+                    continue
+                delta = chunk.choices[0].delta
+                finish = chunk.choices[0].finish_reason
+
+                text = delta.content or ""
+                usage = None
                 if hasattr(chunk, "usage") and chunk.usage:
                     usage = TokenUsage(
                         prompt_tokens=chunk.usage.prompt_tokens or 0,
                         completion_tokens=chunk.usage.completion_tokens or 0,
                         total_tokens=chunk.usage.total_tokens or 0,
                     )
-                    if os.environ.get("DIGITORN_DIAG_WIRE_PAYLOAD"):
-                        try:
-                            import json as _json
-                            import time as _time
-                            from pathlib import Path as _Path
-                            diag_dir = _Path(
-                                os.environ.get("DIGITORN_DIAG_DIR", "/tmp"),
-                            )
-                            (diag_dir / f"wire_usage_{int(_time.time()*1000)}.json"
-                             ).write_text(_json.dumps({
-                                "prompt_tokens": usage.prompt_tokens,
-                                "completion_tokens": usage.completion_tokens,
-                                "total_tokens": usage.total_tokens,
-                            }), encoding="utf-8")
-                        except Exception as exc:
-                            logger.debug("openai_compat best-effort block failed: %s", exc)
-                    yield StreamChunk(delta="", finish_reason=None, usage=usage)
-                continue
-            delta = chunk.choices[0].delta
-            finish = chunk.choices[0].finish_reason
 
-            text = delta.content or ""
-            usage = None
-            if hasattr(chunk, "usage") and chunk.usage:
-                usage = TokenUsage(
-                    prompt_tokens=chunk.usage.prompt_tokens or 0,
-                    completion_tokens=chunk.usage.completion_tokens or 0,
-                    total_tokens=chunk.usage.total_tokens or 0,
+                # DeepSeek V4 thinking mode requires reasoning_content
+                # to be replayed on every subsequent call, even empty string.
+                thinking = getattr(delta, "reasoning_content", None)
+
+                sc = StreamChunk(delta=text, finish_reason=finish, usage=usage, thinking=thinking)
+
+                if delta.tool_calls:
+                    tc_list = []
+                    for tc in delta.tool_calls:
+                        fn = tc.function
+                        name = (fn.name if fn else None) or ""
+                        args = (fn.arguments if fn else None) or ""
+                        tc_id = getattr(tc, "id", None) or ""
+                        if not name and not args and not tc_id:
+                            continue
+                        tc_list.append({
+                            "index": tc.index,
+                            "id": tc_id,
+                            "name": name,
+                            "arguments": args,
+                        })
+                    if tc_list:
+                        sc.tool_calls = tc_list
+
+                yield sc
+        except Exception as exc:
+            if _is_network_stream_error(exc):
+                logger.warning(
+                    "openai_compat mid-stream network error provider=%s "
+                    "model=%s err=%s - dropping client so next call rebuilds",
+                    self.provider_hint, self.model, type(exc).__name__,
                 )
-
-            # DeepSeek V4 thinking mode requires reasoning_content
-            # to be replayed on every subsequent call, even empty string.
-            thinking = getattr(delta, "reasoning_content", None)
-
-            sc = StreamChunk(delta=text, finish_reason=finish, usage=usage, thinking=thinking)
-
-            if delta.tool_calls:
-                tc_list = []
-                for tc in delta.tool_calls:
-                    fn = tc.function
-                    name = (fn.name if fn else None) or ""
-                    args = (fn.arguments if fn else None) or ""
-                    tc_id = getattr(tc, "id", None) or ""
-                    if not name and not args and not tc_id:
-                        continue
-                    tc_list.append({
-                        "index": tc.index,
-                        "id": tc_id,
-                        "name": name,
-                        "arguments": args,
-                    })
-                if tc_list:
-                    sc.tool_calls = tc_list
-
-            yield sc
+                self._client = None
+            raise
 
     def get_info(self) -> ProviderInfo:
         ctx_window = _lookup_context_window(self.model)

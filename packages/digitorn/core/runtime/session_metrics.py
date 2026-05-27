@@ -39,6 +39,11 @@ def _count_tokens(text: str) -> int:
     return len(text) // 4
 
 
+def _estimate_tokens_fast(text: str) -> int:
+    """Cheap streaming-friendly token estimate (~chars/4)."""
+    return len(text) // 4 if text else 0
+
+
 @dataclass
 class ContextBreakdown:
     """Detailed context window usage breakdown."""

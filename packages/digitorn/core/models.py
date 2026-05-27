@@ -88,6 +88,15 @@ class Application(Base):
     yaml_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     yaml_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    deployer_jwt: Mapped[dict | None] = mapped_column(
+        EncryptedJSON, nullable=True,
+        comment=(
+            "Bearer of the user who deployed this app, used for cron auto-fires "
+            "that have no inbound HTTP context. Stored as {'token': '...'} for "
+            "forward-compat (refresh, kid, etc.)."
+        ),
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 

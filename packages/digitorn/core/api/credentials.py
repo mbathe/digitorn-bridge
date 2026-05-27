@@ -416,8 +416,7 @@ async def upsert_credential(
         elif declared_scope == "per_app_shared":
             effective_scope = Scope.PER_APP_SHARED
             effective_app_id = app_id
-            # Per-app shared is admin-only. We keep it simple and
-            # check a permission flag. TODO: real RBAC.
+            # Per-app shared is admin-only.
             perms = getattr(request.state, "permissions", [])
             if "*" not in perms:
                 raise HTTPException(

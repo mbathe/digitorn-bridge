@@ -27,8 +27,7 @@ _WORKER_ID = f"pid-{os.getpid()}"
 _DEFAULT_LEASE_SECONDS = 120
 
 
-# NOTE: QueueEntry and QueueFullError are imported from message_queue
-# lazily (see _entry_cls / _full_cls helpers) to avoid a circular import.
+# Imported lazily via _entry_cls/_full_cls to avoid a circular import.
 
 
 _LUA_ENQUEUE = """

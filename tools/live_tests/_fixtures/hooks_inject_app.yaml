@@ -1,0 +1,49 @@
+app:
+  app_id: hooks-inject-test
+  name: Hooks Inject Test
+  version: 0.0.1
+  description: Live-test fixture for Hooks V2 inject_message action.
+  category: development
+
+runtime:
+  mode: conversation
+  workdir_mode: none
+  max_turns: 3
+  timeout: 60
+  hooks:
+    - id: inject-marker-on-turn-start
+      on: turn_start
+      condition: { type: always }
+      action:
+        type: inject_message
+        strategy: user
+        content: "IMPORTANT: include the exact token HOOK-MK-9821 at the end of your reply."
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: openai
+      backend: openai_compat
+      model: gpt-5-mini
+      config:
+        api_key: placeholder
+        base_url: https://api.openai.com/v1
+      temperature: 0
+      max_tokens: 256
+    system_prompt: |
+      You are a brief test agent. Reply in one sentence.
+
+tools:
+  modules:
+    memory:
+      config:
+        auto_remember: false
+        working_memory: false
+    context_builder: {}
+  capabilities:
+    default_policy: auto
+
+security:
+  behavior:
+    classify_turns: false

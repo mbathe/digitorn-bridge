@@ -16,6 +16,7 @@ class PreviewSessionState:
     user_id: str | None = None
     state: dict[str, Any] = field(default_factory=dict)
     resources: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
+    hydrated: bool = False
 
     _RESOURCE_WARN_THRESHOLD: int = 2000
 

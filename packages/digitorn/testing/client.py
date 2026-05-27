@@ -246,10 +246,23 @@ class DevClient:
         if not app_id:
             raise DevClientError(f"Deploy returned no app_id: {data}")
 
-        # Wait for deploy to complete
-        time.sleep(min(wait, 3.0))
-
-        return self.get_app(app_id)
+        # Backend response is "deploying" (async background task in
+        # lifecycle.py:_deploy_bg). Poll get_app() until bootstrap
+        # populates `agents` — the chat dispatch can't reach the app
+        # until that completes.
+        deadline = time.monotonic() + wait
+        handle: AppHandle | None = None
+        while time.monotonic() < deadline:
+            handle = self.get_app(app_id)
+            if handle.agents:
+                return handle
+            time.sleep(0.3)
+        raise DevClientError(
+            f"Deploy of {app_id!r} did not complete within {wait}s. "
+            f"Last state: agents={getattr(handle, 'agents', None)!r}, "
+            f"total_tools={getattr(handle, 'total_tools', None)!r}. "
+            f"Check GET /api/apps/{app_id} or daemon logs."
+        )
 
     def get_app(self, app_id: str) -> AppHandle:
         """Get info about a deployed app."""
@@ -606,7 +619,12 @@ class DevClient:
         return r.json().get("data", {})
 
     def get_tasks(self, session: SessionHandle) -> list[dict[str, Any]]:
-        """Get the task list for a session."""
+        """Get background SHELL tasks (long-running bash) for a session.
+
+        NOT memory todos. The `TaskCreate` agent tool writes to the
+        memory module's working set; read those via `get_memory(session)`
+        and inspect `.working.todos`.
+        """
         r = self._get(
             f"/api/apps/{session.app_id}/sessions/{session.session_id}/tasks"
         )

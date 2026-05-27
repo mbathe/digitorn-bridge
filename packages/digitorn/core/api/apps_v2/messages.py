@@ -226,6 +226,16 @@ async def session_send_message(
                 app_id, session_id, _create_exc,
             )
 
+    _ws_mod = None
+    if body.images or body.files:
+        _user_id_for_ws = _caller_user_id(request) or None
+        _deployed_for_ws = (
+            manager.get(app_id, user_id=_user_id_for_ws)
+            if hasattr(manager, "get") else None
+        )
+        if _deployed_for_ws is not None:
+            _ws_mod = _deployed_for_ws.modules.get("workspace")
+
     # Process images if provided
     _image_refs: list[dict[str, Any]] = []
     if body.images:
@@ -256,6 +266,18 @@ async def session_send_message(
                         data, mime, session_id, alt_text=name,
                     )
                     _image_refs.append(ref.to_dict())
+                    if _ws_mod is not None:
+                        try:
+                            await _ws_mod.register_image_attachment(
+                                session_id, name, data,
+                                mime=mime,
+                                image_id=getattr(ref, "image_id", "") or ref.to_dict().get("image_id", ""),
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "image_workspace_mirror_failed name=%s err=%s",
+                                name, exc,
+                            )
         except HTTPException:
             raise
         except Exception as exc:
