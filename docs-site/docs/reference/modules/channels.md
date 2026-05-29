@@ -21,7 +21,7 @@ broadcast through the same or different providers.
 | Version | `1.0.0` |
 | LLM-exposed actions | 11 |
 | Adapter count | 11 built-ins |
-| Activation pipeline | `pipeline.py::ActivationPipeline` |
+| Activation pipeline | |
 
 > **Full reference** (every adapter, full activation pipeline,
 > security, custom adapter API, complete IT-support example):
@@ -30,7 +30,7 @@ broadcast through the same or different providers.
 
 ## The 11 built-in adapters
 
-`adapters/__init__.py`. Lazy imports - adding the
+ Lazy imports - adding the
 optional pip dep enables the adapter at restart.
 
 | Adapter | Inbound | Outbound | Optional dep | Purpose |
@@ -57,7 +57,7 @@ register_adapter("kafka", KafkaAdapter)
 
 ## The 11 actions
 
-`module.py`.
+
 
 | Tool | Source | Risk | Purpose |
 |------|--------|:----:|---------|
@@ -79,7 +79,7 @@ Aliases (FR + EN): `envoyer_message`, `repondre`, `diffuser`,
 
 ## Module-level config
 
-`ChannelsModuleConfig` (`module.py`):
+`ChannelsModuleConfig`:
 
 ```yaml
 tools:
@@ -110,7 +110,7 @@ tools:
 
 ## The activation pipeline (per-provider)
 
-`pipeline.py::ActivationPipeline.process_event(event,
+::ActivationPipeline.process_event(event,
 provider)`:
 
 1. **Filter** - drop events that don't match every
@@ -170,7 +170,7 @@ source IP.
 
 ## Constraints
 
-`module.py`:
+:
 
 | Name | Type | Default | Purpose |
 |------|------|---------|---------|

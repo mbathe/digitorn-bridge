@@ -74,7 +74,7 @@ const sidebars = {
     },
     {
       type: "category",
-      label: "Language (v1)",
+      label: "Language",
       collapsed: false,
       items: [
         "language/index",

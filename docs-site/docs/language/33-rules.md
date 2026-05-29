@@ -1,8 +1,11 @@
 ---
 id: rules
+title: Project Memory
+sidebar_label: Project Memory
 ---
 
-# Project Memory (formerly "Rules")
+> Previously titled "Rules". The `runtime.project_memory` YAML
+> field name is unchanged.
 
 Digitorn loads a single **project memory** file into the agent's
 system prompt at the start of every turn. It's the standard place
@@ -28,7 +31,7 @@ are cited with file + line.
 3. With a custom path (`runtime.project_memory: docs/AGENTS.md`),
    it loads that file directly.
 4. The file is read and capped at **4 000 chars** (~1 000 tokens -
-   `_PROJECT_MEMORY_MAX_CHARS = 4000` at `bootstrap.py`).
+   `_PROJECT_MEMORY_MAX_CHARS = 4000`).
 5. The content is prepended to the agent's system prompt under a
    `# Project Memory` header.
 
@@ -50,11 +53,11 @@ runtime:
 ```
 
 `runtime.project_memory` is a string, default `"auto"`
-(`schema.py`).
+().
 
 ## Auto-load search order
 
-`bootstrap.py`. With `setting: auto`:
+ With `setting: auto`:
 
 | Order | Path | Notes |
 |-------|------|-------|
@@ -63,7 +66,7 @@ runtime:
 
 > **Security note.** `CLAUDE.md` and `README.md` in the workspace
 > root are **not** auto-loaded under `auto`
-> (`bootstrap.py`). Earlier versions did include them -
+>. Earlier versions did include them -
 > this caused a cross-user leak when the daemon was launched from a
 > developer's repo (the repo's `CLAUDE.md` containing internal
 > architecture notes, paths, OAuth credentials was being silently
@@ -101,7 +104,7 @@ Practical content for `.digitorn.md`:
 - DO NOT skip tests with @pytest.mark.skip - fix or delete.
 ```
 
-The 4 000-char cap is enforced silently (`bootstrap.py`
+The 4 000-char cap is enforced silently (
 `_truncate_project_memory`). Write more if you need to - the
 truncation just keeps the most informative leading content.
 
@@ -121,7 +124,7 @@ my-workspace/
         └── doc-writer/.digitorn.md           # doc-writer-specific rules
 ```
 
-The `WorkspaceLayout` helper (`workspace.py`) computes
+The `WorkspaceLayout` helper computes
 `layout.app_memory_file` for each `app_id` - that's the file
 checked at step 1.
 
@@ -135,7 +138,7 @@ runtime:
 ```
 
 The path is resolved relative to the workspace root
-(`bootstrap.py`). Must exist as a file at compile-time
+(). Must exist as a file at compile-time
 deploy; missing files return `None` (no error, no injection).
 
 ## Disabling
@@ -151,7 +154,7 @@ shouldn't be biased by repo-specific conventions).
 
 ## Where it lands in the prompt
 
-`bootstrap.py`. The injection is prepended to the
+ The injection is prepended to the
 agent's user-prompt-time system block:
 
 ```text

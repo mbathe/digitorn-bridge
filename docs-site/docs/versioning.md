@@ -9,17 +9,25 @@ Digitorn ships under semantic versioning at the package level
 (`pyproject.toml`) and an explicit YAML language version
 (`schema_version`).
 
-## YAML language v1
+## YAML schema version
 
-The 8-block YAML grammar documented in
-[Language](language/) is **the v1 language**. Once an app declares
-`schema_version: 2` (the canonical form, where v2 = "8-block"
-shape and v1 was the legacy flat shape), it is portable across
-every minor and patch release of the daemon that supports v1.
+The Digitorn YAML language ships in versioned schemas. There are
+two:
 
-### What "frozen" means
+- **`schema_version: 2`** - the canonical 8-block shape
+  documented in [Language](language/). All new apps target this.
+- **`schema_version: 1`** - the legacy flat shape (`execution:`,
+  `modules:` at the top level, ...). Still accepted: an alias
+  pass reshapes it to v2 before validation, so every legacy YAML
+  keeps parsing.
 
-For the lifetime of v1:
+When `schema_version` is omitted the compiler auto-detects the
+shape. Setting it explicitly future-proofs the file against
+breaking changes.
+
+### What "frozen" means (schema v2)
+
+For the lifetime of `schema_version: 2`:
 
 - **No required field is added.** Every existing YAML keeps
   parsing without modification.
@@ -31,7 +39,7 @@ For the lifetime of v1:
   daemon would emit a deprecation warning and honour the previous
   default for at least one minor release.
 
-### What CAN change in v1
+### What CAN change
 
 - **New optional fields.** A new YAML key under any block, with a
   safe default, can land in any release.
@@ -50,6 +58,11 @@ For the lifetime of v1:
 A field deprecated in `1.X.0` continues to work and emit a
 warning. It is removed no sooner than `1.(X+2).0`. Deprecations
 are listed in the release notes published with each minor.
+
+`schema_version: 1` itself is a deprecation umbrella: the alias
+pass keeps it alive but every legacy field has a `schema_version: 2`
+equivalent. The CLI rewrite (`digitorn yaml migrate-v2`) is the
+one-shot migration.
 
 ## Daemon version
 
@@ -97,8 +110,9 @@ is identical (the alias pass produces the same compiled output).
 
 Modules subclass `BaseModule` and decorate methods with `@action`.
 The decorator's surface (`@action(description, tool_prompt,
-risk_level, hidden, params_model, ...)`) is part of v1.
+risk_level, hidden, params_model, ...)`) is part of the
+`schema_version: 2` contract.
 
 Module-internal helpers (anything not decorated with `@action` and
-not exposed via `CONSTRAINTS`) is not part of v1 and may move
-between releases.
+not exposed via `CONSTRAINTS`) is implementation detail and may
+move between releases.

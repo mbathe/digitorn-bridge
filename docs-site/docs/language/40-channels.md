@@ -33,7 +33,7 @@ flowchart LR
 
 ## Why one module instead of `runtime.triggers`?
 
-`runtime.triggers` (`schema.py`) is the legacy lightweight
+`runtime.triggers` is the legacy lightweight
 trigger system - only `cron` / `watch` / `http`, only inbound,
 no enrichment pipeline. The `channels` module supersedes it
 with:
@@ -47,8 +47,8 @@ with:
   Telegram `reply_to_message_id`, ...) used by `reply: auto`.
 
 When `tools.modules.channels` is loaded, the legacy trigger
-loops in `runtime/modes/background.py` are bypassed
-(`background.py`).
+loops are bypassed
+().
 
 ## Installation
 
@@ -81,7 +81,7 @@ Per-adapter optional pip installs:
 | `queue` | Both | None. |
 
 The full registry lives at
-`adapters/__init__.py` (`_BUILTIN_ADAPTERS`). Lazy
+(`_BUILTIN_ADAPTERS`). Lazy
 imports - adding the missing pip dep enables the adapter at
 restart.
 
@@ -141,7 +141,7 @@ channels.send_message(provider="slack_alert", text="PR #42 merged!")
 ### Provider
 
 A named adapter instance.
-`ProviderConfig` (`module.py`):
+`ProviderConfig`:
 
 | Field | Source | Description |
 |-------|--------|-------------|
@@ -153,7 +153,7 @@ A named adapter instance.
 
 ### Activation pipeline
 
-`ActivationConfig` (`module.py`):
+`ActivationConfig`:
 
 | Field | Default | Purpose |
 |-------|---------|---------|
@@ -169,7 +169,7 @@ A named adapter instance.
 
 ### Module-level config
 
-`ChannelsConfig` (`module.py`):
+`ChannelsConfig`:
 
 | Field | Default | Bounds |
 |-------|---------|--------|
@@ -195,7 +195,7 @@ tools:
 
 ## Template variables
 
-`channels/template.py`. Single-pass regex substitution - no
+ Single-pass regex substitution - no
 eval, no Jinja2.
 
 ### Compile-time scopes
@@ -244,15 +244,15 @@ substituted once when the YAML loads. Runtime tokens
 
 | Guard | Source | Behaviour |
 |-------|--------|-----------|
-| No eval / exec / Jinja2 | `template.py` | Single-pass regex substitution. |
-| `{{secret.*}}` / `{{env.*}}` blocked at runtime | `template.py` | Resolved at compile time only - runtime attempts logged as warnings. |
-| Single-pass substitution | `template.py` | `{{{{nested}}}}` → `{{nested}}`, never recursed. Blocks template-injection attacks. |
-| 256 KB output cap | `template.py` | Prevents expansion bombs from large variables. |
+| No eval / exec / Jinja2 | | Single-pass regex substitution. |
+| `{{secret.*}}` / `{{env.*}}` blocked at runtime | | Resolved at compile time only - runtime attempts logged as warnings. |
+| Single-pass substitution | | `{{{{nested}}}}` → `{{nested}}`, never recursed. Blocks template-injection attacks. |
+| 256 KB output cap | | Prevents expansion bombs from large variables. |
 
 ## Session strategies
 
 Controls how conversation history is keyed across activations
-(`module.py`):
+():
 
 | `session` | Behaviour | Use case |
 |-----------|-----------|----------|
@@ -263,7 +263,7 @@ Controls how conversation history is keyed across activations
 Shared sessions hold an `asyncio.Lock` per session key - concurrent
 events for the same key serialise so the agent never sees two
 overlapping turns on the same conversation
-(`session_manager.py`).
+().
 
 ```yaml
 activation:
@@ -273,7 +273,7 @@ activation:
 
 ## Filter conditions
 
-`FilterCondition` (`module.py`). Drop events on first miss
+`FilterCondition`. Drop events on first miss
 (AND logic across the list).
 
 ```yaml
@@ -291,7 +291,7 @@ is a dotted path into the event dict.
 
 ## Prepare steps
 
-`PrepareStep` (`module.py`). Call any module action via the
+`PrepareStep`. Call any module action via the
 ServiceBus **before** the agent starts; results are bound under
 `as_field` for downstream templates.
 
@@ -337,7 +337,7 @@ crafted `event.source` is a SQL injection.
 
 ## Dynamic routing
 
-`RouteConfig` (`module.py`) - pick the agent based on a
+`RouteConfig` - pick the agent based on a
 field value. First match wins; falls back to `default_agent` if
 no rule matches and no `default: true` is set.
 
@@ -368,7 +368,7 @@ responds; the daemon delivers.
 
 ### `cron` - schedule trigger (inbound)
 
-`adapters/cron.py`. Standard 5-field cron expression.
+ Standard 5-field cron expression.
 
 ```yaml
 providers:
@@ -391,7 +391,7 @@ to a minute-step scan otherwise.
 
 ### `file_watcher` - glob polling (inbound)
 
-`adapters/file_watcher.py`. Polls glob patterns for new files.
+ Polls glob patterns for new files.
 Existing files at startup are ignored (only new files trigger).
 
 ```yaml
@@ -422,7 +422,7 @@ In-memory deduplication seen-set capped at 10 000 entries.
 
 ### `webhook` - bidirectional HTTP
 
-`adapters/webhook.py`. Inbound POST listener + outbound POST
+ Inbound POST listener + outbound POST
 delivery.
 
 > **Inbound routing status.** Outbound (`url`, `headers`,
@@ -502,7 +502,7 @@ providers:
 
 ### `email` - IMAP + SMTP (bidirectional)
 
-`adapters/email.py`. stdlib only.
+ stdlib only.
 
 ```yaml
 providers:
@@ -549,7 +549,7 @@ Inbound payload:
 
 ### `telegram` - Bot API (bidirectional)
 
-`adapters/telegram.py`. Long polling inbound, REST outbound.
+ Long polling inbound, REST outbound.
 
 ```yaml
 providers:
@@ -573,7 +573,7 @@ on parse error.
 
 ### `discord` - WebSocket Gateway (bidirectional)
 
-`adapters/discord.py`. Real-time WS Gateway inbound, REST
+ Real-time WS Gateway inbound, REST
 outbound. No polling delay.
 
 ```yaml
@@ -598,7 +598,7 @@ View Channels) → invite. Bots auto-ignored.
 
 ### `slack` - Socket Mode (bidirectional)
 
-`adapters/slack.py`. WSS Socket Mode inbound (no public URL
+ WSS Socket Mode inbound (no public URL
 needed), Web API outbound. Replies posted as **thread replies**
 to the original message.
 
@@ -716,7 +716,7 @@ at the daemon's TwiML endpoint exposed by the backend.
 
 ### `rss` - feed polling (inbound)
 
-`adapters/rss.py`. Requires `feedparser`.
+ Requires `feedparser`.
 
 ```yaml
 providers:
@@ -738,7 +738,7 @@ Deduplication by entry id / link.
 
 ### `log` - Python logging (outbound only)
 
-`adapters/log.py`. Useful for debugging, audit, dev.
+ Useful for debugging, audit, dev.
 
 ```yaml
 providers:
@@ -751,7 +751,7 @@ providers:
 
 ### `queue` - inter-app bus (bidirectional)
 
-`adapters/queue_adapter.py`. Bridges to the `queue` module via
+ Bridges to the `queue` module via
 the ServiceBus.
 
 ```yaml
@@ -771,7 +771,7 @@ Requires the `queue` module to be loaded.
 
 ## The 11 agent-side actions
 
-`module.py`. All exposed via the standard tool surface.
+ All exposed via the standard tool surface.
 
 | Tool | Source | Risk | Purpose |
 |------|--------|:----:|---------|
@@ -849,7 +849,7 @@ delivery layer looks up the per-user target (email, phone,
 chat_id, ...) from a tool call keyed by the session's user.
 
 Lives at the `tools.channels.<name>` level - see
-`ChannelInstanceConfig` (`schema.py`):
+`ChannelInstanceConfig`:
 
 ```yaml
 tools:
@@ -876,7 +876,7 @@ to; the module system is the heavyweight bidirectional engine.
 
 ## Custom adapters
 
-`adapter.py::BaseChannelAdapter` is the protocol every adapter
+is the protocol every adapter
 implements. Register at startup:
 
 ```python

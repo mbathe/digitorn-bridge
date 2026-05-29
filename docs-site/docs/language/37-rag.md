@@ -27,19 +27,19 @@ search, delete) on raw collections. `rag` builds on top with:
   metadata.
 - **Hybrid retrieval** - Reciprocal Rank Fusion (RRF) of BM25
   + semantic by default.
-- **Cross-encoder reranking** for precision (`reranker.py`).
+- **Cross-encoder reranking** for precision.
 - **Source citations** injected directly into the LLM context.
-- **Semantic cache** (`cache.py`) for sub-15 ms repeated queries.
+- **Semantic cache** for sub-15 ms repeated queries.
 - **Multi-format ingestion** (Markdown, PDF, code, CSV, JSON,
-  HTML, databases) - `indexing/ingestors.py`.
-- **Database sync** (`indexing/sync.py`) - `updated_at`,
+  HTML, databases) -. 
+- **Database sync** - `updated_at`,
   changelog triggers, or LISTEN/NOTIFY.
-- **Text2SQL** (`strategies/text2sql.py`) for natural-language
+- **Text2SQL** (the Text2SQL strategy) for natural-language
   questions over structured data.
 - **Multi-query expansion** for broader recall
-  (`strategies/multiquery.py`).
+
 - **Corrective RAG** with quality-evaluation fallback
-  (`strategies/crag.py`).
+
 - **6 vector backends** - Qdrant, ChromaDB, LanceDB, Pinecone,
   pgvector, Elasticsearch.
 
@@ -73,7 +73,7 @@ rag.query(knowledge_base="docs", query="how does authentication work?")
 
 ## The 14 actions
 
-`@action` decorators in `module.py` (line numbers cited):
+`@action` decorators (line numbers cited):
 
 | Tool | Source | Purpose |
 |------|--------|---------|
@@ -94,7 +94,7 @@ rag.query(knowledge_base="docs", query="how does authentication work?")
 
 ## Configuration reference
 
-`RagConfig` (`config.py`). Mounted under
+`RagConfig`. Mounted under
 `tools.modules.rag.config:` (the `config:` wrapper is
 mandatory - see [App Configuration](02-app-config.md)).
 
@@ -185,7 +185,7 @@ tools:
 
 ## Embedding models
 
-`BUILTIN_MODELS` at `embeddings.py`. **7 built-ins**,
+`BUILTIN_MODELS`. **7 built-ins**,
 auto-downloaded by FastEmbed (ONNX, no GPU needed):
 
 | Shortcut | FastEmbed id | Dims | Notes |
@@ -226,8 +226,8 @@ semantic cache. No KB downtime.
 
 ## Reranker models
 
-`BUILTIN_RERANKERS` at `reranker.py`. **5 built-ins**;
-default `minilm-l6` (`reranker.py`):
+`BUILTIN_RERANKERS`. **5 built-ins**;
+default `minilm-l6`:
 
 | Shortcut | HF id | Notes |
 |----------|-------|-------|
@@ -255,7 +255,7 @@ flowchart LR
 
 ## Vector backends
 
-`BackendConfig.type` (`config.py`). 6 backends, swappable
+`BackendConfig.type`. 6 backends, swappable
 in YAML:
 
 | Backend | Mode | Best for | Pip dep |
@@ -327,7 +327,7 @@ backend:
 
 ## Retrieval strategies
 
-`PipelineConfig.retrieval` (`config.py`).
+`PipelineConfig.retrieval`.
 
 ### Hybrid (default)
 
@@ -361,8 +361,8 @@ rag.query(knowledge_base="docs", query="how does caching work?", strategy="seman
 
 ## Multi-query expansion
 
-`MultiQueryConfig` (`config.py`).
-`strategies/multiquery.py`.
+`MultiQueryConfig`.
+
 
 ```yaml
 config:
@@ -390,7 +390,7 @@ variants (word slicing, prefix / suffix). Action:
 
 ## Semantic cache
 
-`cache.py`. Cached by query embedding similarity. Reported
+ Cached by query embedding similarity. Reported
 hit rate 15-40 % in production.
 
 ```yaml
@@ -423,7 +423,7 @@ that referenced it is invalidated automatically.
 
 ## Citations
 
-`CitationConfig` (`config.py`).
+`CitationConfig`.
 
 ```yaml
 config:
@@ -462,8 +462,8 @@ references like `[7]` that don't appear in the context block.
 
 ## Text2SQL
 
-`Text2SQLConfig` (`config.py`).
-`strategies/text2sql.py`.
+`Text2SQLConfig`.
+the Text2SQL strategy.
 
 ```yaml
 tools:
@@ -516,8 +516,8 @@ Action: `rag.sql_query(query="how many active users?", connection_id="crm")`.
 
 ## Corrective RAG (CRAG)
 
-`CragConfig` (`config.py`).
-`strategies/crag.py`.
+`CragConfig`.
+
 
 ```yaml
 config:
@@ -545,8 +545,8 @@ for filtering.
 
 ## Adaptive routing
 
-`AdaptiveConfig` (`config.py`).
-`strategies/adaptive.py`. Picks a strategy per query type:
+`AdaptiveConfig`.
+ Picks a strategy per query type:
 
 ```yaml
 config:
@@ -561,7 +561,7 @@ config:
         semantic_weight: 0.5
 ```
 
-The query router (`router.py`) classifies queries via regex
+The query router classifies queries via regex
 signal detection (&lt;5 ms, no LLM call):
 
 | Signal | Pattern examples | Default route |
@@ -572,8 +572,8 @@ signal detection (&lt;5 ms, no LLM call):
 
 ## Contextual retrieval
 
-`ContextualRetrievalConfig` (`config.py`).
-`strategies/contextual.py`. Pre-generates a per-chunk context
+`ContextualRetrievalConfig`.
+ Pre-generates a per-chunk context
 sentence (Anthropic-style "Contextual Retrieval") before
 embedding. Improves recall on long documents at ingest cost.
 
@@ -591,14 +591,14 @@ config:
 
 ## Ingestion
 
-`indexing/ingestors.py`. Detects extension, picks an ingestor,
+ Detects extension, picks an ingestor,
 chunks per the strategy, embeds, indexes BM25 + vector.
 
 | Extension | Ingestor | Strategy |
 |-----------|----------|----------|
 | `.txt`, `.rst`, `.log` | PlainText | Recursive chunking. |
 | `.md` | Markdown | Split by headers (preserves hierarchy). |
-| `.py`, `.ts`, `.js`, `.go`, `.rs`, `.java`, `.rb`, `.c`, `.cpp`, `.cs` | Code | Language-aware blocks. |
+| `.ts`, `.ts`, `.js`, `.go`, `.rs`, `.java`, `.rb`, `.c`, `.cpp`, `.cs` | Code | Language-aware blocks. |
 | `.csv` | CSV | One document per row. |
 | `.json` | JSON | Flatten objects / arrays. |
 | `.jsonl` | JSONL | One document per line. |
@@ -608,7 +608,7 @@ chunks per the strategy, embeds, indexes BM25 + vector.
 
 ### Incremental ingestion
 
-The IndexingEngine (`indexing/engine.py`) tracks content hashes
+The IndexingEngine tracks content hashes
 per file. Re-ingesting an unchanged file is a no-op - no wasted
 embedding compute.
 
@@ -642,8 +642,8 @@ rag.ingest_database(
 
 ## Database sources
 
-`DatabaseSourceConfig` (`config.py`),
-`TableConfig` (`config.py`).
+`DatabaseSourceConfig`,
+`TableConfig`.
 
 ### Per-table modes
 
@@ -674,7 +674,7 @@ For `embed_rows`, the row is rendered through the `template`
 
 ## Database sync
 
-`indexing/sync.py`. Three strategies:
+ Three strategies:
 
 | Strategy | Mechanism | Latency | Prerequisites | Best for |
 |----------|-----------|---------|---------------|----------|
@@ -977,8 +977,8 @@ tools:
 
 ## State persistence
 
-`module.py` `state_snapshot` /
-`module.py` `restore_state` persist:
+`state_snapshot` /
+`restore_state` persist:
 
 - KB metadata (names, descriptions, models, doc counts).
 - BM25 indexes (serialised term frequencies).

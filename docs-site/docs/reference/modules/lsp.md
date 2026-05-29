@@ -95,7 +95,7 @@ lsp:
     servers:
       pyright:
         command: "pyright-langserver --stdio"
-        extensions: [".py"]
+        extensions: [".ts"]
         protocol: lsp
         initialization_options:        # → passed to JSON-RPC initialize
           settings:
@@ -185,7 +185,7 @@ tools:
           python:
             command: "pyright-langserver --stdio"
             protocol: lsp
-            extensions: [.py, .pyi]
+            extensions: [.ts]
             parser: fallback
           latex:
             command: "texlab"
@@ -230,7 +230,7 @@ tools:
         eslint: "eslint --format=json"
 ```
 
-In this app, opening a `.py` / `.go` / `.rs` file does **not**
+In this app, opening a `.ts` / `.go` / `.rs` file does **not**
 start the corresponding LSP - those languages aren't in `config:`,
 so the registry lookup returns "no server configured" and the
 action returns cleanly. No spawn, no waste, no error.
@@ -241,7 +241,7 @@ Used when `lsp: {}`:
 
 | Language | Command | Markers |
 |----------|---------|---------|
-| python | `pyright-langserver --stdio` | `pyproject.toml`, `setup.py`, `requirements.txt`, any `.py` |
+| python | `pyright-langserver --stdio` | `pyproject.toml`,, `requirements.txt`, any `.ts` |
 | typescript | `typescript-language-server --stdio` | `tsconfig.json`, `package.json` |
 | go | `gopls` | `go.mod` |
 | rust | `rust-analyzer` | `Cargo.toml` |
@@ -251,9 +251,8 @@ Used when `lsp: {}`:
 | json | `vscode-json-language-server --stdio` | any `.json` |
 
 If the LSP binary isn't on PATH, the module falls back to a
-matching linter from `_FALLBACK_LINTERS` (ruff for Python,
-eslint for TS / JS, `tsc --noEmit`, `cargo check`,
-`go vet -json`).
+matching linter from `_FALLBACK_LINTERS` (eslint for TS / JS,
+`tsc --noEmit`, `cargo check`, `go vet -json`).
 
 ## Diagnostics return shape
 
@@ -261,7 +260,7 @@ eslint for TS / JS, `tsc --noEmit`, `cargo check`,
 {
   "mode": "lsp|compiler|linter",
   "server": "python",
-  "path": "src/auth.py",
+  "path": "src/auth.ts",
   "diagnostics": [
     {
       "severity": "error|warning|info|hint",
@@ -301,9 +300,8 @@ external tools needed:
 | Format | Extensions | Checks |
 |--------|------------|--------|
 | JSON | `.json`, `.jsonc` | Structural errors with line / col. |
-| YAML | `.yaml`, `.yml` | `yaml.safe_load` errors. |
+| YAML | `.yaml`, `.yml` | Parse errors. |
 | TOML | `.toml` | Parse errors. |
-| Python | `.py`, `.pyi` | `ast.parse` syntax errors. |
 | LaTeX | `.tex` | Unmatched braces + unclosed `\begin{...}\end{...}`. |
 
 Resolution order inside `workspace` / `filesystem`:

@@ -285,12 +285,110 @@ def extract_bare_object(content: str) -> tuple[int, list[tuple[str, dict]]] | No
     return None
 
 
+# Some models (notably OpenAI reasoning models trained on the Responses
+# API) emit tool calls as `<tool_call name="X">{...args}</tool_call>` —
+# the function name is an XML attribute, NOT a key inside the JSON body.
+# The classic `<tool_call>{...}</tool_call>` extractor misses these.
+# They are sometimes additionally wrapped in `<task_tools>` /
+# `<function_calls>` / `<tools>` containers; we want text_before to drop
+# the wrapper too, otherwise the user sees stray XML in the chat.
+_ATTR_TAG_RE = re.compile(
+    r'<tool_call\s+name\s*=\s*["\']([^"\']+)["\']\s*>(.*?)</tool_call>',
+    re.DOTALL | re.IGNORECASE,
+)
+_WRAPPER_TAG_RE = re.compile(
+    r'<(?:task_tools|function_calls|tools|actions)\b[^>]*>',
+    re.IGNORECASE,
+)
+
+
+def extract_tool_call_attr_tags(content: str) -> tuple[int, list[tuple[str, dict]]] | None:
+    """Matches `<tool_call name="X">{...}</tool_call>` (attribute form)."""
+    calls: list[tuple[str, dict]] = []
+    first_pos = -1
+    for m in _ATTR_TAG_RE.finditer(content):
+        if first_pos == -1:
+            first_pos = m.start()
+        name = m.group(1).strip()
+        body = m.group(2).strip()
+        args: dict = {}
+        if body:
+            parsed = try_parse_json_relaxed(body)
+            if isinstance(parsed, dict):
+                args = parsed
+        if name:
+            calls.append((name, args))
+    if not calls or first_pos < 0:
+        return None
+    # If a wrapper tag (<task_tools>, <function_calls>, ...) opens before
+    # the first <tool_call>, consume it too so the user-facing text_before
+    # doesn't leak stray XML.
+    wrapper = _WRAPPER_TAG_RE.search(content[:first_pos])
+    if wrapper is not None:
+        first_pos = wrapper.start()
+    return (first_pos, calls)
+
+
+# Reasoning models also hallucinate a "narrative" form:
+#     Calling: ToolName
+#
+#     {"arg": "value"}
+# (sometimes "Call:" / "Tool:" / "Action:" / "Function:" / "Using:"). Name
+# is a bare identifier on its own line, args are the FIRST balanced JSON
+# object after the label. Multiple calls in a row are supported; we accept
+# both `:` and `->` separators because the model varies.
+_NARRATIVE_LABELS_RE = re.compile(
+    r'(?:^|\b)(?:Calling|Call|Tool|Action|Function|Using)\s*(?::|->|→)\s*'
+    r'`?([A-Za-z_][A-Za-z0-9_.]{0,127})`?\s*\n',
+    re.IGNORECASE,
+)
+
+
+def extract_tool_call_narrative(content: str) -> tuple[int, list[tuple[str, dict]]] | None:
+    """Matches `Calling: ToolName\\n\\n{json}` style hallucinations."""
+    matches = list(_NARRATIVE_LABELS_RE.finditer(content))
+    if not matches:
+        return None
+    calls: list[tuple[str, dict]] = []
+    first_pos = -1
+    for m in matches:
+        name = m.group(1).strip()
+        if not name:
+            continue
+        # Look for the first `{` AFTER the label line. Bound the search
+        # so we don't pair a name with JSON belonging to the next call.
+        next_label_start = len(content)
+        for nxt in matches:
+            if nxt.start() > m.end():
+                next_label_start = nxt.start()
+                break
+        scan = content[m.end():next_label_start]
+        brace = scan.find("{")
+        args: dict = {}
+        if brace != -1:
+            absolute_brace = m.end() + brace
+            close = find_balanced_close(content, absolute_brace)
+            if close != -1:
+                parsed = try_parse_json_relaxed(content[absolute_brace : close + 1])
+                if isinstance(parsed, dict):
+                    args = parsed
+        if first_pos == -1:
+            first_pos = m.start()
+        calls.append((name, args))
+    if not calls:
+        return None
+    # Trim the leading newline so text_before keeps a clean paragraph end.
+    return (first_pos, calls)
+
+
 # Order matters: more specific formats first so their text_before is
 # preserved, then fallbacks.
 _EXTRACTORS: list[Callable[[str], tuple[int, list[tuple[str, dict]]] | None]] = [
     extract_python_call,
     extract_tool_calls_label,
+    extract_tool_call_attr_tags,
     extract_tool_call_tags,
+    extract_tool_call_narrative,
     extract_bare_object,
 ]
 

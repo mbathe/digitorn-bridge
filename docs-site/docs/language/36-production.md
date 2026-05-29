@@ -14,7 +14,7 @@ field; entries are cited with file + line.
 ## TLS (HTTPS)
 
 The daemon supports native TLS without a reverse proxy via the
-`--tls-cert` / `--tls-key` CLI flags (`server.py`).
+`--tls-cert` / `--tls-key` CLI flags.
 
 ```bash
 digitorn start \
@@ -26,12 +26,12 @@ digitorn start \
 Internally the values are passed straight to Uvicorn as
 `ssl_certfile` / `ssl_keyfile`. Both flags must be set together;
 one without the other is a hard error
-(`server.py`).
+().
 
 ### Key file permissions warning
 
 If the TLS key file is readable by group or others, the daemon
-prints a warning at startup (`server.py`):
+prints a warning at startup:
 
 ```
 WARNING: TLS key '/etc/ssl/private/server.key' is readable by group/others
@@ -44,13 +44,13 @@ bits trip the warning.
 ### Auth without TLS warning
 
 Auth-on + non-localhost host + no TLS prints a yellow warning
-(`server.py`) - JWTs travel in plaintext otherwise.
+() - JWTs travel in plaintext otherwise.
 Either add TLS or front the daemon with a TLS-terminating reverse
 proxy (nginx, Caddy, Cloudflare).
 
 ## Refusal to bind unauthenticated to non-localhost
 
-`server.py`. With `server.auth_enabled: false` and a
+ With `server.auth_enabled: false` and a
 non-loopback host, the daemon refuses to start:
 
 ```
@@ -66,9 +66,9 @@ internet is exactly what the message warns about; don't.
 
 ## OpenAPI docs
 
-`server.expose_docs: bool` (`config.py`, default `False`).
+`server.expose_docs: bool` (, default `False`).
 Controls whether `/docs`, `/redoc`, and `/openapi.json` are
-mounted (`server.py`). When `auth_enabled: false`, docs
+mounted. When `auth_enabled: false`, docs
 are auto-exposed regardless (dev-mode default). In production,
 keep both flags at their defaults.
 
@@ -80,12 +80,12 @@ server:
 
 ## CORS
 
-`server.cors_origins` (`config.py`) ships with a list of
+`server.cors_origins` ships with a list of
 `https://app.digitorn.ai`, `https://api.digitorn.ai`, and a
 handful of localhost ports. The list goes straight into FastAPI's
-CORS middleware (`server.py`).
+CORS middleware.
 
-The validator at `config.py` **rejects** the wildcard
+The validator **rejects** the wildcard
 `"*"`:
 
 ```yaml
@@ -97,17 +97,17 @@ server:
 
 Override on a loopback bind, the daemon swaps `cors_origins` to
 `"*"` for Socket.IO so dev clients on random ports work
-(`server.py`). On a non-loopback host, the explicit
+(). On a non-loopback host, the explicit
 allow-list is enforced.
 
 ## Rate limiting
 
-`server.rate_limit_rpm` (`config.py`, default **100 000**) is
+`server.rate_limit_rpm` (, default **100 000**) is
 the per-bucket request budget per minute. The default is
 intentionally a soft cap - sustained throughput protection is the
 job of the buckets below, not this number.
 
-Buckets created in `server.py`:
+Buckets created:
 
 | Bucket | Quota | Key |
 |--------|-------|-----|
@@ -119,7 +119,7 @@ Buckets created in `server.py`:
 | Everything else | None | No catch-all (removed because legitimate the chat client polling kept hitting 429). |
 
 When a bucket trips, the daemon returns `429` with `Retry-After`
-and `retry_after` in the JSON body (`server.py`).
+and `retry_after` in the JSON body.
 
 To tighten or loosen for production, set
 `server.rate_limit_rpm` (config + env). Per-app quota
@@ -129,8 +129,8 @@ administrator).
 ## SSRF protection
 
 Outbound HTTP requests from the `web` / `http` modules pass
-through `validate_url` at `modules/http/security.py`. The
-private-network blocklist (`security.py`) covers:
+through `validate_url`. The
+private-network blocklist covers:
 
 - Loopback: `0.0.0.0/8`, `127.0.0.0/8`, `::1/128`
 - RFC 1918: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`
@@ -146,7 +146,7 @@ private-network blocklist (`security.py`) covers:
 
 ### DNS rebinding protection
 
-`ValidatedURL` (`security.py`). The validator resolves the
+`ValidatedURL`. The validator resolves the
 hostname **once**, replaces it with the resolved IP in
 `pinned_url`, and that's the URL the HTTP client connects to.
 The original hostname is preserved in the `Host` header for TLS
@@ -164,12 +164,12 @@ validation time to a private IP at connection time.
 ## Sandbox
 
 The OS-level sandbox is enabled by default
-(`server.sandbox: True`, `config.py`). Toggle with the
-`--sandbox` / `--no-sandbox` CLI flag (`server.py`).
+(`server.sandbox: True`,). Toggle with the
+`--sandbox` / `--no-sandbox` CLI flag.
 
 Full reference (levels, namespaces, MCP per-server permissions,
 allow_paths, audit log) lives in [OS-Level Sandbox](35-sandbox.md).
-Quick recap of the four levels (`schema.py`):
+Quick recap of the four levels:
 
 | Level | Layers | Recommended for |
 |-------|--------|-----------------|
@@ -232,7 +232,7 @@ either pass a real user JWT explicitly (`http.set_credential` →
 `api_key` / `bearer_token` handler), or design the tool as a
 direct Python module call instead of a HTTP round-trip.
 
-Note: an unused `AuthMiddleware` class in `digitorn_auth/middleware.py`
+Note: an unused `AuthMiddleware` class
 contains a `_is_loopback_self_call` helper. It is NOT registered
 by the daemon and does not affect production behavior. Earlier
 revisions of this page described that helper as live - it is not.
@@ -281,7 +281,7 @@ client never sees an unattended crash in production.
 
 ### Layer 1 - In-process loop watchdog (always on)
 
-`LoopWatchdog` (`runtime/loop_watchdog.py`) runs from `start` and
+`LoopWatchdog` runs from `start` and
 detects when the asyncio main loop stalls beyond 2s. On stall it dumps
 every Python thread's stack to `~/.digitorn/logs/loop-stall.log`
 (overwritten on each stall) and bumps a counter surfaced via
@@ -456,7 +456,7 @@ throttle, and the rich liveness payload.
 
 - Daemon Settings reference (every server / database / auth /
   sandbox / kv_backend field): [Settings](../reference/runtime/configuration.md)
-  *(see also `config.py`)*
+  *(see also)*
 - OS-Level Sandbox detail page:
   [OS-Level Sandbox](35-sandbox.md)
 - Credentials encryption + KMS modes:

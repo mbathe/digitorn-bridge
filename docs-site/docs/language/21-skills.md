@@ -59,7 +59,7 @@ hub deployments.
 
 ## How an agent uses a skill
 
-`use_skill` (`context_builder/actions_meta.py`) is one of the
+`use_skill` is one of the
 always-available primitives - see
 [Built-in Tools → use_skill](04b-builtin-tools.md#always-available-primitives-context_builder).
 
@@ -85,12 +85,12 @@ instructions" note.
 ```
 
 The leading `/` is optional in the `command` parameter - the
-runtime adds it automatically (`actions_meta.py`).
+runtime adds it automatically.
 
 ## Two complementary surfaces
 
 Don't confuse `dev.skills` with `ui.slash_commands`
-(`typed_models.py`):
+():
 
 | Block | Purpose | Loaded by | Reach |
 |-------|---------|-----------|-------|
@@ -103,7 +103,7 @@ to the user; the resulting message tells the agent to invoke
 
 ## Auto-loading per agent
 
-`schema.py` `AgentDefinition.capabilities`. Lists skill names
+`AgentDefinition.capabilities`. Lists skill names
 to **auto-load into the agent's system prompt**. The compiler reads
 `skills/<name>.md` for each entry and appends the content under an
 `## Available capabilities` section. Skills loaded this way don't
@@ -119,7 +119,7 @@ agents:
       - security_audit    # loads skills/security_audit.md into the prompt
 ```
 
-Compare with the `instructions:` block (`typed_models.py`,
+Compare with the `instructions:` block (,
 Phase-9 grouped form), which can also point at a single
 `file:` and a list of `capabilities:`:
 
@@ -172,7 +172,7 @@ markdown - they're resolved at compile time by `resolve_variables`.
 ## Bundle layout
 
 The compiler expects skills in `<bundle>/skills/<name>.md` by
-default - this is the convention `syncer.py` references when it
+default - this is the convention references when it
 mirrors a deployed app. Other locations work as long as `path:`
 points to an existing file relative to the bundle root.
 

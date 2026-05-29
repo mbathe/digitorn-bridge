@@ -29,7 +29,7 @@ replays into its widget tree with no extra code.
   independent widget surfaces.
 - **Server-side templating** - `{{form.X}}`, `{{state.X}}`,
   `{{ctx.X}}`, `{{item.X}}` tokens inside `tree` or `patch`
-  are resolved by `substitute_tree` (`module.py`)
+  are resolved by `substitute_tree`
   **before** publishing - the client renders concrete values.
 - **Bidirectional bridge** - widget state is also injected
   into the agent's system prompt under `# WIDGET CONTEXT`,
@@ -37,7 +37,7 @@ replays into its widget tree with no extra code.
   tool result are always visible to the next reasoning turn.
 - **Compile-time validation** - widget trees are validated by
   the compiler against the closed primitive / action / accent
-  / filter sets (`schema.py`).
+  / filter sets.
 
 ## Configuration
 
@@ -81,9 +81,18 @@ bundle are auto-merged into `inline` keyed by file stem
 | `workspace` | tab id | Named workspace tab. |
 | `modal` | modal name | Dismissible overlay. |
 
-## The 7 actions
+## The 7 module actions
 
-`module.py`. All `risk_level: low`,
+> **Terminology.** The widget surface uses the word "action"
+> for two distinct concepts: (a) **module actions** — the 7
+> `@action`-decorated methods on the Python `WidgetModule`, which
+> the agent calls to mount / update / close widgets; (b) **widget
+> action-types** — the 15 client-side dispatch verbs (`chat`,
+> `tool`, `http`, `open_url`, ...) that a widget tree fires back
+> at the daemon when the user interacts. This section covers (a);
+> the 15 action-types live in [language/widgets.md](../../language/42-widgets.md).
+
+ All `risk_level: low`,
 `tags=[widget, ui]`.
 
 | Action | Source | Visible params | Purpose |
@@ -180,7 +189,7 @@ bridge between the UI and the LLM.
   compile against the closed
   `WIDGET_PRIMITIVES` / `WIDGET_ACTIONS` / `WIDGET_FILTERS`
   / accent / density / colour sets
-  (`schema.py`). Runtime `render` calls that pass
+ . Runtime `render` calls that pass
   malformed `tree` return `ActionResult(success=False, ...)`
   without publishing.
 
@@ -188,8 +197,8 @@ bridge between the UI and the LLM.
 
 - App-config block reference (`ui.widgets`):
   [App Configuration → ui](../../language/02-app-config.md#ui---display-layer-daemon-never-reads)
-- Full widget reference (43 primitives, 15 actions,
-  expression language, REST API):
+- Full widget reference (43 primitives, 15 client-side
+  action-types, expression language, REST API):
   [Widgets](../../language/42-widgets.md)
 - Parallel transport for React-shaped canvases:
   [preview reference](preview.md)

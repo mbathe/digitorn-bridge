@@ -20,15 +20,15 @@ before the main agent acts).
 | Type | per-app instance, per-session state |
 
 > **No agent-callable actions.** This module is wired in
-> `bootstrap.py::_wire_behavior_module` and called from
-> `agent_loop.py` at three points: `classify_turn` at turn
+> and called from
+> at three points: `classify_turn` at turn
 > 0, `pre_tool_check` before each tool,
 > `post_tool_check` after each tool. Configuration lives
 > entirely in `security.behavior:` in the app YAML.
 
 ## Where it sits in the YAML
 
-`security.behavior` (`schema.py`) - under the canonical
+`security.behavior` - under the canonical
 `security:` block:
 
 ```yaml
@@ -50,7 +50,7 @@ recap below.
 
 ## Built-in profiles
 
-`profiles.py`. 6 presets shipped:
+ 6 presets shipped:
 
 | Profile | Description |
 |---------|-------------|
@@ -96,7 +96,7 @@ security:
 
 ## The 14 built-in rules
 
-`generic_rules.py`. Override any by adding a
+ Override any by adding a
 `rule_definitions` entry with the same `id`.
 
 ### Sequence (5)
@@ -169,7 +169,7 @@ security:
 
 ### Condition primitives
 
-`generic_rules.py` - 13 primitives plus `all` /
+- 13 primitives plus `all` /
 `any` / `not` composites.
 
 | Primitive | Behaviour |
@@ -189,7 +189,7 @@ security:
 
 ## Semantic classifier
 
-`ClassifierConfig` (`schema.py`). Optional small LLM that
+`ClassifierConfig`. Optional small LLM that
 runs before each main agent turn and emits a
 `[BEHAVIOR DIRECTIVE]` block injected into the conversation.
 

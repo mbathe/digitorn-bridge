@@ -46,8 +46,8 @@ this page focuses on the `ui:` block.
 
 ## `ui.features` - 12 toggles
 
-`AppMeta.features` (`schema.py`) and `UIBlock.features`
-(`schema.py`) are mirror dicts that share the same key set:
+`AppMeta.features` and `UIBlock.features`
+() are mirror dicts that share the same key set:
 
 | Key | Default (when unspecified) | Effect when `false` |
 |-----|----------------------------|---------------------|
@@ -64,7 +64,7 @@ this page focuses on the `ui:` block.
 | `status_pills` | `true` | Hides the inline `running` / `done` status pills next to assistant messages. |
 | `token_badges` | `true` | Hides the per-message token counts. |
 
-Source of truth: the docstring at `schema.py` lists the
+Source of truth: the docstring lists the
 exact keys the chat client recognises today. Unknown keys are
 ignored silently (the spec is forward-compatible).
 
@@ -81,7 +81,7 @@ ui:
     # status_pills default to true → kept visible
 ```
 
-> **Mirror.** `app.features` (`schema.py`) is a deprecated
+> **Mirror.** `app.features` is a deprecated
 > nesting that the compiler still accepts - it lifts to
 > `ui.features` via the alias pass. Set `ui.features` directly
 > in v2 YAML; the compiler emits a warning when you use the
@@ -89,7 +89,7 @@ ui:
 
 ## `ui.theme` - accent + background
 
-`UIBlock.theme` (`schema.py`). Two recognised keys:
+`UIBlock.theme`. Two recognised keys:
 
 ```yaml
 ui:
@@ -102,14 +102,14 @@ Other keys are passed through but unused by the current the chat client /
 web clients. Treat `theme` as a forward-compat dict - only `accent`
 and `background` are guaranteed.
 
-`app.color` (`schema.py`) is the **catalog** accent (visible on
+`app.color` is the **catalog** accent (visible on
 the app card). `ui.theme.accent` overrides it inside the app once
 the user is in the conversation. Set them independently if you
 want different colours in the catalog vs in the chat.
 
 ## `ui.greeting` - empty-state message
 
-`UIBlock.greeting` (`schema.py`). The text shown above the
+`UIBlock.greeting`. The text shown above the
 input field when a conversation has no messages yet.
 
 ```yaml
@@ -125,8 +125,8 @@ Plain text by default; markdown when `ui.features.markdown: true`
 
 ## `ui.slash_commands` - `/` palette
 
-`UIBlock.slash_commands` (`schema.py`). List of `SlashCommand`
-(`typed_models.py`, `extra: allow`).
+`UIBlock.slash_commands`. List of `SlashCommand`
+(, `extra: allow`).
 
 ```yaml
 ui:
@@ -156,8 +156,8 @@ that DO live server-side.
 
 ## `ui.quick_prompts` - empty-state buttons
 
-`UIBlock.quick_prompts` (`schema.py`) - list of `QuickPrompt`
-(`typed_models.py`, `extra: allow`).
+`UIBlock.quick_prompts` - list of `QuickPrompt`
+(, `extra: allow`).
 
 ```yaml
 ui:
@@ -176,13 +176,13 @@ ui:
 | `message` | string (min 1) | yes | Full prompt sent when the user clicks. |
 | `icon` | string | no (default `""`) | Emoji or icon name. |
 
-Mirror: `app.quick_prompts` (`schema.py`) holds the same shape.
+Mirror: `app.quick_prompts` holds the same shape.
 The client **merges** both lists, deduping by `label`. Either is
 fine; pick one place per app for clarity.
 
 ## `ui.workspace` - renderer hint + layout
 
-`UIBlock.workspace` is `WorkspaceBlock` (`schema.py`,
+`UIBlock.workspace` is `WorkspaceBlock` (,
 `extra: forbid`). Tells the client this app uses the in-memory
 virtual filesystem and how to position the viewer relative to the
 chat.
@@ -265,8 +265,8 @@ ui:
 
 ## `ui.widgets` - declarative widget tree
 
-`UIBlock.widgets` (`schema.py`) is `WidgetsConfig`
-(`schema.py`). Four sub-trees:
+`UIBlock.widgets` is `WidgetsConfig`
+(). Four sub-trees:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -276,9 +276,10 @@ ui:
 | `modals` | dict[name, `ModalWidget`] | Named modals the agent can open via `widget.open` action. |
 | `inline` | dict[name, `InlineWidget`] | Inline widgets the agent renders inside chat via `widget.render` with a `ref:`. |
 
-Full surface - 43 widget primitives, 15 actions, server-side
-template substitution, live `widget:*` Socket.IO events - is in
-[Widgets](42-widgets.md). External widget files under
+Full surface - 43 widget primitives, 15 client-side action-types
+(distinct from the 7 server-side widget module actions),
+server-side template substitution, live `widget:*` Socket.IO
+events - is in [Widgets](42-widgets.md). External widget files under
 `./widgets/*.yaml` in the bundle dir are auto-loaded into
 `inline` by the compiler (keyed by file stem, same pattern as
 skills).
@@ -311,7 +312,7 @@ gap between consecutive messages.
 
 ## `ui.thinking` - thinking-block defaults (2026-05-04)
 
-`UIBlock.thinking` is `ChatThinkingBlock` (`schema.py`,
+`UIBlock.thinking` is `ChatThinkingBlock` (,
 `extra: forbid`). Two flags:
 
 - `visible: bool` (default `true`) - when `false`, thinking
@@ -328,7 +329,7 @@ ui:
 
 ## `ui.tool_calls` - tool-chip defaults (2026-05-04)
 
-`UIBlock.tool_calls` is `ChatToolCallsBlock` (`schema.py`,
+`UIBlock.tool_calls` is `ChatToolCallsBlock` (,
 `extra: forbid`):
 
 - `collapsed_default: bool` (default `true`) - initial collapsed
@@ -384,7 +385,7 @@ ui:
 
 ## `ui.composer` - composer toolbar (2026-05-04)
 
-`UIBlock.composer` is `ChatComposerBlock` (`schema.py`,
+`UIBlock.composer` is `ChatComposerBlock` (,
 `extra: forbid`). Mirrors the legacy `ui.features` flags for the
 same concepts; when both are present the typed `composer.X` wins.
 
@@ -409,7 +410,7 @@ ui:
 
 ## `ui.visual` - bubble accent / style (2026-05-04)
 
-`UIBlock.visual` is `ChatVisualBlock` (`schema.py`,
+`UIBlock.visual` is `ChatVisualBlock` (,
 `extra: forbid`). Three knobs:
 
 - `accent: str` (hex, default `""`) - accent colour for the
@@ -433,7 +434,7 @@ ui:
 
 ## `ui.activity` - opt-in sub-agent observability pane (2026-05-06)
 
-`UIBlock.activity` is `ActivityPanelBlock` (`schema.py`,
+`UIBlock.activity` is `ActivityPanelBlock` (,
 `extra: forbid`). Surfaces the live sub-agent fan-out, background
 tasks, and recent terminal events as a dedicated workspace mode
 (web `Activity ▾` entry / the chat client `Activity` mode in the
@@ -501,8 +502,8 @@ straggling event.
 ## `ui.tool_renderers` - custom tool-call rendering (2026-05-06)
 
 `UIBlock.tool_renderers` is `ToolRenderersBlock` (lives in its own
-`tool_renderers.py` module so it can be deleted without touching
-`schema.py` beyond one forward-string field - see the **Rollback**
+module so it can be deleted without touching
+beyond one forward-string field - see the **Rollback**
 note further down). Maps tool names (and regex patterns) to inline
 widget refs the client mounts in place of the legacy tool chip.
 

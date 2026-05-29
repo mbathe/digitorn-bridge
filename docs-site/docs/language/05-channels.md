@@ -1,12 +1,19 @@
 ---
 id: output-channels
+title: Output Channels (delivery side of the Channels module)
 ---
 
-# Output Channels
+> **You probably want [Channels Module](40-channels.md).**
+> The `channels` module is the unified bidirectional I/O surface
+> (11 adapters, activation pipeline, reply context). This page
+> covers only the **outbound delivery layer** for callers that
+> need the low-level routing detail (`ChannelRegistry.deliver`,
+> per-channel rendering, retry policy). If you're declaring
+> channels from YAML, start with the module page.
 
-Output channels are the **notification delivery infrastructure** for Digitorn. When a scheduled job fires, a watcher detects a change, or a background task completes, the result is routed to an output channel for delivery.
+Output channels are the **delivery layer** of the channels system. When a scheduled job fires, a watcher detects a change, or a background task completes, the result is routed through `ChannelRegistry.deliver` to an external destination.
 
-Channels are **not modules**. Modules expose tools to the LLM agent. Channels deliver results to external systems - Slack, email, Kafka, Telegram, SMS, phone calls, webhooks, MQTT, or any custom destination.
+The agent-facing surface (declaring channels in YAML, the activation pipeline, the inbound + outbound contracts) lives in the [Channels Module](40-channels.md) page. The content below is the implementation detail of the delivery path - mostly relevant to module authors and operators, not to app authors.
 
 ## Architecture
 

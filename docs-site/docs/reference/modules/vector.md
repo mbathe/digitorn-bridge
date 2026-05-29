@@ -18,7 +18,7 @@ three are loaded.
 | Property | Value |
 |----------|-------|
 | Module id | `vector` |
-| Version | `1.1.0` |
+| Version | `1.0.0` |
 | Type | user |
 | Pip deps | `fastembed`, `qdrant-client` |
 
@@ -29,7 +29,7 @@ three are loaded.
 
 ## The 14 actions
 
-`module.py`. Mostly `risk_level: low` (reads), `medium` for
+ Mostly `risk_level: low` (reads), `medium` for
 inserts, `high` for `delete_collection`.
 
 | Tool | Source | Purpose |
@@ -108,7 +108,7 @@ A few examples:
 | `vector.delete` | `supprimer_documents`, `remove` |
 
 Full list per action via `@action(aliases=[...])` in
-`module.py`.
+
 
 ## Cross-references
 

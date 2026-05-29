@@ -50,7 +50,8 @@ Events are routed to the most-specific room that matches:
 Clients join a session after connect:
 
 ```javascript
-socket.on("connect", () => {
+socket.on("connect",.
+ => {
   socket.emit("join_session", {
     app_id: "my-app",
     session_id: "abc-123",

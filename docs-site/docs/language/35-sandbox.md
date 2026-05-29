@@ -62,12 +62,12 @@ security:
 digitorn start --sandbox
 ```
 
-`--sandbox` / `--no-sandbox` (`server.py`) overrides
-`server.sandbox` (`config.py`, default `true`).
+`--sandbox` / `--no-sandbox` overrides
+`server.sandbox` (, default `true`).
 
 ## Sandbox levels
 
-`SandboxConfig.level` (`schema.py`).
+`SandboxConfig.level`.
 
 | Level | Layers added |
 |-------|--------------|
@@ -131,7 +131,7 @@ security:
 ```
 
 What the kernel actually allows
-(`profile.py` `add_system_paths`):
+(`add_system_paths`):
 
 | Bucket | Sources |
 |--------|---------|
@@ -156,7 +156,7 @@ Landlock ABI degrades gracefully based on kernel version:
 
 ### 2. seccomp-bpf - syscalls
 
-Hand-built BPF filter (`sandbox/seccomp.py`) - no
+Hand-built BPF filter - no
 external dependency. Blocks dangerous syscalls at the kernel
 level (Linux 3.17+). Per-arch syscall numbers for **x86_64**
 and **aarch64**.
@@ -199,7 +199,7 @@ created without `CAP_SYS_ADMIN`.
 | **Mount** | `CLONE_NEWNS` | Minimal filesystem view via `pivot_root`. |
 
 Stacking order is fixed: user → PID → network → mount. Declared
-via `SandboxConfig.namespaces` (`schema.py`):
+via `SandboxConfig.namespaces`:
 
 ```yaml
 security:
@@ -216,19 +216,19 @@ rest still apply.
 
 | Feature | Source | Blocks |
 |---------|--------|--------|
-| `PR_SET_NO_NEW_PRIVS` | `hardening.py` | Privilege escalation via setuid binaries. |
-| `PR_SET_DUMPABLE=0` | `hardening.py` | Core dumps + `/proc/self/mem` reads. |
-| `PR_CAP_BSET_DROP` (all 41 caps) | `hardening.py` | Capability abuse even if euid=0 is regained. |
-| `PR_SET_MDWE` (kernel 6.3+) | `hardening.py` | `mmap(PROT_WRITE+PROT_EXEC)` - JIT exploitation. |
+| `PR_SET_NO_NEW_PRIVS` | | Privilege escalation via setuid binaries. |
+| `PR_SET_DUMPABLE=0` | | Core dumps + `/proc/self/mem` reads. |
+| `PR_CAP_BSET_DROP` (all 41 caps) | | Capability abuse even if euid=0 is regained. |
+| `PR_SET_MDWE` (kernel 6.3+) | | `mmap(PROT_WRITE+PROT_EXEC)` - JIT exploitation. |
 
 Each is gated by an independent flag on the profile
-(`profile.py`: `hardening_drop_caps`, `hardening_no_dumpable`,
+(: `hardening_drop_caps`, `hardening_no_dumpable`,
 `hardening_mdwe`, all default `True`).
 
 ### 5. cgroups v2 - resource limits
 
 Optional resource caps via systemd user scopes
-(`SandboxConfig.resources`, `schema.py`):
+(`SandboxConfig.resources`,):
 
 ```yaml
 security:
@@ -240,13 +240,13 @@ security:
 ```
 
 Mapped on the profile by `_apply_resource_limits`
-(`builder.py`): `memory_limit`, `cpu_percent`,
+(): `memory_limit`, `cpu_percent`,
 `max_processes`.
 
 ### 6. Audit trail
 
 Per-session append-only JSONL log
-(`SandboxConfig.audit`, `schema.py`).
+(`SandboxConfig.audit`,).
 
 ```yaml
 security:
@@ -263,7 +263,7 @@ start / end. Stored under
 ## Warm worker pool
 
 `strict` and `maximum` levels run a pool of pre-bootstrapped
-workers (`sandbox/pool.py`). When a session starts, a warm
+workers. When a session starts, a warm
 worker is assigned and the per-session sandbox is applied in
 ~0.1 ms (Landlock is 3 syscalls).
 
@@ -310,7 +310,7 @@ session's workspace is known.
 
 ### Pool configuration
 
-`SandboxConfig` defaults (`schema.py`):
+`SandboxConfig` defaults:
 
 | Field | Default | Bounds |
 |-------|---------|--------|
@@ -354,7 +354,7 @@ security:
     workspace_snapshot: true
 ```
 
-Strategy cascade (`sandbox/overlay.py`, tried in order):
+Strategy cascade (, tried in order):
 
 1. **overlayfs** in user namespace (kernel 5.11+) - zero-copy,
    instant.
@@ -366,7 +366,7 @@ workspace or discarded.
 
 ## `allow_paths` syntax
 
-`SandboxConfig.allow_paths` (`schema.py`). Each entry:
+`SandboxConfig.allow_paths`. Each entry:
 
 | Syntax | Landlock effect |
 |--------|-----------------|
@@ -383,7 +383,7 @@ worker's private tmpdir.
 
 The sandbox builder reads what the app declares and translates
 it into the corresponding kernel flags
-(`sandbox/builder.py` `_apply_granted_permissions`):
+(`_apply_granted_permissions`):
 
 | YAML | → Profile field | → Kernel effect |
 |------|------------------|-----------------|
@@ -449,7 +449,7 @@ tools:
 
 ### Permission categories
 
-`builder.py` `_apply_module_sandbox`:
+`_apply_module_sandbox`:
 
 | Permission | What it grants | Required for |
 |------------|----------------|--------------|
@@ -459,11 +459,11 @@ tools:
 | `net.http` (or `net.socket`, `net.listen`) | `allow_network = True`, merges `allowed_hosts`. | SSE / HTTP transport, outbound HTTP. |
 
 Wildcards (`process.*`, `net.*`, `fs.*`) are also recognised by
-`_apply_granted_permissions` (`builder.py`).
+`_apply_granted_permissions`.
 
 ### Transport-aware validation
 
-`builder.py`. The compiler warns when a server's
+ The compiler warns when a server's
 permissions don't match its transport:
 
 - **stdio** transport without `process.exec` (or `process.*`)
@@ -502,7 +502,7 @@ sandbox:
 
 ### Linux - full stack
 
-`sandbox/linux.py`. All six layers, all unprivileged. Most
+ All six layers, all unprivileged. Most
 complete isolation.
 
 | Mechanism | Kernel |
@@ -517,13 +517,13 @@ complete isolation.
 
 ### macOS - partial
 
-`sandbox/darwin.py`. Seatbelt (`sandbox-exec`) +
+ Seatbelt (`sandbox-exec`) +
 `setrlimit(2)`. Provides filesystem + network + process
 restrictions and memory / process-count caps.
 
 ### Windows - partial
 
-`sandbox/windows.py`. Job Objects (memory limits, process
+ Job Objects (memory limits, process
 count, kill-on-exit). The Job-Object install at daemon startup
 also doubles as a no-orphans mechanism (see
 ) - the
@@ -533,7 +533,7 @@ dies when the daemon exits, regardless of cause.
 
 ### Unsupported platforms
 
-`sandbox/noop.py`. The sandbox logs a warning and falls back
+ The sandbox logs a warning and falls back
 to software-level enforcement (the security gates +
 module-level constraints from `tools.modules.<id>.constraints`).
 No crash.
@@ -591,7 +591,7 @@ The agent can adjust its plan. No traceback, no crash.
 
 ## Zero dependencies
 
-Pure standard library (`sandbox/_libc.py`):
+Pure standard library:
 
 - `ctypes` for Linux syscalls (Landlock, seccomp, prctl,
   `unshare`).

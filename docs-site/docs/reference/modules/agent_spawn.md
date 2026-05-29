@@ -30,7 +30,7 @@ are dispatched from params.
 - **Module sharing** - `memory`, `web`, `lsp`, `filesystem`,
   `shell` modules are shared with sub-agents (same instance,
   same cwd, same `_read_files` set, same memory store).
-  Other modules get fresh instances. (`runner.py`.)
+  Other modules get fresh instances. (.)
 - **Universal directives** - the runner injects a mandatory
   prefix before every specialist's system prompt: *"Be FAST,
   no filler, go straight to tool calls, return only key
@@ -155,7 +155,7 @@ The `modules:` list supports two formats:
 - `modules: [{filesystem: [read, grep, glob]}]` - restrict to
   specific actions.
 
-Parsed in `bootstrap.py::_register_specialist` →
+Parsed →
 `action_filter` dict → passed to
 `build_index(action_filter=...)`. The LLM schema then
 contains **only** the allowed tools.
@@ -180,7 +180,7 @@ a slot frees up.
 
 Sub-agent lifecycle is streamed to the client via
 `agent_event` (emitted by `_notify_bg` → `_relay` in
-`modules/agent_spawn/manager.py`).
+).
 
 | Event | Fields | When |
 |-------|--------|------|
@@ -201,7 +201,7 @@ abort or end:
    synthetic `"interrupted": true` results on resume.
 
 Wired into the abort flow at
-`apps_v2/sessions.py::abort_session` - kills the agent turn,
+`abort_session` - kills the agent turn,
 shell tasks, sub-agents, watchers; injects synthetic
 `interrupted: true` results for orphaned tool calls on
 session resume.

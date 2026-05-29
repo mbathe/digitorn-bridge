@@ -11,7 +11,7 @@ primitives, watchers + scheduler + channels, MCP servers,
 OAuth (SSE), and OAuth (stdio).
 
 Every example follows the canonical structure
-(`AppDefinition`, `schema.py`, `extra: forbid`):
+(`AppDefinition`,, `extra: forbid`):
 
 ```
 app:        # identity (id, name, version, ...)
@@ -26,7 +26,7 @@ flow:       # FlowConfig (multi-app pipelines)
 
 > **Drift warning.** The legacy `execution:` block was renamed
 > to `runtime:`. Old YAMLs are still accepted via
-> `schema_aliases.py`, but new apps should write `runtime:`
+>, but new apps should write `runtime:`
 > directly. `channels:` lives under `tools:` (NOT at top
 > level).
 

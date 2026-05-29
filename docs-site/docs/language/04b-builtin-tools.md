@@ -15,22 +15,22 @@ This page is the authoritative list. Every entry maps to a real
 ## Always-available primitives (`context_builder`)
 
 `context_builder` is auto-loaded by the runtime (no YAML declaration
-needed). It exposes 9 actions in `actions_meta.py` plus
-1 action in `actions_background.py`. Every agent in every mode
+needed). It exposes 9 actions plus
+1 action. Every agent in every mode
 (direct / compact / discovery) gets access to these.
 
 | Tool | Source | Description |
 |------|--------|-------------|
-| `search_tools` | `actions_meta.py` | Hybrid (semantic + keyword) search over the agent's visible tool index. |
-| `get_tool` | `actions_meta.py` | Full JSON schema + examples + side-effects + aliases for one tool. |
-| `execute_tool` | `actions_meta.py` | Execute a tool by name with parameters. The agent loop also auto-routes direct calls (e.g. `filesystem.read({...})`) through this action. |
-| `list_categories` | `actions_meta.py` | List all tool domains (modules) currently visible to this agent. |
-| `browse_category` | `actions_meta.py` | Paginated list of tools in one domain. |
-| `run_parallel` | `actions_meta.py` | Execute multiple tool calls concurrently via `asyncio.gather`. |
-| `use_skill` | `actions_meta.py` | Invoke a `/command` skill from `dev.skills` or the bundle's `skills/` dir. |
-| `call_app` | `actions_meta.py` | Call another deployed Digitorn app as a tool (composition pattern). |
-| `ask_user` | `actions_meta.py` | Pause the loop and ask the user a typed question (HITL). |
-| `background_run` | `actions_background.py` | Launch any tool as a background task. **One action, five modes** dispatched by params: launch (`name`+`params`), status (`task_id`), cancel (`task_id`+`cancel=true`), wait (`task_id`+`wait=true`+`timeout`), list (`list_tasks=true`). |
+| `search_tools` | | Hybrid (semantic + keyword) search over the agent's visible tool index. |
+| `get_tool` | | Full JSON schema + examples + side-effects + aliases for one tool. |
+| `execute_tool` | | Execute a tool by name with parameters. The agent loop also auto-routes direct calls (e.g. `filesystem.read({...})`) through this action. |
+| `list_categories` | | List all tool domains (modules) currently visible to this agent. |
+| `browse_category` | | Paginated list of tools in one domain. |
+| `run_parallel` | | Execute multiple tool calls concurrently via `asyncio.gather`. |
+| `use_skill` | | Invoke a `/command` skill from `dev.skills` or the bundle's `skills/` dir. |
+| `call_app` | | Call another deployed Digitorn app as a tool (composition pattern). |
+| `ask_user` | | Pause the loop and ask the user a typed question (HITL). |
+| `background_run` | | Launch any tool as a background task. **One action, five modes** dispatched by params: launch (`name`+`params`), status (`task_id`), cancel (`task_id`+`cancel=true`), wait (`task_id`+`wait=true`+`timeout`), list (`list_tasks=true`). |
 
 Short-name aliases registered in:
 
@@ -46,13 +46,13 @@ enabled.
 
 | Tool | Source | Description |
 |------|--------|-------------|
-| `watch_start` | `actions_watchers.py` | Start a periodic watcher that runs a tool every N seconds and records the result. |
-| `watch_stop` | `actions_watchers.py` | Stop a watcher (frees its slot). |
-| `watch_pause` | `actions_watchers.py` | Pause a running watcher. |
-| `watch_resume` | `actions_watchers.py` | Resume a paused watcher. |
-| `watch_status` | `actions_watchers.py` | Get a single watcher's status, last result, run count, error rate. |
-| `watch_list` | `actions_watchers.py` | List all watchers (active + paused). |
-| `watch_history` | `actions_watchers.py` | Last N check results for one watcher. |
+| `watch_start` | | Start a periodic watcher that runs a tool every N seconds and records the result. |
+| `watch_stop` | | Stop a watcher (frees its slot). |
+| `watch_pause` | | Pause a running watcher. |
+| `watch_resume` | | Resume a paused watcher. |
+| `watch_status` | | Get a single watcher's status, last result, run count, error rate. |
+| `watch_list` | | List all watchers (active + paused). |
+| `watch_history` | | Last N check results for one watcher. |
 
 Watchers are persistent - they survive across turns. Disable them
 explicitly when the app no longer needs them (set `runtime.watchers:
@@ -64,12 +64,12 @@ Provided by the `cron_native` module. Three actions:
 
 | Tool | Source | Description |
 |------|--------|-------------|
-| `schedule` | `cron_native/module.py` | Schedule a tool call. Accepts `at: <ISO timestamp>` (one-shot), `delay: <seconds>` (one-shot), or `cron: <expr>` (recurring). |
-| `cancel_schedule` | `cron_native/module.py` | Cancel a scheduled job by id. |
-| `remind` | `cron_native/module.py` | Convenience wrapper that schedules a "self-prompt" reminder back to the agent at a given time. |
+| `schedule` | | Schedule a tool call. Accepts `at: <ISO timestamp>` (one-shot), `delay: <seconds>` (one-shot), or `cron: <expr>` (recurring). |
+| `cancel_schedule` | | Cancel a scheduled job by id. |
+| `remind` | | Convenience wrapper that schedules a "self-prompt" reminder back to the agent at a given time. |
 
 `runtime.scheduler: true` requires `runtime.watchers: true`
-(`schema.py` `RuntimeBlock.scheduler`).
+(`RuntimeBlock.scheduler`).
 
 > The legacy `schedule_once`, `schedule_cron`, `schedule_cancel`,
 > `schedule_list`, `schedule_status` action names referenced in older
@@ -78,16 +78,16 @@ Provided by the `cron_native` module. Three actions:
 ## Memory tools (gated by `tools.modules.memory`)
 
 When `memory` is declared under `tools.modules`, four actions become
-available (all four `@action` decorators in `memory/module.py`).
+available (all four `@action` decorators).
 
 | Tool | Short alias | Source | Description |
 |------|-------------|--------|-------------|
-| `memory.task_create` | `TaskCreate` | `memory/module.py` | Create a task in the agent's working-memory todo list. |
-| `memory.task_update` | `TaskUpdate` | `memory/module.py` | Update a task's status (`pending`, `in_progress`, `done`, `blocked`) or other fields. |
-| `memory.set_goal` | - | `memory/module.py` | Set or update the agent's current high-level goal. |
-| `memory.remember` | `Remember` | `memory/module.py` | Store a long-term fact that survives compaction. Searchable via the same module's recall layer at runtime. |
+| `memory.task_create` | `TaskCreate` | | Create a task in the agent's working-memory todo list. |
+| `memory.task_update` | `TaskUpdate` | | Update a task's status (`pending`, `in_progress`, `done`, `blocked`) or other fields. |
+| `memory.set_goal` | - | | Set or update the agent's current high-level goal. |
+| `memory.remember` | `Remember` | | Store a long-term fact that survives compaction. Searchable via the same module's recall layer at runtime. |
 
-Short aliases come from `tool_names.py`. Anything else (set_plan,
+Short aliases come. Anything else (set_plan,
 update_plan_step, add_todo, add_fact, recall, forget, track_entity,
 add_relationship, checkpoint, cache_content, get_snapshot,
 add_episode, ...) **does not exist as an `@action`** - those names
@@ -102,7 +102,7 @@ practice.
 The `agent_spawn` module exposes a
 **single `@action`** named `agent`. Eight modes are dispatched by
 params (the implementation routes through the `_mode_*` private
-methods in `agent_spawn/module.py`).
+methods).
 
 ```yaml
 # Compile-time config: load the module via capabilities or per-agent grant
@@ -123,7 +123,7 @@ tools:
 | Reassign | `agent_id`, `reassign: <new prompt>` | Cancel + respawn the same id with a new task. |
 | List | `list=true` | All current spawns and their status. |
 
-Short alias: `Agent` → `agent_spawn.agent` (`tool_names.py`).
+Short alias: `Agent` → `agent_spawn.agent`.
 
 > The legacy short names `AgentWait`, `AgentWaitAll`, `AgentResult`,
 > `AgentStatus`, `AgentCancel`, `AgentList`, `ReassignAgent`
@@ -136,7 +136,7 @@ See [Multi-Agent](12-multi-agent.md) for orchestration patterns.
 ## Workspace tools (gated by `tools.modules.workspace`)
 
 When the `workspace` module is loaded, six short-named actions
-(`tool_names.py`) appear in the agent's index. They operate on
+() appear in the agent's index. They operate on
 the in-memory virtual filesystem streamed to the client via
 Socket.IO, not the OS filesystem.
 
@@ -175,7 +175,7 @@ LLM communication contract.
 
 ## Other short-name aliases
 
-Defined in `tool_names.py` and active when the corresponding
+Defined and active when the corresponding
 module is loaded:
 
 | Short | FQN | Module |

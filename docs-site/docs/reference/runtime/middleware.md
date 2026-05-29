@@ -15,7 +15,7 @@ outermost to innermost:
 |-------|-------|-------|-----------|
 | **App-level** | The LLM call inside the agent loop | `runtime.middleware` | Mask secrets, inject RAG, filter content, modify prompts. |
 | **Module-level** | Any module's `execute` call | `tools.modules.<id>.middleware` | Audit, retry, timeout, transform. |
-| **MCP-level** | Raw MCP `call_tool` | `mcp/middleware.py` | Specialised MCP tool wrapping. |
+| **MCP-level** | Raw MCP `call_tool` | | Specialised MCP tool wrapping. |
 
 ## Pipeline pattern
 
@@ -39,7 +39,7 @@ flowchart LR
 
 ## App-level middleware
 
-`runtime.middleware` (`schema.py`). Wraps every LLM
+`runtime.middleware`. Wraps every LLM
 call.
 
 ```yaml
@@ -125,7 +125,7 @@ masking on output.
 
 ## Module-level middleware
 
-`tools.modules.<id>.middleware` (`schema.py`). Wraps the
+`tools.modules.<id>.middleware`. Wraps the
 module's `execute` call.
 
 ```yaml
@@ -195,7 +195,7 @@ Load a custom class from a Python file or installed package.
 runtime:
   middleware:
     - custom:
-        path: "./middlewares/my_middleware.py"
+        path: "./middlewares/my_middleware.ts"
         class: "MyAppMiddleware"
         config:
           key: value
@@ -253,7 +253,7 @@ For each middleware name, resolution follows this order:
 1. **TOML registry** - middleware packages registered via
    `digitorn-middleware.toml`.
 2. **Inline fallback** - built-in classes hard-coded in
-   `middleware.py`.
+
 
 App-level fallback registry: `mask_secrets`,
 `prompt_inject`, `content_filter`, `rag_inject`,

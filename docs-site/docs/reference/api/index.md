@@ -14,7 +14,9 @@ same TCP port (default `8000`):
 | Socket.IO | [Socket.IO](socketio.md) | Live event stream: turn progress, tool calls, tool results, hooks, workspace updates, agent fan-out. |
 | DAP | [DAP (Debug Adapter Protocol)](dap.md) | Optional debugger interface for stepping through agent loops. |
 
-Plus the v1 YAML language JSON Schema for IDE integration:
+Plus the YAML language JSON Schema for IDE integration (covers
+the canonical `schema_version: 2` shape; filename kept for URL
+stability):
 
 - [`schema-v1.json`](schema-v1.json)
 

@@ -17,10 +17,10 @@ watcher is managed by it.
 
 | Property | Value | Source |
 |----------|-------|--------|
-| Module id | `context_builder` | `module.py` |
-| Version | `1.0.0` | `module.py` |
+| Module id | `context_builder` | |
+| Version | `1.0.0` | |
 | Type | system (auto-loaded for every application) | |
-| Action count | 17 | `actions_meta.py` (9) + `actions_background.py` (1, with 5 modes) + `actions_watchers.py` (7) |
+| Action count | 17 | (9) + (1, with 5 modes) + (7) |
 
 ## What it does
 
@@ -55,7 +55,7 @@ bonus.
 
 ### 2. System prompt assembly
 
-`prompt.py`. The system prompt is assembled dynamically from
+ The system prompt is assembled dynamically from
 multiple sources in this order:
 
 1. Memory snapshot (goal, tasks, facts).
@@ -121,7 +121,7 @@ how to manage its own memory.
 
 ## The 18 LLM-exposed actions
 
-### Tool discovery (5) - `actions_meta.py`
+### Tool discovery (5) -
 
 | Action | Purpose |
 |--------|---------|
@@ -146,7 +146,7 @@ how to manage its own memory.
 - `task_id=..., cancel=true` → cancel.
 - `list=true` → list all background tasks for the session.
 
-### Watchers (7) - `actions_watchers.py`
+### Watchers (7) -
 
 Persistent monitors that poll a predicate + interval and
 fire follow-up actions when it changes.
@@ -186,7 +186,7 @@ Requires `runtime.watchers: true` in the app YAML.
 
 ## `ask_user` - agent-initiated approval workflow
 
-`actions_meta.py`. Pauses the agent loop via the
+ Pauses the agent loop via the
 `ApprovalQueue` (`asyncio.Future`) until the user answers.
 When `content` is provided, the user can view + edit it
 before approving.
@@ -238,15 +238,15 @@ tools:
 
 | File | Responsibility |
 |------|----------------|
-| `module.py` | Action dispatch + background task management + watcher lifecycle + notification delivery. |
-| `prompt.py` | System prompt assembly + tool instruction generation + structural hints + MCP workflow hints. |
-| `builder.py` | Tool index construction + direct tool schema generation + MCP risk inference. |
-| `scoring.py` | Hybrid search engine + synonym expansion + tokenization. |
-| `embeddings.py` | FastEmbed model loading + semantic index (Qdrant) + embedding + query. |
-| `actions_meta.py` | Tool discovery actions, run_parallel, ask_user, call_app, use_skill. |
-| `actions_background.py` | `background_run` (one action, 5 modes). |
-| `actions_watchers.py` | 7 watcher actions. |
-| `tool_schema.py` | JSON schema generation, hidden-param filtering. |
+| | Action dispatch + background task management + watcher lifecycle + notification delivery. |
+| | System prompt assembly + tool instruction generation + structural hints + MCP workflow hints. |
+| | Tool index construction + direct tool schema generation + MCP risk inference. |
+| | Hybrid search engine + synonym expansion + tokenization. |
+| | FastEmbed model loading + semantic index (Qdrant) + embedding + query. |
+| | Tool discovery actions, run_parallel, ask_user, call_app, use_skill. |
+| | `background_run` (one action, 5 modes). |
+| | 7 watcher actions. |
+| | JSON schema generation, hidden-param filtering. |
 
 ## Configuration
 

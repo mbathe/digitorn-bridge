@@ -101,7 +101,7 @@ Create a workspace with one tiny Python file:
 ```bash
 mkdir -p ./behavior-ws
 printf 'def add(a, b):\n    return a + b\n' \
-  > ./behavior-ws/code.py
+  > ./behavior-ws/code.ts
 ```
 
 Now ask the agent to **edit without reading**, on purpose, to
@@ -112,7 +112,7 @@ exercise the engine.
 User message:
 
 ```text
-> Edit code.py: replace "return a + b" with "return a + b + 1".
+> Edit code.ts: replace "return a + b" with "return a + b + 1".
   Do NOT read the file first; just call Edit directly.
 ```
 
@@ -120,12 +120,12 @@ The session log shows what actually happened. Three tool calls,
 four turns:
 
 ```text
-1. tool_call  Edit (file_path=code.py, old="return a + b",
+1. tool_call  Edit (file_path=code.ts, old="return a + b",
                     new="return a + b + 1")
               -> success
-2. tool_call  Read (file_path=code.py)
+2. tool_call  Read (file_path=code.ts)
               -> success
-3. tool_call  Edit (file_path=code.py, old="return a + b + 1 + 1",
+3. tool_call  Edit (file_path=code.ts, old="return a + b + 1 + 1",
                     new="return a + b + 1")
               -> success
 ```

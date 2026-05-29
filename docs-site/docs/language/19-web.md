@@ -58,7 +58,7 @@ Params (`SearchParams`):
 Returns `{ query, results: [{title, url, snippet}, ...], count,
 backend, sources: [url, ...] }`. When the primary backend fails,
 the runtime falls back to the secondary backend (`config.fallback`)
-if configured (`module.py`); the response includes a
+if configured; the response includes a
 `note: "Primary backend X failed, used fallback"`.
 
 ```json
@@ -97,16 +97,16 @@ absolute path to the downloaded file plus content metadata
 
 ## Search backends
 
-`_search_*` functions in `module.py`. Five backends are wired
+`_search_*` functions. Five backends are wired
 into the module:
 
 | Backend (config value) | Source method | API key | Notes |
 |-----------------------|---------------|---------|-------|
-| `duckduckgo` (default) | `_search_duckduckgo` (`module.py`) | None | Free, no rate limit, basic results. |
-| `brave` | `_search_brave` (`module.py`) | `BRAVE_API_KEY` | Better quality than DDG. Free tier available. |
-| `tavily` | `_search_tavily` (`module.py`) | `TAVILY_API_KEY` | LLM-optimized; returns rich snippets. |
-| `searxng` | `_search_searxng` (`module.py`) | None (just a base URL) | Self-hosted meta-search. Set `api_keys.searxng` to the instance URL. |
-| `google` | `_search_google` (`module.py`) | `GOOGLE_API_KEY` + Custom Search Engine ID | Highest quality, costs per query. |
+| `duckduckgo` (default) | `_search_duckduckgo` | None | Free, no rate limit, basic results. |
+| `brave` | `_search_brave` | `BRAVE_API_KEY` | Better quality than DDG. Free tier available. |
+| `tavily` | `_search_tavily` | `TAVILY_API_KEY` | LLM-optimized; returns rich snippets. |
+| `searxng` | `_search_searxng` | None (just a base URL) | Self-hosted meta-search. Set `api_keys.searxng` to the instance URL. |
+| `google` | `_search_google` | `GOOGLE_API_KEY` + Custom Search Engine ID | Highest quality, costs per query. |
 
 When `config.backend` fails (timeout, rate-limit, network error)
 and `config.fallback` is set, the runtime retries on the fallback
@@ -124,7 +124,7 @@ Three layers of allowlist / blocklist, applied in this order:
 3. **None** - all domains pass.
 
 Filtering happens **after** the backend returns the results
-(`module.py` `_filter_results_by_domain`); domain matching is
+(`_filter_results_by_domain`); domain matching is
 host-suffix-aware (`api.github.com` matches a `github.com`
 allowlist entry).
 

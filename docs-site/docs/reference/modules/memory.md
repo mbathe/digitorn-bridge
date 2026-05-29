@@ -39,7 +39,7 @@ turn - the agent reads everything at once, no queries.
 
 ## The 4 LLM-exposed actions
 
-`module.py`. All marked silent in
+ All marked silent in
  - they don't render in
 the chat stream; the sidebar panel shows live goal / todos /
 facts.
@@ -58,7 +58,7 @@ on every subsequent turn.
 
 ```
 Remember(content="Test command: pytest tests/ -v")
-Remember(content="Auth bug is in src/auth/validate.py:42")
+Remember(content="Auth bug is in src/auth/validate.ts:42")
 ```
 
 **Redaction** (default `redact_secrets: true`): values from
@@ -71,7 +71,7 @@ before storage.
 Called via FQN (`memory.set_goal`) — there is no `SetGoal` PascalCase alias.
 
 ```
-memory.set_goal(goal="Fix the authentication bug in src/auth/validate.py")
+memory.set_goal(goal="Fix the authentication bug in src/auth/validate.ts")
 ```
 
 Appears at the top of the memory block. Usually called by the
@@ -121,7 +121,7 @@ tools:
 ## Session isolation
 
 Working memory is keyed by the compound
-`user_id::session_id` (`memory/module.py`). Two sessions
+`user_id::session_id`. Two sessions
 of the same user (or two users on the same shared session
 app) never see each other's todos / facts / episodes.
 
@@ -133,7 +133,7 @@ under `# Working Memory`:
 ```
 # Working Memory
 ## Goal
-Fix authentication bug in src/auth/validate.py
+Fix authentication bug in src/auth/validate.ts
 
 ## Todos
 - [x] t1: Find all call sites (completed)
@@ -141,7 +141,7 @@ Fix authentication bug in src/auth/validate.py
 
 ## Facts
 - Test command: pytest tests/ -v
-- Auth bug is in src/auth/validate.py:42
+- Auth bug is in src/auth/validate.ts:42
 ```
 
 Compaction hooks preserve this block verbatim when

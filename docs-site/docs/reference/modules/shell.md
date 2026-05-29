@@ -106,7 +106,7 @@ patterns via `extra_sensitive_patterns`.
 
 ## Constraints
 
-`module.py`. Four constraints:
+ Four constraints:
 
 | Constraint | Type | Scope | Description |
 |------------|------|-------|-------------|
@@ -151,7 +151,7 @@ to Windows form (`C:/Users/...`) before the check.
 session aborts or ends. It kills every background task,
 sends `SIGTERM` then `SIGKILL` after 2 s, and emits
 cancellation notifications. Wired into the abort flow at
-`apps_v2/sessions.py::abort_session`.
+`abort_session`.
 
 ## Windows notes
 
@@ -160,7 +160,7 @@ cancellation notifications. Wired into the abort flow at
   crashes).
 - Bash syntax (`&&`, `|`, `2>&1`, `grep`, `cat`, `head`,
   `tail`) runs natively. No PowerShell conversion layer.
-- `platform_adapters.py::WindowsAdapter.default_shell` does
+-  does
   the search.
 
 ## Audit logging

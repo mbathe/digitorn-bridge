@@ -19,7 +19,7 @@ are cited with file + line.
 ## App-level middleware
 
 Declared under `runtime.middleware`
-(`schema.py`), runs around **every LLM call** in the agent
+(), runs around **every LLM call** in the agent
 loop. Order matters: middleware runs top-to-bottom in `before`,
 bottom-to-top in `after` (standard wrapping pattern).
 
@@ -44,14 +44,14 @@ runtime:
 
 ### `AppMiddleware` protocol
 
-`middleware.py`. Two methods, both `async`:
+ Two methods, both `async`:
 
 | Method | Receives | Returns |
 |--------|----------|---------|
 | `before(ctx)` | `AppMiddlewareContext` | `None` to proceed, or a string to **short-circuit** the LLM call (the string becomes the agent's response, no LLM is invoked). |
 | `after(ctx, response, tool_calls)` | Same context + the LLM's response | The (possibly modified) response string. |
 
-`AppMiddlewareContext` (`middleware.py`) carries:
+`AppMiddlewareContext` carries:
 `agent_id`, `system_prompt`, `messages`, `turn`, `metadata`.
 Middleware can mutate any of these in-place during `before`.
 
@@ -59,7 +59,7 @@ Middleware can mutate any of these in-place during `before`.
 
 5 ship in :
 
-#### `mask_secrets` - `SecretMaskMiddleware` (`middleware.py`)
+#### `mask_secrets` - `SecretMaskMiddleware`
 
 Mask sensitive patterns in user messages **before** sending to the
 LLM, and in the response **after**. Default regex catches
@@ -73,7 +73,7 @@ LLM, and in the response **after**. Default regex catches
     mask_values: true                        # default
 ```
 
-#### `prompt_inject` - `PromptInjectMiddleware` (`middleware.py`)
+#### `prompt_inject` - `PromptInjectMiddleware`
 
 Inject extra text into the system prompt at every turn (useful for
 runtime context that should refresh every call - date, user
@@ -87,7 +87,7 @@ identity, deployment info).
       User: {{event.headers.X-User-Id ?? 'anonymous'}}
 ```
 
-#### `content_filter` - `ContentFilterMiddleware` (`middleware.py`)
+#### `content_filter` - `ContentFilterMiddleware`
 
 Apply allow/block regex against user messages.
 
@@ -104,7 +104,7 @@ Apply allow/block regex against user messages.
 `action: block` short-circuits with `block_message`. `action: warn`
 appends a warning but lets the call proceed.
 
-#### `rag_inject` - `RagInjectMiddleware` (`middleware.py`)
+#### `rag_inject` - `RagInjectMiddleware`
 
 Inject relevant chunks from a knowledge base into the system prompt
 based on the user's last message. Requires the `rag` module to be
@@ -121,7 +121,7 @@ loaded.
 See [Advanced RAG](37-rag.md) for the KB declaration and the rag
 module surface.
 
-#### `response_filter` - `ResponseFilterMiddleware` (`middleware.py`)
+#### `response_filter` - `ResponseFilterMiddleware`
 
 Apply allow/block regex against the LLM's response.
 
@@ -136,7 +136,7 @@ Apply allow/block regex against the LLM's response.
 ## Module-level middleware
 
 Declared under `tools.modules.<module_id>.middleware`
-(`schema.py`), runs around **every action call** for that
+(), runs around **every action call** for that
 module. Order matters the same way (top-down in pre, bottom-up in
 post).
 
@@ -157,7 +157,7 @@ tools:
 
 ### `ModuleMiddleware` protocol
 
-`middleware.py`. Two methods:
+ Two methods:
 
 | Method | Receives | Returns |
 |--------|----------|---------|
@@ -168,7 +168,7 @@ tools:
 
 3 ship in :
 
-#### `audit` - `ModuleAuditMiddleware` (`middleware.py`)
+#### `audit` - `ModuleAuditMiddleware`
 
 Log every action call. Useful for compliance / debugging.
 
@@ -180,7 +180,7 @@ Log every action call. Useful for compliance / debugging.
     redact_keys: [api_key, password, token]
 ```
 
-#### `retry` - `ModuleRetryMiddleware` (`middleware.py`)
+#### `retry` - `ModuleRetryMiddleware`
 
 Retry failed calls with backoff. Catches transient errors
 (network blips, rate limits).
@@ -194,7 +194,7 @@ Retry failed calls with backoff. Catches transient errors
     retry_on: [TimeoutError, ConnectionError]
 ```
 
-#### `timeout` - `ModuleTimeoutMiddleware` (`middleware.py`)
+#### `timeout` - `ModuleTimeoutMiddleware`
 
 Wrap each action call in `asyncio.wait_for(...)` with the given
 ceiling.
@@ -258,7 +258,7 @@ runtime:
 
 The package directory must contain a `digitorn-middleware.toml`
 manifest that declares the entry point class. See
-`middleware_store.py::install_middleware` (`line 238`) for the
+(`line 238`) for the
 expected structure.
 
 ## Choosing app-level vs module-level

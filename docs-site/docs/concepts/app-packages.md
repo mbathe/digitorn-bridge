@@ -774,7 +774,7 @@ admin UI.
 
 ## 9. Bootstrap flow at daemon startup
 
-New lifespan step in `server.py` after the existing startup:
+New lifespan step after the existing startup:
 
 ```python
 async def _bootstrap_packages(app: FastAPI) -> None:
@@ -1056,7 +1056,7 @@ ship one and see it work before starting the next.
 ### Phase A - Foundation (2 days)
 
 1. directory
-2. `models.py` + migration (3 new columns + 1 new table)
+2. + migration (3 new columns + 1 new table)
 3. `PackageManifest` Pydantic model (`package.toml` parser)
 4. `PackageRegistry` CRUD store with hash + version tracking
 5. `PackageSource` ABC + `BuiltinSource` + `LocalSource` concrete impl
@@ -1074,7 +1074,7 @@ Migrate each shipped built-in app to a `package.toml` under then wire
 
 ### Phase C - HTTP routes (1 day)
 
-1. `core(daemon API).py`: list / get / install / uninstall / upgrade /
+1. Daemon API: list / get / install / uninstall / upgrade /
    generate-manifest
 2. Permissions probe → 409 flow
 3. Auto-classification of existing apps as `local` source on first boot

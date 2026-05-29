@@ -14,8 +14,8 @@ Two scopes:
 
 | Scope | Where declared | Fires for |
 |-------|----------------|-----------|
-| **App-level** | `runtime.hooks[]` (`schema.py`) | Every agent in the app. |
-| **Per-agent** | `agents[].hooks[]` (`schema.py`) | Only when that specific agent is the active turn. Merged with app-level. |
+| **App-level** | `runtime.hooks[]` | Every agent in the app. |
+| **Per-agent** | `agents[].hooks[]` | Only when that specific agent is the active turn. Merged with app-level. |
 
 Every behaviour and field on this page maps to real code; entries
 are cited with file + line.
@@ -53,18 +53,18 @@ quote the field:
   on: tool_end             # WRONG: parses as boolean, schema rejects
 ```
 
-The `HookConfig._validate_on` validator (`schema.py`)
+The `HookConfig._validate_on` validator
 catches the boolean case explicitly and raises a clear error
 pointing at the unquoted `on`.
 
 ## `HookConfig` reference
 
-`schema.py` (`extra: forbid`).
+(`extra: forbid`).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `id` | string | *required* | Unique hook identifier. |
-| `on` | string | `"turn_end"` | One of the 15 events listed below. **Must be quoted in YAML.** |
+| `on` | string | `"turn_end"` | One of the events listed below (11 canonical + 3 aliases + 1 declared-only). **Must be quoted in YAML.** |
 | `condition` | `HookConditionConfig` | *required* | Condition that must be true for the action to fire. |
 | `action` | `HookActionConfig` | *required* | Action to execute when the condition matches. |
 | `cooldown` | float | `0.0` | Minimum seconds between fires (0 = no cooldown). |
@@ -73,9 +73,12 @@ pointing at the unquoted `on`.
 | `enabled` | bool | `true` | Feature flag. `false` = parsed but never fires. |
 | `tags` | list[string] | `[]` | Free-form tags for introspection. Not used by the runtime. |
 
-## The 15 events
+## The events
 
-`_HOOK_EVENTS` (`schema.py`). Hooks fire on exactly one of:
+`_HOOK_EVENTS` holds 15
+identifiers: **11 canonical events**, **3 aliases** that resolve
+to canonical names, and **1 declared-only** event not yet wired
+at the hook layer. Hooks fire on exactly one of:
 
 | Event | When |
 |-------|------|
@@ -97,25 +100,25 @@ resolve to the canonical events.
 
 ## Conditions (14 built-in)
 
-Registered via `@register_condition` decorators in Conditions get a `TurnState` snapshot and
-return `True` to fire the action.
+Registered via `@register_condition` decorators. Conditions get
+a `TurnState` snapshot and return `True` to fire the action.
 
 | Condition | Source | Params |
 |-----------|--------|--------|
-| `always` | `hooks.py` | (none) - always fires. |
-| `never` | `hooks.py` | (none) - useful for temporarily disabling without editing YAML. |
-| `context_pressure` | `hooks.py` | `threshold: float` (default `0.75`). Fires when the token usage ratio crosses the threshold. |
-| `turn_count` | `hooks.py` | `threshold: int` (required), `every: int` (optional). Fires AT or EVERY N turns. |
-| `tool_calls` | `hooks.py` | `threshold: int`. Fires when the cumulative tool-call count for the turn crosses the threshold. |
-| `message_count` | `hooks.py` | `threshold: int`. Fires when the conversation message count crosses the threshold. |
-| `tool_name` | `hooks.py` | `match: str \| list[str]`. fnmatch glob (NOT regex). Use `\|` for alternation, `*` for wildcards. Compiler validates each pattern against known tools. |
-| `tool_failed` | `hooks.py` | (none). Fires when the active tool call returned `success: false`. Use with `tool_end`. |
-| `content_contains` | `hooks.py` | `keyword: str`. Matches the LLM's response or the user's message. |
-| `error_type` | `hooks.py` | `match: str` (regex). Matches the exception type / message. Use with `error`. |
-| `expression` | `hooks.py` | `expr: str`. A Python-like expression evaluated against the turn state. |
-| `all_of` | `hooks.py` | `conditions: list`. AND of nested conditions, short-circuit. |
-| `any_of` | `hooks.py` | `conditions: list`. OR of nested conditions, short-circuit. |
-| `not` | `hooks.py` | `condition: dict`. Negates a nested condition. |
+| `always` | | (none) - always fires. |
+| `never` | | (none) - useful for temporarily disabling without editing YAML. |
+| `context_pressure` | | `threshold: float` (default `0.75`). Fires when the token usage ratio crosses the threshold. |
+| `turn_count` | | `threshold: int` (required), `every: int` (optional). Fires AT or EVERY N turns. |
+| `tool_calls` | | `threshold: int`. Fires when the cumulative tool-call count for the turn crosses the threshold. |
+| `message_count` | | `threshold: int`. Fires when the conversation message count crosses the threshold. |
+| `tool_name` | | `match: str \| list[str]`. fnmatch glob (NOT regex). Use `\|` for alternation, `*` for wildcards. Compiler validates each pattern against known tools. |
+| `tool_failed` | | (none). Fires when the active tool call returned `success: false`. Use with `tool_end`. |
+| `content_contains` | | `keyword: str`. Matches the LLM's response or the user's message. |
+| `error_type` | | `match: str` (regex). Matches the exception type / message. Use with `error`. |
+| `expression` | | `expr: str`. A Python-like expression evaluated against the turn state. |
+| `all_of` | | `conditions: list`. AND of nested conditions, short-circuit. |
+| `any_of` | | `conditions: list`. OR of nested conditions, short-circuit. |
+| `not` | | `condition: dict`. Negates a nested condition. |
 
 Composite operators nest freely:
 
@@ -128,28 +131,30 @@ condition:
       condition: { type: tool_failed }
 ```
 
-## Actions (13+ built-in)
+## Actions (15 built-in)
 
-Registered via `@register_action`. Actions receive the turn state +
-the firing event payload.
+Registered via `@register_action` decorators. The first 13 are
+general-purpose; the last 2 (`compile_yaml`, `auto_test_deploy`)
+are scoped to the builder app and not intended for end-user YAMLs.
+Actions receive the turn state plus the firing event payload.
 
 | Action | Source | Params |
 |--------|--------|--------|
-| `compact_context` | `hooks.py` | `strategy: str` (`truncate \| summarize`), `keep_last: int`. |
-| `inject_message` | `hooks.py` | `content: str` (required), `role: str` (default `user`), `placeholder: str` (optional). Injects a message into the conversation. |
-| `module_action` | `hooks.py` | `module: str`, `action: str` (required), `params: dict` (or `action_params`). Calls a module action - fire-and-forget. |
-| `module_action_inject` | `hooks.py` | Same as `module_action` plus `role: str`. The action's result is injected back as a message. |
-| `log` | `hooks.py` | `message: str` (required), `level: str` (default `info`). Writes to the daemon log. |
-| `shell` | `hooks.py` | `command: str` (required), `cwd`, `timeout`, `on_error`. Runs a shell command with `{{tool.*}}` template support. |
-| `gate` | `hooks.py` | `reason: str`, `allow: bool`. **Blocks the in-flight tool call** when `allow: false`. Use with `tool_start`. |
-| `transform_params` | `hooks.py` | `transformation: dict`. Modifies the tool params before execution. Use with `tool_start`. |
-| `transform_result` | `hooks.py` | `transformation: dict`. Modifies the tool result before it's returned to the agent. Use with `tool_end`. |
-| `chain` | `hooks.py` | `actions: list`. Run multiple actions sequentially. Each action sees the previous one's output. |
-| `notify` | `hooks.py` | `title`, `message`, `level`, `tag`. Fires a UI notification (Socket.IO event). |
-| `pipe` | `hooks.py` | `to: str` (required), `map: dict`, `extra: dict`, `on_error`. Routes the current tool's output into another tool. |
-| `lsp_diagnose` | `hooks.py` | `path_field`, `content_field`, `publish: bool`, `inject_result: bool`, `read_from_disk: bool`. Universal post-write LSP trigger. Reads `{{tool.params.path}}` + content, calls `lsp.notify_change`, optionally injects diagnostics back into the loop. |
-| `compile_yaml` | `hooks.py` | YAML compile + state write. Used by the builder app. |
-| `auto_test_deploy` | `hooks.py` | Auto-deploy + smoke test. Used by the builder app. |
+| `compact_context` | | `strategy: str` (`truncate \| summarize`), `keep_last: int`. |
+| `inject_message` | | `content: str` (required), `role: str` (default `user`), `placeholder: str` (optional). Injects a message into the conversation. |
+| `module_action` | | `module: str`, `action: str` (required), `params: dict` (or `action_params`). Calls a module action - fire-and-forget. |
+| `module_action_inject` | | Same as `module_action` plus `role: str`. The action's result is injected back as a message. |
+| `log` | | `message: str` (required), `level: str` (default `info`). Writes to the daemon log. |
+| `shell` | | `command: str` (required), `cwd`, `timeout`, `on_error`. Runs a shell command with `{{tool.*}}` template support. |
+| `gate` | | `reason: str`, `allow: bool`. **Blocks the in-flight tool call** when `allow: false`. Use with `tool_start`. |
+| `transform_params` | | `transformation: dict`. Modifies the tool params before execution. Use with `tool_start`. |
+| `transform_result` | | `transformation: dict`. Modifies the tool result before it's returned to the agent. Use with `tool_end`. |
+| `chain` | | `actions: list`. Run multiple actions sequentially. Each action sees the previous one's output. |
+| `notify` | | `title`, `message`, `level`, `tag`. Fires a UI notification (Socket.IO event). |
+| `pipe` | | `to: str` (required), `map: dict`, `extra: dict`, `on_error`. Routes the current tool's output into another tool. |
+| `lsp_diagnose` | | `path_field`, `content_field`, `publish: bool`, `inject_result: bool`, `read_from_disk: bool`. Universal post-write LSP trigger. Reads `{{tool.params.path}}` + content, calls `lsp.notify_change`, optionally injects diagnostics back into the loop. |
+| `compile_yaml` | | YAML compile + state write. Used by the builder app. |
+| `auto_test_deploy` | | Auto-deploy + smoke test. Used by the builder app. |
 
 ## Templating in actions
 
@@ -166,8 +171,8 @@ following placeholders are available inside hook actions:
 | `{{tool.result}}` | The whole result, as JSON. |
 | `{{tool.error}}` | The error message (when `tool_failed`). |
 
-The walker is at `hooks.py:_walk_path` and the template renderer
-is at `hooks.py:_render_tool_templates`. Both apply automatically
+The walker is at  and the template renderer
+is at . Both apply automatically
 to the four templating actions; no explicit opt-in is needed.
 
 ## Two flagship patterns
@@ -283,7 +288,7 @@ agents:
 The `HookConfig` schema (`extra: forbid`) catches:
 
 - Unknown event names - the validator
-  (`schema.py`) emits a "Did you mean" suggestion.
+  emits a "Did you mean" suggestion.
 - Unquoted `on` parsed as boolean - explicit error pointing at
   the YAML quoting issue.
 - Missing `id` / `condition` / `action`.
@@ -295,7 +300,7 @@ validated at hook-engine init - typos in `condition.type` or
 
 ## Extending the registry
 
-`hooks.py:register_action` and `register_condition` are public
+ and `register_condition` are public
 functions - third-party code can register custom conditions and
 actions:
 

@@ -48,7 +48,7 @@ Inspired by Claude Code's tool surface:
 | `Read` | `filesystem.read` | `file_path` (+ `offset`, `limit`) | Read file with line numbers. Detects PDFs (`pages`) + images (base64 for vision). |
 | `Write` | `filesystem.write` | `file_path`, `content` | Create / overwrite. Creates parent directories. |
 | `Edit` | `filesystem.edit` | `file_path`, `old_string`, `new_string` | Find-and-replace. `old_string` must be unique. 6-strategy fuzzy matching. |
-| `Glob` | `filesystem.glob` | `pattern` (+ `path`) | Find files by pattern (`**/*.py`). Sorted by mtime. |
+| `Glob` | `filesystem.glob` | `pattern` (+ `path`) | Find files by pattern (`**/*.ts`). Sorted by mtime. |
 | `Grep` | `filesystem.grep` | `pattern` (+ `path`) | Regex search inside files. Powered by ripgrep. |
 
 ### `Read` - `file_path` + optional `offset`, `limit`
@@ -102,7 +102,7 @@ insert mode), `fuzzy_threshold` (default `0.85`),
 
 #### Fuzzy matching cascade
 
-`filesystem/helpers.py`. All 6 strategies return positions in
+ All 6 strategies return positions in
 the **original** content (not normalised):
 
 1. Exact match.
@@ -126,7 +126,7 @@ in `metadata`.
 
 | Param | Type | Required | Description |
 |-------|------|:--------:|-------------|
-| `pattern` | string | yes | Glob (`**/*.py`, `src/**/*.ts`, `*.md`). |
+| `pattern` | string | yes | Glob (`**/*.ts`, `src/**/*.ts`, `*.md`). |
 | `path` | string | no | Directory to search (default = workspace). |
 
 Hidden params: `type` (`file` / `dir`), `max_results`
@@ -174,8 +174,8 @@ to Windows form (`C:/Users/...`) before the workspace check.
 
 ## Built-in validators (lint after write)
 
-`lsp/parsers.py` - JSON (`.json`, `.jsonc`), YAML
-(`.yaml`, `.yml`), TOML (`.toml`), Python (`.py`, `.pyi`).
+- JSON (`.json`, `.jsonc`), YAML
+(`.yaml`, `.yml`), TOML (`.toml`), TypeScript (`.ts`).
 The LSP module is tried first (ruff, eslint, ...); built-in
 parsers are the fallback. Lint results appear as the `lint`
 field in `Write` / `Edit` output **only when the LSP module

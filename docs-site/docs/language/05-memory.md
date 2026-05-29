@@ -59,7 +59,7 @@ surface.
 
 ### `memory.task_create`
 
-Params (`module.py` `TaskCreateParams`):
+Params (`TaskCreateParams`):
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -68,7 +68,7 @@ Params (`module.py` `TaskCreateParams`):
 
 ```json
 {"name": "TaskCreate",
- "arguments": {"subject": "Refactor src/auth/validate.py",
+ "arguments": {"subject": "Refactor src/auth/validate.ts",
                "description": "Split into validate_token + load_user"}}
 ```
 
@@ -76,7 +76,7 @@ The runtime returns the new task's `taskId`.
 
 ### `memory.task_update`
 
-Params (`module.py` `TaskUpdateParams`):
+Params (`TaskUpdateParams`):
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -90,7 +90,7 @@ Params (`module.py` `TaskUpdateParams`):
 
 ### `memory.set_goal`
 
-Params (`module.py` `SetGoalParams`):
+Params (`SetGoalParams`):
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -98,7 +98,7 @@ Params (`module.py` `SetGoalParams`):
 
 ```json
 {"name": "memory.set_goal",
- "arguments": {"goal": "Fix the auth bug in src/auth/validate.py"}}
+ "arguments": {"goal": "Fix the auth bug in src/auth/validate.ts"}}
 ```
 
 The current goal is rendered at the top of the MEMORY block in every
@@ -106,7 +106,7 @@ subsequent system prompt.
 
 ### `memory.remember`
 
-Params (`module.py` `RememberParams`):
+Params (`RememberParams`):
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -122,17 +122,17 @@ compaction, and is rendered back into the system prompt at the next
 turn (the agent re-reads it like any other prompt section). Secrets
 detected in `content` (values matching the redaction patterns -
 key, secret, password, token, auth, credential, private, jwt) are
-replaced with `[REDACTED]` before storage (`module.py`).
+replaced with `[REDACTED]` before storage.
 
 ## Memory layers (internal)
 
-`memory/store.py` declares the data structures
+declares the data structures
 (`MemoryStore`, `MemoryConfig`, `Note`, `Episode`, `Checkpoint`,
 `SemanticMemory`, `CachedContent`, `TodoStatus`).
 
 | Layer | Scope | Lifecycle | Backed by |
 |-------|-------|-----------|-----------|
-| **Working memory** - `goal`, `todos` | per-session | cleared on session end (`module.py` `cleanup_session`) | `MemoryStore.working` |
+| **Working memory** - `goal`, `todos` | per-session | cleared on session end (`cleanup_session`) | `MemoryStore.working` |
 | **Episodic** - session events | per-session | cleared on session end | `MemoryStore.episodic` |
 | **Semantic** - facts + entity graph | per-user, per-app | persisted to KV backend | `MemoryStore.semantic` (`SemanticMemory`) |
 | **Procedural** - learned patterns | per-app | persisted to KV backend | `MemoryStore.procedures` |
@@ -140,11 +140,11 @@ replaced with `[REDACTED]` before storage (`module.py`).
 
 The runtime maintains one `MemoryStore` per session, keyed by the
 **compound `(user_id, session_id)` tuple** - single-key lookup was
-a cross-user leak vector and is fixed at `module.py`.
+a cross-user leak vector and is fixed.
 
 ## Session isolation
 
-`module.py`. Three guarantees verified by the test suite:
+ Three guarantees verified by the test suite:
 
 - **Per-session working state** - `goal`, `todos`, `episodes`,
   `cache` are scoped by `user_id::session_id`. Two concurrent
@@ -154,18 +154,18 @@ a cross-user leak vector and is fixed at `module.py`.
   leak into user B's prompt. Earlier versions shared a single
   `_app_semantic` dict; the current code creates a per-user
   `SemanticMemory` lazily, loaded from the KV backend with a
-  user-scoped key (`module.py`).
+  user-scoped key.
 - **Cleanup on session end** - `cleanup_session`
-  (`module.py`) clears todos, goal, and episodic events when
+  clears todos, goal, and episodic events when
   the session closes. Semantic + procedural are NOT cleared; they
   persist for the next session.
 
 ## Memory injection into the prompt
 
-`module.py` `get_prompt_sections` returns up to two prompt
+`get_prompt_sections` returns up to two prompt
 sections - the rendered memory snapshot (priority 5) and the memory
 instructions (priority 6) - built by
-`memory/hooks.py::build_memory_prompt_section` and
+and
 `build_memory_instructions`.
 
 The injected MEMORY block looks like:
@@ -174,7 +174,7 @@ The injected MEMORY block looks like:
 # MEMORY
 
 ## Goal
-Fix the authentication bug in src/auth/validate.py
+Fix the authentication bug in src/auth/validate.ts
 
 ## Todos (3)
 - [in_progress] t1: Trace the failing path
@@ -197,7 +197,7 @@ block.
 ## Configuration knobs
 
 Top-level keys on `tools.modules.memory.config`
-(`module.py` `MemoryModuleConfig`):
+(`MemoryModuleConfig`):
 
 | Key | Type | Default | Effect |
 |-----|------|---------|--------|
@@ -207,18 +207,18 @@ Top-level keys on `tools.modules.memory.config`
 | `episodic` | bool | `false` | Record session events. |
 | `semantic` | bool \| dict | `{}` | Enable semantic memory. Pass a dict for fine-grained config (vector backend, graph storage, …). |
 | `procedural` | bool | `false` | Enable learned patterns layer. |
-| `runtime` | dict | `{}` | Proactive injection / content cache / goal guardian knobs (see `MemoryConfig` in `store.py`). |
+| `runtime` | dict | `{}` | Proactive injection / content cache / goal guardian knobs (see `MemoryConfig`). |
 | `limits` | dict | `{}` | Caps on number of todos / facts / episodes / cached files. |
 | `security` | dict | `{}` | `redact_secrets: bool` (default true), `sensitive_patterns: [str]`. |
 | `auto_remember` | bool | `false` | If true, the runtime extracts facts from the conversation passively. Off by default - agents should call `Remember` explicitly. |
 | `workspace` | string | `""` | Auto-injected by the daemon. Don't set manually. |
 
 The full set of knobs (vector index dim, graph edge limits, cache
-TTL, ...) is on `MemoryConfig` in `memory/store.py`.
+TTL, ...) is on `MemoryConfig`.
 
 ## Secret redaction
 
-`module.py`. The redactor scans the value of every
+ The redactor scans the value of every
 `os.environ[KEY]` whose name matches the sensitive patterns and
 replaces matches with `[REDACTED]` in the text before storage.
 
@@ -255,7 +255,7 @@ the memory block in the prompt already shows them.
 
 `memory.MemoryStore.persist` and `MemoryStore.restore` write/read
 the per-user semantic memory to the daemon's KV backend
-(`memory/module.py`). The keying scheme is
+(). The keying scheme is
 `(app_id, user_id)` - facts persist across sessions for the same
 (user, app) pair.
 

@@ -45,11 +45,13 @@ If you are new to Digitorn, work through the [Tutorial](/docs/tutorial/);
 it walks from a hello-world to something close to a real app, in
 order.
 
-When you are writing a YAML, the [Language reference](/docs/language/) is
-the v1 grammar, frozen.
+When you are writing a YAML, the [Language reference](/docs/language/)
+is the canonical `schema_version: 2` grammar.
 
 When you need a specific tool, the [Module reference](/docs/reference/modules/)
-has one page per shipped module (23 of them).
+has one page per agent-facing module (23 of them). The repo also
+ships one system-only module (`cron`) that has no agent-facing
+actions and is not part of the reference.
 
 For UI clients, see [Client SDKs](/docs/reference/client-sdks/) (web,
 React, Python testing). For [Deployment](/docs/deployment/), [How-tos](/docs/howtos/)
@@ -103,10 +105,12 @@ a YAML that can't reach step 3 doesn't ship.
 
 ## Stability
 
-The 8-block YAML is the **v1 language**. Once an app declares it, the
-YAML keeps parsing across every minor and patch release of a v1
-daemon. The detail (which fields can change, deprecation timing,
-default-value policy) lives in [versioning.md](versioning.md).
+The 8-block YAML is `schema_version: 2`, the canonical Digitorn
+language. Once an app declares it, the YAML keeps parsing across
+every minor and patch release of the daemon. Legacy
+`schema_version: 1` (the flat shape) is still accepted through an
+alias pass. The detail (which fields can change, deprecation
+timing, default-value policy) lives in [versioning.md](versioning.md).
 
 ---
 

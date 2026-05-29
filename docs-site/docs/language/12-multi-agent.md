@@ -103,14 +103,14 @@ Every module referenced under `agents[].modules` must also appear
 under `tools.modules` (the compiler enforces this - see
 [Compile-time validation](#compile-time-validation) below).
 
-`runtime.entry_agent` (`schema.py`) controls which agent
+`runtime.entry_agent` controls which agent
 starts each turn. The default is the first agent declared. Sub-
 agents are reachable from the coordinator via `Agent(...)` calls.
 
 ## The single `Agent` tool, eight modes
 
-`agent_spawn/module.py` `@action agent`. One action, eight
-modes dispatched by params (`agent_spawn/params.py`
+`@action agent`. One action, eight
+modes dispatched by params (
 `AgentParams`).
 
 | Mode | Trigger params | Behaviour |
@@ -157,7 +157,7 @@ hidden.
 // Mode 2: Blocking spawn - block parent turn
 {"name": "Agent", "arguments": {
   "specialist": "writer",
-  "prompt": "Apply the rename: foo() → handle_foo() in src/handlers/foo.py.",
+  "prompt": "Apply the rename: foo() → handle_foo() in src/handlers/foo.ts.",
   "wait": true
 }}
 
@@ -178,7 +178,7 @@ hidden.
 
 ## Coordinator pool
 
-`typed_models.py` `AgentPoolConfig`. Caps fan-out and controls
+`AgentPoolConfig`. Caps fan-out and controls
 auto-retry.
 
 ```yaml
@@ -202,7 +202,7 @@ queue and start as slots free up.
 
 ## Module sharing - what sub-agents inherit
 
-`agent_spawn/runner.py`
+
 `_SHARE_MODULES = {"memory", "web", "lsp", "filesystem", "shell"}`.
 **These five modules are SHARED** between the coordinator and every
 sub-agent it spawns - same instance, same workspace, same memory
@@ -228,7 +228,7 @@ coordinator just wrote, even though they're "different agents".
 
 ## Per-agent module restriction
 
-`schema.py` `AgentDefinition.modules`. Each specialist can
+`AgentDefinition.modules`. Each specialist can
 declare **which modules / actions** it has access to (full ref:
 [Agents → Per-agent module access](03-agents.md#per-agent-module-access)).
 
@@ -285,7 +285,7 @@ sequenceDiagram
 ```
 
 `agent_spawn` cleans up on session end
-(`agent_spawn/module.py` `cleanup_session`) - every
+(`cleanup_session`) - every
 running spawn is cancelled, `agent_cancel` events emitted, and
 the per-spawn module instances released.
 
@@ -326,7 +326,7 @@ Use `wait=true` when the next step depends on the previous result:
 // Step 2 (next turn): writer applies the fix using the explorer's findings
 {"name": "Agent", "arguments": {
   "specialist": "writer",
-  "prompt": "Fix parse_config in src/config.py:42 by handling the empty-dict case.",
+  "prompt": "Fix parse_config in src/config.ts:42 by handling the empty-dict case.",
   "wait": true
 }}
 ```
@@ -385,7 +385,7 @@ The compiler enforces:
   declared agent (the runtime check at spawn time has the same
   effect).
 - `modules:` granular entries follow the
-  `{module_id: [action_names]}` shape (`schema.py`
+  `{module_id: [action_names]}` shape (
   `_validate_modules_shape`).
 - `pool.max_workers` ∈ [1, 100], `pool.auto_retry` ∈ [0, 5].
 

@@ -16,26 +16,26 @@ in the codebase; entries are cited with file + line.
 
 | Primitive | Action | Source | Gated by |
 |-----------|--------|--------|----------|
-| Parallel execution | `run_parallel` | `context_builder/actions_meta.py` | always |
-| Background launch (one action, 5 modes) | `background_run` | `context_builder/actions_background.py` | always |
-| Persistent watcher start | `watch_start` | `context_builder/actions_watchers.py` | `runtime.watchers: true` |
-| Watcher control | `watch_stop`, `watch_pause`, `watch_resume`, `watch_status`, `watch_list`, `watch_history` | `context_builder/actions_watchers.py` | `runtime.watchers: true` |
-| Schedule a tool call | `schedule` | `cron_native/module.py` | `runtime.scheduler: true` |
-| Cancel a scheduled job | `cancel_schedule` | `cron_native/module.py` | `runtime.scheduler: true` |
-| Self-reminder | `remind` | `cron_native/module.py` | `runtime.scheduler: true` |
-| Long-term memory write | `memory.remember` | `memory/module.py` | `tools.modules.memory` |
-| Send via output channel | `tools.channels.send_message` | `channels/module.py` | `tools.modules.channels` + a configured channel |
+| Parallel execution | `run_parallel` | | always |
+| Background launch (one action, 5 modes) | `background_run` | | always |
+| Persistent watcher start | `watch_start` | | `runtime.watchers: true` |
+| Watcher control | `watch_stop`, `watch_pause`, `watch_resume`, `watch_status`, `watch_list`, `watch_history` | | `runtime.watchers: true` |
+| Schedule a tool call | `schedule` | | `runtime.scheduler: true` |
+| Cancel a scheduled job | `cancel_schedule` | | `runtime.scheduler: true` |
+| Self-reminder | `remind` | | `runtime.scheduler: true` |
+| Long-term memory write | `memory.remember` | | `tools.modules.memory` |
+| Send via output channel | `tools.channels.send_message` | | `tools.modules.channels` + a configured channel |
 
 ## `runtime` flags that gate the primitives
 
-Two flags on `RuntimeBlock` (`schema.py`) gate the
+Two flags on `RuntimeBlock` gate the
 watcher / scheduler families. Both default to `false`.
 
 ```yaml
 runtime:
   watchers: true       # enables watch_* primitives
   scheduler: true      # enables schedule / cancel_schedule / remind
-                       # (REQUIRES watchers: true; schema.py)
+                       # (REQUIRES watchers: true)
 ```
 
 A daemon-side scheduler service runs in the background; setting
@@ -46,11 +46,11 @@ but hidden" to "exposed in the agent's tool index".
 
 ### `run_parallel`
 
-`actions_meta.py`. Runs N actions concurrently via
+ Runs N actions concurrently via
 `asyncio.gather`. Each action is independent - failures in one do
 not cancel the others. Results come back in the same order as input.
 
-**Params** (`RunParallelParams`, `params.py`):
+**Params** (`RunParallelParams`,):
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -85,14 +85,14 @@ chain them with `execute_tool` calls in successive turns instead.
 
 ## Background tasks - `background_run` (one action, five modes)
 
-`actions_background.py`. **A single `@action`** with five modes
+ **A single `@action`** with five modes
 dispatched by params. The doc historically listed five separate
 actions (`background_run`, `background_status`, `background_result`,
 `background_cancel`, `background_list`, `background_wait`); none of
 those exist as separate actions. There is exactly **one** action
 named `background_run`.
 
-**Params** (`BackgroundRunParams`, `params.py`):
+**Params** (`BackgroundRunParams`,):
 
 | Field | Visibility | Default | Description |
 |-------|-----------|---------|-------------|
@@ -105,7 +105,7 @@ named `background_run`.
 | `timeout` | hidden | `60.0` (1-3600) | Max seconds for the wait mode. |
 
 The five modes are dispatched in `background_run`
-(`actions_background.py`):
+():
 
 ```
 mode 1 - launch         params.name + params.params
@@ -138,7 +138,7 @@ mode 5 - list all       params.list_tasks=true
  "arguments": {"list_tasks": true}}
 ```
 
-Short alias in `tool_names.py` - `BackgroundRun` →
+Short alias - `BackgroundRun` →
 `context_builder.background_run`.
 
 ### Auto-notification
@@ -166,16 +166,16 @@ The notification carries enough info for the agent to call
 ## Watchers - persistent monitoring
 
 `runtime.watchers: true` enables seven actions in
-`context_builder/actions_watchers.py`. Watchers are a "set it and
+ Watchers are a "set it and
 forget it" primitive: you register a check, the daemon polls it on
 its own schedule, and the agent is **only notified when something
 interesting happens**.
 
 ### `watch_start`
 
-`actions_watchers.py`. Starts a periodic check.
+ Starts a periodic check.
 
-**Params** (`WatchStartParams`, `params.py`):
+**Params** (`WatchStartParams`,):
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -187,7 +187,7 @@ interesting happens**.
 | `notify_when` | string | `"on_change"` | When to wake the agent. See below. |
 | `notify_config` | dict | `{}` | Extra config for the `notify_when` strategy. |
 
-`notify_when` strategies (`params.py`):
+`notify_when` strategies:
 
 | Value | Wakes the agent when... | `notify_config` |
 |-------|-------------------------|-----------------|
@@ -201,15 +201,15 @@ interesting happens**.
 
 | Action | Source | Params |
 |--------|--------|--------|
-| `watch_stop` | `actions_watchers.py` | `{ watcher_id }` |
-| `watch_pause` | `actions_watchers.py` | `{ watcher_id }` |
-| `watch_resume` | `actions_watchers.py` | `{ watcher_id }` |
-| `watch_status` | `actions_watchers.py` | `{ watcher_id }` |
-| `watch_list` | `actions_watchers.py` | (none) |
-| `watch_history` | `actions_watchers.py` | `{ watcher_id, last_n }` (last_n: 1-100, default 10) |
+| `watch_stop` | | `{ watcher_id }` |
+| `watch_pause` | | `{ watcher_id }` |
+| `watch_resume` | | `{ watcher_id }` |
+| `watch_status` | | `{ watcher_id }` |
+| `watch_list` | | (none) |
+| `watch_history` | | `{ watcher_id, last_n }` (last_n: 1-100, default 10) |
 
 `WatcherIdParams` and `WatchHistoryParams` are at
-`params.py`.
+
 
 ### Persistence and lifecycle
 
@@ -239,15 +239,15 @@ agent. The scheduler is daemon-backed
 and survives daemon restarts via persisted state.
 
 > **Important.** The scheduler block requires `runtime.watchers: true`
-> as well (`schema.py`); the watcher loop is the heartbeat the
+> as well; the watcher loop is the heartbeat the
 > scheduler runs on.
 
 ### `schedule`
 
-`cron_native/module.py`. The single primitive that schedules
+ The single primitive that schedules
 anything - one-shot or recurring.
 
-**Params** (`ScheduleParams`, `cron_native/params.py`):
+**Params** (`ScheduleParams`,):
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -260,7 +260,7 @@ anything - one-shot or recurring.
 
 #### Time formats (`when`)
 
-Three accepted shapes (`cron_native/params.py`):
+Three accepted shapes:
 
 1. **Relative one-shot**: `"in 5m"`, `"in 2h"`, `"in 1d"`, `"in 30s"`.
 2. **ISO 8601 timestamp** (one-shot): `"2026-04-15T09:00:00Z"`. The
@@ -296,19 +296,19 @@ Three accepted shapes (`cron_native/params.py`):
 
 ### `cancel_schedule`
 
-`cron_native/module.py`.
 
-**Params** (`CancelScheduleParams`, `cron_native/params.py`):
+
+**Params** (`CancelScheduleParams`,):
 `{ job_id: string }`. The `job_id` is exactly what `schedule`
 returned. Format is usually `cron_<app_id>_<name>` for named jobs or
 `cron_<app_id>_<random_hex>` for unnamed ones.
 
 ### `remind`
 
-`cron_native/module.py`. A self-prompt scheduled back into the
+ A self-prompt scheduled back into the
 current session.
 
-**Params** (`RemindParams`, `cron_native/params.py`):
+**Params** (`RemindParams`,):
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -341,7 +341,7 @@ manage jobs by reusing `name` (overwrite) or by knowing their
 
 ## Long-term memory - `memory.remember`
 
-`memory/module.py`. Stores a fact that **survives compaction**.
+ Stores a fact that **survives compaction**.
 At runtime, recall happens through the agent's working-memory
 recall layer, not via a separate tool.
 
@@ -356,9 +356,9 @@ tools:
 ```
 
 The full surface of `memory` is just four actions
-(`memory/module.py`): `task_create`,
+(): `task_create`,
 `task_update`, `set_goal`, `remember`. Short aliases (from
-`tool_names.py`): `TaskCreate`, `TaskUpdate`, `Remember`.
+): `TaskCreate`, `TaskUpdate`, `Remember`.
 
 The legacy `set_plan`, `update_plan_step`, `add_todo`, `update_todo`,
 `note`, `resolve_note`, `add_fact`, `recall`, `forget`,
@@ -399,7 +399,7 @@ Then from a turn:
                "message": "Build failed on main."}}
 ```
 
-The full `channels` action set (`channels/module.py+`) :
+The full `channels` action set:
 `send_message`, `reply`, `broadcast`, `list_providers`,
 `provider_status`, `pause_provider`, `resume_provider`,
 `provider_history`, `stats`, `simulate_event`, plus internal
@@ -407,9 +407,9 @@ The full `channels` action set (`channels/module.py+`) :
 [Channels (Bidirectional I/O)](40-channels.md).
 
 > The `send_notification` action referenced in the previous
-> version of this doc (and in some `prompt.py` builders) **does not
+> version of this doc (and in some builders) **does not
 > exist** as an `@action` decorator. The `SendNotificationParams`
-> Pydantic model in `context_builder/params.py` is currently
+> Pydantic model is currently
 > unused. To send a notification, call `tools.channels.send_message`.
 
 ## Decision matrix - when to use what
@@ -434,8 +434,8 @@ The full `channels` action set (`channels/module.py+`) :
 - Channels surface: [Channels (Bidirectional I/O)](40-channels.md)
 - Memory surface: [Cognitive Memory](05-memory.md)
 - Background-run + auto-notification deep dive in code:
-  `context_builder/actions_background.py`
+ 
 - Watcher loop + `notify_when` strategies in code:
-  `context_builder/actions_watchers.py`
-- Scheduler service: `cron_native/module.py`
-- Source of truth for short ↔ FQN mapping: `tool_names.py`
+ 
+- Scheduler service:
+- Source of truth for short ↔ FQN mapping:

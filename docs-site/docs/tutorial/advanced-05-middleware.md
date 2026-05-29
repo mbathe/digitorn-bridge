@@ -185,7 +185,7 @@ Drop a Python file with a class that implements `before()` and
 optionally `after()`:
 
 ```python
-# middlewares/my_middleware.py
+# middlewares/my_middleware.ts
 class MyAppMiddleware:
     def __init__(self, key: str = "default"):
         self.key = key
@@ -206,7 +206,7 @@ Then reference it:
 runtime:
   middleware:
     - custom:
-        path: ./middlewares/my_middleware.py
+        path: ./middlewares/my_middleware.ts
         class: MyAppMiddleware
         config:
           key: production

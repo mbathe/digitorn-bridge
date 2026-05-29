@@ -16,21 +16,43 @@ optionally lint on every write.
 | Property | Value |
 |----------|-------|
 | Module id | `workspace` |
-| Action count | 6 (LLM-exposed) |
+| Action count | 6 LLM-exposed + 7 internal (UI / REST only) |
 | Type | per-app instance, per-session state |
 | Pip deps | none (stdlib). |
 | Dependencies | wraps `preview` (transport) + `lsp` (diagnostics, optional) |
 
 ## The 6 actions
 
-| Tool | FQN | Source | Visible params | Purpose |
-|------|-----|--------|----------------|---------|
-| `WsWrite` | `workspace.write` | `module.py` | `path`, `content` | Create / overwrite. |
-| `WsRead` | `workspace.read` | `module.py` | `path` | Read. |
-| `WsEdit` | `workspace.edit` | `module.py` | `path`, `old_string`, `new_string` | Surgical text replacement (same fuzzy cascade as `filesystem`). |
-| `WsGlob` | `workspace.glob` | `module.py` | `pattern` | Pattern match. |
-| `WsGrep` | `workspace.grep` | `module.py` | `pattern` | Content regex search. |
-| `WsDelete` | `workspace.delete` | `module.py` | `path` | Remove. |
+| Tool | FQN | Visible params | Purpose |
+|------|-----|----------------|---------|
+| `WsWrite` | `workspace.write` | `path`, `content` | Create / overwrite. |
+| `WsRead` | `workspace.read` | `path` | Read. |
+| `WsEdit` | `workspace.edit` | `path`, `old_string`, `new_string` | Surgical text replacement (same fuzzy cascade as `filesystem`). |
+| `WsGlob` | `workspace.glob` | `pattern` | Pattern match. |
+| `WsGrep` | `workspace.grep` | `pattern` | Content regex search. |
+| `WsDelete` | `workspace.delete` | `path` | Remove. |
+
+### Internal actions (not LLM-exposed)
+
+The workspace module also ships **7 internal actions** marked
+`internal=True` on the module. They are called by the daemon's
+REST endpoints and by the UI for the validation / approval flow,
+and are deliberately invisible to the agent so the LLM cannot
+self-approve its own writes:
+
+| Action | Purpose |
+|--------|---------|
+| `approve_file` | Stage the whole file - baseline = current content. |
+| `reject_file` | Revert to baseline (or delete if never approved). |
+| `approve_file_hunks` | Partial stage by hunk index or 12-char hash. |
+| `reject_file_hunks` | Partial revert by hunk index or hash. |
+| `writeback_file` | User writeback (manual edit / drag-drop import). |
+| `commit_session` | `git add` + `git commit` over approved files. |
+| `git_status` | Refresh `git_status` flags on every tracked file. |
+
+These are wired into the
+`/api/apps/{app_id}/sessions/{sid}/workspace/files/...` routes
+documented in [Validation workflow](#validation-workflow).
 
 ### Visible vs hidden params
 
@@ -286,7 +308,7 @@ The agent never needs to call `lsp.diagnostics` separately.
 
 ## Bootstrap wiring
 
-`bootstrap.py`:
+At app bootstrap:
 
 - `workspace._preview = preview_module` - Socket.IO transport.
 - `workspace._lsp = lsp_module` - diagnostics provider (when

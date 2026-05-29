@@ -1,13 +1,12 @@
 ---
 id: api-integration
-title: API Integration (private)
+title: API Integration
+sidebar_label: API Integration
 ---
-
-# API Integration
 
 The HTTP API surface, the OAuth flows for per-app
 integrations, and the credentials manifest endpoints are
-**not documented publicly**.
+**not part of the public documentation contract**.
 
 Public clients use the SDKs and CLI:
 

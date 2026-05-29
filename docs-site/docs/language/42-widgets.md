@@ -15,11 +15,11 @@ and pushes them to the client over Socket.IO.
 Three layers, each verified in code:
 
 - **Schema** - `ui.widgets:` (`WidgetsConfig`,
-  `schema.py`, `extra: forbid`).
-- **Module** - 7 agent-side actions in - **REST API** - `apps_v2/widgets.py` (data resolver, action
+ , `extra: forbid`).
+- **Module** - 7 agent-side actions in - **REST API** - the widget REST surface (data resolver, action
   dispatcher, file upload, stream bridge).
 
-Closed sets verified at `schema.py`:
+Closed sets verified:
 
 | Set | Count |
 |-----|-------|
@@ -55,11 +55,11 @@ The daemon:
    endpoint.
 5. Pushes live `widget:render` / `widget:update` /
    `widget:close` / `widget:error` events on the **session
-   Socket.IO room** (`module.py`,
-   `events/envelope.py`).
+   Socket.IO room** (,
+  ).
 6. Substitutes `{{form.X}}` / `{{state.X}}` / `{{ctx.X}}` /
    `{{item.X}}` server-side **before** emitting events
-   (`module.py`).
+
 
 ## 2 · Versioning
 
@@ -70,7 +70,7 @@ ui:
 ```
 
 The daemon **rejects** any unknown version at compile time
-(`schema.py`). Today only `1` is recognised.
+(). Today only `1` is recognised.
 
 ## 3 · Bundle directory - `widgets/`
 
@@ -133,7 +133,7 @@ Responsive rules:
 
 ## 5 · `ui.widgets:` block
 
-`WidgetsConfig` (`schema.py`):
+`WidgetsConfig`:
 
 ```yaml
 ui:
@@ -178,7 +178,7 @@ ui:
 
 ## 6 · Universal node fields
 
-`WidgetNode` (`schema.py`, `extra: allow`,
+`WidgetNode` (, `extra: allow`,
 `populate_by_name: true`). Every node accepts:
 
 | Field | Purpose |
@@ -202,7 +202,7 @@ validates structure but doesn't execute the predicate.
 
 By category. Field details below - exhaustive validation
 against `WIDGET_PRIMITIVES` happens at compile time
-(`compiler.py`).
+().
 
 ### 7.1 Layout (9)
 
@@ -561,10 +561,15 @@ against `WIDGET_PRIMITIVES` happens at compile time
     modal: add_source
 ```
 
-## 8 · The 15 actions
+## 8 · The 15 client-side action-types
 
-Every widget action is dispatched through the widget-action
-endpoint.
+These are the 15 verbs a widget tree can dispatch back to the
+daemon when the user interacts. They are **not** the same thing
+as the 7 server-side `@action` methods on the `widget` module
+(those are for the agent to mount / update / close widgets — see
+[reference/modules/widget.md](../reference/modules/widget.md)).
+Every widget action-type listed below is dispatched through the
+widget-action endpoint.
 
 | Action | Purpose |
 |--------|---------|
@@ -655,7 +660,7 @@ then:
 ## 9 · Expression language
 
 Daemon evaluates these **server-side** when rendering / patching
-trees (`module.py`). the chat client evaluates the same grammar
+trees. the chat client evaluates the same grammar
 locally for `when:` / `for:` / live form substitution.
 
 ### Scopes
@@ -697,8 +702,8 @@ the node level via `when:` / `for:`.
 
 ### Built-in filters
 
-`WIDGET_FILTERS` (`schema.py`). Closed set, validated at
-compile time (`compiler.py`):
+`WIDGET_FILTERS`. Closed set, validated at
+compile time:
 
 | Filter | Example |
 |--------|---------|
@@ -772,7 +777,7 @@ data:
 ```
 
 The stream binding's bridge is implemented at
-`apps_v2/widgets.py`
+the widget REST surface
 (`GET /widgets/data/{binding}/stream`).
 
 ## 11 · State model
@@ -784,7 +789,7 @@ The stream binding's bridge is implemented at
 - `form.valid` / `form.dirty` / `form.errors.<name>` are
   auto-filled.
 - Validation re-run by the daemon on every action POST
-  (`apps_v2/widgets.py`): `required`, `regex` + `message`,
+ : `required`, `regex` + `message`,
   `min` / `max` (string length OR numeric range OR list size),
   `type_hint` (email / url / number / tel),
   `multi_select.max`, `checkbox.required` truthiness.
@@ -792,7 +797,7 @@ The stream binding's bridge is implemented at
 ### Widget state - `state.*`
 
 - Mutated via `action: set_state` or
-  `widget.set_state` (agent-side, `module.py`).
+  `widget.set_state` (agent-side,).
 - `scope: widget` (default) - reset on unmount.
 - `scope: global` - persisted client-side per `appId`
   (SharedPreferences `widget.state.<appId>`).
@@ -816,7 +821,7 @@ The stream binding's bridge is implemented at
 
 ### Per-session isolation
 
-`WidgetSessionStore` (in `widget/store.py`) keys everything by
+`WidgetSessionStore` (in) keys everything by
 `session_id`. Each session has its own:
 
 - `state` map (form, custom keys, results, uploads).
@@ -863,7 +868,7 @@ values, selections, and tool results without any templating.
 | `widget.set_state` | | Write into session state - visible to the agent + every other module. |
 | `widget.clear` | | Clear all mounted widgets + state for the session. |
 
-Render flow (`module.py`):
+Render flow:
 
 1. Validate `zone` against the closed set.
 2. Validate `ref` XOR `tree`.
@@ -897,9 +902,9 @@ longer exists - events flow through the same socket the chat uses.
 
 ## 14 · Socket.IO events
 
-Emitted from `module.py` via `_publish` →
+Emitted via `_publish` →
 `session_event_bus`. Filtered by session room
-(`events/session_bus.py`).
+().
 
 ### `widget:render` - mount or replace
 
@@ -961,7 +966,7 @@ Emitted from `module.py` via `_publish` →
 
 ## 15 · Compile-time validation
 
-`compiler.py`. The compiler **rejects** a deploy
+ The compiler **rejects** a deploy
 with a precise YAML path on:
 
 1. `type:` not in the 43-primitive set.
@@ -995,7 +1000,7 @@ When the agent calls `widget.render(tree=...)` or
 `widget.update(patch=...)`, the daemon walks every string
 leaf in the tree / patch and substitutes `{{...}}` tokens
 against the live session state **before** publishing
-(`module.py`, `module.py`).
+(,).
 
 ```python
 await widget.render(
@@ -1029,7 +1034,7 @@ the same validation rules client-side ran (see
 
 ### File upload pipeline
 
-`POST /widgets/upload` (`apps_v2/widgets.py`) - multipart
+`POST /widgets/upload` - multipart
 fields:
 
 - `file` - the uploaded file.
@@ -1236,7 +1241,7 @@ already populated with the agent's output.
 |---------|---------------|
 | Icons | Closed set = Material Icons Round (validated). |
 | Semantic colors | `success`, `warning`, `error`, `info`, `accent`, `muted`. Never hex literals. |
-| Accents | `WIDGET_ACCENTS` (`schema.py`): `blue`, `purple`, `green`, `orange`, `red`, `cyan`. |
+| Accents | `WIDGET_ACCENTS`: `blue`, `purple`, `green`, `orange`, `red`, `cyan`. |
 | Densities | `WIDGET_DENSITIES`: `compact` (-25 % padding), `normal`, `roomy` (+25 %). |
 | Radii (locked) | cards 10, inputs 7, badges 4, modals 14. |
 | Fonts | Inter (UI), Fira Code (code). |

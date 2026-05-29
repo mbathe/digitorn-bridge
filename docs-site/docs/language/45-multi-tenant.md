@@ -62,7 +62,7 @@ stores `owner_user_id = user_id`. From that moment:
 
 `scope=system` requires admin permissions. Non-admins get a 403
 with the explicit message
-(`apps_install.py`):
+():
 
 > Only admins can install apps at `scope='system'`. Use
 > `scope='user'` to install for yourself only.
@@ -91,7 +91,7 @@ multi-tenant SaaS deployments.
 
 ## Lifecycle ops are scope-aware
 
-`apps_install.py`. Every install/upgrade/uninstall
+ Every install/upgrade/uninstall
 operation reads the existing entry's scope + owner first
 (`pkg_scope`, `pkg_owner`) and re-asserts it on the next step:
 
@@ -116,7 +116,7 @@ served). Two more layers fix the rest:
   `agents[].brain.credential`) are stored encrypted per
   `(user_id, app_id)`. See [credentials.md](../reference/runtime/credentials.md).
 - **Per-session memory** - the memory module keys by the
-  compound `user_id::session_id` tuple (`memory/module.py`)
+  compound `user_id::session_id` tuple
   so two concurrent sessions, even of the same user, never see
   each other's todos / facts / episodes. Verified at
   [Cognitive Memory → Session isolation](05-memory.md#session-isolation).
@@ -160,9 +160,9 @@ your role.
 
 | Check | Where | Effect |
 |-------|-------|--------|
-| Admin requirement for `scope=system` | `apps_install.py` | 403 with explicit message. |
-| App-id uniqueness within a scope | `PackageIdCollision` (`apps_install.py`) | 409 with `existing` info. |
-| Permissions acceptance | `PermissionsRequired` (`apps_install.py`) | 409 with the permission list; client must retry with `accept_permissions: true`. |
+| Admin requirement for `scope=system` | | 403 with explicit message. |
+| App-id uniqueness within a scope | `PackageIdCollision` | 409 with `existing` info. |
+| Permissions acceptance | `PermissionsRequired` | 409 with the permission list; client must retry with `accept_permissions: true`. |
 | Routing isolation | App lookup at every request reads the JWT's `user_id` and matches the (app_id, scope, owner_user_id) tuple. | Wrong owner → 404 (not 403, by design - masks the existence). |
 
 ## Cross-references

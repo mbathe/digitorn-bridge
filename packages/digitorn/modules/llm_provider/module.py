@@ -471,19 +471,7 @@ class LLMProviderModule(BaseModule):
         max_retries: int = 2,
         default_params: dict[str, Any] | None = None,
     ) -> BaseLLMProvider:
-        if backend == "anthropic":
-            from digitorn.modules.llm_provider.providers.anthropic import AnthropicProvider
-
-            return AnthropicProvider(
-                provider_id=provider_id,
-                model=model,
-                api_key=api_key,
-                base_url=base_url,
-                timeout=timeout or 120.0,
-                max_retries=max_retries,
-                default_params=default_params,
-            )
-        elif backend == "openai_compat":
+        if backend == "openai_compat":
             from digitorn.modules.llm_provider.providers.openai_compat import OpenAICompatProvider
 
             return OpenAICompatProvider(
@@ -513,8 +501,9 @@ class LLMProviderModule(BaseModule):
             )
         else:
             raise ValueError(
-                f"Unknown backend: '{backend}'. Use 'anthropic', "
-                f"'openai_compat', or 'github_copilot'."
+                f"Unknown backend: '{backend}'. Use 'openai_compat' "
+                f"(route through the gateway, including Anthropic / "
+                f"claude-code), or 'github_copilot'."
             )
 
     async def _configure_from_dict(self, provider_id: str, conf: dict[str, Any]) -> None:

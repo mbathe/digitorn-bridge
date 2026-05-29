@@ -15,24 +15,24 @@ in the codebase; entries are cited with file + line.
 
 ## Module surface
 
-`mcp/module.py` `class MCPModule` - `MODULE_ID = "mcp"`. Eleven
+`class MCPModule` - `MODULE_ID = "mcp"`. Eleven
 `@action`-decorated methods.
 
 | Action | Source | Purpose |
 |--------|--------|---------|
-| `connect` | `module.py` | Open a connection to a declared MCP server. |
-| `disconnect` | `module.py` | Close a server connection. |
-| `reconnect` | `module.py` | Force-reconnect (drop + reopen). |
-| `list_servers` | `module.py` | List declared servers and their connection state. |
-| `list_tools` | `module.py` | Tools exposed by a server (or all servers). |
-| `call_tool` | `module.py` | Invoke a server tool by name. |
-| `list_resources` | `module.py` | Resources exposed by a server. |
-| `read_resource` | `module.py` | Fetch a resource's content by URI. |
-| `list_prompts` | `module.py` | Prompt templates exposed by a server. |
-| `get_prompt` | `module.py` | Render a prompt template with arguments. |
-| `health_check` | `module.py` | Per-server connection + capability check. |
+| `connect` | | Open a connection to a declared MCP server. |
+| `disconnect` | | Close a server connection. |
+| `reconnect` | | Force-reconnect (drop + reopen). |
+| `list_servers` | | List declared servers and their connection state. |
+| `list_tools` | | Tools exposed by a server (or all servers). |
+| `call_tool` | | Invoke a server tool by name. |
+| `list_resources` | | Resources exposed by a server. |
+| `read_resource` | | Fetch a resource's content by URI. |
+| `list_prompts` | | Prompt templates exposed by a server. |
+| `get_prompt` | | Render a prompt template with arguments. |
+| `health_check` | | Per-server connection + capability check. |
 
-Param classes (`mcp/params.py`): `ConnectParams`, `DisconnectParams`,
+Param classes: `ConnectParams`, `DisconnectParams`,
 `ReconnectParams`, `ListServersParams`, `ListToolsParams`,
 `CallToolParams`, `ListResourcesParams`, `ReadResourceParams`,
 `ListPromptsParams`, `GetPromptParams`, `HealthCheckParams`.
@@ -78,7 +78,7 @@ MCP servers are declared under `tools.modules.mcp.config.servers`
 
 ### Shorthand (catalog-resolved)
 
-For servers known to the catalog (`mcp/catalog.py`), declare a
+For servers known to the catalog, declare a
 short form with credentials and any minimal overrides - the catalog
 fills in `command`, `args`, `env`, `transport`, OAuth metadata, and
 any required headers.
@@ -145,7 +145,7 @@ without arguing with the catalog.
 ### Per-server fields
 
 Common keys (recognised in both shorthand and explicit shapes;
-`mcp/catalog.py:_STANDARD_KEYS`):
+):
 
 | Key | Description |
 |-----|-------------|
@@ -163,14 +163,14 @@ Common keys (recognised in both shorthand and explicit shapes;
 
 ## Transports
 
-`mcp/transports.py` ships three transport classes
+ships three transport classes
 (`MCPTransport` Protocol at line 34):
 
 | Transport | Class | When to use |
 |-----------|-------|-------------|
-| `stdio` | `StdioTransport` (`transports.py`) | Server runs as a subprocess; communication over stdin/stdout. The default for local servers (npm-installed, native binaries, Docker). |
-| `sse` | `SSETransport` (`transports.py`) | Server-Sent Events over HTTP. Long-lived connection, server pushes events. |
-| `streamable_http` | `StreamableHTTPTransport` (`transports.py`) | Bidirectional HTTP streaming. The newest transport, used by hosted servers (Smithery, Cloudflare Workers, ...). |
+| `stdio` | `StdioTransport` | Server runs as a subprocess; communication over stdin/stdout. The default for local servers (npm-installed, native binaries, Docker). |
+| `sse` | `SSETransport` | Server-Sent Events over HTTP. Long-lived connection, server pushes events. |
+| `streamable_http` | `StreamableHTTPTransport` | Bidirectional HTTP streaming. The newest transport, used by hosted servers (Smithery, Cloudflare Workers, ...). |
 
 For `stdio`, the daemon spawns the server process and pipes
 JSON-RPC messages over stdin/stdout. The process inherits the
@@ -180,7 +180,7 @@ and tunnels JSON-RPC over it.
 
 ## Per-server sandbox
 
-`schema.py` `MCPServerSandbox` (`extra: forbid`). Every MCP
+`MCPServerSandbox` (`extra: forbid`). Every MCP
 server **must** declare what it needs - no declaration = no
 OS-level rights (deny by default).
 
@@ -196,7 +196,7 @@ servers:
       allowed_hosts: [api.github.com]
 ```
 
-Three top-level fields (`schema.py`, 648, 656`):
+Three top-level fields (, 648, 656`):
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -205,7 +205,7 @@ Three top-level fields (`schema.py`, 648, 656`):
 | `allowed_hosts` | list[string] | Allowed network hosts for outbound connections. Only effective when `net.http` or `net.socket` is granted. |
 
 Permission categories
-(`schema.py` docstring, source of truth):
+(docstring, source of truth):
 
 | Permission | What it grants |
 |------------|---------------|
@@ -227,7 +227,7 @@ isolation model (Landlock / seccomp / Seatbelt / Job Objects).
 ## Smithery - hosted servers
 
 The catalog supports two routes through Smithery
-(`mcp/catalog.py:_SMITHERY_CONNECT_BASE`,
+(,
 `_SMITHERY_PROXY_BASE`):
 
 - **Smithery Connect** (recommended) -
@@ -333,17 +333,17 @@ Both are handled by the actions listed at the top of this page.
 | **Undeploy / shutdown** | All connections close cleanly (stdio processes terminated, sockets closed). OAuth tokens stay in the vault for the next deploy. |
 
 The connection pool is shared across sessions on the same daemon
-(`mcp/connections.py`). Stats: `digitorn mcp pool`.
+(). Stats: `digitorn mcp pool`.
 
 ## Result normalisation and caching
 
 Two pieces sit between the raw transport and the agent:
 
-- **Result normaliser** (`mcp/protocol.py`) - wraps the
+- **Result normaliser** - wraps the
   transport-specific response into the `ActionResult` shape so
   agents see consistent return values regardless of which server
   generated them.
-- **Smart cache** (`mcp/cache.py`) - caches read-only operations
+- **Smart cache** - caches read-only operations
   (`list_tools`, `list_resources`, `list_prompts`, idempotent
   `read_resource` calls) with a TTL. Tool calls themselves are
   never cached - they're assumed to have side effects unless
@@ -354,7 +354,7 @@ Two pieces sit between the raw transport and the agent:
 When a server's `list_tools` response doesn't include example
 arguments, the daemon optionally probes each tool with a typed
 no-op call to discover its argument shape and stash a few
-examples. Behaviour is in `mcp/schema_probe.py`. Disable per-app
+examples. Behaviour is. Disable per-app
 via the module's config when the probing introduces unwanted
 side-effects.
 

@@ -20,7 +20,7 @@ are cited with file + line.
 
 ## `ui.workspace` - virtual filesystem renderer
 
-`schema.py` `WorkspaceBlock` (`extra: forbid`). Tells the
+`WorkspaceBlock` (`extra: forbid`). Tells the
 client this app uses a virtual file workspace streamed via
 Socket.IO. The daemon emits `preview:state_changed` with
 `key: "workspace"` on the first file write, carrying these
@@ -46,7 +46,7 @@ ui:
 
 > **Distinct from `runtime.workdir`.** `ui.workspace` is the
 > in-memory virtual filesystem and the renderer hint. `runtime.workdir`
-> (`schema.py`) is the physical filesystem path the
+> is the physical filesystem path the
 > `filesystem`/`shell` modules operate on. The schema renames the
 > legacy `execution.workspace` to `runtime.workdir` to remove the
 > ambiguity.
@@ -55,7 +55,7 @@ ui:
 
 When `tools.modules.workspace` is loaded, the agent gets six
 short-named actions
-(`tool_names.py`):
+():
 
 | Short alias | FQN |
 |-------------|-----|
@@ -70,7 +70,7 @@ These operate on the **in-memory virtual filesystem** streamed to
 the client via Socket.IO - not the real filesystem. The `lint`
 field on every `WsWrite` / `WsEdit` response carries fresh
 diagnostics from the LSP module
-(`module.py` `_run_lint`).
+(`_run_lint`).
 
 ### Auto-detection of `render_mode`
 
@@ -114,7 +114,7 @@ fully-functional live workspace.
 
 ## `tools.modules.web_preview` - session-scoped iframe attachments
 
-`modules/web_preview/module.py`. The agent attaches the iframe at
+ The agent attaches the iframe at
 `/api/apps/<app_id>/preview/?session_id=<sid>` to one of:
 
 - **A running dev server** (HTTP proxy) on a TCP port the agent
@@ -238,7 +238,7 @@ automatically.
 - Workspace module's 6 actions:
   [Built-in Tools → Workspace tools](04b-builtin-tools.md#workspace-tools-gated-by-toolsmodulesworkspace)
 - `web_preview` tool prompts (system-prompt section + per-action
-  guidance the agent receives): `modules/web_preview/module.py`
+  guidance the agent receives):
   `get_prompt_sections` + each `@action(tool_prompt=...)`.
 - LSP-driven lint on every workspace write:
   [LSP Diagnostics](27-lsp.md)

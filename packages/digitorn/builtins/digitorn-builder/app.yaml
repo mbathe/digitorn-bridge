@@ -106,13 +106,6 @@ agents:
       strategy: summarize
       keep_recent: 12
       auto_compact: true
-    fallback:
-      provider: anthropic
-      model: claude-sonnet-4-6
-      config:
-        api_key: claude-code
-      temperature: 0.6
-      max_tokens: 8192
   plan_first: false
   system_prompt: '{{prompt.coordinator}}'
 - id: architect
@@ -135,13 +128,6 @@ agents:
       strategy: summarize
       keep_recent: 6
       auto_compact: true
-    fallback:
-      provider: anthropic
-      model: claude-sonnet-4-6
-      config:
-        api_key: claude-code
-      temperature: 0.6
-      max_tokens: 8192
   plan_first: false
   system_prompt: '{{prompt.architect}}'
   modules:
@@ -173,13 +159,6 @@ agents:
       strategy: summarize
       keep_recent: 8
       auto_compact: true
-    fallback:
-      provider: anthropic
-      model: claude-haiku-4-5
-      config:
-        api_key: claude-code
-      temperature: 0.2
-      max_tokens: 8192
   plan_first: false
   system_prompt: '{{prompt.compiler}}'
   modules:
@@ -213,13 +192,6 @@ agents:
       strategy: truncate
       keep_recent: 6
       auto_compact: true
-    fallback:
-      provider: anthropic
-      model: claude-haiku-4-5
-      config:
-        api_key: claude-code
-      temperature: 0.3
-      max_tokens: 4096
   plan_first: false
   system_prompt: '{{prompt.tester}}'
   modules:

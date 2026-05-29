@@ -12,7 +12,7 @@ Full HTTP client for REST APIs and web services. All standard
 verbs, JSON-shaped helpers, form submission, multipart upload,
 background downloads with progress tracking. Outbound requests
 go through the SSRF guard
-(`modules/http/security.py`) - same blocklist as the `web`
+() - same blocklist as the `web`
 module.
 
 | Property | Value |
@@ -24,7 +24,7 @@ module.
 
 ## The 16 actions
 
-`module.py`. Method-specific helpers are easier for the LLM
+ Method-specific helpers are easier for the LLM
 than a single generic `request`.
 
 | Tool | Risk | Purpose |
@@ -48,7 +48,7 @@ than a single generic `request`.
 
 ## Egress policy
 
-`module.py` `CONSTRAINTS`:
+`CONSTRAINTS`:
 
 | Constraint | Type | Description |
 |------------|------|-------------|
@@ -72,7 +72,7 @@ Add to tools.modules.http.constraints.allowed_hosts.
 ### SSRF guard
 
 Every outbound URL passes through `validate_url`
-(`modules/http/security.py`) - same private-network
+() - same private-network
 blocklist as the `web` module:
 
 - Loopback: `0.0.0.0/8`, `127.0.0.0/8`, `::1/128`.

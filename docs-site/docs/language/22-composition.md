@@ -20,11 +20,11 @@ are cited with file + line.
 
 ## Pattern 1 - `call_app` (in-agent app invocation)
 
-`actions_meta.py` `call_app`. An always-available primitive.
+`call_app`. An always-available primitive.
 The calling agent invokes another deployed app over the daemon's
 HTTP API and gets the result back as the action response.
 
-### Params (`CallAppParams`, `params.py`)
+### Params (`CallAppParams`,)
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -34,7 +34,7 @@ HTTP API and gets the result back as the action response.
 
 ### How it works
 
-`actions_meta.py`. The action does:
+ The action does:
 
 1. `httpx.post("http://127.0.0.1:8000/api/apps/<app_id>/run",
    json={"input": input}, timeout=timeout)`.
@@ -58,7 +58,7 @@ HTTP API and gets the result back as the action response.
   which port the daemon listens on for external traffic, because
   the agent runs **in the same daemon process** as the target app.
 - Risk level: `medium` (declared in the `@action` decorator at
-  `actions_meta.py`).
+ ).
 
 ### Example
 
@@ -82,13 +82,13 @@ tools:
 // LLM-side
 {"name": "call_app",
  "arguments": {"app_id": "py-analyzer",
-               "input": "src/auth/validate.py",
+               "input": "src/auth/validate.ts",
                "timeout": 60}}
 ```
 
 ## Pattern 2 - `runtime.pipeline` (declarative chain)
 
-`schema.py` `PipelineStep`. When `runtime.mode: pipeline`, the
+`PipelineStep`. When `runtime.mode: pipeline`, the
 runtime executes `runtime.pipeline[]` in order, piping each step's
 output into the next.
 
@@ -115,7 +115,7 @@ runtime:
 
 ### `PipelineStep` fields
 
-`schema.py` (`extra: forbid`).
+(`extra: forbid`).
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|

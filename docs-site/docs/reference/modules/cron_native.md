@@ -15,7 +15,7 @@ on `SchedulerService` with a KV-backed `JobStore`.
 | Property | Value |
 |----------|-------|
 | Module id | `cron_native` |
-| Version | `2.0.0` |
+| Version | `1.0.0` |
 | Action count | 3 |
 | Type | shared (jobs stamped with `app_id` for per-app isolation) |
 | Pip deps | `croniter` |

@@ -59,7 +59,7 @@ content (or URL) BEFORE Pydantic validates.
 
 ## File extension fallback chain
 
-`_TEXT_EXTENSIONS` (`variables.py`) for `prompt` / `skill`
+`_TEXT_EXTENSIONS` for `prompt` / `skill`
 namespaces. The resolver tries each in order; first match wins:
 
 1. `.md`
@@ -76,7 +76,7 @@ tried verbatim first.
 
 ## Locale variants
 
-`_read_text_file` (`variables.py`). When the compile-time
+`_read_text_file`. When the compile-time
 locale is set, **locale-suffixed variants win** over the default:
 
 ```text
@@ -93,7 +93,7 @@ YAML.
 
 ## YAML frontmatter on prompt files
 
-`variables.py` `_FRONTMATTER_PATTERN`. Standard markdown
+`_FRONTMATTER_PATTERN`. Standard markdown
 convention - when a prompt file starts with a `---` block, it's
 parsed as YAML metadata and **stripped from the inlined content**:
 
@@ -112,12 +112,12 @@ You are an assistant...
 The body (`You are an assistant...`) is what gets inlined into the
 YAML at the `{{prompt.X}}` callsite. The frontmatter dict is
 recorded by the compiler (`collected_prompt_metadata` at
-`variables.py`) for later validation - version checks, model
+) for later validation - version checks, model
 compatibility, required-variables enforcement.
 
 ## Markdown image rewriting
 
-`variables.py` `_rewrite_markdown_assets`. When a prompt or
+`_rewrite_markdown_assets`. When a prompt or
 skill markdown file contains image references, the compiler
 rewrites them to client-fetchable asset URLs at inlining time:
 
@@ -127,7 +127,7 @@ rewrites them to client-fetchable asset URLs at inlining time:
 | `<img src="docs/screenshot.png">` | `<img src="/api/apps/<app_id>/assets/assets/docs/screenshot.png">` |
 
 Resolution is relative to the markdown file's directory, then
-mapped under `assets/`. `_MD_IMAGE_PATTERN` (`variables.py`)
+mapped under `assets/`. `_MD_IMAGE_PATTERN`
 catches both markdown image syntax (`![alt](path)`) and HTML
 `<img>` tags.
 
@@ -166,7 +166,7 @@ via Edit, search via Grep.
 
 The whole markdown body becomes the agent's `system_prompt`. Any
 nested `{{...}}` placeholders (here `{{workspace}}`) are resolved
-recursively up to `_MAX_DEPTH = 10` levels (`variables.py`).
+recursively up to `_MAX_DEPTH = 10` levels.
 
 ## `{{skill.X}}` - slash-command skill files
 
@@ -234,7 +234,7 @@ custom:
 ```
 
 Resolution requires an actual YAML mapping - non-mapping content
-raises a clear error (`variables.py`). Full Behavior Engine
+raises a clear error. Full Behavior Engine
 reference: [Behavior Engine](43-behavior.md).
 
 ## `{{asset.X}}` - asset URLs
@@ -257,7 +257,7 @@ ui:
 - **Without extension** - `{{asset.logo}}` → tries
   `_ASSET_EXTENSIONS` (`.png`, `.jpg`, `.jpeg`, `.svg`, `.webp`,
   `.gif`, `.ico`, `.pdf`, `.json`, `.yaml`, `.yml`, `.csv`,
-  `.txt`, bare name; `variables.py`). First match wins.
+  `.txt`, bare name;). First match wins.
 
 Path traversal is guarded - every resolved path must stay under
 `<bundle>/assets/`.
@@ -280,7 +280,7 @@ agents:
       You are an assistant.
 ```
 
-**Size cap: 64 kB** (`variables.py` `_asset_b64_cap`).
+**Size cap: 64 kB** (`_asset_b64_cap`).
 Larger assets raise an error pointing at `{{asset.X}}` (URL form)
 as the fix. Override the cap via the `DIGITORN_ASSET_B64_MAX_BYTES`
 env var.
@@ -320,7 +320,7 @@ fallback:
 The included file is parsed as YAML and returned as a Python
 object, so `{{include:fragments/main_brain.yaml}}` drops directly
 into a mapping field like `brain:`. Path traversal is guarded
-(`variables.py`). Recursion depth is the same `_MAX_DEPTH =
+(). Recursion depth is the same `_MAX_DEPTH =
 10` shared with the variable resolver.
 
 ## Auto-loaded directories (no explicit `include:` needed)
@@ -335,7 +335,7 @@ declaration:
 | `widgets/*.yaml` | Merged into `ui.widgets.inline` (key = file stem) |
 
 Override the auto-load by declaring an explicit `dev.include`
-block (`schema.py`):
+block:
 
 ```yaml
 dev:
@@ -361,7 +361,7 @@ Every namespace uses the same defensive coding:
 - **Missing files** - raise `ValueError` with a `Available: [...]`
   list of files that ARE present (sampled via `_sample_dir`).
 - **Recursion depth** - capped at `_MAX_DEPTH = 10`
-  (`variables.py`); cycles raise an error.
+ ; cycles raise an error.
 
 ## Hot reload (dev mode)
 

@@ -233,7 +233,7 @@ tools:
 
 ## The 11 actions
 
-`module.py`. Server lifecycle + tool / resource / prompt
+ Server lifecycle + tool / resource / prompt
 discovery + invocation.
 
 | Tool | Purpose |
@@ -276,7 +276,7 @@ Three rules to know:
    explicit `sandbox:` block. Without it the deploy fails:
    ``modules.mcp.config.servers.<id>: No 'sandbox' block declared``.
 
-Permission categories (`sandbox/builder.py`):
+Permission categories:
 
 | Permission | Grants |
 |------------|--------|
@@ -286,7 +286,7 @@ Permission categories (`sandbox/builder.py`):
 | `fs.write`, `fs.delete`, `fs.*` | Add `paths.write[*]` to Landlock writable paths. |
 
 Transport-aware compile warnings
-(`sandbox/builder.py`):
+():
 
 - `stdio` without `process.exec` (or `process.*`) → warning.
 - `sse` / `http` without `net.http` (or `net.*`) → warning.
@@ -462,13 +462,13 @@ configuration problem.
 ## Live testing
 
 End-to-end MCP scenarios live in
-`tools/live_tests/mcp_e2e_scenarios.py`. They exercise all
+the MCP E2E live test. They exercise all
 three install paths (catalog list-form, catalog dict-form,
 inline custom YAML) against the real daemon with a real LLM
 chat. Run after any change touching the module:
 
 ```bash
-py -3.12 tools/live_tests/mcp_e2e_scenarios.py
+digitorn dev test mcp-e2e
 ```
 
 Scenarios check `tool_call.payload.success == True` -
@@ -477,7 +477,7 @@ not when the LLM merely emitted a `tool_call` event.
 
 ## Constraints
 
-`module.py`. Restricts which servers / actions are
+ Restricts which servers / actions are
 callable.
 
 ```yaml

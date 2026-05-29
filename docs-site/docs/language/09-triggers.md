@@ -17,7 +17,7 @@ slack, discord, telegram, RSS, ...) is declared under
 
 ## Execution modes
 
-`runtime.mode` (`schema.py`):
+`runtime.mode`:
 
 | Mode | Behavior |
 |------|----------|
@@ -47,12 +47,12 @@ arms each trigger at app activation and disarms it at undeploy.
 
 ## `TriggerConfig` reference
 
-`schema.py` `TriggerConfig` (`extra: forbid`).
+`TriggerConfig` (`extra: forbid`).
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `id` | string | *required* | Unique trigger identifier within the app (`schema.py`). |
-| `type` | string | *required* | One of `cron`, `watch`, `http` (`schema.py`). |
+| `id` | string | *required* | Unique trigger identifier within the app. |
+| `type` | string | *required* | One of `cron`, `watch`, `http`. |
 | `schedule` | string | `""` | Cron expression. **`type=cron` only.** |
 | `paths` | list[string] | `[]` | Glob patterns to watch. **`type=watch` only.** |
 | `path` | string | `""` | HTTP endpoint path. **`type=http` only.** |
@@ -89,7 +89,7 @@ Common patterns:
 | `"0 0 1 * *"` | First of each month at midnight. |
 
 The cron tick passes the trigger `message` to the agent **as-is** -
-no `{{event.*}}` substitution happens for cron (`background.py`).
+no `{{event.*}}` substitution happens for cron.
 Compile-time variables like `{{sys.timestamp}}` resolve to the
 **deploy time**, not the firing time, so don't rely on them for
 "now" semantics; have the agent call the date/shell tool instead.
@@ -117,7 +117,7 @@ Glob templates are NOT pre-resolved by the daemon - declare a
 literal absolute path, or define `dev.variables.MY_DIR` in the YAML
 and use `{{MY_DIR}}` (compile-time substitution).
 
-Polling implementation (`background.py`): the daemon scans
+Polling implementation: the daemon scans
 each glob pattern every `watch_poll_interval` seconds (default
 5, set via the daemon-level `~/.digitorn/config.yaml`, not the
 app YAML) and fires the trigger for every file appearing in the
@@ -154,7 +154,7 @@ runtime:
 ```
 
 The daemon binds an aiohttp listener on `port` (default `9100`,
-range [1024, 65535]) and exposes `path` (`background.py`).
+range [1024, 65535]) and exposes `path`.
 For richer webhook handling - JSON-path access (`event.body.foo.bar`),
 HMAC verification, response shaping - use the **channels module**
 webhook adapter instead ([Channels](40-channels.md)).
@@ -178,7 +178,7 @@ adapter.
 
 ## Routing - who receives the activation
 
-`routing` (`schema.py`) controls how the trigger fan-outs to
+`routing` controls how the trigger fan-outs to
 sessions:
 
 | Value | Behaviour |
@@ -188,7 +188,7 @@ sessions:
 | `session` | The activation fires for **one specific session** identified by `routing_key`. Use when the event references a chat/session id. |
 
 `routing_key` is a template substituted at fire time
-(`background.py`). The substitution is literal-string
+(). The substitution is literal-string
 (not JSON-path), and the only tokens supported are:
 
 | Token | Value |
@@ -228,7 +228,7 @@ routing).
 
 ## Throttling
 
-`runtime.max_concurrent_activations` (`schema.py`, default
+`runtime.max_concurrent_activations` (, default
 `20`, ≥ 1) caps how many activations of the same broadcast trigger
 run in parallel. Prevents rate-limit storms when a broadcast trigger
 fires across hundreds of active sessions.

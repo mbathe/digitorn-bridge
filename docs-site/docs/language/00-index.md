@@ -34,7 +34,7 @@ future-proofs against breaking changes.
 The `ui.workspace` block (renderer) is a different concept from
 `runtime.workdir` (filesystem path). The schema renames the legacy
 `execution.workspace` to `runtime.workdir` to remove the ambiguity
-(see `RuntimeBlock.workdir` in `schema.py`).
+(see `RuntimeBlock.workdir`).
 
 ## Quick example
 
@@ -210,12 +210,17 @@ Everything that was under `execution:` (`mode`, `triggers`, `hooks`,
 
 ## Modules
 
-The daemon ships **23 modules** (under `packages/digitorn/modules/`):
+The daemon ships **23 agent-facing modules** (under
+`packages/digitorn/modules/`):
 
 `agent_spawn`, `behavior`, `channels`, `context_builder`, `cron_native`,
 `database`, `dev_tools`, `filesystem`, `http`, `index`, `llm_provider`,
 `lsp`, `mcp`, `memory`, `preview`, `queue`, `rag`, `shell`, `vector`,
 `web`, `web_preview`, `widget`, `workspace`.
+
+`packages/digitorn/modules/cron` also ships but is a system-only
+scheduler with no `@action` surface; it is not listed in the
+[module reference](/docs/reference/modules/).
 
 `context_builder` and `llm_provider` are auto-loaded; you never
 declare them under `tools.modules`. Per-module reference docs live
@@ -225,7 +230,7 @@ under [reference/modules/](/docs/reference/modules/).
 
 ```mermaid
 flowchart TD
-    yaml["app.yaml"] --> compiler["AppYAMLCompiler<br/><code>compiler.py</code>"]
+    yaml["app.yaml"] --> compiler["AppYAMLCompiler"]
     compiler -- "schema_aliases<br/>Pydantic validate" --> compiled["CompiledApp"]
     compiled -- "resolve variables,<br/>secrets, capabilities" --> bootstrap["bootstrap()"]
     bootstrap -- "instantiate modules" --> runtime["RuntimeApp"]
@@ -265,7 +270,7 @@ forced via `runtime.tool_injection`.
 
 Three backends are supported
 (`AgentBrain.backend: Literal["openai_compat", "anthropic", "github_copilot"]`
-in `schema.py`, default `openai_compat`):
+in, default `openai_compat`):
 
 - `openai_compat` - any OpenAI-compatible `/v1` endpoint
   (OpenAI, DeepSeek, Groq, Mistral, Together, Ollama, vLLM, LM Studio,
@@ -327,7 +332,7 @@ digitorn dev chat <app_id> [-m "message"]
 digitorn dev status <app_id>
 digitorn dev history <app_id> <session_id>
 
-# Daemon control (top-level commands defined in server.py)
+# Daemon control
 digitorn start [--host 127.0.0.1] [--port 8000] [--workers N] [--config config.yaml] [--app app.yaml]
 digitorn supervise [...]                # daemon under restart-on-crash supervisor
 digitorn stop [--host 127.0.0.1] [--port 8000]

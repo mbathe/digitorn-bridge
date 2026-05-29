@@ -42,7 +42,7 @@ A hook has:
 
 ## Hook schema
 
-`HookConfig` (`schema.py`).
+`HookConfig`.
 
 | Field | Type | Default | Purpose |
 |-------|------|---------|---------|
@@ -119,7 +119,7 @@ Hooks declared with the `activation` event compile cleanly
 
 ## The 14 conditions
 
-`@register_condition` decorators in `hooks.py`.
+`@register_condition` decorators.
 
 ### Composites (5)
 
@@ -192,14 +192,13 @@ condition: { type: expression, expr: "turn > 5 and pressure > 0.6" }
 
 ## The 13 general actions
 
-`@register_action` decorators in `hooks.py`. Five additional
+`@register_action` decorators. Five additional
 builder-specific actions (`compile_yaml`,
 `auto_test_deploy`, `prefetch_ground_truth`,
 `enforce_phase6`, `enforce_compile_fix`) ship with the same
 file but are intended for builder apps.
 
-### `compact_context` (`hooks.py`)
-
+### `compact_context`
 Compact the message history to reduce token usage.
 
 ```yaml
@@ -214,8 +213,7 @@ action:
   cooldown_turns: 3
 ```
 
-### `inject_message` (`hooks.py`)
-
+### `inject_message`
 Inject content the LLM is guaranteed to see on the next turn.
 
 ```yaml
@@ -236,8 +234,7 @@ Strategies:
 - `new_message` - separate message. Can break user /
   assistant alternation on strict providers - use sparingly.
 
-### `module_action` (`hooks.py`)
-
+### `module_action`
 Execute any module action via the context_builder.
 
 ```yaml
@@ -249,8 +246,7 @@ action:
     content: "{{tool.params.path}}"
 ```
 
-### `module_action_inject` (`hooks.py`)
-
+### `module_action_inject`
 Execute a module action and inject its result as a system
 message - for real-time feedback (LSP diagnostics after
 edits).
@@ -266,8 +262,7 @@ action:
   prefix: "[Lint] "
 ```
 
-### `log` (`hooks.py`)
-
+### `log`
 ```yaml
 action:
   type: log
@@ -275,8 +270,7 @@ action:
   level: info                 # debug | info | warning | error
 ```
 
-### `shell` (`hooks.py`)
-
+### `shell`
 Execute a shell command. Templates resolved.
 
 ```yaml
@@ -288,8 +282,7 @@ action:
   on_error: ignore            # ignore | inject
 ```
 
-### `gate` (`hooks.py`)
-
+### `gate`
 Block tool execution. `tool_start` / `pre_tool_use` only.
 
 ```yaml
@@ -301,8 +294,7 @@ action:
 When a gate fires, the tool is **not executed** and the
 agent receives an error explaining why.
 
-### `transform_params` (`hooks.py`)
-
+### `transform_params`
 Modify tool parameters before execution. `tool_start` only.
 
 ```yaml
@@ -315,8 +307,7 @@ action:
     remove: [dangerous_flag]
 ```
 
-### `transform_result` (`hooks.py`)
-
+### `transform_result`
 Modify tool result after execution. `tool_end` only.
 
 ```yaml
@@ -327,8 +318,7 @@ action:
     inject_note: "File was modified - consider running the test suite."
 ```
 
-### `chain` (`hooks.py`)
-
+### `chain`
 Run multiple actions in sequence.
 
 ```yaml
@@ -348,8 +338,7 @@ Failed actions land in `state.metadata["hook_failures"]` as
 `[{action, error}, ...]` - later actions (or the agent loop)
 can inspect partial failures.
 
-### `notify` (`hooks.py`)
-
+### `notify`
 Send a notification to the client via the Socket.IO event
 bus.
 
@@ -362,8 +351,7 @@ action:
   tag: pressure_alert         # optional grouping tag
 ```
 
-### `pipe` (`hooks.py`)
-
+### `pipe`
 Generic tool-chaining primitive. Routes the output of the
 current tool into any other tool with field extraction.
 
@@ -379,8 +367,7 @@ action:
   on_error: log                # ignore (default) | log | raise
 ```
 
-### `lsp_diagnose` (`hooks.py`)
-
+### `lsp_diagnose`
 Universal post-write LSP trigger. Reads the file path +
 content from any write-shaped tool, calls
 `lsp.notify_change`, and optionally injects the diagnostics
@@ -402,7 +389,7 @@ tools) get free diagnostics via one YAML hook.
 ## Templating - `{{tool.*}}` placeholders
 
 Used by `module_action`, `module_action_inject`, `pipe`,
-`shell`. Helpers in `hooks.py`: `_walk_path` (jsonpath-lite
+`shell`. Helper primitives: `_walk_path` (jsonpath-lite
 navigation) and `_render_tool_templates` (recursive
 template resolution).
 
@@ -425,9 +412,9 @@ Path syntax (applies to both `params.X` and `result.X`):
 
 ```yaml
 # tool_context.tool_result:
-#   {"user": {"login": "alice"}, "files": [{"path": "a.py"}, {"path": "b.py"}]}
+#   {"user": {"login": "alice"}, "files": [{"path": "a.md"}, {"path": "b.md"}]}
 text: "PR by {{tool.result.user.login}}, first file: {{tool.result.files.0.path}}"
-# → "PR by alice, first file: a.py"
+# → "PR by alice, first file: a.md"
 ```
 
 ## Tool-chaining example pipelines

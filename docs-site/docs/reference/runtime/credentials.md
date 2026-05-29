@@ -201,16 +201,16 @@ Drop a TOML file in the directory + restart the daemon.
 5 builtin OAuth providers in: Notion, Google,
 GitHub, Slack, Discord.
 
-Background refresh loop in `oauth_refresh_loop.py` runs
+Background refresh loop runs
 every 5 minutes and refreshes any credential whose
 `expires_at - now < 600 s`. Failures flip the status to
 `expired` so the next chat shows the picker dialog.
 
-Revocation in `handlers/oauth2.py::revoke`.
+Revocation in `handlers/oauth2.ts::revoke`.
 
 ### MCP stdio token bridging
 
-`handlers/mcp_server.py`. For stdio MCP servers, the OAuth
+ For stdio MCP servers, the OAuth
 token is injected as an environment variable named in
 `auth.env_token_var`, and the subprocess is **restarted**
 when the token refreshes. SSE / HTTP MCP servers send the

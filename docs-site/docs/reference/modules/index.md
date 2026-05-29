@@ -50,7 +50,7 @@ and never declared explicitly.
 | [workspace](workspace.md) | In-memory virtual filesystem mirrored to the client. |
 | [preview](preview.md) | Internal SSE transport. Auto-loaded by workspace. |
 | [web_preview](web_preview.md) | Iframe attachment registry for spawned dev servers. |
-| [widget](widget.md) | Declarative UI tree (43 primitives, 15 actions). |
+| [widget](widget.md) | Declarative UI tree (43 primitives; 7 module actions, 15 client-side action-types). |
 
 ### Integration
 

@@ -48,7 +48,7 @@ Visible params:
 | `yaml_path` | Path to app YAML (deploy / validate). |
 | `app_id` | App ID (status / undeploy / secrets / tools). |
 
-Hidden params (selection - see `module.py` for the full list):
+Hidden params (selection - see for the full list):
 
 - **Validate / deploy** - `yaml_content`, `validate_only`,
   `compile_yaml`, `prompt_preview`, `agent_id`, `undeploy`.
@@ -125,7 +125,7 @@ Multi-turn debug:
 
 ```python
 Chat(app_id="my-app", message="List files in src/")     # → session_id
-Chat(session_id="s123", message="Edit main.py to add logging")
+Chat(session_id="s123", message="Edit main.ts to add logging")
 Chat(session_id="s123", inspect=True)                    # → tools_used, files_read, files_edited, behavior_violations
 Chat(session_id="s123", memory=True)                     # → goal, facts, tasks
 ```

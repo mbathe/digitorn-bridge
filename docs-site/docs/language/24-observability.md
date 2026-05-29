@@ -85,7 +85,7 @@ real-time numbers.
 | `prompt_tokens`, `completion_tokens`, `total_tokens` | Cumulative token usage reported by the LLM provider. |
 | `llm_calls`, `llm_total_ms`, `llm_last_ms` | LLM latency stats. |
 | `tool_calls_total`, `tool_calls_success`, `tool_calls_failed` | Tool-call counters. |
-| `tool_metrics` | Per-tool breakdown - `dict[str, ToolMetrics]`. Each `ToolMetrics` (`session_metrics.py`) tracks `calls`, `successes`, `failures`, `avg_duration_ms`, `last_duration_ms`, `last_error`. |
+| `tool_metrics` | Per-tool breakdown - `dict[str, ToolMetrics]`. Each `ToolMetrics` tracks `calls`, `successes`, `failures`, `avg_duration_ms`, `last_duration_ms`, `last_error`. |
 | `context` | `ContextBreakdown` - system / tools / messages token split for the current turn. |
 | `memory_goal`, `memory_facts_count`, `memory_todos_count` | Memory snapshot. |
 
@@ -129,7 +129,7 @@ digitorn modules health
 digitorn mcp health           # per-MCP-server health
 ```
 
-The `mcp.health_check` action (`mcp/module.py`) is the
+The `mcp.health_check` action is the
 LLM-callable equivalent for MCP servers.
 
 ## Channel health

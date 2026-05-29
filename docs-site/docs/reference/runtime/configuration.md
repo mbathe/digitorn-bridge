@@ -10,7 +10,7 @@ description: All ~100 configuration parameters across 17 sections.
 
 Digitorn loads configuration from (in order of increasing priority):
 
-1. **Built-in defaults** (hardcoded in `config.py`)
+1. **Built-in defaults** (hardcoded)
 2. **System config**: `/etc/digitorn/config.yaml`
 3. **User config**: `~/.digitorn/config.yaml`
 4. **Environment variables**: prefixed with `DIGITORN_`
@@ -31,7 +31,7 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 | `port` | int | `8000` | Server port (1024-65535) |
 | `workers` | int | `1` | Uvicorn worker count (1-16) |
 | `reload` | bool | `false` | Auto-reload on code changes |
-| `rate_limit_rpm` | int | `100000` | Default requests per minute per app (1-100000). Effectively disabled - set to the upper bound. Specific buckets (auth, admin, deploy) still have their own tighter caps in server.py. |
+| `rate_limit_rpm` | int | `100000` | Default requests per minute per app (1-100000). Effectively disabled - set to the upper bound. Specific buckets (auth, admin, deploy) still have their own tighter caps enforced at the route layer. |
 | `expose_docs` | bool | `false` | Expose Swagger UI (`/docs`), ReDoc (`/redoc`), and `/openapi.json`. Automatically `true` when `auth_enabled` is `false` (dev mode). Leave off in production. |
 | `kv_backend` | string | `null` | KV backend URL. `redis://host:6379/0` for production. Default (null) uses DiskCache (SQLite-backed, single-host). |
 | `auth_enabled` | bool | `true` | Enable JWT/API-key authentication on all API endpoints |
@@ -62,7 +62,7 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 | `max_login_failures` | int | `5` | Lock account after N failed login attempts (1-100) |
 | `lockout_window` | int | `900` | Lockout window in seconds (60-86400) |
 | `approval_timeout` | float | `3600.0` | Time to wait for user approval before auto-deny (10-7200s). Override per-app via the compiled `security_profile.approval_timeout`. |
-| `mode` | string | `"embedded"` | **Must be set to `"remote"` when `auth_enabled=true`.** The schema default `"embedded"` is rejected at startup (`server.py`) - the daemon never signs tokens, only verifies. |
+| `mode` | string | `"embedded"` | **Must be set to `"remote"` when `auth_enabled=true`.** The schema default `"embedded"` is rejected at startup - the daemon never signs tokens, only verifies. |
 | `service_url` | string | `""` | Base URL of the central `digitorn-auth` service (e.g. `https://auth.digitorn.ai`). Required when `mode='remote'`. |
 | `accept_issuers` | list[str] | `[]` | Extra `iss` claim values the daemon accepts (cluster + edge proxy + dev loopback). |
 | `enable_local_device` | bool | `false` | Load `LocalDeviceAuth` secrets at daemon start and run the device revalidator background task. Requires the daemon to have been paired via `digitorn install-local`. Only meaningful in `mode='remote'`. |

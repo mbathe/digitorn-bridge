@@ -108,7 +108,7 @@ Four pitfalls to know:
   updates, which do not re-run the ingest. So `sources:`
   and `auto_index:` are forward-looking; the agent has to
   ingest itself (next section), or you populate the KB
-  offline via the `knowledge_base/build.py` tool.
+  offline via the tool.
 - **Order matters in the bootstrap.**
   `RagIngestDirectory` requires the KB to exist already.
   Skipping `RagCreateKnowledgeBase` first fails with
@@ -269,7 +269,7 @@ table schema embedded into the KB.
   `backend: {type: qdrant, path: "<workspace>/qdrant_data"}`
   for local, or `{type: qdrant, url: "https://...", api_key: "..."}`
   for Qdrant Cloud.
-- Pre-build the KB offline with the `knowledge_base/build.py`
+- Pre-build the KB offline with the
   tool so the agent does not pay the ingest cost on first
   user turn.
 - Set `cache.enabled: true` (default) to dedupe repeated

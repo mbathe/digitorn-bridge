@@ -36,7 +36,7 @@ tools:
         tex: "texlab"
         # Built-in fallback validators run on top of LSP for these
         # formats and don't need any config:
-        #   .json / .jsonc, .yaml / .yml, .toml, .py
+        #   .json / .jsonc, .yaml / .yml, .toml, .ts
 ```
 
 The full `ModuleBlock` shape is in
@@ -44,19 +44,19 @@ The full `ModuleBlock` shape is in
 
 ## The 5 internal actions
 
-`module.py`, 533, 562, 601, 730`. All declared with
+, 533, 562, 601, 730`. All declared with
 `internal=True` so they're never injected into the agent's tool
 index.
 
 | Action | Source | Purpose |
 |--------|--------|---------|
-| `lsp.diagnostics` | `module.py` | Get diagnostics for a file or list active servers when called without `path`. |
-| `lsp.check` | `module.py` | Quick pass/fail for a single file. |
-| `lsp.notify_change` | `module.py` | Notify that a file was changed; triggers fresh diagnostics. Called by hooks and the workspace/filesystem modules after every write. |
-| `lsp.request` | `module.py` | Generic LSP RPC request (hover, definition, references, ...). |
-| `lsp.cancel_request` | `module.py` | Cancel an in-flight LSP request. |
+| `lsp.diagnostics` | | Get diagnostics for a file or list active servers when called without `path`. |
+| `lsp.check` | | Quick pass/fail for a single file. |
+| `lsp.notify_change` | | Notify that a file was changed; triggers fresh diagnostics. Called by hooks and the workspace/filesystem modules after every write. |
+| `lsp.request` | | Generic LSP RPC request (hover, definition, references, ...). |
+| `lsp.cancel_request` | | Cancel an in-flight LSP request. |
 
-Short aliases (`tool_names.py`): `LintCheck` →
+Short aliases: `LintCheck` →
 `lsp.diagnostics`, `LintFile` → `lsp.check`. These are exposed
 historically but the actions are still flagged `internal` - the
 runtime hides them from the agent's index.
@@ -69,7 +69,7 @@ runtime hides them from the agent's index.
   "data": {
     "mode": "lsp",
     "server": "pyright",
-    "target": "src/auth/validate.py",
+    "target": "src/auth/validate.ts",
     "diagnostics": [
       {
         "severity": "error",
@@ -104,7 +104,7 @@ computed diagnostics are merged into the action's response under a
 
 ### 2. `lsp_diagnose` hook (declarative)
 
-`hooks.py` - the universal post-write hook that wraps
+- the universal post-write hook that wraps
 `lsp.notify_change`. Lets any module that writes a file (custom
 writers, MCP tools, ...) get free diagnostics via one YAML hook:
 
@@ -136,7 +136,7 @@ the full action reference.
 
 ## Auto-detection
 
-`module.py` `_auto_detect`. When the YAML config is empty
+`_auto_detect`. When the YAML config is empty
 or partial, the module detects which language servers are
 installed and registers them automatically. Detection probes for:
 
@@ -151,7 +151,7 @@ installed and registers them automatically. Detection probes for:
 
 Servers are spawned lazily on the first relevant file open and
 stay running for the session; closed on `cleanup_session`
-(`module.py`).
+().
 
 ## Built-in fallback validators
 
@@ -163,8 +163,6 @@ validators** in-process - no external tool needed:
 | JSON / JSONC | `.json`, `.jsonc` |
 | YAML | `.yaml`, `.yml` |
 | TOML | `.toml` |
-| Python syntax | `.py`, `.pyi` |
-| Ruff (when CLI installed) | `.py` |
 
 The fallbacks always run, regardless of whether an LSP server is
 also configured - the runtime aggregates results from both and
@@ -172,25 +170,25 @@ deduplicates.
 
 ## CLI / compiler output parsers
 
-`parsers.py` also ships parsers for tools that produce
+also ships parsers for tools that produce
 text-formatted output rather than LSP messages - useful when the
 runtime invokes a CLI tool (via `shell.bash`) and needs to
 extract structured diagnostics:
 
 | Parser | Source | Output format |
 |--------|--------|---------------|
-| `parse_ruff` | `parsers.py` | Ruff JSON output. |
-| `parse_eslint` | `parsers.py` | ESLint JSON output. |
-| `parse_tsc` | `parsers.py` | TypeScript compiler messages. |
-| `parse_cargo` | `parsers.py` | Cargo build output. |
-| `parse_govet` | `parsers.py` | `go vet` output. |
-| `parse_generic_json` | `parsers.py` | Any tool that emits a JSON array of diagnostics. |
-| `parse_generic_lines` | `parsers.py` | Line-based output (`file:line:col: severity: msg`). |
-| `parse_fallback` | `parsers.py` | Last-resort heuristic. |
-| `parse_lsp_diagnostics` | `parsers.py` | Normalises raw LSP `diagnostics` arrays into `Diagnostic` records. |
+| `parse_ruff` | | Ruff JSON output. |
+| `parse_eslint` | | ESLint JSON output. |
+| `parse_tsc` | | TypeScript compiler messages. |
+| `parse_cargo` | | Cargo build output. |
+| `parse_govet` | | `go vet` output. |
+| `parse_generic_json` | | Any tool that emits a JSON array of diagnostics. |
+| `parse_generic_lines` | | Line-based output (`file:line:col: severity: msg`). |
+| `parse_fallback` | | Last-resort heuristic. |
+| `parse_lsp_diagnostics` | | Normalises raw LSP `diagnostics` arrays into `Diagnostic` records. |
 
 Each parser returns a list of `Diagnostic`
-(`parsers.py`) records: `{severity, line, column, code,
+() records: `{severity, line, column, code,
 message, source}`.
 
 ## Two protocol modes
@@ -211,7 +209,7 @@ as the fallback. Visible in the response as `data.mode`.
 
 ## Generic LSP RPC
 
-`lsp.request` (`module.py`) lets internal callers send any
+`lsp.request` lets internal callers send any
 LSP method (hover, definition, references, completions, ...)
 through a connected protocol. The result is the raw LSP response
 under `data.result`.
@@ -219,16 +217,16 @@ under `data.result`.
 ```python
 # Example: hover info at a specific position
 result = await lsp.request({
-    "path": "src/auth/validate.py",
+    "path": "src/auth/validate.ts",
     "method": "textDocument/hover",
     "params": {
-        "textDocument": {"uri": "file:///.../validate.py"},
+        "textDocument": {"uri": "file:///.../validate.ts"},
         "position": {"line": 41, "character": 8},
     },
 })
 ```
 
-`lsp.cancel_request` (`module.py`) cancels an in-flight
+`lsp.cancel_request` cancels an in-flight
 request by id.
 
 ## Session lifecycle
@@ -238,13 +236,13 @@ request by id.
 | Module load | Auto-detection probes for installed language servers. |
 | First file access | The protocol for that file's extension is started lazily. |
 | Per write | `notify_change` is called automatically by the writing module. |
-| Session end | `cleanup_session` (`module.py`) closes every spawned server cleanly; orphaned subprocesses are killed. |
+| Session end | `cleanup_session` closes every spawned server cleanly; orphaned subprocesses are killed. |
 
 ## Cross-references
 
 - The `lsp_diagnose` hook (the canonical way to wire LSP into the
   loop):
-  [Tool Hooks → Built-in actions](31-tool-hooks.md#actions-13-built-in)
+  [Tool Hooks → Built-in actions](31-tool-hooks.md#actions-15-built-in)
 - `filesystem.write` and `workspace.write` auto-trigger
   diagnostics - covered in
   [App Configuration → tools.modules](02-app-config.md#toolsmodules---module-configuration)

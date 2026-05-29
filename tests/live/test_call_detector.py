@@ -96,6 +96,48 @@ CASES = [
         'tool_calls: [{"name": "glob", "arguments": {}}]\nrun_parallel(actions=[{"name": "read", "params": {}}])',
         1, "glob", "",
     ),
+    # ----- XML-attribute tool_call form (OpenAI Responses-style hallucination)
+    (
+        "tool_call name attr - bare",
+        '<tool_call name="MemorySetGoal">{"goal": "X"}</tool_call>',
+        1, "MemorySetGoal", "",
+    ),
+    (
+        "tool_call name attr - with task_tools wrapper + leading prose",
+        'Je vais creer un article. <task_tools> <tool_call name="MemorySetGoal">{"goal": "Creer un article"}</tool_call> </task_tools>',
+        1, "MemorySetGoal", "Je vais creer un article.",
+    ),
+    (
+        "tool_call name attr - function_calls wrapper",
+        '<function_calls><tool_call name="Read">{"file_path":"a.py"}</tool_call></function_calls>',
+        1, "Read", "",
+    ),
+    (
+        "tool_call name attr - empty body becomes empty args",
+        '<tool_call name="Ping"></tool_call>',
+        1, "Ping", "",
+    ),
+    # ----- "Calling: Tool" narrative form
+    (
+        "narrative Calling: with json args",
+        'Je verifie le workspace. Calling: WsGlob\n\n{"pattern": "**/*"}',
+        1, "WsGlob", "Je verifie le workspace.",
+    ),
+    (
+        "narrative two Calling: in a row",
+        'Calling: WsGlob\n\n{"pattern": "**/*"}\nCalling: MemorySetGoal\n\n{"goal": "X"}',
+        2, "WsGlob", "",
+    ),
+    (
+        "narrative Call: arrow separator",
+        'Plan : lister puis lire. Call -> WsRead\n\n{"path": "main.tex"}',
+        1, "WsRead", "Plan : lister puis lire.",
+    ),
+    (
+        "narrative Using: with backticks around name",
+        'Using: `WsGrep`\n\n{"pattern": "foo"}',
+        1, "WsGrep", "",
+    ),
 ]
 
 

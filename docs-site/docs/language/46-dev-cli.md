@@ -16,10 +16,10 @@ line 37, `name="dev"`, registered with the main CLI in
 
 | Command | Source | Purpose |
 |---------|--------|---------|
-| `digitorn dev deploy` | `dev.py` | Deploy an app YAML to the running daemon. |
-| `digitorn dev status` | `dev.py` | Show app deployment status. |
-| `digitorn dev history` | `dev.py` | Print a session's full message log. |
-| `digitorn dev chat` | `dev.py` | Multi-turn chat with the deployed app, with auto-approval. |
+| `digitorn dev deploy` | | Deploy an app YAML to the running daemon. |
+| `digitorn dev status` | | Show app deployment status. |
+| `digitorn dev history` | | Print a session's full message log. |
+| `digitorn dev chat` | | Multi-turn chat with the deployed app, with auto-approval. |
 
 All commands accept `--daemon` (default
 `http://127.0.0.1:8000`).
@@ -41,7 +41,7 @@ the init flow). When auth is disabled on the daemon
 
 ## `digitorn dev deploy`
 
-`dev.py`. Deploys an app YAML to the running daemon.
+ Deploys an app YAML to the running daemon.
 
 ```bash
 digitorn dev deploy path/to/app.yaml \
@@ -71,7 +71,7 @@ violations, missing references, ...).
 
 ## `digitorn dev status`
 
-`dev.py`. Print the deployment status of an app.
+ Print the deployment status of an app.
 
 ```bash
 digitorn dev status my-app
@@ -90,7 +90,7 @@ App: my-app
 
 ## `digitorn dev history`
 
-`dev.py`. Print the full message history of a session.
+ Print the full message history of a session.
 
 ```bash
 digitorn dev history my-app abc123-session-id
@@ -111,7 +111,7 @@ tools it called, after the fact.
 
 ## `digitorn dev chat`
 
-`dev.py`. The flagship command - interactive multi-turn
+ The flagship command - interactive multi-turn
 chat with auto-approval.
 
 ```bash
@@ -160,7 +160,7 @@ Built-in commands inside the chat prompt:
 
 ### What auto-approval does
 
-`dev.py` `_auto_approve_pending`. Every turn the CLI polls
+`_auto_approve_pending`. Every turn the CLI polls
 the daemon's pending-approvals endpoint. Any pending request
 from `tools.capabilities.approve` is auto-approved with
 `{request_id, approved: true}`.
@@ -180,7 +180,7 @@ on any tool) and skip the gate entirely instead.
 
 ### Polling and timeouts
 
-`dev.py` `_poll_until_done`. After each user message, the
+`_poll_until_done`. After each user message, the
 CLI polls the session state every second until `is_active`
 flips to `false`. The default timeout is **600 seconds (10
 min)**. Override with `-t 1800` for slower tasks.

@@ -15,7 +15,7 @@ The schema is fully implemented and enforced at compile time
 (strict Pydantic models, `extra: forbid` on every
 node type). Cross-references (node ids, agent ids, tool names,
 reachability, cycles) are validated by
-`validate_flow_references` (`flow.py`).
+`validate_flow_references`.
 
 ## Why flows?
 
@@ -44,7 +44,7 @@ Stick to the implicit pattern when:
 
 ## YAML structure
 
-`flow:` is a **top-level block** in v2 (`schema.py`,
+`flow:` is a **top-level block** in v2 (,
 `AppDefinition.flow`). Promoted out of `runtime` to put the
 two coordination models side-by-side at the top of the file.
 Legacy `runtime.flow` is still accepted by the alias pass.
@@ -102,22 +102,22 @@ flow:
 
 ## `FlowConfig` fields
 
-`flow.py`. The top-level `flow:` block.
+ The top-level `flow:` block.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | string (min 1) | yes | Flow identifier, unique within the app (`flow.py`). |
-| `entry` | string (min 1) | yes | Starting node id. Must be a declared node (`flow.py`). |
-| `description` | string | no | Free-form summary (`flow.py`). |
-| `max_iterations` | int ≥ 0 | conditional | Per-flow cap on total node visits. `0` = no cap (only valid for acyclic flows). **Required ≥ 1 when the graph has any cycle** to prevent infinite loops at runtime (`flow.py`). |
-| `nodes` | list[FlowNode] (min 1) | yes | Nodes that compose the graph (`flow.py`). |
+| `id` | string (min 1) | yes | Flow identifier, unique within the app. |
+| `entry` | string (min 1) | yes | Starting node id. Must be a declared node. |
+| `description` | string | no | Free-form summary. |
+| `max_iterations` | int ≥ 0 | conditional | Per-flow cap on total node visits. `0` = no cap (only valid for acyclic flows). **Required ≥ 1 when the graph has any cycle** to prevent infinite loops at runtime. |
+| `nodes` | list[FlowNode] (min 1) | yes | Nodes that compose the graph. |
 
 The compiler runs `validate_flow_references`
-(`flow.py`) after schema validation. It checks:
+() after schema validation. It checks:
 
 - Every `routes[].to` and `on_error[].to` references either a
   declared node or the literal sentinel `"end"` (`_END_SENTINEL`,
-  `flow.py`).
+ ).
 - Every `AgentNode.agent` references a declared `agents[].id`.
 - Every `ToolNode.tool` is a real `module.action` FQN reachable
   from the declared modules.
@@ -126,19 +126,19 @@ The compiler runs `validate_flow_references`
 
 ## Node types
 
-Six discriminated variants (`flow.py`). Each declares
+Six discriminated variants. Each declares
 `extra: forbid` and inherits four common fields from `_BaseNode`:
 
 | Common field | Source | Description |
 |--------------|--------|-------------|
-| `id` | `flow.py` | Unique within the flow. |
-| `description` | `flow.py` | Surfaced as the canvas tooltip. |
-| `routes` | `flow.py` | Outgoing edges, evaluated top-to-bottom. |
-| `on_error` | `flow.py` | Error-handling edges. The catch-all (`default: true`) must be last (validated by `_check_default_on_error_last`, `flow.py`). |
+| `id` | | Unique within the flow. |
+| `description` | | Surfaced as the canvas tooltip. |
+| `routes` | | Outgoing edges, evaluated top-to-bottom. |
+| `on_error` | | Error-handling edges. The catch-all (`default: true`) must be last (validated by `_check_default_on_error_last`,). |
 
 ### `agent` - run a declared agent
 
-`flow.py` `AgentNode`.
+`AgentNode`.
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -152,7 +152,7 @@ response). The response is added to the flow context under
 
 ### `tool` - direct tool invocation, no LLM
 
-`flow.py` `ToolNode`.
+`ToolNode`.
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -165,7 +165,7 @@ The tool's response lands in the flow context under
 
 ### `parallel` - fan-out, join, continue
 
-`flow.py` `ParallelNode`.
+`ParallelNode`.
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -173,12 +173,12 @@ The tool's response lands in the flow context under
 | `branches` | yes | List of `FlowRoute` (≥ 2 entries). Each `to` is the head of a concurrent branch. |
 | `join` | no | `FlowJoin` policy (default = wait for all). |
 
-`FlowJoin` (`flow.py`) :
+`FlowJoin` :
 
 | Field | Default | Description |
 |-------|---------|-------------|
 | `type` | `"all"` | One of `all` (wait for every branch), `any` / `first` (continue on first complete), `count` (wait for exactly `count` branches). |
-| `count` | `0` | Required ≥ 1 when `type=count`. Validated by `_check_count_for_count_type` (`flow.py`). |
+| `count` | `0` | Required ≥ 1 when `type=count`. Validated by `_check_count_for_count_type`. |
 | `timeout` | `60.0` (seconds, > 0) | Wall-clock cap. Branches still running when it elapses are cancelled and treated as failed. |
 
 ```yaml
@@ -198,7 +198,7 @@ The tool's response lands in the flow context under
 
 ### `approval` - human-in-the-loop gate
 
-`flow.py` `ApprovalNode`.
+`ApprovalNode`.
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -227,7 +227,7 @@ one of the choices.
 
 ### `decision` - pure routing, no LLM, no tool
 
-`flow.py` `DecisionNode`.
+`DecisionNode`.
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -246,7 +246,7 @@ one of the choices.
 
 ### `terminal` - end of a flow path
 
-`flow.py` `TerminalNode`.
+`TerminalNode`.
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -258,7 +258,7 @@ they do declare routes they continue as a sub-flow continuation
 point - the runtime treats the path as ended for the caller's
 purposes regardless.
 
-The literal `"end"` sentinel (`flow.py`) is also accepted in
+The literal `"end"` sentinel is also accepted in
 `routes[].to` to terminate a path without declaring an explicit
 terminal node:
 
@@ -275,7 +275,7 @@ terminal node:
 
 ### `FlowRoute`
 
-`flow.py`. The standard outgoing edge.
+ The standard outgoing edge.
 
 | Field | Default | Description |
 |-------|---------|-------------|
@@ -289,7 +289,7 @@ flow runs.
 
 ### `FlowOnErrorRoute`
 
-`flow.py`. Error-handling edge.
+ Error-handling edge.
 
 | Field | Default | Description |
 |-------|---------|-------------|
@@ -312,7 +312,7 @@ flow runs.
 
 ## Reachability and cycles
 
-`flow.py`. The compiler walks the graph from `entry` and
+ The compiler walks the graph from `entry` and
 verifies:
 
 - Every declared node is reachable from `entry`. Orphan nodes raise
@@ -342,7 +342,7 @@ Every `routes[].when` expression and every node's `input` /
 
 ## Compile-time guarantees
 
-The validation pass (`validate_flow_references`, `flow.py`)
+The validation pass (`validate_flow_references`,)
 catches every common authoring mistake before deploy:
 
 - Unknown agent reference → `unknown agent 'foo' on flow node
@@ -354,11 +354,11 @@ catches every common authoring mistake before deploy:
   entry 'triage'`.
 - Cyclic flow without cap → `flow has cycles but max_iterations=0`.
 - Default error route not last → caught by
-  `_check_default_on_error_last` (`flow.py`).
+  `_check_default_on_error_last`.
 - `parallel.branches` < 2 → caught by `min_length=2` on the field
-  (`flow.py`).
+
 - `join.type='count'` without `count >= 1` → caught by
-  `_check_count_for_count_type` (`flow.py`).
+  `_check_count_for_count_type`.
 
 ## Cross-references
 

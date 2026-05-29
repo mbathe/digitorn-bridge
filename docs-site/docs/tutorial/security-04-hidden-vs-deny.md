@@ -94,7 +94,7 @@ Same outcome from the LLM perspective: `Glob` is gone.
 Now ask `deny-bot` to use Glob explicitly:
 
 ```text
-> Use Glob to find files matching pattern *.py. Call Glob explicitly.
+> Use Glob to find files matching pattern *.ts. Call Glob explicitly.
 
 I don't have a Glob tool available in my toolset. Let me check
 what I do have.

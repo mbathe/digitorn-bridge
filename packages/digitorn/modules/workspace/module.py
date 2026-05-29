@@ -2004,7 +2004,20 @@ class WorkspaceModule(BaseModule):
                     error="Provide either old_string (for replacement) or insert_at_line (for insertion).",
                 )
             if old == new:
-                return ActionResult(success=False, error="old_string and new_string are identical.")
+                return ActionResult(
+                    success=False,
+                    error=(
+                        "old_string and new_string are identical — this is a "
+                        "no-op edit. STOP. Do NOT retry with cosmetic-only "
+                        "changes (whitespace, NBSP, fancy quotes, invisible "
+                        "characters) — every fake-edit attempt will be "
+                        "rejected here. If you wanted to force a recompile / "
+                        "re-render, you don't need to: every real WsWrite or "
+                        "WsEdit already triggers one. If there is genuinely "
+                        "nothing to change, report that to the user instead "
+                        "of retrying."
+                    ),
+                )
 
             if params.replace_all:
                 # Exact-only for replace_all (fuzzy + multi-replace is ambiguous)

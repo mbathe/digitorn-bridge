@@ -701,10 +701,12 @@ class AgentBrain(BaseModel):
         default=None,
         description="Model identifier (e.g. 'deepseek-chat', 'claude-sonnet-4-20250514').",
     )
-    backend: Literal["openai_compat", "anthropic", "github_copilot"] = Field(
+    backend: Literal["openai_compat", "github_copilot"] = Field(
         default="openai_compat",
         description=(
-            "Provider backend: 'anthropic', 'openai_compat', or "
+            "Provider backend: 'openai_compat' (the default — every "
+            "cloud LLM, including Anthropic / claude-code, is routed "
+            "through the gateway in OpenAI-compatible mode), or "
             "'github_copilot' (uses your Copilot subscription via "
             "api.githubcopilot.com)."
         ),
@@ -772,8 +774,11 @@ class AgentBrain(BaseModel):
             "  fallback:\n"
             "    provider: anthropic\n"
             "    model: claude-haiku-4-5\n"
-            "    config:\n"
-            "      api_key: \"claude-code\""
+            "    backend: openai_compat\n"
+            "    credential:\n"
+            "      ref: claude_code_main\n"
+            "      scope: per_user\n"
+            "      provider: anthropic"
         ),
     )
 
@@ -829,11 +834,24 @@ class AgentBrain(BaseModel):
         ):
             return self
 
-        # claude-code sentinel reads the OAuth token from the local
-        # Claude Code installation. No credential needed in YAML.
         api_key = (self.config or {}).get("api_key", "")
+
+        # The `api_key: "claude-code"` sentinel used to short-circuit
+        # auth by reading the local Claude Code OAuth token directly.
+        # That bypass is removed — every cloud call now flows through
+        # the gateway, which holds the claude_code credential in its
+        # encrypted vault. Fail loudly so stale YAMLs get migrated.
         if api_key == "claude-code":
-            return self
+            raise ValueError(
+                "`api_key: \"claude-code\"` is no longer supported. "
+                "claude-code OAuth is now handled by the gateway. "
+                "Replace this brain block with:\n"
+                "  backend: openai_compat\n"
+                "  credential:\n"
+                "    ref: <your_claude_code_credential>\n"
+                "    scope: per_user\n"
+                "    provider: anthropic"
+            )
 
         if self.provider is None and self.credential is None and not api_key:
             return self
@@ -847,8 +865,7 @@ class AgentBrain(BaseModel):
                 f"  credential: <vault_ref>           # recommended\n"
                 f"  provider_id: <named_provider>     # references modules.llm_provider\n"
                 f"  config: {{ api_key: '{{{{env.X}}}}' }}     # inline (dev-only)\n"
-                f"Local providers (ollama, lm_studio, vllm) and `api_key: \"claude-code\"` "
-                f"are exempt."
+                f"Local providers (ollama, lm_studio, vllm) are exempt."
             )
         return self
 

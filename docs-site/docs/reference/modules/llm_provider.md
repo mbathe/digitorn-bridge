@@ -49,7 +49,7 @@ providers work by setting `base_url` directly.
 | `vllm` | `http://localhost:8000/v1` | `openai_compat` |
 | `openrouter` | `https://openrouter.ai/api/v1` | `openai_compat` |
 
-> **`AgentBrain.backend`** (in `schema.py`) is a literal of
+> **`AgentBrain.backend`** (in) is a literal of
 > **three values**: `"openai_compat"`, `"anthropic"`, or
 > `"github_copilot"`. Despite what older docs / canvas widgets
 > may show, `"native"` and `"anthropic_compat"` are **not**
@@ -99,9 +99,9 @@ brain:
 ```
 
 The runtime switches transparently for the current request and
-retries the primary on the next turn. Wired in `bootstrap.py`
+retries the primary on the next turn. Wired
 into `AgentContext._fallback_brain`; dispatched by
-`_handle_llm_error` in `runtime/agent_loop.py`.
+`_handle_llm_error`.
 
 ## Text-based tool-call recovery
 
@@ -132,7 +132,7 @@ closing braces / regex extraction). Pair with
 
 ## The 6 internal actions
 
-`module.py`. All `permissions=["llm_provider:admin"]` or
+ All `permissions=["llm_provider:admin"]` or
 `["llm_provider:read"]` (hidden from agents - only the
 runtime calls them).
 

@@ -33,8 +33,8 @@ of the toolbox; you can force it via `runtime.tool_injection`.
 | `compact_direct` | Tool name + one-line description, no schema; full schema on demand via `get_tool` | Names + descriptions fit but full schemas don't  |
 | `discovery`      | Only the five meta-tools                                                          | Even the compact list does not fit               |
 
-The 20 % budget is `bootstrap.py::_MAX_CONTEXT_RATIO`. The decision
-table sits in `core/runtime/tool_names.py`. You can short-circuit
+The 20 % budget is.  The decision
+table sits. You can short-circuit
 the algorithm with `runtime.tool_injection: discovery` to force the
 mode regardless of toolbox size.
 
@@ -192,7 +192,7 @@ discovery.
 The compiler picks automatically based on the budget calculation:
 
 ```python
-# bootstrap.py
+# tool-injection budget decision (run at app bootstrap)
 budget         = context_window * 0.20            # _MAX_CONTEXT_RATIO
 tool_tokens    = sum(len(json.dumps(t)) // 4 for t in tools)
 compact_tokens = total_tools * 30                 # name + one-liner per tool

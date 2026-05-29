@@ -18,16 +18,15 @@ and constraint specs, see the [Module reference index](../reference/modules/).
 
 ```text
 my_module/
-├── __init__.py
 ├── digitorn-module.toml         # catalogue metadata
-├── module.py                    # BaseModule subclass
-├── params.py                    # Pydantic params + return models
+├── module.<ext>                  # BaseModule subclass
+├── params.<ext>                  # params + return models
 └── README.md                    # optional - dev notes
 ```
 
 ## 1. The module class
 
-`module.py`:
+:
 
 ```python
 from __future__ import annotations
@@ -73,7 +72,7 @@ Things to know:
 
 ## 2. The params and result
 
-`params.py`:
+:
 
 ```python
 from pydantic import BaseModel, Field

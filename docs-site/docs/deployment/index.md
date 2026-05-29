@@ -31,7 +31,7 @@ internal tools, demos, single-team production.
 ### 2. Multi-worker on a single host
 
 `digitorn start --workers N`. The daemon's process supervisor
-(`process_group.py`) puts every child under a Job Object on Windows,
+() puts every child under a Job Object on Windows,
 a process group with `PR_SET_PDEATHSIG=SIGKILL` on Linux, and a
 process group with `setpgrp` on macOS. When the parent dies, every
 child is terminated. No orphans, no stuck builders.

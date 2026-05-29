@@ -24,7 +24,7 @@ file + line.
 
 ## Where it sits in the YAML
 
-`SecurityBlock.behavior` (`schema.py`) - the `behavior:`
+`SecurityBlock.behavior` - the `behavior:`
 sub-block lives under the canonical `security:` block:
 
 ```yaml
@@ -40,7 +40,7 @@ security:
     brain: { ... }
 ```
 
-`BehaviorConfig` (`schema.py`) has `extra: forbid` - typos
+`BehaviorConfig` has `extra: forbid` - typos
 fail the compiler.
 
 ## Quick start
@@ -81,7 +81,7 @@ security:
 
 ## `BehaviorConfig` fields
 
-`schema.py`. All optional, all `extra: forbid`.
+ All optional, all `extra: forbid`.
 
 | Field | Type | Default |
 |-------|------|---------|
@@ -102,7 +102,7 @@ Both compose - declarations win over the boolean flags by id.
 
 ## Built-in profiles
 
-`profiles.py`. Six presets, each a dict of toggles +
+ Six presets, each a dict of toggles +
 numeric thresholds:
 
 | Profile | Purpose | Notable settings |
@@ -121,7 +121,7 @@ numeric thresholds:
 
 ## Declarative rules - `rule_definitions`
 
-`BehaviorRuleDefinition` (`schema.py`, `extra: forbid`).
+`BehaviorRuleDefinition` (, `extra: forbid`).
 Works for any tool, not just filesystem.
 
 ```yaml
@@ -154,7 +154,7 @@ rule_definitions:
 | `warn` | `[BEHAVIOR WARNING]` injected, tool runs. | yes |
 | `remind` | `[BEHAVIOR REMINDER]` injected after the tool returns. | yes |
 
-### Trigger matching (`generic_rules.py`)
+### Trigger matching
 
 `_tool_matches` matches case-insensitively across short / FQN /
 double-underscore forms:
@@ -166,7 +166,7 @@ double-underscore forms:
 | `["edit", "write"]` | both |
 | `"*"` (or `["*"]`) | every tool |
 
-### Conditions (`generic_rules.py`)
+### Conditions
 
 The 13 condition types:
 
@@ -204,7 +204,7 @@ The 13 condition types:
 | `result_has_lint_errors: true` | `result.lint` (or `result.data.lint`) has any item with `severity == "error"`. |
 
 **Composite conditions** - short-circuit, freely nestable
-(`generic_rules.py`):
+():
 
 ```yaml
 condition:
@@ -224,10 +224,10 @@ condition:
 
 Unknown condition keys are logged as
 `behavior: unknown condition type: ...` and the rule does **not**
-fire (`generic_rules.py`). Forward-compatible - an old
+fire. Forward-compatible - an old
 daemon never accidentally enforces a rule it doesn't understand.
 
-### Message templates (`generic_rules.py`)
+### Message templates
 
 | Placeholder | Resolves to |
 |-------------|-------------|
@@ -243,12 +243,12 @@ daemon never accidentally enforces a rule it doesn't understand.
 
 ## State tracking - `state_tracking`
 
-`StateTrackingConfig` (`schema.py`, `extra: forbid`).
+`StateTrackingConfig` (, `extra: forbid`).
 Three sub-dicts: `sets`, `counters`, `flags`. When the field
 is `null`, the engine falls back to defaults derived from the
 profile.
 
-### Sets (`StateTrackingSetConfig` `schema.py`)
+### Sets (`StateTrackingSetConfig`)
 
 ```yaml
 state_tracking:
@@ -268,7 +268,7 @@ state_tracking:
 Rules reference sets via `target_not_in_set` / `target_in_set`
 / `{set_count:X}`.
 
-### Counters (`StateTrackingCounterConfig` `schema.py`)
+### Counters (`StateTrackingCounterConfig`)
 
 ```yaml
 state_tracking:
@@ -287,10 +287,10 @@ state_tracking:
 
 > **Validator**: a counter without an `increment_on` entry
 > raises a Pydantic validation error
-> (`schema.py`) - counters that never tick are
+> - counters that never tick are
 > rejected at compile time.
 
-### Flags (`StateTrackingFlagConfig` `schema.py`)
+### Flags (`StateTrackingFlagConfig`)
 
 ```yaml
 state_tracking:
@@ -305,12 +305,12 @@ state_tracking:
 ```
 
 > **Validator**: a flag without `set_on` raises a Pydantic
-> validation error (`schema.py`) - same logic as
+> validation error - same logic as
 > counters.
 
 ## The 14 built-in rules
 
-`generic_rules.py` `DEFAULT_RULE_DEFINITIONS`. Each
+`DEFAULT_RULE_DEFINITIONS`. Each
 ships as a declarative entry - override any of them by writing
 a `rule_definitions` entry with the **same `id`**.
 
@@ -398,7 +398,7 @@ custom:
 
 ## Semantic classifier - `classifier`
 
-`ClassifierConfig` (`schema.py`, `extra: forbid`). A small
+`ClassifierConfig` (, `extra: forbid`). A small
 LLM analyses the user message **before** the main agent acts
 and emits a `[BEHAVIOR DIRECTIVE]` block injected into the
 conversation.
@@ -451,7 +451,7 @@ LLM call.
 
 `complexity_levels`, `approaches`, `risk_levels` accept either
 a plain string or a `{name, label, when, behavior}` dict
-(`schema.py`):
+():
 
 ```yaml
 # Simple - names only
@@ -504,13 +504,13 @@ classifier:
 
 ### Classifier brain selection
 
-`brain` (`schema.py`) picks a separate LLM. When `null`,
+`brain` picks a separate LLM. When `null`,
 the engine reuses the coordinator's brain - unless
 `use_agent_brain: false`, in which case classification is
 disabled. Tip: a fast / cheap model (haiku, deepseek-chat,
 qwen2.5:3b via Ollama) keeps the per-turn latency low.
 
-## Per-session state (`state.py`)
+## Per-session state
 
 Each session gets its own `BhvSessionState` - sets, counters,
 flags, recent tool history, turn number, total tool calls,
@@ -522,12 +522,12 @@ cross-contaminate. State is freed when the session ends.
 ```text
 Turn: 2
 Total tool calls: 8
-Files read: 3 (recent: src/auth.py, src/models.py, src/router.py)
-Edited files: 1 (src/auth.py)
+Files read: 3 (recent: src/auth.ts, src/models.ts, src/router.ts)
+Edited files: 1 (src/auth.ts)
 Changes Since Test: 1
 Reads Since Search: 2
 Active flags: has_web_searched
-Recent actions: grep(auth), read(src/auth.py), read(src/models.py), edit(src/auth.py)
+Recent actions: grep(auth), read(src/auth.ts), read(src/models.ts), edit(src/auth.ts)
 ```
 
 The exact contents come straight from the user's
@@ -748,4 +748,4 @@ security:
   `{{prompt.X}}` resolve from): [Bundle namespaces](38-bundle-namespaces.md)
 - The legacy boolean rules dict (`rules:`) maps onto the
   built-in `rule_definitions` list above - the conversion
-  lives in `engine.py`.
+  lives.

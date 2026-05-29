@@ -14,7 +14,7 @@ filters, no comparison operators, no logic.
 This page documents what's actually supported. Everything else
 (`{{x | upper}}`, `{{x == 'foo'}}`, `{{x && y}}`, ...) is **not
 implemented**. The resolver checks `if "|" in expr: return
-match.group(0)` and gives up on pipes (`variables.py`).
+match.group(0)` and gives up on pipes.
 
 For complex routing logic (in `flow:` route conditions, hook
 conditions, channel activation rules), each subsystem evaluates its
@@ -40,7 +40,7 @@ one of:
 
 ## Namespaces
 
-`variables.py` `_lookup`. Resolution time = compile time
+`_lookup`. Resolution time = compile time
 unless noted "runtime passthrough".
 
 | Namespace | Pattern | Source | Resolution time |
@@ -48,7 +48,7 @@ unless noted "runtime passthrough".
 | User variables | `{{my_var}}` | `dev.variables` | Compile |
 | Environment | `{{env.VAR_NAME}}` | `os.environ`. Raises a compile error when unset. Use `??` for optional. | Compile |
 | Secret | `{{secret.VAR}}` | Encrypted DB first, `os.environ` fallback. | Compile |
-| System | `{{sys.X}}` | `_SYS_VARIABLES` dict (`variables.py`). 22 keys - full list in [App Configuration → System variables](02-app-config.md#system-variables-sys). | Compile |
+| System | `{{sys.X}}` | `_SYS_VARIABLES` dict. 22 keys - full list in [App Configuration → System variables](02-app-config.md#system-variables-sys). | Compile |
 | App | `{{app.id}}`, `{{app.name}}`, `{{app.version}}`, `{{app.author}}`, `{{app.description}}` | `app:` block | Compile |
 | Prompt file | `{{prompt.X}}` → `prompts/X.md` | Bundle dir | Compile (file content inlined) |
 | Skill file | `{{skill.X}}` → `skills/X.md` | Bundle dir | Compile (file content inlined) |
@@ -60,7 +60,7 @@ unless noted "runtime passthrough".
 
 ## Fallback operator `??`
 
-`variables.py`. Returns the right side if the left side
+ Returns the right side if the left side
 fails to resolve. Strict semantics - `env.X` returning a passthrough
 template (because the variable isn't set) is treated as failure and
 falls through.
@@ -79,7 +79,7 @@ namespace, another fallback, or a quoted literal.
 
 ## Quoted string literals
 
-`variables.py`. A single- or double-quoted string is
+ A single- or double-quoted string is
 returned verbatim:
 
 ```yaml
@@ -95,7 +95,7 @@ value.
 
 ## What's NOT supported in template resolution
 
-The resolver bails out (`variables.py`) on pipes and treats the
+The resolver bails out on pipes and treats the
 template as runtime passthrough. The following constructs **do not
 work** in `{{...}}` placeholders:
 
@@ -150,7 +150,7 @@ filters or comparisons to work inside a `{{...}}` placeholder.
 
 ## Compile-time resolution order
 
-`variables.py` recursively resolves until no `{{...}}` remains
+recursively resolves until no `{{...}}` remains
 or the maximum depth (`_MAX_DEPTH = 10`, line 65) is reached. A
 self-referencing variable produces a cycle error.
 

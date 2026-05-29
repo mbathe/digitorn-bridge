@@ -18,49 +18,49 @@ sources (priority highest → lowest):
 (YAML beats env. The two YAML files merge with user config on top
 of system. The optional `--config <path>` CLI flag adds a third
 file with the highest priority of the three YAMLs.) See
-`Settings.load` (`config.py`).
+`Settings.load`.
 
 Every field on this page maps to a real Pydantic field; entries
 are cited with file + line.
 
 ## The 20 sub-blocks
 
-`Settings` (`config.py`) groups configuration into 20 nested
+`Settings` groups configuration into 20 nested
 sub-models:
 
 | Block | Pydantic class | Source line | Covers |
 |-------|----------------|-------------|--------|
-| `server` | `ServerConfig` | `config.py` | FastAPI / Uvicorn - host, port, workers, CORS, TLS, sandbox toggle. |
-| `database` | `DatabaseConfig` | `config.py` | Storage backend (SQLite / Postgres). |
-| `modules` | `ModulesConfig` | `config.py` | Module loading toggles + per-module config. |
-| `logging` | `LoggingConfig` | `config.py` | Log level + format. |
-| `app` | `AppConfig` | `config.py` | Built-in app behavior (default conversational app). |
-| `runtime` | `RuntimeConfig` | `config.py` | Daemon-wide runtime defaults - context window, timeouts. |
-| `default_model` | `DefaultModelConfig` | `config.py` | Default LLM provider/model used by built-in apps when none is set. |
-| `auth` | `AuthConfig` | `config.py` | JWT / API-key authentication. |
-| `oauth` | `OAuthConfig` | `config.py` | OAuth providers (Google, Microsoft, GitHub, ...). |
-| `session` | `SessionConfig` | `config.py` | Session lifecycle defaults. |
-| `agent_spawn` | `AgentSpawnConfig` | `config.py` | Defaults for the agent_spawn module (max_workers, timeouts). |
-| `mcp` | `MCPConfig` | `config.py` | MCP server connection pool defaults. |
-| `sandbox` | `SandboxConfig` (daemon-side) | `config.py` | Per-app OS sandbox enforcement. |
-| `websocket` | `WebSocketConfig` | `config.py` | Socket.IO / WS server tuning. |
-| `discovery` | `DiscoveryConfig` | `config.py` | Tool discovery (semantic + keyword index). |
-| `images` | `ImageConfig` | `config.py` | Multimodal image handling (max size, aging policy). |
-| `web_preview` | `WebPreviewConfig` | `config.py` | Vite preview server defaults (port range, idle timeout). |
-| `transcribe` | `TranscribeConfig` | `config.py` | Voice transcription (model selection, fallback). |
-| `hub` | `HubConfig` | `config.py` | Hub registry integration. |
-| `workers` | `WorkersConfig` | `config.py` | Out-of-process module workers (optional; empty = legacy in-process). |
+| `server` | `ServerConfig` | | FastAPI / Uvicorn - host, port, workers, CORS, TLS, sandbox toggle. |
+| `database` | `DatabaseConfig` | | Storage backend (SQLite / Postgres). |
+| `modules` | `ModulesConfig` | | Module loading toggles + per-module config. |
+| `logging` | `LoggingConfig` | | Log level + format. |
+| `app` | `AppConfig` | | Built-in app behavior (default conversational app). |
+| `runtime` | `RuntimeConfig` | | Daemon-wide runtime defaults - context window, timeouts. |
+| `default_model` | `DefaultModelConfig` | | Default LLM provider/model used by built-in apps when none is set. |
+| `auth` | `AuthConfig` | | JWT / API-key authentication. |
+| `oauth` | `OAuthConfig` | | OAuth providers (Google, Microsoft, GitHub, ...). |
+| `session` | `SessionConfig` | | Session lifecycle defaults. |
+| `agent_spawn` | `AgentSpawnConfig` | | Defaults for the agent_spawn module (max_workers, timeouts). |
+| `mcp` | `MCPConfig` | | MCP server connection pool defaults. |
+| `sandbox` | `SandboxConfig` (daemon-side) | | Per-app OS sandbox enforcement. |
+| `websocket` | `WebSocketConfig` | | Socket.IO / WS server tuning. |
+| `discovery` | `DiscoveryConfig` | | Tool discovery (semantic + keyword index). |
+| `images` | `ImageConfig` | | Multimodal image handling (max size, aging policy). |
+| `web_preview` | `WebPreviewConfig` | | Vite preview server defaults (port range, idle timeout). |
+| `transcribe` | `TranscribeConfig` | | Voice transcription (model selection, fallback). |
+| `hub` | `HubConfig` | | Hub registry integration. |
+| `workers` | `WorkersConfig` | | Out-of-process module workers (optional; empty = legacy in-process). |
 
-> **Note**. The daemon's `sandbox` sub-block (`config.py`) is
+> **Note**. The daemon's `sandbox` sub-block is
 > the OS sandbox toggle and pool size for **all** deployed apps -
 > distinct from `security.sandbox` in an app's YAML
-> (`schema.py`), which is the per-app sandbox declaration.
+>, which is the per-app sandbox declaration.
 > Both work together: the daemon enables sandboxing globally, the
 > app declares the level it wants.
 
 ## `server:` - FastAPI / Uvicorn
 
-`config.py` `ServerConfig`. Default values are production-safe
+`ServerConfig`. Default values are production-safe
 unless explicitly relaxed.
 
 | Field | Type | Default | Description |
@@ -69,7 +69,7 @@ unless explicitly relaxed.
 | `port` | int [1024, 65535] | `8000` | Listen port. |
 | `workers` | int [1, 16] | `1` | Number of Uvicorn worker processes. |
 | `reload` | bool | `false` | Auto-reload on file changes (dev only). |
-| `rate_limit_rpm` | int [1, 100_000] | `100_000` | Default per-app requests-per-minute cap. Effectively disabled at the default; specific buckets (auth, admin, deploy) have tighter caps in `server.py`. |
+| `rate_limit_rpm` | int [1, 100_000] | `100_000` | Default per-app requests-per-minute cap. Effectively disabled at the default; specific buckets (auth, admin, deploy) have tighter caps. |
 | `kv_backend` | string \| null | `null` (DiskCache) | KV backend URL. `redis://host:6379/0` for multi-host production; `null` falls back to a single-host SQLite-backed `DiskCache`. |
 | `auth_enabled` | bool | `true` | JWT / API-key authentication on every API endpoint. **Never disable in production.** |
 | `expose_docs` | bool | `false` (true when `auth_enabled=false`) | Expose Swagger / ReDoc / OpenAPI. Off by default in prod (the API surface is an attacker's best friend). |
@@ -77,7 +77,7 @@ unless explicitly relaxed.
 | `io_workers` | int [1, 1024] | `64` | Thread pool for blocking I/O (KV, FS). |
 | `sandbox` | bool | `true` | Enable OS-level sandboxing for deployed apps with capabilities. |
 | `node_auto_install` | bool | `true` | Auto-download Node.js LTS at boot if not found. Disable for air-gapped / CI. |
-| `cors_origins` | list[string] | `[localhost:*, app.digitorn.ai, api.digitorn.ai]` | Allowed CORS origins. **Wildcard `*` is rejected** (validator at `config.py`). |
+| `cors_origins` | list[string] | `[localhost:*, app.digitorn.ai, api.digitorn.ai]` | Allowed CORS origins. **Wildcard `*` is rejected** (validator). |
 
 Set via env:
 
@@ -103,7 +103,7 @@ server:
 
 ## `auth:` - JWT and API keys
 
-`config.py` `AuthConfig`. The full surface is documented in
+`AuthConfig`. The full surface is documented in
 [Auth](22-auth.md). Fields:
 
 - `access_token_ttl`, `refresh_token_ttl` - informational; the
@@ -112,7 +112,7 @@ server:
 - `approval_timeout` - time to wait for user approval before
   auto-deny (default 3600s).
 - `mode` - must be `"remote"` when `auth_enabled: true`. The legacy
-  `"embedded"` mode is rejected at startup (`server.py`).
+  `"embedded"` mode is rejected at startup.
 - `service_url` - base URL of the central `digitorn-auth` service
   (required when `mode='remote'`).
 - `accept_issuers` - extra `iss` values the daemon accepts.
@@ -121,8 +121,8 @@ server:
 
 ## `oauth:` - OAuth providers
 
-`config.py` `OAuthConfig`. Each sub-section
-(`OAuthProviderConfig`, `config.py`) is `{client_id,
+`OAuthConfig`. Each sub-section
+(`OAuthProviderConfig`,) is `{client_id,
 client_secret}`. Set via env:
 
 ```bash
@@ -140,7 +140,7 @@ reachable URL in prod.
 
 ## `database:` - Storage
 
-`config.py` `DatabaseConfig`. SQLite by default; Postgres for
+`DatabaseConfig`. SQLite by default; Postgres for
 multi-host. Common fields:
 
 - `url` - SQLAlchemy URL.
@@ -156,7 +156,7 @@ DIGITORN_DATABASE__POOL_SIZE=20
 
 ## `default_model:` - Default LLM for built-in apps
 
-`config.py` `DefaultModelConfig`. Used by built-in apps
+`DefaultModelConfig`. Used by built-in apps
 when no brain is configured.
 
 - `provider`, `model`, `backend`, `api_key`, `base_url`,
@@ -178,14 +178,14 @@ default_model:
 
 ## `session:` and `session_queue:` - Session lifecycle
 
-`config.py` `SessionConfig` and `config.py`
+`SessionConfig` and
 `SessionQueueConfig`. Govern session timeouts, cleanup intervals,
 and the background-mode activation queue (max in-flight, retry
 policy, dead-letter handling).
 
 ## `images:` - Multimodal handling
 
-`config.py` `ImageConfig`. Image-aging policy applied across
+`ImageConfig`. Image-aging policy applied across
 all apps with vision-capable agents:
 
 - `max_per_message`, `max_size_bytes`
@@ -197,7 +197,7 @@ Documented in detail in `docs/spec-image-support.md`.
 
 ## `discovery:` - Semantic tool index
 
-`config.py` `DiscoveryConfig`. Controls the FastEmbed +
+`DiscoveryConfig`. Controls the FastEmbed +
 Qdrant index used by `search_tools` in discovery mode.
 
 - `skip_embeddings` - skip the semantic index (keyword-only fallback)
@@ -207,7 +207,7 @@ Qdrant index used by `search_tools` in discovery mode.
 
 ## `mcp:` - MCP server pool
 
-`config.py` `MCPConfig`. Connection-pool defaults shared
+`MCPConfig`. Connection-pool defaults shared
 across all apps that use the MCP module.
 
 - `pool_size`, `pool_max`
@@ -220,7 +220,7 @@ Per-server config lives in the **app** YAML
 
 ## `hub:` - Hub registry
 
-`config.py` `HubConfig`. Connect the daemon to the public
+`HubConfig`. Connect the daemon to the public
 Digitorn Hub for app catalog and credential templates.
 
 - `base_url` - default `https://hub.digitorn.ai`
@@ -229,7 +229,7 @@ Digitorn Hub for app catalog and credential templates.
 
 ## `logging:` - Logs
 
-`config.py` `LoggingConfig`.
+`LoggingConfig`.
 
 - `level` - `DEBUG | INFO | WARNING | ERROR | CRITICAL`. Defaults
   to `INFO`. Override via `DIGITORN_LOG_LEVEL` env.

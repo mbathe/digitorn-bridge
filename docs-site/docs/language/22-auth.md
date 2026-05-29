@@ -1,13 +1,12 @@
 ---
 id: auth
-title: Authentication (private)
+title: Authentication
+sidebar_label: Authentication
 ---
 
-# Authentication
-
 The daemon's HTTP authentication surface (`/auth/*`) and the
-JWT issuance / refresh / revocation flows are **not
-documented publicly**.
+JWT issuance / refresh / revocation flows are **not part of the
+public documentation contract**.
 
 Public clients should use the SDK or CLI to obtain and
 refresh tokens automatically. Manual token handling is not

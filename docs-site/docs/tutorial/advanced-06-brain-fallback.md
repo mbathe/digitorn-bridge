@@ -92,7 +92,7 @@ signature it:
 4. Returns the fallback's response as the turn's reply.
 
 The fallback is **sticky for a 5-minute cooldown**
-(`_BILLING_COOLDOWN_S = 300.0` in `agent_loop.py`). During
+(`_BILLING_COOLDOWN_S = 300.0`). During
 that window every turn talks to the fallback brain so the
 daemon doesn't hammer a provider that just rejected us. After
 the cooldown the runtime tries the primary again - if the
@@ -117,7 +117,7 @@ To **trigger** the failover you'd need a real 402 from DeepSeek -
 deliberately not faked here because faking it correctly requires
 a draining a real account or proxying through a fake server. In
 production the trigger fires whenever the billing condition
-appears; the path through `_handle_llm_error` in `agent_loop.py`
+appears; the path through `_handle_llm_error`
 is the same exception flow exercised by every cancelled-card
 incident operators ever debugged.
 
@@ -178,7 +178,7 @@ against provider failures. The full stack:
 | Layer                    | Catches                                                | Lives in              |
 |--------------------------|--------------------------------------------------------|-----------------------|
 | Provider SDK retries     | Network errors, 5xx, transient timeouts                | The provider's own SDK config (`max_retries`, `timeout`) |
-| Daemon retry loop        | 401 (re-resolves credential), connection errors        | `agent_loop.py`        |
+| Daemon retry loop        | 401 (re-resolves credential), connection errors        |        |
 | **Brain fallback**       | **402 / billing / credit errors**                      | **`brain.fallback` in YAML** |
 | Capability deny          | Action-level rejection (not LLM-related)               | Capability gate 4      |
 | Session-level abort       | User-triggered or daemon-triggered cancellation        | `/sessions/{sid}/abort` |

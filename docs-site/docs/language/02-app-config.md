@@ -50,7 +50,6 @@ app:
   name: "My Application"              # Required
   short_name: "MyApp"                 # default "" (chip label, see below)
   version: "1.0"                      # default "1.0"
-  schema_version: "1"                 # default "1"
   description: "What this app does"   # default ""
   author: "your-name"                 # default ""
   tags: [coding, assistant]           # default []
@@ -72,7 +71,6 @@ app:
 | `name` | string | *required* |
 | `short_name` | string | `""` |
 | `version` | string | `"1.0"` |
-| `schema_version` | string | `"1"` |
 | `description` | string | `""` |
 | `author` | string | `""` |
 | `tags` | list[string] | `[]` |
@@ -537,7 +535,7 @@ Each `ModuleBlock` has 5 fields:
 - `action: str` (required) - action name on the module
 - `params: dict` (default `{}`) - may contain `{{variables}}`
 
-The 23 modules shipped by the daemon are listed in
+The 23 agent-facing modules shipped by the daemon are listed in
 [the index](/docs/language/#modules). Per-module reference docs live
 under [modules/reference/](../reference/modules/). `context_builder`
 and `llm_provider` are auto-loaded - never declare them.
@@ -1323,7 +1321,7 @@ Resolved at compile time. The full list:
 | `sys.platform` | `sys.platform` | `linux`, `darwin`, `win32` |
 | `sys.os` | `platform.system` | `Linux`, `Darwin`, `Windows` |
 | `sys.arch` | `platform.machine` | `x86_64`, `arm64` |
-| `sys.python_version` | Runtime Python version | `3.13.12` |
+| `sys.runtime_version` | Runtime version | `3.13.12` |
 | `sys.cwd` | `os.getcwd` | `/home/user/apps` |
 | `sys.user` | `$USER` / `$USERNAME` / `unknown` | `paul` |
 | `sys.pid` | `os.getpid` | `12345` |

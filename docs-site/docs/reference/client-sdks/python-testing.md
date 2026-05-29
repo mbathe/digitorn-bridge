@@ -11,7 +11,7 @@ It is shipped inside the `digitorn` PyPI package; no separate
 install.
 
 The SDK is a **library**, not a test runner. You write your own
-scenarios under `tools/live_tests/<feature>_scenarios.py` (or any
+scenarios under `tools/live_tests/<feature>_scenarios` (or any
 other location) and import the SDK as a consumer would.
 
 ## Public surface
@@ -187,10 +187,10 @@ API and pass it explicitly.
 ## Where scenarios live
 
 By convention, live test scenarios go under
-`tools/live_tests/<feature>_scenarios.py` in the source repo.
+`tools/live_tests/<feature>_scenarios` in the source repo.
 Each scenario function returns a tuple
 `(ok: bool, detail: str, artifacts: dict)`. The runner
-in `tools/live_tests/run.py` drives them.
+in drives them.
 
 The `digitorn.testing` package itself contains **no scenarios**.
 Adding a scenario inside this package is a violation of the

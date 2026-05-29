@@ -30,7 +30,7 @@ fallback.
 
 ## The 14 actions
 
-`module.py`. All `risk_level` mostly `medium` or
+ All `risk_level` mostly `medium` or
 `high` for ingestion / migration; `low` for queries / stats.
 
 | Tool | Source | Purpose |
@@ -72,7 +72,7 @@ Defaults:
 
 ## 6 vector backends
 
-`BackendConfig.type` (`config.py`):
+`BackendConfig.type`:
 
 | Backend | Mode | Pip dep |
 |---------|------|---------|
@@ -85,7 +85,7 @@ Defaults:
 
 ## 7 embedding models
 
-`BUILTIN_MODELS` (`embeddings.py`). All auto-downloaded
+`BUILTIN_MODELS`. All auto-downloaded
 by FastEmbed (ONNX, CPU):
 
 | Shortcut | FastEmbed id | Dims |
@@ -102,7 +102,7 @@ Custom models: any FastEmbed-supported HuggingFace id.
 
 ## 5 reranker models
 
-`BUILTIN_RERANKERS` (`reranker.py`). Default
+`BUILTIN_RERANKERS`. Default
 `minilm-l6`:
 
 | Shortcut | HF id |
@@ -200,7 +200,7 @@ default in-memory backend.
 
 When an app activates, the bootstrap calls
 `module.on_config_update(cfg)` with the app's config. The
-overridden hook (in `modules/rag/module.py`):
+overridden hook (in):
 
 1. Compares old vs new backend path.
 2. Closes the old backend if changed.

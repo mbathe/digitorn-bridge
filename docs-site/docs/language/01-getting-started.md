@@ -102,7 +102,7 @@ operator if you want an optional value).
 
 The compiler also checks identifiers against the catalog: the
 `brain.provider` value must be in the known set (`AgentBrain` in
-`schema.py` produces a "Did you mean…" suggestion on a typo); every
+produces a "Did you mean…" suggestion on a typo); every
 key under `tools.modules` must match a registered module; every
 `setup[].action` must exist on its module, with its `params`
 validated against the action's `params_model`. Capabilities
@@ -136,7 +136,7 @@ calls, or when `runtime.max_turns` is hit, whichever comes first.
 ## Execution modes
 
 The same agent loop drives several `runtime.mode` settings, defined
-in `RuntimeBlock` (`schema.py`). The default is `conversation`,
+in `RuntimeBlock`. The default is `conversation`,
 which is what `hello.yaml` uses: an interactive multi-turn chat.
 `one_shot` reads a single input from `runtime.input`, runs the
 agent once, and returns it through `runtime.output`. `background`

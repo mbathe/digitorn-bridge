@@ -45,13 +45,13 @@ index is purely a search overlay.
 
 ## Auto-injection
 
-`bootstrap.py`. When `tools.modules.filesystem` is loaded AND
+ When `tools.modules.filesystem` is loaded AND
 `runtime.workdir` is set, the index module is auto-injected
 and a workspace source is auto-registered + scanned.
 
 ## The 7 actions
 
-`module.py`. All `permissions=["index:admin"]` (so they're
+ All `permissions=["index:admin"]` (so they're
 hidden from regular agents - only the runtime calls them).
 
 | Tool | Source | Purpose |
@@ -66,7 +66,7 @@ hidden from regular agents - only the runtime calls them).
 
 ## Daemon integration
 
-`module.py` `on_event`. The index subscribes to
+`on_event`. The index subscribes to
 `digitorn.module.*.action_completed` events from the
 ServiceBus and auto-invalidates entries on filesystem
 mutations:
@@ -77,12 +77,12 @@ mutations:
 | `filesystem.delete` | `invalidate(path=...)`. |
 | `filesystem.rename` | invalidate old path, scan new path. |
 
-State snapshot + restore (`module.py`) persists the index
+State snapshot + restore persists the index
 to disk so it survives daemon restarts.
 
 ## Constraints
 
-`module.py`. Two scopes:
+ Two scopes:
 
 | Constraint | Type | Default | Description |
 |------------|------|---------|-------------|

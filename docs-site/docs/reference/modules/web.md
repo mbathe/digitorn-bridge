@@ -31,7 +31,7 @@ default - no API key required.
   module retries with `search_fallback` and tags the result
   with a `note: "Primary backend ... failed, used fallback"`.
 - **SSRF-guarded** - outbound requests go through
-  `modules/http/security.py` (private-network blocklist + DNS
+  (private-network blocklist + DNS
   pinning, see [Production Deployment → SSRF](../../language/36-production.md#ssrf-protection)).
 
 ## Search backends
@@ -46,7 +46,7 @@ default - no API key required.
 
 ## Configuration
 
-`WebConfig` (`module.py`, `extra: forbid`):
+`WebConfig` (, `extra: forbid`):
 
 ```yaml
 tools:
@@ -69,7 +69,7 @@ via `credential:` (or fall back to `{{secret.X}}` /
 
 ## The 4 actions
 
-`module.py`. All `risk_level: low` except `download`
+ All `risk_level: low` except `download`
 (`risk_level: medium`).
 
 | Tool | Source | Purpose |
@@ -89,7 +89,7 @@ via `credential:` (or fall back to `{{secret.X}}` /
 | `blocked_domains` | `null` | Per-call domain blocklist. |
 
 `allowed_domains` and `blocked_domains` are **mutually
-exclusive** per call (`module.py`). Combine module-level
+exclusive** per call. Combine module-level
 `egress.allowed_domains` with per-call to layer enforcement.
 
 ### `web.fetch` - params
@@ -104,7 +104,7 @@ exclusive** per call (`module.py`). Combine module-level
 
 ## Constraints
 
-`module.py`. Two universal constraints (apply across
+ Two universal constraints (apply across
 every action):
 
 | Constraint | Type | Description |

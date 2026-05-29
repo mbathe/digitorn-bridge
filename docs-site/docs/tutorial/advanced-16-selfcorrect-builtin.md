@@ -16,9 +16,8 @@ any external LSP server, linter, or compiler installed.
 
 | Extension | Catches |
 |---|---|
-| `.py`, `.pyi` | Python syntax errors with line + column + message |
 | `.json`, `.jsonc` | JSON decoder errors with line + column |
-| `.yaml`, `.yml` | PyYAML parse errors |
+| `.yaml`, `.yml` | YAML parse errors |
 | `.toml` | TOML parser errors with line number |
 | `.tex`, `.latex` | Unmatched `{}`, mismatched `\begin{}/\end{}` |
 
@@ -86,7 +85,7 @@ tools:
     workspace:
       config:
         render_mode: code
-        entry_file: main.py
+        entry_file: main.ts
         title: "Python Self-Correction"
         sync_to_disk: true
         auto_approve: true
@@ -116,7 +115,7 @@ Three knobs to know:
 
 ```bash
 digitorn dev deploy lsp-py-selfcorrect.yaml
-digitorn dev chat lsp-py-selfcorrect -m "Create a Python file bad.py that defines add(a, b) returning a + b. On your FIRST WsWrite, deliberately omit the colon after the def line so we can see the lint diagnostics. Then WsEdit to fix it."
+digitorn dev chat lsp-py-selfcorrect -m "Create a Python file bad.ts that defines add(a, b) returning a + b. On your FIRST WsWrite, deliberately omit the colon after the def line so we can see the lint diagnostics. Then WsEdit to fix it."
 ```
 
 ## Sample flow
@@ -127,7 +126,7 @@ Tool call:
 
 ```json
 WsWrite(
-  path = "bad.py",
+  path = "bad.ts",
   content = "def add(a, b)\n    return a + b\n"
 )
 ```
@@ -136,7 +135,7 @@ Tool result the agent receives back:
 
 ```json
 {
-  "path": "bad.py",
+  "path": "bad.ts",
   "language": "python",
   "size": 31,
   "total_lines": 3,
@@ -158,7 +157,7 @@ Tool result the agent receives back:
 
 ```json
 WsEdit(
-  path      = "bad.py",
+  path      = "bad.ts",
   old_string = "def add(a, b)\n    return a + b",
   new_string = "def add(a, b):\n    return a + b"
 )
@@ -168,7 +167,7 @@ Tool result:
 
 ```json
 {
-  "path": "bad.py",
+  "path": "bad.ts",
   "mode": "replace",
   "replacements": 1,
   "size": 32,
@@ -179,7 +178,7 @@ Tool result:
 No `lint` field on this response: the post-edit content
 lint-checked clean. The agent then confirms:
 
-> Done. I created bad.py with a deliberate syntax error first,
+> Done. I created bad.ts with a deliberate syntax error first,
 > inspected the lint output, then fixed the file.
 
 ## Same pattern, other languages

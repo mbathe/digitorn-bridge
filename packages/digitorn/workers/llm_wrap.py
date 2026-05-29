@@ -183,11 +183,8 @@ def _detect_backend(provider: Any, brain: Any) -> str:
         v = getattr(provider, attr, None)
         if isinstance(v, str) and v:
             return v
-    # Class name fallback: AnthropicProvider -> "anthropic",
-    # OpenAICompatProvider -> "openai_compat".
+    # Class name fallback: OpenAICompatProvider -> "openai_compat".
     cls_name = type(provider).__name__.lower()
-    if "anthropic" in cls_name:
-        return "anthropic"
     if "openai" in cls_name:
         return "openai_compat"
     # Brain fallback.

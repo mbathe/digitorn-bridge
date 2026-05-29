@@ -28,7 +28,7 @@ conversation history in place.
 
 ## `runtime.context` - the configuration block
 
-`schema.py` `ContextConfig` (`extra: forbid`). Eight fields. The
+`ContextConfig` (`extra: forbid`). Eight fields. The
 full reference is in
 [App Configuration → runtime.context](02-app-config.md#runtimecontext---context-window-management);
 this page focuses on the behaviour each field controls.
@@ -52,19 +52,19 @@ runtime:
 ```
 
 Each agent can override the app-level config via
-`agents[].brain.context` (`schema.py`).
+`agents[].brain.context`.
 
 ### Provider auto-detection
 
 When `max_tokens: 0`, the bootstrap pass calls
 `_refine_context_config_for_provider`
-(`bootstrap.py`) which reads the provider's known context
+() which reads the provider's known context
 window. Override only when the provider doesn't report one (custom
 endpoints, niche local models).
 
 ## Token pressure and the auto-compact hook
 
-`bootstrap.py`. When `runtime.context.auto_compact: true`
+ When `runtime.context.auto_compact: true`
 (default), the runtime auto-injects a hook equivalent to:
 
 ```yaml
@@ -87,28 +87,28 @@ The injection is skipped when an explicit `compact_context` hook
 already exists in `runtime.hooks` (so apps can override the
 behaviour without surprise duplication).
 
-The `context_pressure` condition is at `hooks.py`
+The `context_pressure` condition is
 (`_eval_context_pressure`). Default threshold `0.75`.
 `token_pressure` is computed per turn from the actual usage reported
 by the provider (or estimated via
 `compaction.estimate_tokens` - `~ 4 chars / token`,
-`compaction.py`).
+).
 
-The `compact_context` action is at `hooks.py`
+The `compact_context` action is
 (`@register_action("compact_context", ...)`).
 
 ## Compaction strategies
 
 ### `truncate`
 
-`hooks.py::_do_truncate`. The cheap path:
+ The cheap path:
 
 1. Find a "safe split point" near the boundary
    (`_find_safe_split_point`) - never splits a tool-call/tool-result
    pair, never strands an orphan `tool_use_id`.
 2. Drop everything before the split.
 3. Inject a single system message
-   (`_build_context_reminder`, `hooks.py`) recapping the goal +
+   (`_build_context_reminder`,) recapping the goal +
    recent activity so the agent doesn't lose continuity.
 
 No LLM call. Best when the deeper history is repetitive (a long
@@ -116,7 +116,7 @@ file-grep loop, polling a watcher) and the agent doesn't need it.
 
 ### `summarize`
 
-`hooks.py` `_do_summarize`. The smart path:
+`_do_summarize`. The smart path:
 
 1. Find the safe split point (same as truncate).
 2. Send the dropped slice to the **summary brain** (the agent's
@@ -137,7 +137,7 @@ summary itself from growing unbounded.
 
 ### `summary_brain` - using a cheap model for compaction
 
-`schema.py` `ContextConfig.summary_brain`. Setting it routes the
+`ContextConfig.summary_brain`. Setting it routes the
 summarisation call to a cheaper / faster model than the agent's
 main brain. The block accepts the full `AgentBrain` shape
 recursively (provider, model, backend, config, temperature, ...).
@@ -157,18 +157,18 @@ runtime:
 ```
 
 If `summary_brain` is not set, the agent's main brain handles
-summarisation (`hooks.py` `_summary_provider`). For a Claude
+summarisation (`_summary_provider`). For a Claude
 Sonnet agent doing daily compactions, switching to DeepSeek for
 summaries can cut the compaction cost by an order of magnitude
 without affecting the agent's runtime behaviour.
 
 ## Emergency compaction (overflow recovery)
 
-`compaction.py` `emergency_compact`. When the LLM responds with a
+`emergency_compact`. When the LLM responds with a
 context-overflow error, the runtime:
 
 1. Detects the error via `is_context_overflow(exc)`
-   (`compaction.py`) - matches `maximum context length`,
+   - matches `maximum context length`,
    `context_length_exceeded`, `context window`, `reduce the length
    of the messages`, `too many tokens`, `token limit`.
 2. Halves `keep_recent` (minimum 4) and runs an aggressive truncate
@@ -184,13 +184,13 @@ blowing past 25% of the budget at once).
 
 For oversized **single messages** (a 200 KB tool result that
 wouldn't fit anywhere), `truncate_oversized_messages`
-(`compaction.py`) and `snip_oversized_messages`
-(`compaction.py`) clip the offending content with a marker
+() and `snip_oversized_messages`
+() clip the offending content with a marker
 indicating the truncation.
 
 ## Persistence and resume
 
-`compaction_persistence.py`. Every compaction emits a durable event
+ Every compaction emits a durable event
 with:
 
 - `_snapshot_tools` (`line 43`) - current tool inventory + injection
@@ -245,7 +245,7 @@ agents:
 ```
 
 The agent-level `brain.context` is resolved by
-`_resolve_context_config` (`bootstrap.py`) - it fully
+`_resolve_context_config` - it fully
 overrides `runtime.context` for that agent. Unspecified fields fall
 back to the app-level defaults.
 

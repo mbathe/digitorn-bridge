@@ -18,12 +18,12 @@ cited with file + line.
 
 ## Session modes
 
-`runtime.session_mode` (`schema.py`).
+`runtime.session_mode`.
 
 | Mode | Behaviour |
 |------|-----------|
-| `mono` (default) | Each user has **exactly one** background session per app. Auto-created on first interaction (`background.py` → `store.get_or_create_mono`). |
-| `multi` | Each user can create up to `max_sessions_per_user` (`schema.py`, default 10, 0 = unlimited) sessions, each with distinct params, routing keys, workspace. Created via `POST /background-sessions`. |
+| `mono` (default) | Each user has **exactly one** background session per app. Auto-created on first interaction (→ `store.get_or_create_mono`). |
+| `multi` | Each user can create up to `max_sessions_per_user` (, default 10, 0 = unlimited) sessions, each with distinct params, routing keys, workspace. Created via `POST /background-sessions`. |
 
 ```yaml
 runtime:
@@ -33,15 +33,15 @@ runtime:
   max_concurrent_activations: 20   # cap on parallel LLM calls per broadcast
 ```
 
-`max_concurrent_activations` (`schema.py`) gates the asyncio
-semaphore at `background.py` - the daemon won't fire more than
+`max_concurrent_activations` gates the asyncio
+semaphore - the daemon won't fire more than
 N activations at once even when a broadcast trigger resolves to
 thousands of sessions, preventing rate-limit storms.
 
 ## Trigger routing
 
 Each trigger declares **how** it dispatches to sessions
-(`schema.py`). Three modes:
+(). Three modes:
 
 | `routing` | Target | `routing_key` template purpose |
 |-----------|--------|--------------------------------|
@@ -75,7 +75,7 @@ runtime:
 ```
 
 Routing resolution lives in `BackgroundSessionStore.resolve_routing`
-(`background_session_store.py`):
+():
 
 - `broadcast` → SELECT every `status='active'` session for the app.
 - `user` → first try `user_id == routing_key_value`; if no rows,
@@ -87,7 +87,7 @@ Routing resolution lives in `BackgroundSessionStore.resolve_routing`
 
 ### Available `{{event.*}}` placeholders
 
-The HTTP loop at `background.py` resolves these
+The HTTP loop resolves these
 placeholders inside both `message` and `routing_key`:
 
 | Placeholder |
@@ -100,13 +100,13 @@ placeholders inside both `message` and `routing_key`:
 | `{{event.path}}` (watch) |
 
 For watch triggers, only `{{event.path}}` is meaningful
-(`background.py`).
+().
 
 ### Trigger types
 
-`TriggerConfig.type` (`schema.py`) accepts `cron`, `watch`,
+`TriggerConfig.type` accepts `cron`, `watch`,
 `http`. The legacy background runtime starts one of three
-asyncio loops per trigger (`background.py`):
+asyncio loops per trigger:
 
 | Type | Loop | Notes |
 |------|------|-------|
@@ -115,14 +115,14 @@ asyncio loops per trigger (`background.py`):
 | `http` | `_http_loop:1356` | Prefers `aiohttp`; falls back to a raw asyncio TCP server (`_http_basic_loop:1461`) when aiohttp isn't installed. The basic mode can't extract headers, so `routing_key` resolves to `""` there. |
 
 > **Channels module overrides this.** When `tools.modules.channels`
-> is loaded, `run_background` (`background.py`) hands
+> is loaded, `run_background` hands
 > dispatch over to that module entirely. The legacy loops are only
 > used in apps that don't load `channels`. Most production webhook
 > setups (HMAC auth, retries, dead-letter) use channels.
 
 ## Per-trigger circuit breaker
 
-`background.py` `_TriggerCircuitBreaker`. Pauses a trigger
+`_TriggerCircuitBreaker`. Pauses a trigger
 after consecutive failures with exponential backoff (5 min → 10 →
 20 → 40 → 60 min cap). Trip thresholds depend on error category:
 
@@ -142,7 +142,7 @@ Background apps almost always need **per-session user input** -
 the CV that the job-matcher should re-read every hour, the
 filtering preferences for the news-summariser, the project URL
 the deploy-watcher should poll. That data lives in the session
-**payload** (`background_session_store.py`).
+**payload**.
 
 ### Storage layout
 
@@ -150,12 +150,12 @@ the deploy-watcher should poll. That data lives in the session
 |------|---------|-----------|
 | `prompt` (text) | DB column `BackgroundSession.params._payload.prompt` | Daemon at every tick. |
 | `metadata` (dict) | DB column `BackgroundSession.params._payload.metadata` | Daemon at every tick. |
-| File **bytes** | Disk: `~/.digitorn/apps/<app_id>/sessions/<sid>/payload/<safe_name>` (`background_session_store.py`). | Daemon at every tick (file size cap **10 MiB**, `background.py`). |
+| File **bytes** | Disk: `~/.digitorn/apps/<app_id>/sessions/<sid>/payload/<safe_name>`. | Daemon at every tick (file size cap **10 MiB**,). |
 | File **metadata** (`{name, path, mime_type, size_bytes}`) | DB inside `_payload.files[]` | Indexed without I/O. |
 
 The agent **never** runs `filesystem.read` on payload files. The
 daemon reads them at activation time (`_build_payload_message_content`,
-`background.py`), classifies them by MIME, and injects them
+), classifies them by MIME, and injects them
 straight into the user message:
 
 | MIME | Injected as |
@@ -183,7 +183,7 @@ documented publicly.
 
 ## Declarative payload schema
 
-`runtime.payload_schema` (`schema.py`, type
+`runtime.payload_schema` (, type
 `PayloadSchemaConfig` at `extra: forbid`). Lets an app
 declare the shape of its payload so the dashboard can render a
 typed form, and so the daemon can refuse to fire activations on a
@@ -234,7 +234,7 @@ runtime:
 
 ### Field types for `metadata`
 
-`PayloadFieldConfig.type` (`schema.py`) accepts six values:
+`PayloadFieldConfig.type` accepts six values:
 
 | `type` | Form widget | Notes |
 |--------|-------------|-------|
@@ -246,11 +246,11 @@ runtime:
 | `select` | Dropdown. | Requires non-empty `options`. |
 
 Other recognised keys: `label`, `required`, `default`,
-`description`, `placeholder` (`schema.py`).
+`description`, `placeholder`.
 
 ### File rules
 
-`PayloadFileRuleConfig` (`schema.py`):
+`PayloadFileRuleConfig`:
 
 | Field | Default | Description |
 |-------|---------|-------------|
@@ -269,7 +269,7 @@ Other recognised keys: `label`, `required`, `default`,
   apps.
 - `payload_schema.required: true` → before each activation the
   daemon calls `_validate_payload_against_schema` and **skips**
-  the session if any errors come back (`background.py`).
+  the session if any errors come back.
   The skip is logged as a warning; other sessions in the same
   broadcast are unaffected.
 
@@ -346,14 +346,14 @@ exposes an activations surface for:
 ### Activation event timeline
 
 For every activation, an `_ActivationEventRecorder`
-(`background.py`) wraps the agent's callbacks and writes
+() wraps the agent's callbacks and writes
 each tool call, thinking block, channel send, and artifact into
 the `activation_events` table with a monotonically increasing
 sequence number. The dashboard drawer renders this as a
 step-by-step trace.
 
 Tool calls that produce files (`_FILE_WRITE_ACTIONS` at
-`background.py`: `filesystem.write/edit/create`,
+: `filesystem.write/edit/create`,
 `notebook.*`, `spreadsheet.*`, `pdf.*`, `presentation.create`)
 are also written as a separate `artifact` event, so the UI's
 *Artifacts* tab doesn't have to re-parse tool params.
@@ -362,7 +362,7 @@ are also written as a separate `artifact` event, so the UI's
 
 When an activation fails (agent_turn raised, or the result has a
 non-empty `error` other than `"aborted"`), the daemon
-(`background.py`):
+():
 
 1. Classifies the error via `_classify_error` (same path as
    foreground turns).

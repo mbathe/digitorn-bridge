@@ -434,7 +434,8 @@ showing a wizard once is a smaller UX issue than skipping it forever.
 
 ```ts
 useSessionLifecycle({
-  onFirstVisit: async () => {
+  onFirstVisit: async.
+ => {
     // Fired ONCE the first time the iframe loads with no prior state.
     await fs.writeFile("__sdk__/welcome-shown", "1", { autoApprove: true });
   },
@@ -1093,7 +1094,8 @@ function Welcome() {
   const fs = useWorkspaceFiles();
 
   useSessionLifecycle({
-    onFirstVisit: async () => {
+    onFirstVisit: async.
+ => {
       await fs.writeFile(
         "__sdk__/welcome.json",
         JSON.stringify({ shown_at: Date.now() }),

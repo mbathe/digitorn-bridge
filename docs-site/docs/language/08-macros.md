@@ -1,19 +1,21 @@
 ---
 id: macros
+title: Macros
+sidebar_label: Macros (redirect)
 ---
 
-# Macros - not a Digitorn feature
-
 > **There is no `macros:` block in the canonical schema.**
-> `AppDefinition` has exactly **8 top-level blocks**
-> (`schema.py`, `extra: forbid`):
-> `app, runtime, agents, tools, security, ui, dev, flow`. Anything
-> else is rejected by Pydantic at compile time.
+> `AppDefinition` (`extra: forbid`) declares exactly 8 top-level
+> blocks:
+> `app, runtime, agents, tools, security, ui, dev, flow`. Any
+> other top-level key is rejected by Pydantic at compile time.
+> This page is a redirect: it points at the existing blocks that
+> cover the use cases the term "macros" suggests.
 
 Earlier drafts of this page described a `macros:` block with
 parameters, action steps, branching, and nested macros. That feature
-was never implemented and is not part of the v2 schema. This page
-exists as a redirect for readers who land here looking for it.
+was never implemented and is not part of the `schema_version: 2`
+language.
 
 ## What you probably want
 

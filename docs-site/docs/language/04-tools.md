@@ -13,14 +13,14 @@ rest on demand.
 
 ## Adaptive tool injection
 
-The injection mode is decided by `_choose_tool_injection` in `bootstrap.py`.
+The injection mode is decided by `_choose_tool_injection`.
 The mode is picked **per agent at bootstrap** based on the brain's
 context window vs the actual JSON size of every tool schema.
 
 ### The algorithm
 
 ```python
-# bootstrap.py
+# tool-injection budget decision (run at app bootstrap)
 budget         = context_window * 0.20            # _MAX_CONTEXT_RATIO
 tool_tokens    = sum(len(json.dumps(t)) // 4 for t in tools)
                  # fallback: total_tools * 200 when direct_tools is empty
@@ -38,7 +38,7 @@ else:
 The result is stored on `AgentContext.tool_injection` and reused for
 every turn. To force a specific mode, set
 `runtime.tool_injection: direct | compact_direct | discovery` in the
-YAML (`schema.py`); the algorithm is skipped and the forced
+YAML; the algorithm is skipped and the forced
 mode is used.
 
 ### Direct mode
@@ -66,7 +66,7 @@ strategic tools directly and discovers domain tools via semantic
 search.
 
 **Always direct (meta-tools, generated from
-`actions_meta.py` `@action` registry, 9 entries)**:
+`@action` registry, 9 entries)**:
 
 | Action |
 |--------|
@@ -95,7 +95,7 @@ the YAML config):
 | Agent spawn (`Agent` tool) | `agent_spawn` | Agent's role is `coordinator` or `agent_spawn` is granted |
 | Skills (`use_skill` already in meta - plus per-skill ergonomic shortcuts) | bundle `skills/` | Skills are declared under `dev.skills` |
 | Watcher actions: `watch_start`, `watch_stop`, `watch_pause`, `watch_resume`, `watch_status`, `watch_list`, `watch_history` (7) | `context_builder.actions_watchers` | `runtime.watchers: true` |
-| Scheduler actions: `schedule`, `cancel_schedule`, `remind` (3) | `cron_native` (`cron_native/module.py`) | `runtime.scheduler: true` |
+| Scheduler actions: `schedule`, `cancel_schedule`, `remind` (3) | `cron_native` | `runtime.scheduler: true` |
 | Channel notification helpers | `channels` | At least one channel declared in `tools.channels` |
 | Workspace actions: `WsWrite`, `WsRead`, `WsEdit`, `WsGlob`, `WsGrep`, `WsDelete` (6) | `workspace` | Module is loaded under `tools.modules.workspace` |
 | Direct modules | every action of every module listed | `runtime.direct_modules: [name, ...]` |
@@ -156,7 +156,7 @@ full schema, a compact listing, or only the meta-tools.
 ## Module declaration
 
 Tools come from modules declared under `tools.modules`. Every entry
-is a `ModuleBlock` (`schema.py`).
+is a `ModuleBlock`.
 
 ```yaml
 tools:
@@ -193,7 +193,7 @@ To inspect any module's actions and parameter schemas from the CLI:
 digitorn app schema <module_id>
 ```
 
-(`cli/app.py` `schema` command.)
+(`schema` command.)
 
 ## Tool constraints
 
@@ -224,7 +224,7 @@ Module-specific constraints (anything beyond `allowed_actions` /
 
 `AgentBrain.backend` is
 `Literal["openai_compat", "anthropic", "github_copilot"]`
-(in `schema.py`). The runtime auto-detects whether a provider
+(in). The runtime auto-detects whether a provider
 supports native tool calling, with a per-agent override via
 `brain.native_tool_use`.
 
@@ -306,14 +306,14 @@ module action.
 
 | Category | Action(s) | Source | Gated by |
 |----------|-----------|--------|----------|
-| Parallel | `run_parallel` | `actions_meta.py` | always |
-| Background | `background_run` (one action, five modes - see [Discovery mode](#discovery-mode)) | `actions_background.py` | always |
-| Skills | `use_skill` | `actions_meta.py` | always |
-| App-as-tool | `call_app` | `actions_meta.py` | always |
-| Human-in-the-loop | `ask_user` | `actions_meta.py` | always |
-| Watchers | `watch_start`, `watch_stop`, `watch_pause`, `watch_resume`, `watch_status`, `watch_list`, `watch_history` | `actions_watchers.py` | `runtime.watchers: true` |
-| Scheduler | `schedule`, `cancel_schedule`, `remind` | `cron_native/module.py` | `runtime.scheduler: true` |
-| Long-term memory | `remember` | `memory/module.py` | `memory` module loaded |
+| Parallel | `run_parallel` | | always |
+| Background | `background_run` (one action, five modes - see [Discovery mode](#discovery-mode)) | | always |
+| Skills | `use_skill` | | always |
+| App-as-tool | `call_app` | | always |
+| Human-in-the-loop | `ask_user` | | always |
+| Watchers | `watch_start`, `watch_stop`, `watch_pause`, `watch_resume`, `watch_status`, `watch_list`, `watch_history` | | `runtime.watchers: true` |
+| Scheduler | `schedule`, `cancel_schedule`, `remind` | | `runtime.scheduler: true` |
+| Long-term memory | `remember` | | `memory` module loaded |
 
 See [Execution Primitives](04c-primitives.md) for full parameters
 and examples.

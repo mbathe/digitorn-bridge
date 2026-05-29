@@ -28,7 +28,7 @@ agents:
 
 ## `AgentDefinition` fields
 
-`schema.py`. Only `id` and `brain` are required; everything else
+ Only `id` and `brain` are required; everything else
 has a default.
 
 | Field | Type | Default |
@@ -50,7 +50,7 @@ has a default.
 
 ## Brain configuration
 
-`schema.py` `AgentBrain` (`extra: forbid`). Two declaration modes.
+`AgentBrain` (`extra: forbid`). Two declaration modes.
 
 ### Inline mode (recommended)
 
@@ -246,7 +246,7 @@ brain:
 
 ### Fallback brain
 
-`schema.py`. When the primary returns a billing/credit error
+ When the primary returns a billing/credit error
 (HTTP 402, "Insufficient Balance"), the daemon transparently switches
 to the fallback for that turn and reverts to the primary on the
 next turn.
@@ -294,7 +294,7 @@ flows, and audit log.
 
 ## Per-agent module access
 
-`schema.py`. The `modules` field restricts which modules a
+ The `modules` field restricts which modules a
 specialist can call. Empty (default) = the agent inherits the
 coordinator's module set.
 
@@ -316,7 +316,7 @@ agents:
 ```
 
 Validation is enforced server-side (`_validate_modules_shape`
-in `schema.py`):
+in):
 
 - Every list entry is either a string (full module access) or a
   single-key dict mapping a module id to a list of action names.
@@ -331,7 +331,7 @@ isn't allowed to call.
 
 ## Coordinator pool
 
-`typed_models.py` `AgentPoolConfig`. Controls fan-out for an
+`AgentPoolConfig`. Controls fan-out for an
 agent that can spawn specialists via the `agent_spawn` module.
 
 ```yaml
@@ -358,7 +358,7 @@ break readers that look at the other.
 
 ### `coordination`
 
-`typed_models.py` `CoordinationBlock`.
+`CoordinationBlock`.
 
 ```yaml
 agents:
@@ -377,7 +377,7 @@ from it for backwards compatibility.
 
 ### `instructions`
 
-`typed_models.py` `InstructionsBlock`.
+`InstructionsBlock`.
 
 ```yaml
 agents:
@@ -393,7 +393,7 @@ Equivalent to the historical scattered `skills` (file path),
 
 ## System prompt
 
-`schema.py`. The `system_prompt` is injected at conversation
+ The `system_prompt` is injected at conversation
 start. It supports every template namespace from
 [App Configuration → Variables](02-app-config.md#variables).
 
@@ -426,7 +426,7 @@ where explanation is unnecessary.
 
 ## Per-brain context configuration
 
-`schema.py` `ContextConfig`. Each brain can override
+`ContextConfig`. Each brain can override
 `runtime.context`. Eight fields, full reference in
 [App Configuration → runtime.context](02-app-config.md#runtimecontext---context-window-management).
 
@@ -455,7 +455,7 @@ algorithm.
 
 ## Per-agent hooks
 
-`schema.py`. Hooks declared under an agent fire **only when that
+ Hooks declared under an agent fire **only when that
 agent is active**. They merge with the app-wide `runtime.hooks` (which
 fire for every agent).
 

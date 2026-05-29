@@ -3,13 +3,17 @@ id: grammar
 title: YAML grammar
 ---
 
-# YAML grammar (v1)
+The formal grammar of the `schema_version: 2` Digitorn YAML
+language. This page is the **structural** companion to
+[App Configuration](02-app-config.md); it lists every block, every
+accepted shape, and every type, in canonical form. For per-field
+semantics and worked examples, follow the per-block links.
 
-The formal grammar of the v1 Digitorn YAML language. This page is
-the **structural** companion to [App Configuration](02-app-config.md);
-it lists every block, every accepted shape, and every type, in
-canonical form. For per-field semantics and worked examples, follow
-the per-block links.
+> **Notation.** The blocks below use a record-style sugar built on
+> top of EBNF: `{ ... }` enumerates the *fields* of an object (not
+> "repetition" as in strict EBNF), and `[ ... ]` marks a field as
+> optional. Lists use `[Item, ...]`. This is intentional — the
+> grammar describes YAML records, not a token stream.
 
 ## Top level
 
@@ -40,7 +44,6 @@ AppMeta  ::= {
                app_id: string,                        # required
                name: string,                          # required
                version: string,                       # default "1.0"
-               schema_version: string,                # default "1"
                description: string,                   # default ""
                author: string,                        # default ""
                tags: [string, ...],                   # default []
@@ -233,9 +236,8 @@ route expression syntax.
 
 ## Templates
 
-The compiler resolves `{{...}}` templates recursively across every
-string in the YAML. Six namespaces, plus a fallback operator. See
-[App Configuration -> Variables](02-app-config.md#variables).
+The compiler resolves `{{...}}` expressions recursively across
+every string in the YAML. See [App Configuration -> Variables](02-app-config.md#variables).
 
 ```ebnf
 Template     ::= "{{" Expr "}}"
@@ -252,7 +254,20 @@ BundleNs     ::= ( "prompt." | "skill." | "behavior." | "asset." ) identifier
 RuntimeVar   ::= identifier "." identifier { "." identifier }
 ```
 
-Six namespaces are resolved at compile time
-(`UserVar`, `EnvVar`, `SecretVar`, `SysVar`, `AppVar`, `BundleNs`).
-`RuntimeVar` is left verbatim and resolved by the consuming module
-at run time (typically the channels module's `prepare` pipeline).
+**Counted as a family**, the compile-time resolvers are six:
+`UserVar`, `EnvVar`, `SecretVar`, `SysVar`, `AppVar`, and the
+`BundleNs` family. The `BundleNs` family itself fans out into four
+filesystem-backed prefixes (`prompt.`, `skill.`, `behavior.`,
+`asset.`), so the raw prefix count is nine. `RuntimeVar` is the
+seventh production and is **not** compile-time resolved: it is
+left verbatim and consumed at runtime (typically by the channels
+module's `prepare` pipeline).
+
+### `{{include:path}}` is a separate preprocessor
+
+`{{include:./shared/header.md}}` is **not** part of the template
+DSL above. It is handled by a dedicated include pass that runs
+before template resolution and inlines the referenced file's text.
+See [Bundle namespaces](38-bundle-namespaces.md) for the full
+include semantics (search order, depth limit, circular-import
+detection).

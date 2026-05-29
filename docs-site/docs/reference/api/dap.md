@@ -165,7 +165,7 @@ after the daemon has already validated security, permissions, and approval.
   "module": "filesystem",
   "action": "read",
   "params": {
-    "path": "src/app.py",
+    "path": "src/app.ts",
     "start_line": 1,
     "end_line": 50
   },
@@ -193,7 +193,7 @@ The runtime returns the result of an action execution.
   "success": true,
   "data": {
     "content": "import os\nimport sys\n...",
-    "path": "/data/user/0/com.digitorn/files/project/src/app.py",
+    "path": "/data/user/0/com.digitorn/files/project/src/app.ts",
     "lines": 50,
     "encoding": "utf-8"
   },
@@ -214,7 +214,7 @@ When execution fails irrecoverably.
   "ts": 1775400001.5,
   "request_id": "req_xyz789",
   "error_code": "FILE_NOT_FOUND",
-  "error": "File not found: src/missing.py",
+  "error": "File not found: src/missing.ts",
   "recoverable": true,
   "signature": "..."
 }

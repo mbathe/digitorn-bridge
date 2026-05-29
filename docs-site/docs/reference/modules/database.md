@@ -26,7 +26,7 @@ Short LLM names: `DbConnect`, `DbDisconnect`, `DbList`,
 
 ## The 16 actions
 
-`module.py`. Grouped by responsibility.
+ Grouped by responsibility.
 
 ### Connection management (3)
 

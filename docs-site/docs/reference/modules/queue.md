@@ -30,7 +30,7 @@ Dead-letter queue naming: `dlq:{app_id}:{queue_name}`.
 
 ## The 13 actions
 
-`module.py`.
+
 
 | Tool | Source | Purpose |
 |------|--------|---------|
@@ -84,7 +84,7 @@ tools:
 
 ## Constraints
 
-`module.py`:
+:
 
 | Constraint | Type | Default | Description |
 |------------|------|---------|-------------|

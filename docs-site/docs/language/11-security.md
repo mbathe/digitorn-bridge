@@ -4,24 +4,22 @@ title: Security Architecture
 sidebar_position: 11
 ---
 
-# Security
-
 Digitorn's security model has three independent surfaces, each
 configured by its own block in the YAML and enforced at a different
 layer:
 
 | Block | Source | Layer | What it controls |
 |-------|--------|-------|------------------|
-| `tools.capabilities` | `schema.py` `CapabilitiesConfig` | Application - runs in-process before every tool call | Which actions the agent can call, with grant / approve / deny / risk gates. |
-| `security.behavior` | `schema.py` `BehaviorConfig` | Behavioural - declarative rules + classifier injected into the agent loop | Pattern-based behaviour rules (read before edit, test after change, ...). |
-| `security.sandbox` | `schema.py` `SandboxConfig` | OS kernel - Landlock / seccomp / namespaces / Job Objects | Process-level isolation (filesystem, network, process spawning). |
+| `tools.capabilities` | `CapabilitiesConfig` | Application - runs in-process before every tool call | Which actions the agent can call, with grant / approve / deny / risk gates. |
+| `security.behavior` | `BehaviorConfig` | Behavioural - declarative rules + classifier injected into the agent loop | Pattern-based behaviour rules (read before edit, test after change, ...). |
+| `security.sandbox` | `SandboxConfig` | OS kernel - Landlock / seccomp / namespaces / Job Objects | Process-level isolation (filesystem, network, process spawning). |
 
-Every behaviour and field on this page maps to real code; entries
-are cited with file + line.
+Every behaviour and field on this page maps to real code in the
+daemon.
 
 ## `tools.capabilities` - application security
 
-`schema.py` `CapabilitiesConfig` (`extra: forbid`). Optional -
+`CapabilitiesConfig` (`extra: forbid`). Optional -
 absence means dev/test mode (no enforcement). Production apps should
 declare it explicitly.
 
@@ -50,7 +48,7 @@ compile error.
 
 ### Fields
 
-`schema.py`.
+
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -63,13 +61,13 @@ compile error.
 | `hidden_modules` | list[string] | `[]` | Modules hidden from the agent index but still callable from setup steps / hooks / channels. |
 | `hidden_actions` | list[CapabilityGrant] | `[]` | Specific actions hidden but executable internally. |
 
-`CapabilityGrant` (`schema.py`) is `{module: str, actions:
+`CapabilityGrant` is `{module: str, actions:
 list[str], reason: str}`. Empty `actions` means "all actions on the
 module". `reason` is human-readable, surfaced on `deny` events.
 
 ### How a tool call is gated - the seven gates
 
-`security.py` `security_gate`. Every tool call passes
+`security_gate`. Every tool call passes
 through the same in-order gate sequence; the first violation raises
 `PermissionDeniedError` (or `ApprovalRequiredError` at gate 4) and
 the audit log records the decision with the gate name.
@@ -87,17 +85,17 @@ the audit log records the decision with the gate name.
 
 System modules (`context_builder`, `llm_provider`, `index`) bypass
 the gates entirely - they're internal infrastructure, not
-user-facing tools (`security.py`).
+user-facing tools.
 
 The infrastructure meta-actions (`execute_tool`, `search_tools`,
 `get_tool`, `list_categories`, `browse_category`, `run_parallel`)
-are also bypassed at the dispatcher level (`security.py`); the
+are also bypassed at the dispatcher level; the
 gates apply to the **target** tool reached via `execute_tool`, not
 to the dispatcher itself.
 
 ### Resolving a policy
 
-`security.py::resolve_action_policy` (called at gate 4).
+`resolve_action_policy` (called at gate 4).
 Resolution order:
 
 1. **Explicit deny** in `tools.capabilities.deny` matching this
@@ -122,7 +120,7 @@ threaded back into the agent's context. If no answer comes within
 ### Risk levels
 
 Every `@action` declares a `risk_level` (`low`, `medium`, `high`)
-in its decorator. `max_risk_level` (`schema.py`) caps what an
+in its decorator. `max_risk_level` caps what an
 agent can call without an explicit grant - useful when you want to
 allow most things but block destructive operations everywhere
 without listing them one by one.
@@ -152,7 +150,7 @@ internal or not.
 
 ## `security.behavior` - runtime behavioural rules
 
-`schema.py` `BehaviorConfig` (`extra: forbid`). The behaviour
+`BehaviorConfig` (`extra: forbid`). The behaviour
 engine watches every tool call and injects corrections into the
 loop. Optional - absence means no behavioural enforcement.
 
@@ -189,7 +187,7 @@ security:
 
 ### Fields
 
-`schema.py`.
+
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -232,7 +230,7 @@ Every rule declares `action: block | warn | remind`:
 
 ### Custom rules
 
-`BehaviorCustomRule` (`schema.py`):
+`BehaviorCustomRule`:
 
 ```yaml
 security:
@@ -275,7 +273,7 @@ cheap/fast model (`claude-haiku-4-5`, `deepseek-chat`,
 
 ## `security.sandbox` - OS-level isolation
 
-`schema.py` `SandboxConfig` (`extra: forbid`). Optional. When
+`SandboxConfig` (`extra: forbid`). Optional. When
 set, the daemon spawns each session in an isolated worker with
 kernel-level enforcement (Linux: Landlock + seccomp + cgroups +
 namespaces; macOS: Seatbelt; Windows: Job Objects).
@@ -303,8 +301,7 @@ security:
 
 ### Levels
 
-`schema.py`. Four presets, each adding capabilities to the
-previous one:
+Four presets, each adding capabilities to the previous one:
 
 | Level | What it gives you |
 |-------|-------------------|
@@ -319,7 +316,7 @@ control.
 
 ### Fields
 
-`schema.py`.
+
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
